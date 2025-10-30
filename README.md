@@ -1,50 +1,109 @@
-# Welcome to your Expo app 👋
+# Good Times
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A private, nostalgic journaling app for families and friends living apart.
 
-## Get started
+## Tech Stack
 
-1. Install dependencies
+- **React Native (Expo)** - Mobile framework
+- **TypeScript** - Type safety
+- **Expo Router** - File-based navigation
+- **Supabase** - Backend (auth, database, storage)
+- **React Query** - Data fetching and caching
+- **Expo AV** - Audio recording for voice notes
 
-   ```bash
-   npm install
-   ```
+## Getting Started
 
-2. Start the app
+### Prerequisites
 
-   ```bash
-   npx expo start
-   ```
+- Node.js 18+
+- Expo CLI
+- iOS Simulator (Mac) or physical iOS device
 
-In the output, you'll find options to open the app in a
+### Installation
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+\`\`\`bash
+npm install
+\`\`\`
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+### Environment Variables
 
-## Get a fresh project
+Create a `.env` file in the root directory:
 
-When you're ready, run:
+\`\`\`
+EXPO_PUBLIC_SUPABASE_URL=your_supabase_url
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+\`\`\`
 
-```bash
-npm run reset-project
-```
+### Running Locally
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+\`\`\`bash
+npx expo start
+\`\`\`
 
-## Learn more
+Press `i` to open in iOS Simulator.
 
-To learn more about developing your project with Expo, look at the following resources:
+## Supabase Setup
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+1. Create a new Supabase project
+2. Run the migrations in `supabase/migrations/`
+3. Import `prompts_seed_us.csv` into the `prompts` table
+4. Enable Auth providers (Email, Google, Apple)
+5. Create storage bucket `entries-media` with private access
+6. Set up RLS policies for all tables
 
-## Join the community
+## Project Structure
 
-Join our community of developers creating universal apps.
+\`\`\`
+app/
+  _layout.tsx              # Root layout with fonts and providers
+  index.tsx                # Auth check and routing
+  (auth)/                  # Authentication screens
+  (onboarding)/            # Onboarding flow
+  (main)/                  # Main app tabs
+    home.tsx               # Daily prompts feed
+    ideas.tsx              # Prompt library
+    history.tsx            # Timeline view
+    modals/                # Modal screens
+components/                # Reusable components
+lib/                       # Utilities and config
+  supabase.ts              # Supabase client
+  theme.ts                 # Design tokens
+  types.ts                 # TypeScript types
+assets/
+  images/                  # Design assets
+  fonts/                   # Libre Baskerville + Roboto
+\`\`\`
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Design System
+
+- **Fonts**: Libre Baskerville (headings), Roboto (body)
+- **Colors**: Black background (#000000), White text, Accent (#de2f08)
+- **Film Frame**: Inner color #0D0F1B for prompt/entry cards
+
+## Features
+
+- Daily group prompts with text, photo, video, and audio responses
+- Private groups for family or friends
+- Memorial feature to remember loved ones
+- Browsable prompt library with categories
+- Timeline history view (days, weeks, months, years)
+- Push notifications for new prompts and entries
+- Birthday prompts automatically injected
+
+## iOS Permissions
+
+The app requires:
+- Camera access (for photos/videos)
+- Photo library access (for selecting media)
+- Microphone access (for voice notes)
+
+## Building for Production
+
+\`\`\`bash
+eas build --platform ios
+\`\`\`
+
+## OTA Updates
+
+\`\`\`bash
+eas update --branch production

@@ -1,0 +1,31 @@
+question,description,category,is_default
+"What made you smile today?","Share a moment that brought you joy, no matter how small.","Fun",true
+"What's something you're grateful for right now?","Take a moment to appreciate something in your life.","Family",true
+"Share a photo from your day","Show us what you've been up to.","Fun",true
+"What's a memory that always makes you laugh?","Tell us about a time that still cracks you up.","Fun",true
+"What's the best advice you've ever received?","Share wisdom that's stuck with you.","Family",true
+"What are you looking forward to?","Tell us about something exciting on the horizon.","Fun",true
+"Share a favorite family tradition","What's a tradition that means a lot to you?","Family",true
+"What's something new you learned recently?","Share a discovery or insight.","Fun",true
+"What's your comfort food?","Tell us about a meal that feels like home.","Fun",true
+"Share a photo of your view right now","Show us where you are in this moment.","Fun",true
+"What's a challenge you overcame recently?","Tell us about something difficult you got through.","Family",true
+"What's your favorite way to spend a Sunday?","Describe your ideal lazy day.","Fun",true
+"Share a memory with [memorial_name]","Tell us about a special moment you shared.","Remembering",false
+"What would [memorial_name] say about your life right now?","Reflect on their perspective.","Remembering",false
+"What's a song that reminds you of [memorial_name]?","Share the music that brings them back.","Remembering",false
+"Happy birthday! What's your wish for this year?","Share your hopes for the year ahead.","Birthday",false
+"What's your favorite birthday memory?","Tell us about a birthday that stands out.","Birthday",false
+"What's something you're proud of from this past year?","Celebrate an accomplishment.","Birthday",false
+"What's your favorite season and why?","Tell us about the time of year you love most.","Seasonal",false
+"What are you doing to stay cozy this winter?","Share your winter comfort rituals.","Seasonal",false
+"What's your favorite summer memory?","Tell us about a perfect summer day.","Seasonal",false
+"What's something that scared you as a kid?","Share a childhood fear.","Friends",true
+"What's the worst haircut you've ever had?","Tell us about a hair disaster.","Friends",true
+"What's your most embarrassing moment?","Share a story that makes you cringe.","Friends",true
+"What's a secret talent you have?","Tell us something surprising about yourself.","Friends",true
+"If you could have dinner with anyone, who would it be?","Living or dead, who would you choose?","Friends",true
+"What's your go-to karaoke song?","What do you belt out when given the chance?","Friends",true
+"What's the last thing that made you cry?","Happy or sad, tell us what moved you.","Family",true
+"What's a goal you're working toward?","Share something you're striving for.","Family",true
+"What does home mean to you?","Describe what makes a place feel like home.","Family",true
