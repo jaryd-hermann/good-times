@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"]
+    },
+    "jsx": "react-native",
+    "strict": true,
+    "target": "ES2020",
+    "moduleResolution": "node"
+  }
+}
