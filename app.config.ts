@@ -1,4 +1,4 @@
-import type { ExpoConfig, ConfigContext } from "expo/config"
+import type { ExpoConfig, ConfigContext } from "expo/config";
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
@@ -20,8 +20,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     bundleIdentifier: "com.goodtimes.app",
     infoPlist: {
       NSCameraUsageDescription: "Good Times needs access to your camera to capture photos and videos for your entries.",
-      NSPhotoLibraryUsageDescription:
-        "Good Times needs access to your photo library to select photos for your entries.",
+      NSPhotoLibraryUsageDescription: "Good Times needs access to your photo library to select photos for your entries.",
       NSMicrophoneUsageDescription: "Good Times needs access to your microphone to record voice notes.",
     },
   },
@@ -49,11 +48,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ],
   ],
   extra: {
-    router: {
-      origin: false,
-    },
-    eas: {
-      projectId: "your-project-id",
-    },
+    router: { origin: false },
+    eas: { projectId: "ccd4fdb7-0126-46d1-a518-5839fae48a76" }, // your real EAS project id
+    // expose public env for client usage
+    EXPO_PUBLIC_SUPABASE_URL: process.env.EXPO_PUBLIC_SUPABASE_URL,
+    EXPO_PUBLIC_SUPABASE_ANON_KEY: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
   },
-})
+});
