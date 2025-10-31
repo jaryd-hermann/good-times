@@ -1,3 +1,8 @@
+-- Enable UUID extension (for auto-generated IDs)
+create extension if not exists "uuid-ossp";
+
+
+
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
