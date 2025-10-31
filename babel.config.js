@@ -3,12 +3,8 @@ module.exports = function (api) {
   return {
     presets: ['babel-preset-expo'],
     plugins: [
-      ['module-resolver', {
-        root: ['./'],
-        alias: { '@': './' },   // so "@/lib/supabase" -> "./lib/supabase"
-        extensions: ['.tsx', '.ts', '.js', '.json']
-      }],
-      'react-native-reanimated/plugin', // MUST be last
+      require.resolve('expo-router/babel'),
+      'react-native-reanimated/plugin',
     ],
   };
 };
