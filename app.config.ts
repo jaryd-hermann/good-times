@@ -14,7 +14,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     resizeMode: "contain",
     backgroundColor: "#000000",
   },
-  assetBundlePatterns: ["**/*"],
+  assetBundlePatterns: ["assets/*"],
   ios: {
     supportsTablet: false,
     bundleIdentifier: "com.goodtimes.app",
