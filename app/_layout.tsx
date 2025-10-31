@@ -1,6 +1,5 @@
-"use client"
-
-import 'react-native-reanimated'; 
+// app/_layout.tsx
+import 'react-native-reanimated'
 import { useEffect } from "react"
 import { Stack } from "expo-router"
 import { useFonts } from "expo-font"
@@ -23,25 +22,16 @@ export default function RootLayout() {
   })
 
   useEffect(() => {
-    if (fontsLoaded) {
-      SplashScreen.hideAsync()
-    }
+    if (fontsLoaded) SplashScreen.hideAsync()
   }, [fontsLoaded])
 
-  if (!fontsLoaded) {
-    return null
-  }
+  if (!fontsLoaded) return null
 
   return (
     <AuthProvider>
       <QueryClientProvider client={queryClient}>
         <StatusBar style="light" />
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="index" />
-          <Stack.Screen name="(auth)" />
-          <Stack.Screen name="(onboarding)" />
-          <Stack.Screen name="(main)" />
-        </Stack>
+        <Stack screenOptions={{ headerShown: false }} />
       </QueryClientProvider>
     </AuthProvider>
   )
