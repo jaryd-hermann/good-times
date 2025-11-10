@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from "react-native"
+import { useMemo, useState, useEffect } from "react"
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Modal } from "react-native"
 import { useRouter } from "expo-router"
 import { useQuery } from "@tanstack/react-query"
 import { supabase } from "../../lib/supabase"
@@ -9,18 +9,28 @@ import { format } from "date-fns"
 import { colors, typography, spacing } from "../../lib/theme"
 import { FilmFrame } from "../../components/FilmFrame"
 import { truncateText } from "../../lib/utils"
+import { getGroupMembers, getAllPrompts, getDailyPrompt } from "../../lib/db"
+import { Avatar } from "../../components/Avatar"
+import { useSafeAreaInsets } from "react-native-safe-area-context"
+import { Button } from "../../components/Button"
+import { getTodayDate } from "../../lib/utils"
 
 type ViewMode = "Days" | "Weeks" | "Months" | "Years"
 
 export default function History() {
   const router = useRouter()
   const [viewMode, setViewMode] = useState<ViewMode>("Days")
+  const [showFilter, setShowFilter] = useState(false)
+  const [showFilterModal, setShowFilterModal] = useState(false)
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([])
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([])
   const [currentGroupId, setCurrentGroupId] = useState<string>()
   const [userId, setUserId] = useState<string>()
+  const insets = useSafeAreaInsets()
 
-  useState(() => {
+  useEffect(() => {
     loadUserAndGroup()
-  })
+  }, [])
 
   async function loadUserAndGroup() {
     const {
@@ -42,7 +52,7 @@ export default function History() {
 
   const { data: entries = [] } = useQuery({
     queryKey: ["historyEntries", currentGroupId],
-    queryFn: async () => {
+    queryFn: async (): Promise<any[]> => {
       if (!currentGroupId) return []
       const { data } = await supabase
         .from("entries")
@@ -56,6 +66,30 @@ export default function History() {
     enabled: !!currentGroupId,
   })
 
+  const { data: members = [] } = useQuery({
+    queryKey: ["history-members", currentGroupId],
+    queryFn: () => (currentGroupId ? getGroupMembers(currentGroupId) : []),
+    enabled: !!currentGroupId,
+  })
+
+  const { data: categories = [] } = useQuery({
+    queryKey: ["history-categories"],
+    queryFn: async () => {
+      const prompts = await getAllPrompts()
+      const unique = new Set<string>()
+      prompts.forEach((prompt) => {
+        if (prompt.category) unique.add(prompt.category)
+      })
+      return Array.from(unique)
+    },
+  })
+
+  const { data: todayPrompt } = useQuery({
+    queryKey: ["history-today-prompt", currentGroupId],
+    queryFn: () => (currentGroupId ? getDailyPrompt(currentGroupId, getTodayDate()) : null),
+    enabled: !!currentGroupId,
+  })
+
   function handleEntryPress(entryId: string) {
     router.push({
       pathname: "/(main)/modals/entry-detail",
@@ -63,8 +97,46 @@ export default function History() {
     })
   }
 
+  const filteredEntries = useMemo(
+    () =>
+      entries.filter((entry) => {
+        const category = entry.prompt?.category ?? ""
+
+        if (selectedCategories.length > 0 && (!category || !selectedCategories.includes(category))) {
+          return false
+        }
+        if (selectedMembers.length > 0 && !selectedMembers.includes(entry.user_id)) {
+          return false
+        }
+        return true
+      }),
+    [entries, selectedCategories, selectedMembers],
+  )
+
+  function handleAnswerToday() {
+    if (todayPrompt?.prompt_id) {
+      router.push({
+        pathname: "/(main)/modals/entry-composer",
+        params: { promptId: todayPrompt.prompt_id, date: getTodayDate() },
+      })
+    } else {
+      router.push("/(main)/home")
+    }
+  }
+
+  function handleInvite() {
+    if (!currentGroupId) {
+      router.push("/(main)/home")
+      return
+    }
+    router.push({
+      pathname: "/(onboarding)/create-group/invite",
+      params: { groupId: currentGroupId },
+    })
+  }
+
   // Group entries by date for Days view
-  const entriesByDate = entries.reduce(
+  const entriesByDate = filteredEntries.reduce(
     (acc, entry) => {
       const date = entry.date
       if (!acc[date]) {
@@ -80,23 +152,109 @@ export default function History() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>History</Text>
-        <View style={styles.viewModeSelector}>
-          {(["Days", "Weeks", "Months", "Years"] as ViewMode[]).map((mode) => (
-            <TouchableOpacity
-              key={mode}
-              style={[styles.viewModeButton, viewMode === mode && styles.viewModeButtonActive]}
-              onPress={() => setViewMode(mode)}
-            >
-              <Text style={[styles.viewModeText, viewMode === mode && styles.viewModeTextActive]}>{mode}</Text>
+        <View style={styles.headerTop}>
+          <Text style={styles.title}>History</Text>
+          <View style={styles.headerActions}>
+            <TouchableOpacity style={styles.filterButton} onPress={() => setShowFilter((prev) => !prev)}>
+              <Text style={styles.filterText}>{viewMode}</Text>
+              <Text style={styles.filterChevron}>▼</Text>
             </TouchableOpacity>
-          ))}
+            <TouchableOpacity style={styles.filterCTA} onPress={() => setShowFilterModal(true)}>
+              <Text style={styles.filterCTAText}>Filters</Text>
+            </TouchableOpacity>
+          </View>
         </View>
+        {showFilter && (
+          <View style={styles.filterMenu}>
+            {(["Days", "Weeks", "Months", "Years"] as ViewMode[]).map((mode) => (
+              <TouchableOpacity
+                key={mode}
+                style={styles.filterOption}
+                onPress={() => {
+                  setViewMode(mode)
+                  setShowFilter(false)
+                }}
+              >
+                <Text style={[styles.filterOptionText, viewMode === mode && styles.filterOptionTextActive]}>{mode}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
       </View>
+
+      <Modal
+        animationType="slide"
+        visible={showFilterModal}
+        onRequestClose={() => setShowFilterModal(false)}
+        presentationStyle="fullScreen"
+      >
+        <View style={[styles.modalContainer, { paddingTop: insets.top + spacing.lg }]}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Filters</Text>
+            <TouchableOpacity onPress={() => setShowFilterModal(false)} style={styles.modalCloseButton}>
+              <Text style={styles.modalClose}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.modalContent}>
+            <Text style={styles.modalSection}>Group Members</Text>
+            <View style={styles.selectionGrid}>
+              {members.map((member) => {
+                const isSelected = selectedMembers.includes(member.user_id)
+                return (
+                  <TouchableOpacity
+                    key={member.id}
+                    style={[styles.selectionCard, isSelected && styles.selectionCardActive]}
+                    onPress={() =>
+                      setSelectedMembers((prev) =>
+                        prev.includes(member.user_id)
+                          ? prev.filter((id) => id !== member.user_id)
+                          : [...prev, member.user_id],
+                      )
+                    }
+                  >
+                    <Avatar uri={member.user?.avatar_url} name={member.user?.name || ""} size={40} />
+                    <Text style={styles.selectionLabel}>{member.user?.name}</Text>
+                  </TouchableOpacity>
+                )
+              })}
+            </View>
+
+            <Text style={[styles.modalSection, styles.modalSectionSpacing]}>Question Categories</Text>
+            <View style={styles.selectionGrid}>
+              {categories.map((category) => {
+                const isSelected = selectedCategories.includes(category)
+                return (
+                  <TouchableOpacity
+                    key={category}
+                    style={[styles.selectionCard, isSelected && styles.selectionCardActive]}
+                    onPress={() =>
+                      setSelectedCategories((prev) =>
+                        prev.includes(category) ? prev.filter((c) => c !== category) : [...prev, category],
+                      )
+                    }
+                  >
+                    <Text style={styles.selectionLabel}>{category}</Text>
+                  </TouchableOpacity>
+                )
+              })}
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
 
       {/* Content */}
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
-        {viewMode === "Days" && (
+        {filteredEntries.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>No history yet.</Text>
+            <Text style={styles.emptySubtitle}>
+              As you and your group answer questions we&apos;ll build your story here.
+            </Text>
+            <Button title="Answer Question" onPress={handleAnswerToday} style={styles.emptyButtonFull} />
+            <Button title="Invite Group" onPress={handleInvite} variant="secondary" style={styles.emptyButtonFull} />
+          </View>
+        ) : viewMode === "Days" ? (
           <>
             {Object.entries(entriesByDate).map(([date, dateEntries]) => (
               <View key={date} style={styles.daySection}>
@@ -128,21 +286,15 @@ export default function History() {
               </View>
             ))}
           </>
-        )}
-
-        {viewMode === "Weeks" && (
+        ) : viewMode === "Weeks" ? (
           <View style={styles.placeholderContainer}>
             <Text style={styles.placeholderText}>Weeks view coming soon</Text>
           </View>
-        )}
-
-        {viewMode === "Months" && (
+        ) : viewMode === "Months" ? (
           <View style={styles.placeholderContainer}>
             <Text style={styles.placeholderText}>Months view coming soon</Text>
           </View>
-        )}
-
-        {viewMode === "Years" && (
+        ) : (
           <View style={styles.placeholderContainer}>
             <Text style={styles.placeholderText}>Years view coming soon</Text>
           </View>
@@ -163,41 +315,82 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.gray[800],
+    position: "relative",
+    gap: spacing.sm,
+  },
+  headerTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: spacing.md,
   },
   title: {
     ...typography.h1,
     fontSize: 32,
-    marginBottom: spacing.md,
   },
-  viewModeSelector: {
+  headerActions: {
     flexDirection: "row",
-    gap: spacing.xs,
+    gap: spacing.sm,
+    alignItems: "center",
   },
-  viewModeButton: {
+  filterButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
     borderRadius: 16,
     backgroundColor: colors.gray[800],
   },
-  viewModeButtonActive: {
-    backgroundColor: colors.accent,
-  },
-  viewModeText: {
+  filterText: {
     ...typography.bodyMedium,
-    fontSize: 14,
+    color: colors.white,
+  },
+  filterChevron: {
+    ...typography.caption,
     color: colors.gray[400],
   },
-  viewModeTextActive: {
+  filterCTA: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: 16,
+    backgroundColor: colors.white,
+  },
+  filterCTAText: {
+    ...typography.bodyBold,
+    color: colors.black,
+  },
+  filterMenu: {
+    position: "absolute",
+    top: spacing.xxl * 2 + spacing.md,
+    left: spacing.md,
+    backgroundColor: colors.gray[900],
+    borderRadius: 12,
+    paddingVertical: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.gray[700],
+    width: 140,
+  },
+  filterOption: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  filterOptionText: {
+    ...typography.body,
+    color: colors.gray[400],
+  },
+  filterOptionTextActive: {
     color: colors.white,
   },
   content: {
     flex: 1,
   },
   contentContainer: {
-    padding: spacing.md,
+    paddingTop: spacing.md,
   },
   daySection: {
     marginBottom: spacing.xl,
+    paddingHorizontal: spacing.md,
   },
   dateHeader: {
     ...typography.h3,
@@ -207,6 +400,7 @@ const styles = StyleSheet.create({
   },
   entryCard: {
     marginBottom: spacing.md,
+    marginHorizontal: 0,
   },
   entryHeader: {
     flexDirection: "row",
@@ -264,5 +458,83 @@ const styles = StyleSheet.create({
   placeholderText: {
     ...typography.body,
     color: colors.gray[500],
+  },
+  emptyState: {
+    padding: spacing.xl,
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  emptyTitle: {
+    ...typography.h2,
+    color: colors.white,
+  },
+  emptySubtitle: {
+    ...typography.body,
+    color: colors.gray[400],
+    textAlign: "center",
+  },
+  emptyButtonFull: {
+    width: "100%",
+    marginTop: spacing.sm,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: colors.black,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+  },
+  modalTitle: {
+    ...typography.h1,
+    fontSize: 32,
+  },
+  modalCloseButton: {
+    padding: spacing.sm,
+  },
+  modalClose: {
+    ...typography.bodyBold,
+    fontSize: 24,
+    color: colors.white,
+  },
+  modalContent: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xxl * 2,
+  },
+  modalSection: {
+    ...typography.bodyMedium,
+    fontSize: 14,
+    color: colors.gray[500],
+    marginTop: spacing.sm,
+  },
+  modalSectionSpacing: {
+    marginTop: spacing.lg,
+  },
+  selectionGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  selectionCard: {
+    width: "48%",
+    backgroundColor: colors.gray[900],
+    borderRadius: 16,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  selectionCardActive: {
+    borderWidth: 1,
+    borderColor: colors.white,
+  },
+  selectionLabel: {
+    ...typography.bodyMedium,
+    color: colors.white,
+    textAlign: "center",
   },
 })

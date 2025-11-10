@@ -10,18 +10,19 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   scheme: "goodtimes",
   userInterfaceStyle: "dark",
   splash: {
-    image: "./assets/images/splash.png",
+    // image: "./assets/images/splash.png", //
     resizeMode: "contain",
     backgroundColor: "#000000",
   },
   assetBundlePatterns: ["assets/*"],
   ios: {
     supportsTablet: false,
-    bundleIdentifier: "com.goodtimes.app",
+    bundleIdentifier: "com.jarydhermann.goodtimes",
     infoPlist: {
       NSCameraUsageDescription: "Good Times needs access to your camera to capture photos and videos for your entries.",
       NSPhotoLibraryUsageDescription: "Good Times needs access to your photo library to select photos for your entries.",
       NSMicrophoneUsageDescription: "Good Times needs access to your microphone to record voice notes.",
+      NSContactsUsageDescription: "Good Times uses your contacts so you can invite friends and family to your group.",
     },
   },
   android: {
@@ -30,7 +31,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       backgroundColor: "#000000",
     },
     package: "com.goodtimes.app",
-    permissions: ["CAMERA", "READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "RECORD_AUDIO"],
+    permissions: ["CAMERA", "READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "RECORD_AUDIO", "READ_CONTACTS"],
   },
   plugins: [
     "expo-router",

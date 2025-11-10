@@ -1,11 +1,21 @@
 "use client"
 
-import { View, Text, StyleSheet, ImageBackground, Dimensions, ScrollView } from "react-native"
+import { View, Text, StyleSheet, ImageBackground, Dimensions } from "react-native"
 import { useRouter } from "expo-router"
 import { colors, typography, spacing } from "../../lib/theme"
 import { Button } from "../../components/Button"
+import { OnboardingBack } from "../../components/OnboardingBack"
+import { OnboardingProgress } from "../../components/OnboardingProgress"
 
 const { width, height } = Dimensions.get("window")
+
+const STEPS = [
+  "Every day, your group gets a new question or prompt to answer. Something simple, meaningful, or fun.",
+  "Share your answer with text, photos, or voice notes. It takes just a minute or two.",
+  "Once you've shared, you can see what everyone else said. React, comment, and connect.",
+  "Over time, you build a shared story. A living record of your lives together.",
+  "Look back anytime to relive memories, see how you've grown, and feel close even when you're far apart.",
+]
 
 export default function HowItWorks() {
   const router = useRouter()
@@ -17,55 +27,35 @@ export default function HowItWorks() {
       resizeMode="cover"
     >
       <View style={styles.overlay} />
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
-        <View style={styles.textContainer}>
+      <View style={styles.topBar}>
+        <OnboardingBack />
+      </View>
+      <View style={styles.content}>
+        <View style={styles.floatingContent}>
           <Text style={styles.title}>How to use it</Text>
 
-          <View style={styles.step}>
-            <Text style={styles.stepNumber}>1.</Text>
-            <Text style={styles.stepText}>
-              Every day, your group gets a new question or prompt to answer. Something simple, meaningful, or fun.
-            </Text>
+          <View style={styles.steps}>
+            {STEPS.map((step, index) => (
+              <View key={step} style={styles.step}>
+                <Text style={styles.stepNumber}>{index + 1}.</Text>
+                <Text style={styles.stepText}>{step}</Text>
+              </View>
+            ))}
           </View>
 
-          <View style={styles.step}>
-            <Text style={styles.stepNumber}>2.</Text>
-            <Text style={styles.stepText}>
-              Share your answer with text, photos, or voice notes. It takes just a minute or two.
-            </Text>
-          </View>
-
-          <View style={styles.step}>
-            <Text style={styles.stepNumber}>3.</Text>
-            <Text style={styles.stepText}>
-              Once you've shared, you can see what everyone else said. React, comment, and connect.
-            </Text>
-          </View>
-
-          <View style={styles.step}>
-            <Text style={styles.stepNumber}>4.</Text>
-            <Text style={styles.stepText}>
-              Over time, you build a shared story. A living record of your lives together.
-            </Text>
-          </View>
-
-          <View style={styles.step}>
-            <Text style={styles.stepNumber}>5.</Text>
-            <Text style={styles.stepText}>
-              Look back anytime to relive memories, see how you've grown, and feel close even when you're far apart.
-            </Text>
+          <View style={styles.controls}>
+            <OnboardingProgress total={3} current={3} />
+            <View style={styles.buttonContainer}>
+              <Button
+                title="→"
+                onPress={() => router.push("/(onboarding)/create-group/name-type")}
+                style={styles.button}
+                textStyle={styles.buttonText}
+              />
+            </View>
           </View>
         </View>
-
-        <View style={styles.buttonContainer}>
-          <Button
-            title="→"
-            onPress={() => router.push("/(onboarding)/about")}
-            style={styles.button}
-            textStyle={styles.buttonText}
-          />
-        </View>
-      </ScrollView>
+      </View>
     </ImageBackground>
   )
 }
@@ -80,30 +70,39 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0, 0, 0, 0.5)",
   },
-  scrollView: {
-    flex: 1,
+  topBar: {
+    position: "absolute",
+    top: spacing.xxl,
+    left: spacing.lg,
+    zIndex: 1,
   },
   content: {
     padding: spacing.lg,
-    paddingTop: spacing.xxl * 3,
-    paddingBottom: spacing.xxl * 2,
+    flex: 1,
   },
-  textContainer: {
-    marginBottom: spacing.xxl,
+  floatingContent: {
+    position: "absolute",
+    left: spacing.lg,
+    right: spacing.lg,
+    bottom: spacing.xl,
+    gap: spacing.lg,
   },
   title: {
     ...typography.h1,
     fontSize: 40,
     marginBottom: spacing.xl,
   },
+  steps: {
+    gap: spacing.sm,
+  },
   step: {
     flexDirection: "row",
-    marginBottom: spacing.lg,
+    alignItems: "flex-start",
+    gap: spacing.sm,
   },
   stepNumber: {
     ...typography.h3,
     fontSize: 18,
-    marginRight: spacing.md,
     minWidth: 30,
   },
   stepText: {
@@ -112,6 +111,12 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     color: colors.white,
     flex: 1,
+  },
+  controls: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: spacing.md,
   },
   buttonContainer: {
     alignItems: "flex-end",

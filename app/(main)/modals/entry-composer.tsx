@@ -11,16 +11,18 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import * as ImagePicker from "expo-image-picker"
 import { Audio } from "expo-av"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { supabase } from "../../../lib/supabase"
 import { createEntry } from "../../../lib/db"
 import { uploadMedia } from "../../../lib/storage"
 import { colors, typography, spacing } from "../../../lib/theme"
 import { Button } from "../../../components/Button"
+import { FontAwesome } from "@expo/vector-icons"
 
 export default function EntryComposer() {
   const router = useRouter()
@@ -35,6 +37,8 @@ export default function EntryComposer() {
   const [recording, setRecording] = useState<Audio.Recording>()
   const [currentGroupId, setCurrentGroupId] = useState<string>()
   const [userId, setUserId] = useState<string>()
+  const [showMediaOptions, setShowMediaOptions] = useState(false)
+  const queryClient = useQueryClient()
 
   useState(() => {
     loadUserAndGroup()
@@ -67,7 +71,7 @@ export default function EntryComposer() {
     enabled: !!promptId,
   })
 
-  async function pickImage() {
+  async function pickImages() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
     if (status !== "granted") {
       Alert.alert("Permission needed", "Please grant photo library access")
@@ -76,17 +80,19 @@ export default function EntryComposer() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
+      allowsMultipleSelection: true,
+      allowsEditing: false,
       quality: 0.8,
     })
 
     if (!result.canceled) {
-      setMediaUris([...mediaUris, result.assets[0].uri])
-      setMediaTypes([...mediaTypes, "photo"])
+      const uris = result.assets.map((asset) => asset.uri)
+      setMediaUris((prev) => [...prev, ...uris])
+      setMediaTypes((prev) => [...prev, ...uris.map(() => "photo")])
     }
   }
 
-  async function takePhoto() {
+  async function takeVideo() {
     const { status } = await ImagePicker.requestCameraPermissionsAsync()
     if (status !== "granted") {
       Alert.alert("Permission needed", "Please grant camera access")
@@ -94,13 +100,14 @@ export default function EntryComposer() {
     }
 
     const result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
+      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
       quality: 0.8,
     })
 
     if (!result.canceled) {
-      setMediaUris([...mediaUris, result.assets[0].uri])
-      setMediaTypes([...mediaTypes, "photo"])
+      const uri = result.assets[0].uri
+      setMediaUris((prev) => [...prev, uri])
+      setMediaTypes((prev) => [...prev, "video"])
     }
   }
 
@@ -178,6 +185,13 @@ export default function EntryComposer() {
           .eq("id", entry.id)
       }
 
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["entries"] }),
+        queryClient.invalidateQueries({ queryKey: ["userEntry"] }),
+        queryClient.invalidateQueries({ queryKey: ["historyEntries"] }),
+        queryClient.invalidateQueries({ queryKey: ["dailyPrompt"] }),
+      ])
+
       Alert.alert("Success", "Your entry has been posted")
       router.back()
     } catch (error: any) {
@@ -194,13 +208,13 @@ export default function EntryComposer() {
       keyboardVerticalOffset={100}
     >
       <View style={styles.header}>
+        <Text style={styles.headerTitle}>{prompt?.question}</Text>
         <TouchableOpacity onPress={() => router.back()}>
           <Text style={styles.closeButton}>✕</Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
-        <Text style={styles.question}>{prompt?.question}</Text>
         <Text style={styles.description}>{prompt?.description}</Text>
 
         <TextInput
@@ -216,11 +230,26 @@ export default function EntryComposer() {
         {/* Media preview */}
         {mediaUris.length > 0 && (
           <View style={styles.mediaPreview}>
-            {mediaUris.map((uri, index) => (
-              <View key={index} style={styles.mediaItem}>
-                <Text style={styles.mediaType}>{mediaTypes[index]}</Text>
-              </View>
-            ))}
+            {mediaUris.map((uri, index) => {
+              const type = mediaTypes[index]
+              return (
+                <View key={`${uri}-${index}`} style={styles.mediaItem}>
+                  {type === "photo" ? (
+                    <Image source={{ uri }} style={styles.mediaImage} />
+                  ) : type === "video" ? (
+                    <View style={styles.videoThumb}>
+                      <FontAwesome name="video-camera" size={24} color={colors.white} />
+                      <Text style={styles.mediaLabel}>Video</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.audioThumb}>
+                      <FontAwesome name="microphone" size={22} color={colors.white} />
+                      <Text style={styles.mediaLabel}>Voice memo</Text>
+                    </View>
+                  )}
+                </View>
+              )
+            })}
           </View>
         )}
       </ScrollView>
@@ -228,15 +257,45 @@ export default function EntryComposer() {
       {/* Toolbar */}
       <View style={styles.toolbar}>
         <View style={styles.toolbarButtons}>
-          <TouchableOpacity style={styles.toolButton} onPress={pickImage}>
-            <Text style={styles.toolButtonText}>+</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.toolButton} onPress={takePhoto}>
-            <Text style={styles.toolButtonText}>📷</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.toolButton} onPress={recording ? stopRecording : startRecording}>
-            <Text style={styles.toolButtonText}>{recording ? "⏹" : "🎤"}</Text>
-          </TouchableOpacity>
+          <View style={styles.toolButtonWrapper}>
+            <TouchableOpacity
+              style={[styles.toolButton, styles.addButton]}
+              onPress={() => setShowMediaOptions((prev) => !prev)}
+            >
+              <Text style={styles.addButtonText}>+</Text>
+            </TouchableOpacity>
+            {showMediaOptions && (
+              <View style={styles.mediaMenu}>
+                <TouchableOpacity
+                  style={styles.mediaMenuItem}
+                  onPress={() => {
+                    takeVideo()
+                    setShowMediaOptions(false)
+                  }}
+                >
+                  <Text style={styles.mediaMenuText}>Video</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.mediaMenuItem}
+                  onPress={() => {
+                    pickImages()
+                    setShowMediaOptions(false)
+                  }}
+                >
+                  <Text style={styles.mediaMenuText}>Photos</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.mediaMenuItem}
+                  onPress={() => {
+                    recording ? stopRecording() : startRecording()
+                    setShowMediaOptions(false)
+                  }}
+                >
+                  <Text style={styles.mediaMenuText}>{recording ? "Stop voice memo" : "Voice Memo"}</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
         </View>
         <Button title="Post Entry" onPress={handlePost} loading={loading} style={styles.postButton} />
       </View>
@@ -251,9 +310,16 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: "row",
-    justifyContent: "flex-end",
+    justifyContent: "space-between",
+    alignItems: "center",
     padding: spacing.md,
-    paddingTop: spacing.xxl * 2,
+    paddingTop: spacing.xxl,
+    gap: spacing.md,
+  },
+  headerTitle: {
+    ...typography.h3,
+    color: colors.white,
+    flex: 1,
   },
   closeButton: {
     ...typography.h2,
@@ -265,11 +331,6 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     padding: spacing.lg,
-  },
-  question: {
-    ...typography.h2,
-    fontSize: 24,
-    marginBottom: spacing.sm,
   },
   description: {
     ...typography.body,
@@ -291,14 +352,33 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   mediaItem: {
-    width: 80,
-    height: 80,
-    backgroundColor: colors.gray[800],
+    width: 96,
+    height: 96,
+    borderRadius: 8,
+    backgroundColor: colors.gray[900],
     justifyContent: "center",
     alignItems: "center",
-    borderRadius: 4,
+    overflow: "hidden",
   },
-  mediaType: {
+  mediaImage: {
+    width: "100%",
+    height: "100%",
+  },
+  videoThumb: {
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  audioThumb: {
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  mediaLabel: {
     ...typography.caption,
     color: colors.white,
   },
@@ -311,6 +391,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.sm,
     marginBottom: spacing.md,
+    alignItems: "center",
+  },
+  toolButtonWrapper: {
+    position: "relative",
   },
   toolButton: {
     width: 48,
@@ -320,8 +404,40 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  addButton: {
+    backgroundColor: colors.white,
+  },
+  addButtonText: {
+    fontSize: 26,
+    color: colors.black,
+    fontFamily: "Roboto-Bold",
+  },
   toolButtonText: {
     fontSize: 24,
+  },
+  mediaMenu: {
+    position: "absolute",
+    bottom: 56,
+    left: 0,
+    backgroundColor: colors.gray[900],
+    borderRadius: 16,
+    paddingVertical: spacing.xs,
+    width: 140,
+    borderWidth: 1,
+    borderColor: colors.gray[700],
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  mediaMenuItem: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  mediaMenuText: {
+    ...typography.body,
+    color: colors.white,
   },
   postButton: {
     width: "100%",

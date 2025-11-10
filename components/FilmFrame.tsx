@@ -5,13 +5,14 @@ import { colors } from "../lib/theme"
 interface FilmFrameProps {
   children: React.ReactNode
   style?: ViewStyle
+  contentStyle?: ViewStyle
 }
 
-export function FilmFrame({ children, style }: FilmFrameProps) {
+export function FilmFrame({ children, style, contentStyle }: FilmFrameProps) {
   return (
     <View style={[styles.container, style]}>
       <Image source={require("../assets/images/film-frame.png")} style={styles.frame} resizeMode="stretch" />
-      <View style={styles.content}>{children}</View>
+      <View style={[styles.content, contentStyle]}>{children}</View>
     </View>
   )
 }
@@ -32,8 +33,8 @@ const styles = StyleSheet.create({
   },
   content: {
     backgroundColor: colors.filmInner,
-    margin: 20,
-    padding: 16,
+    margin: 18,
+    padding: 20,
     minHeight: 200,
   },
 })

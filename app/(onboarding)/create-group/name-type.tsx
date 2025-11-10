@@ -2,83 +2,61 @@
 
 import { useState } from "react"
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from "react-native"
-import { useRouter, useLocalSearchParams } from "expo-router"
-import { supabase } from "../../../lib/supabase"
-import { createGroup, createMemorial } from "../../../lib/db"
+import { useRouter } from "expo-router"
 import { colors, spacing } from "../../../lib/theme"
 import { Input } from "../../../components/Input"
 import { Button } from "../../../components/Button"
+import { OnboardingBack } from "../../../components/OnboardingBack"
+import { useOnboarding } from "../../../components/OnboardingProvider"
 
 export default function CreateGroupNameType() {
   const router = useRouter()
-  const params = useLocalSearchParams()
-  const [groupName, setGroupName] = useState("")
-  const [groupType, setGroupType] = useState<"family" | "friends">("family")
-  const [loading, setLoading] = useState(false)
+  const { setGroupName, setGroupType, data } = useOnboarding()
+  const [groupName, setLocalGroupName] = useState(data.groupName || "")
+  const [groupType, setLocalGroupType] = useState<"family" | "friends">(data.groupType || "family")
 
-  async function handleContinue() {
+  function handleContinue() {
     if (!groupName.trim()) {
       Alert.alert("Error", "Please enter a group name")
       return
     }
 
-    setLoading(true)
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-      if (!user) throw new Error("Not authenticated")
-
-      // Create group
-      const group = await createGroup(groupName.trim(), groupType, user.id)
-
-      // Create memorial if provided
-      if (params.memorialName) {
-        await createMemorial({
-          user_id: user.id,
-          group_id: group.id,
-          name: params.memorialName as string,
-          photo_url: params.memorialPhoto as string | undefined,
-        })
-      }
-
-      router.push({
-        pathname: "/(onboarding)/create-group/invite",
-        params: { groupId: group.id },
-      })
-    } catch (error: any) {
-      Alert.alert("Error", error.message)
-    } finally {
-      setLoading(false)
-    }
+    setGroupName(groupName.trim())
+    setGroupType(groupType)
+    router.push("/(onboarding)/memorial")
   }
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <View style={styles.topBar}>
+        <OnboardingBack />
+      </View>
       <View style={styles.header}>
         <Text style={styles.title}>Give your group a name</Text>
       </View>
 
       <View style={styles.form}>
+        <Text style={styles.prompt}>What should we call this group?</Text>
         <Input
           value={groupName}
-          onChangeText={setGroupName}
+          onChangeText={setLocalGroupName}
           placeholder="Hermann family"
           autoCapitalize="words"
-          style={styles.input}
+          placeholderTextColor={colors.gray[500]}
+          style={styles.inlineInput}
         />
 
         <Text style={styles.label}>Who's in this group?</Text>
         <View style={styles.typeContainer}>
           <TouchableOpacity
             style={[styles.typeButton, groupType === "family" && styles.typeButtonActive]}
-            onPress={() => setGroupType("family")}
+            onPress={() => setLocalGroupType("family")}
           >
             <Text style={[styles.typeText, groupType === "family" && styles.typeTextActive]}>Family</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.typeButton, groupType === "friends" && styles.typeButtonActive]}
-            onPress={() => setGroupType("friends")}
+            onPress={() => setLocalGroupType("friends")}
           >
             <Text style={[styles.typeText, groupType === "friends" && styles.typeTextActive]}>Friends</Text>
           </TouchableOpacity>
@@ -89,7 +67,6 @@ export default function CreateGroupNameType() {
         <Button
           title="→"
           onPress={handleContinue}
-          loading={loading}
           style={styles.button}
           textStyle={styles.buttonText}
         />
@@ -107,6 +84,9 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     paddingTop: spacing.xxl * 2,
   },
+  topBar: {
+    marginBottom: spacing.lg,
+  },
   header: {
     marginBottom: spacing.xl,
   },
@@ -118,11 +98,25 @@ const styles = StyleSheet.create({
   form: {
     marginBottom: spacing.xxl,
   },
-  input: {
-    backgroundColor: colors.white,
-    borderColor: colors.gray[300],
+  prompt: {
+    fontFamily: "Roboto-Regular",
+    fontSize: 16,
+    color: colors.black,
+    marginBottom: spacing.xs,
+  },
+  inlineInput: {
+    backgroundColor: "transparent",
+    borderWidth: 0,
+    paddingHorizontal: 0,
+    paddingVertical: spacing.xs,
+    minHeight: undefined,
+    height: undefined,
+    fontFamily: "LibreBaskerville-Regular",
+    fontSize: 26,
+    lineHeight: 32,
     color: colors.black,
     marginBottom: spacing.xl,
+    marginTop: spacing.md,
   },
   label: {
     fontFamily: "Roboto-Medium",

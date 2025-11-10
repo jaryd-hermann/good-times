@@ -5,15 +5,16 @@ import { useRouter } from "expo-router"
 import { colors, typography, spacing } from "../../lib/theme"
 import { Button } from "../../components/Button"
 import { OnboardingBack } from "../../components/OnboardingBack"
+import { OnboardingProgress } from "../../components/OnboardingProgress"
 
 const { width, height } = Dimensions.get("window")
 
-export default function Memorial() {
+export default function Welcome3() {
   const router = useRouter()
 
   return (
     <ImageBackground
-      source={require("../../assets/images/memorial-bg.png")}
+      source={require("../../assets/images/onboarding2-bg.png")}
       style={styles.container}
       resizeMode="cover"
     >
@@ -23,28 +24,22 @@ export default function Memorial() {
           <OnboardingBack />
         </View>
         <View style={styles.textContainer}>
-          <Text style={styles.title}>Remembering them...</Text>
           <Text style={styles.body}>
-            My 4 siblings and I lost our mom last year. Moments where we're together and share stories, memories, and
-            old photos of her are everything to me.
-          </Text>
-          <Text style={styles.body}>
-            I hope you haven't, but if your group has lost someone, do you want to add this to your story book?
+            I made this for you if you have family and friends you don't always see. If you want to be in touch better
+            but calls and messages can be a lot. Good Times is the simple and meaningful way to keep connected without the pressure.
           </Text>
         </View>
 
-        <View style={styles.buttonContainer}>
-          <Button
-            title="No"
-            onPress={() => router.push("/(onboarding)/about")}
-            variant="secondary"
-            style={styles.buttonNo}
-          />
-          <Button
-            title="Yes"
-            onPress={() => router.push("/(onboarding)/memorial-input")}
-            style={styles.buttonYes}
-          />
+        <View style={styles.bottomContainer}>
+          <OnboardingProgress total={3} current={2} />
+          <View style={styles.buttonContainer}>
+            <Button
+              title="→"
+              onPress={() => router.push("/(onboarding)/how-it-works")}
+              style={styles.button}
+              textStyle={styles.buttonText}
+            />
+          </View>
         </View>
       </View>
     </ImageBackground>
@@ -59,7 +54,7 @@ const styles = StyleSheet.create({
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(0, 0, 0, 0.3)",
   },
   content: {
     flex: 1,
@@ -77,29 +72,28 @@ const styles = StyleSheet.create({
   textContainer: {
     flex: 1,
     justifyContent: "flex-end",
-    paddingBottom: spacing.xxl,
-  },
-  title: {
-    ...typography.h1,
-    fontSize: 40,
-    marginBottom: spacing.lg,
+    paddingBottom: spacing.xl,
   },
   body: {
     ...typography.body,
-    fontSize: 16,
-    lineHeight: 24,
+    fontSize: 18,
+    lineHeight: 28,
     color: colors.white,
-    marginBottom: spacing.md,
   },
-  buttonContainer: {
+  bottomContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
-    gap: spacing.md,
+    alignItems: "flex-end",
   },
-  buttonNo: {
-    flex: 1,
+  buttonContainer: {
+    alignItems: "flex-end",
+    marginLeft: spacing.md,
   },
-  buttonYes: {
-    flex: 1,
+  button: {
+    width: 100,
+    height: 60,
+  },
+  buttonText: {
+    fontSize: 32,
   },
 })
