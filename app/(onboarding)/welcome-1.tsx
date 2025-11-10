@@ -1,6 +1,6 @@
 "use client"
 
-import { View, Text, StyleSheet, ImageBackground, Dimensions } from "react-native"
+import { View, Text, StyleSheet, ImageBackground, Dimensions, TouchableOpacity } from "react-native"
 import { useRouter } from "expo-router"
 import { colors, typography, spacing } from "../../lib/theme"
 import { Button } from "../../components/Button"
@@ -14,6 +14,11 @@ export default function Welcome1() {
     <ImageBackground source={require("../../assets/images/welcome-bg.png")} style={styles.container} resizeMode="cover">
       <View style={styles.overlay} />
       <View style={styles.content}>
+        <View style={styles.loginContainer}>
+          <TouchableOpacity onPress={() => router.push("/(onboarding)/auth")} activeOpacity={0.8}>
+            <Text style={styles.loginText}>Login</Text>
+          </TouchableOpacity>
+        </View>
         <View style={styles.textContainer}>
           <Text style={styles.title}>Good Times</Text>
           <Text style={styles.subtitle}>
@@ -50,6 +55,16 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     paddingTop: spacing.xxl * 3,
     paddingBottom: spacing.xxl * 2,
+  },
+  loginContainer: {
+    position: "absolute",
+    top: spacing.xxl,
+    right: spacing.lg,
+  },
+  loginText: {
+    fontFamily: "Roboto-Medium",
+    fontSize: 16,
+    color: colors.white,
   },
   textContainer: {
     flex: 1,

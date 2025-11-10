@@ -97,14 +97,19 @@ export default function EntryDetail() {
                   const mediaType = entry.media_types?.[index]
                   if (mediaType === "photo") {
                     return <Image key={index} source={{ uri: url }} style={styles.mediaImage} resizeMode="cover" />
-                  } else if (mediaType === "audio") {
+                  }
+                  if (mediaType === "audio") {
                     return (
                       <View key={index} style={styles.audioPlayer}>
-                        <Text style={styles.audioText}>🎤 Voice Note</Text>
+                        <Text style={styles.audioText}>🎤 Voice memo</Text>
                       </View>
                     )
                   }
-                  return null
+                  return (
+                    <View key={index} style={styles.videoPlayer}>
+                      <Text style={styles.videoText}>🎬 Video</Text>
+                    </View>
+                  )
                 })}
               </View>
             )}
@@ -201,10 +206,11 @@ const styles = StyleSheet.create({
     ...typography.body,
     fontSize: 16,
     lineHeight: 26,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   mediaContainer: {
     gap: spacing.md,
+    marginTop: spacing.sm,
     marginBottom: spacing.lg,
   },
   mediaImage: {
@@ -219,6 +225,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   audioText: {
+    ...typography.body,
+    color: colors.white,
+  },
+  videoPlayer: {
+    padding: spacing.lg,
+    borderRadius: 8,
+    backgroundColor: colors.gray[800],
+    alignItems: "center",
+  },
+  videoText: {
     ...typography.body,
     color: colors.white,
   },

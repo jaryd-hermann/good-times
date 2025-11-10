@@ -1,23 +1,37 @@
 "use client"
 
 import { useState } from "react"
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform } from "react-native"
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Alert,
+  Platform,
+  KeyboardAvoidingView,
+} from "react-native"
 import { useRouter } from "expo-router"
 import * as ImagePicker from "expo-image-picker"
-import DateTimePicker from "@react-native-community/datetimepicker"
-import { supabase } from "../../lib/supabase"
+import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker"
+import { Modal } from "react-native"
+import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { colors, spacing } from "../../lib/theme"
 import { Input } from "../../components/Input"
 import { Button } from "../../components/Button"
 import { Avatar } from "../../components/Avatar"
+import { OnboardingBack } from "../../components/OnboardingBack"
+import { useOnboarding } from "../../components/OnboardingProvider"
 
 export default function About() {
   const router = useRouter()
-  const [name, setName] = useState("")
-  const [birthday, setBirthday] = useState(new Date())
+  const { data, setUserName, setUserBirthday, setUserPhoto } = useOnboarding()
+  const [name, setName] = useState(data.userName || "")
+  const [birthday, setBirthday] = useState(data.userBirthday || new Date())
   const [showDatePicker, setShowDatePicker] = useState(false)
-  const [photoUri, setPhotoUri] = useState<string>()
+  const [photoUri, setPhotoUri] = useState<string | undefined>(data.userPhoto)
   const [loading, setLoading] = useState(false)
+  const insets = useSafeAreaInsets()
 
   async function pickImage() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
@@ -38,92 +52,113 @@ export default function About() {
     }
   }
 
-  async function handleContinue() {
+  function openDatePicker() {
+    if (Platform.OS === "android") {
+      DateTimePickerAndroid.open({
+        value: birthday,
+        mode: "date",
+        onChange: (_event, selectedDate) => {
+          if (selectedDate) {
+            setBirthday(selectedDate)
+          }
+        },
+        maximumDate: new Date(),
+      })
+    } else {
+      setShowDatePicker(true)
+    }
+  }
+
+  function handleContinue() {
     if (!name.trim()) {
       Alert.alert("Error", "Please enter your name")
       return
     }
 
     setLoading(true)
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-      if (!user) throw new Error("Not authenticated")
-
-      // TODO: Upload photo to storage if provided
-      const avatarUrl = photoUri // For now, just use the local URI
-
-      const { error } = await supabase
-        .from("users")
-        .update({
-          name: name.trim(),
-          birthday: birthday.toISOString().split("T")[0],
-          avatar_url: avatarUrl,
-        })
-        .eq("id", user.id)
-
-      if (error) throw error
-
-      router.push("/(onboarding)/memorial")
-    } catch (error: any) {
-      Alert.alert("Error", error.message)
-    } finally {
-      setLoading(false)
-    }
+    setUserName(name.trim())
+    setUserBirthday(birthday)
+    setUserPhoto(photoUri)
+    router.push("/(onboarding)/auth")
+    setLoading(false)
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.header}>
-        <Text style={styles.title}>You</Text>
+    <KeyboardAvoidingView
+      style={styles.screen}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={insets.top}
+    >
+      <View style={[styles.topBarWrapper, { paddingTop: insets.top + spacing.lg }]}>
+        <OnboardingBack color={colors.black} />
       </View>
 
-      <View style={styles.form}>
-        <Input
-          label="What name should your group see?"
-          value={name}
-          onChangeText={setName}
-          placeholder="Lucy"
-          autoCapitalize="words"
-        />
-
-        <View style={styles.dateSection}>
-          <Text style={styles.label}>When is your birthday? We'll make sure that day is special for you here.</Text>
-          <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.dateButton}>
-            <Text style={styles.dateText}>
-              {birthday.getDate()} {birthday.toLocaleString("default", { month: "short" })} {birthday.getFullYear()}
-            </Text>
-          </TouchableOpacity>
-          {showDatePicker && (
-            <DateTimePicker
-              value={birthday}
-              mode="date"
-              display="spinner"
-              onChange={(event, selectedDate) => {
-                setShowDatePicker(Platform.OS === "ios")
-                if (selectedDate) {
-                  setBirthday(selectedDate)
-                }
-              }}
-              maximumDate={new Date()}
-            />
-          )}
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xxl }]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.header}>
+          <Text style={styles.title}>You</Text>
         </View>
 
-        <View style={styles.photoSection}>
-          <Text style={styles.label}>Add a photo that will show next to your entries</Text>
-          <TouchableOpacity onPress={pickImage} style={styles.photoButton}>
-            {photoUri ? (
-              <Avatar uri={photoUri} name={name || "User"} size={80} />
-            ) : (
-              <View style={styles.photoPlaceholder} />
+        <View style={styles.form}>
+          <Text style={styles.prompt}>What name should your group see?</Text>
+          <Input
+            value={name}
+            onChangeText={setName}
+            placeholder="Lucy"
+            autoCapitalize="words"
+            placeholderTextColor={colors.gray[500]}
+            style={styles.inlineInput}
+          />
+
+          <View style={styles.dateSection}>
+            <Text style={styles.label}>When is your birthday? We'll make sure that day is special for you here.</Text>
+            <TouchableOpacity onPress={openDatePicker} style={styles.dateButton}>
+              <Text style={styles.dateText}>
+                {birthday.getDate()} {birthday.toLocaleString("default", { month: "short" })} {birthday.getFullYear()}
+              </Text>
+            </TouchableOpacity>
+            {Platform.OS === "ios" && (
+              <Modal transparent animationType="fade" visible={showDatePicker} onRequestClose={() => setShowDatePicker(false)}>
+                <View style={styles.modalBackdrop}>
+                  <View style={styles.modalContent}>
+                    <DateTimePicker
+                      value={birthday}
+                      mode="date"
+                      display="spinner"
+                      onChange={(_event, selectedDate) => {
+                        if (selectedDate) {
+                          setBirthday(selectedDate)
+                        }
+                      }}
+                      maximumDate={new Date()}
+                      style={styles.iosPicker}
+                    />
+                    <TouchableOpacity onPress={() => setShowDatePicker(false)} style={styles.modalButton}>
+                      <Text style={styles.modalButtonText}>Done</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </Modal>
             )}
-          </TouchableOpacity>
-        </View>
-      </View>
+          </View>
 
-      <View style={styles.buttonContainer}>
+          <View style={styles.photoSection}>
+            <Text style={styles.label}>Add a photo that will show next to your entries</Text>
+            <TouchableOpacity onPress={pickImage} style={styles.photoButton}>
+              {photoUri ? (
+                <Avatar uri={photoUri} name={name || "User"} size={80} />
+              ) : (
+                <View style={styles.photoPlaceholder} />
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </ScrollView>
+
+      <View style={[styles.ctaContainer, { paddingBottom: insets.bottom + spacing.lg }]}>
         <Button
           title="→"
           onPress={handleContinue}
@@ -132,18 +167,27 @@ export default function About() {
           textStyle={styles.buttonText}
         />
       </View>
-    </ScrollView>
+    </KeyboardAvoidingView>
   )
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: colors.white,
+  },
+  topBarWrapper: {
+    paddingHorizontal: spacing.lg,
+  },
   container: {
     flex: 1,
     backgroundColor: colors.white,
   },
   content: {
     padding: spacing.lg,
-    paddingTop: spacing.xxl * 2,
+  },
+  topBar: {
+    marginBottom: spacing.xl,
   },
   header: {
     marginBottom: spacing.xl,
@@ -156,6 +200,25 @@ const styles = StyleSheet.create({
   form: {
     marginBottom: spacing.xxl,
   },
+  prompt: {
+    fontFamily: "Roboto-Regular",
+    fontSize: 16,
+    color: colors.black,
+    marginBottom: spacing.xs,
+  },
+  inlineInput: {
+    backgroundColor: "transparent",
+    borderWidth: 0,
+    paddingHorizontal: 0,
+    paddingVertical: spacing.xs,
+    marginTop: spacing.md,
+    minHeight: undefined,
+    height: undefined,
+    fontFamily: "LibreBaskerville-Regular",
+    fontSize: 32,
+    color: colors.black,
+    lineHeight: 36,
+  },
   label: {
     fontFamily: "Roboto-Regular",
     fontSize: 16,
@@ -167,13 +230,14 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xl,
   },
   dateButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: spacing.md,
+    alignSelf: "flex-start",
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderColor: colors.black,
   },
   dateText: {
     fontFamily: "LibreBaskerville-Regular",
-    fontSize: 32,
+    fontSize: 28,
     color: colors.black,
   },
   photoSection: {
@@ -188,7 +252,36 @@ const styles = StyleSheet.create({
     borderRadius: 40,
     backgroundColor: colors.gray[300],
   },
-  buttonContainer: {
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    backgroundColor: colors.white,
+    padding: spacing.lg,
+    width: "80%",
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  iosPicker: {
+    width: "100%",
+  },
+  modalButton: {
+    marginTop: spacing.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.black,
+  },
+  modalButtonText: {
+    fontFamily: "Roboto-Regular",
+    fontSize: 16,
+    color: colors.black,
+  },
+  ctaContainer: {
+    paddingHorizontal: spacing.lg,
     alignItems: "flex-end",
   },
   button: {

@@ -1,14 +1,34 @@
 "use client"
 
-import { View, Text, StyleSheet, ScrollView, Share, Alert } from "react-native"
+import { useMemo, useState } from "react"
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Alert,
+  Share,
+  Modal,
+  TouchableOpacity,
+  TextInput,
+  ActivityIndicator,
+} from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
-import { colors, spacing } from "../../../lib/theme"
+import * as Contacts from "expo-contacts"
+import { colors, spacing, typography } from "../../../lib/theme"
 import { Button } from "../../../components/Button"
+import { OnboardingBack } from "../../../components/OnboardingBack"
 
 export default function Invite() {
   const router = useRouter()
   const params = useLocalSearchParams()
   const groupId = params.groupId as string
+
+  const [contactsModalVisible, setContactsModalVisible] = useState(false)
+  const [contactsLoading, setContactsLoading] = useState(false)
+  const [contacts, setContacts] = useState<InviteContact[]>([])
+  const [selectedContacts, setSelectedContacts] = useState<string[]>([])
+  const [searchQuery, setSearchQuery] = useState("")
 
   async function handleShare() {
     try {
@@ -16,35 +36,192 @@ export default function Invite() {
       await Share.share({
         message: `Join my Good Times group! ${inviteLink}`,
         url: inviteLink,
+        title: "Good Times Invite",
       })
     } catch (error: any) {
       Alert.alert("Error", error.message)
     }
   }
 
-  function handleSkip() {
+  function handleFinish() {
     router.replace("/(main)/home")
+  }
+
+  const filteredContacts = useMemo(() => {
+    if (!searchQuery.trim()) return contacts
+    const term = searchQuery.trim().toLowerCase()
+    return contacts.filter((contact) => contact.name.toLowerCase().includes(term))
+  }, [contacts, searchQuery])
+
+  async function handleOpenContacts() {
+    const { status } = await Contacts.requestPermissionsAsync()
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Please allow contacts access to send invites directly.")
+      return
+    }
+
+    if (contacts.length === 0) {
+      setContactsLoading(true)
+      try {
+        const { data } = await Contacts.getContactsAsync({
+          fields: [Contacts.Fields.Emails, Contacts.Fields.PhoneNumbers],
+          sort: Contacts.SortTypes.FirstName,
+        })
+
+        const mapped =
+          data
+            ?.map((item) => ({
+              id: item.id,
+              name: [item.firstName, item.lastName].filter(Boolean).join(" ").trim() || item.name || "Unnamed",
+              emails: item.emails?.map((email) => email.email).filter(Boolean) ?? [],
+              phones: item.phoneNumbers?.map((phone) => phone.number).filter(Boolean) ?? [],
+            }))
+            .filter((contact) => contact.emails.length > 0 || contact.phones.length > 0) ?? []
+
+        setContacts(mapped)
+      } catch (error: any) {
+        Alert.alert("Error", error.message)
+        return
+      } finally {
+        setContactsLoading(false)
+      }
+    }
+
+    setContactsModalVisible(true)
+  }
+
+  function toggleContact(id: string) {
+    setSelectedContacts((prev) => (prev.includes(id) ? prev.filter((contactId) => contactId !== id) : [...prev, id]))
+  }
+
+  async function handleSendInvites() {
+    const inviteLink = `goodtimes://join/${groupId}`
+    const selected = contacts.filter((contact) => selectedContacts.includes(contact.id))
+    if (selected.length === 0) {
+      Alert.alert("Select contacts", "Choose at least one contact to invite.")
+      return
+    }
+
+    const inviteList = selected
+      .map((contact) => {
+        const detail = contact.emails[0] ?? contact.phones[0] ?? ""
+        return `${contact.name}${detail ? ` (${detail})` : ""}`
+      })
+      .join(", ")
+
+    try {
+      await Share.share({
+        message: `Join my Good Times group! ${inviteLink}\n\nInviting: ${inviteList}`,
+        url: inviteLink,
+        title: "Good Times Invite",
+      })
+      setContactsModalVisible(false)
+      setSelectedContacts([])
+    } catch (error: any) {
+      Alert.alert("Error", error.message)
+    }
   }
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <View style={styles.topBar}>
+        <OnboardingBack />
+      </View>
       <View style={styles.header}>
         <Text style={styles.title}>Your people</Text>
         <Text style={styles.subtitle}>Let's invite everyone here who's part of this group.</Text>
       </View>
 
       <View style={styles.form}>
-        <Button title="Share your invite link →" onPress={handleShare} variant="secondary" style={styles.shareButton} />
+        <Button
+          title="Share your invite link →"
+          onPress={handleShare}
+          style={[styles.shareButton, styles.sharePrimary]}
+          textStyle={styles.sharePrimaryText}
+        />
+        <Button
+          title="Add from contacts"
+          onPress={handleOpenContacts}
+          variant="ghost"
+          style={styles.contactsButton}
+          textStyle={styles.contactsButtonText}
+        />
 
         <Text style={styles.label}>Contacts</Text>
-        <Text style={styles.placeholder}>Contact list integration coming soon</Text>
+        <Text style={styles.placeholder}>Select friends from your contacts or share the invite link directly.</Text>
       </View>
 
       <View style={styles.buttonContainer}>
-        <Button title="Skip for now" onPress={handleSkip} variant="ghost" />
+        <Button title="Finish →" onPress={handleFinish} style={styles.finishButton} />
       </View>
+
+      <Modal visible={contactsModalVisible} animationType="slide" onRequestClose={() => setContactsModalVisible(false)}>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Invite Contacts</Text>
+            <TouchableOpacity onPress={() => setContactsModalVisible(false)} style={styles.modalCloseButton}>
+              <Text style={styles.modalCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.searchContainer}>
+            <TextInput
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Search contacts"
+              placeholderTextColor={colors.gray[500]}
+              style={styles.searchInput}
+            />
+          </View>
+
+          {contactsLoading ? (
+            <View style={styles.loadingState}>
+              <ActivityIndicator size="large" color={colors.accent} />
+              <Text style={styles.loadingText}>Loading contacts…</Text>
+            </View>
+          ) : (
+            <ScrollView contentContainerStyle={styles.contactsList}>
+              {filteredContacts.map((contact) => {
+                const isSelected = selectedContacts.includes(contact.id)
+                const detail = contact.emails[0] ?? contact.phones[0] ?? ""
+                return (
+                  <TouchableOpacity
+                    key={contact.id}
+                    style={[styles.contactRow, isSelected && styles.contactRowSelected]}
+                    onPress={() => toggleContact(contact.id)}
+                    activeOpacity={0.7}
+                  >
+                    <View>
+                      <Text style={styles.contactName}>{contact.name}</Text>
+                      {detail.length > 0 && <Text style={styles.contactDetail}>{detail}</Text>}
+                    </View>
+                    <View style={[styles.contactIndicator, isSelected && styles.contactIndicatorSelected]} />
+                  </TouchableOpacity>
+                )
+              })}
+
+              {filteredContacts.length === 0 && !contactsLoading && (
+                <View style={styles.emptyContacts}>
+                  <Text style={styles.emptyContactsText}>No contacts found. Try a different search.</Text>
+                </View>
+              )}
+            </ScrollView>
+          )}
+
+          <View style={styles.modalActions}>
+            <Button title="Send invites" onPress={handleSendInvites} disabled={contactsLoading} />
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   )
+}
+
+type InviteContact = {
+  id: string
+  name: string
+  emails: string[]
+  phones: string[]
 }
 
 const styles = StyleSheet.create({
@@ -55,6 +232,9 @@ const styles = StyleSheet.create({
   content: {
     padding: spacing.lg,
     paddingTop: spacing.xxl * 2,
+  },
+  topBar: {
+    marginBottom: spacing.lg,
   },
   header: {
     marginBottom: spacing.xl,
@@ -77,6 +257,21 @@ const styles = StyleSheet.create({
   shareButton: {
     marginBottom: spacing.xl,
   },
+  sharePrimary: {
+    backgroundColor: colors.black,
+  },
+  sharePrimaryText: {
+    color: colors.white,
+  },
+  contactsButton: {
+    marginBottom: spacing.xl,
+    borderColor: colors.black,
+    borderWidth: 1,
+    backgroundColor: "transparent",
+  },
+  contactsButtonText: {
+    color: colors.black,
+  },
   label: {
     fontFamily: "Roboto-Bold",
     fontSize: 18,
@@ -90,6 +285,105 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
   },
   buttonContainer: {
+    alignItems: "flex-end",
+  },
+  finishButton: {
+    width: 100,
+    height: 60,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: colors.black,
+    paddingTop: spacing.xxl * 2,
+  },
+  modalHeader: {
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+  },
+  modalTitle: {
+    ...typography.h1,
+    color: colors.white,
+    fontSize: 32,
+  },
+  modalCloseButton: {
+    padding: spacing.sm,
+  },
+  modalCloseText: {
+    ...typography.h2,
+    color: colors.white,
+  },
+  searchContainer: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+  },
+  searchInput: {
+    borderWidth: 1,
+    borderColor: colors.gray[700],
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    color: colors.white,
+    borderRadius: 8,
+  },
+  contactsList: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xxl,
+    gap: spacing.sm,
+  },
+  contactRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: spacing.md,
+    borderRadius: 12,
+    backgroundColor: colors.gray[900],
+  },
+  contactRowSelected: {
+    borderWidth: 1,
+    borderColor: colors.white,
+  },
+  contactName: {
+    ...typography.bodyBold,
+    color: colors.white,
+    fontSize: 16,
+  },
+  contactDetail: {
+    ...typography.body,
+    color: colors.gray[400],
+    marginTop: spacing.xs,
+  },
+  contactIndicator: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.gray[600],
+  },
+  contactIndicatorSelected: {
+    borderColor: colors.accent,
+    backgroundColor: colors.accent,
+  },
+  emptyContacts: {
+    padding: spacing.lg,
+    alignItems: "center",
+  },
+  emptyContactsText: {
+    ...typography.body,
+    color: colors.gray[400],
+  },
+  loadingState: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  loadingText: {
+    ...typography.body,
+    color: colors.white,
+  },
+  modalActions: {
+    padding: spacing.lg,
   },
 })

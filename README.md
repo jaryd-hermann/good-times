@@ -1,6 +1,6 @@
 # Good Times
 
-A private, nostalgic journaling app for families and friends living apart.
+A private, nostalgic journaling app for families and friends living apart. 
 
 ## Tech Stack
 

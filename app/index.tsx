@@ -3,8 +3,10 @@ import { useEffect, useState } from "react";
 import { View, ActivityIndicator, Text, Pressable } from "react-native";
 import { useRouter, Link } from "expo-router";
 import { supabase } from "../lib/supabase";
-// If you use a theme, keep it — otherwise hardcode colors:
+
 const colors = { black: "#000", accent: "#de2f08", white: "#fff" };
+
+type MaybeUser = { name?: string | null; birthday?: string | null } | null;
 
 export default function Index() {
   const router = useRouter();
@@ -16,63 +18,76 @@ export default function Index() {
 
     (async () => {
       try {
+        console.log("[boot] start");
+
+        // 1) session
         const { data: { session }, error: sessErr } = await supabase.auth.getSession();
-        if (sessErr) throw sessErr;
+        if (sessErr) throw new Error(`getSession: ${sessErr.message}`);
+        console.log("[boot] session:", !!session);
 
         if (!session) {
-          router.replace("/(onboarding)/welcome-1"); // <-- ensure this exists
+          console.log("[boot] no session → onboarding/welcome-1");
+          router.replace("/(onboarding)/welcome-1"); // make sure file exists
           return;
         }
 
-        // NOTE: do you actually have a "users" table?
-        // If not, either create one or skip this block.
-        const { data: user, error: userErr } = await supabase
+        // 2) user profile (if your table is 'users'; if it's 'profiles', change this)
+        let user: MaybeUser = null;
+        const { data: userData, error: userErr } = await supabase
           .from("users")
           .select("name, birthday")
           .eq("id", session.user.id)
-          .single();
+          .maybeSingle();
 
         if (userErr) {
-          console.log("users query error:", userErr);
-          // fallback to onboarding about if profile missing or table doesn’t exist
-          router.replace("/(onboarding)/about"); // <-- ensure this exists
+          console.log("[boot] users query error:", userErr.message);
+        } else {
+          user = userData as MaybeUser;
+        }
+        console.log("[boot] user:", user);
+
+        if (!user?.name || !user?.birthday) {
+          console.log("[boot] missing name/birthday → onboarding/welcome-1");
+          router.replace("/(onboarding)/welcome-1");
           return;
         }
 
-        if (user?.name && user?.birthday) {
-          const { data: membership, error: mErr } = await supabase
-            .from("group_members")
-            .select("group_id")
-            .eq("user_id", session.user.id)
-            .limit(1)
-            .maybeSingle(); // avoids throw if none found
+        // 3) group membership
+        const { data: membership, error: memErr } = await supabase
+          .from("group_members")
+          .select("group_id")
+          .eq("user_id", session.user.id)
+          .limit(1)
+          .maybeSingle();
 
-          if (mErr) {
-            console.log("group_members error:", mErr);
-            router.replace("/(onboarding)/create-group/name-type"); // ensure exists
-            return;
-          }
+        if (memErr) {
+          console.log("[boot] group_members error:", memErr.message);
+          console.log("[boot] → onboarding/create-group/name-type");
+          router.replace("/(onboarding)/create-group/name-type"); // make sure file exists
+          return;
+        }
 
-          if (membership?.group_id) {
-            router.replace("/(main)/home"); // ensure exists
-          } else {
-            router.replace("/(onboarding)/create-group/name-type");
-          }
+        if (membership?.group_id) {
+          console.log("[boot] has group → (main)/home");
+          router.replace("/(main)/home"); // make sure file exists
         } else {
-          router.replace("/(onboarding)/about");
+          console.log("[boot] no group → onboarding/create-group/name-type");
+          router.replace("/(onboarding)/create-group/name-type");
         }
       } catch (e: any) {
-        console.log("boot error:", e?.message || e);
-        setErr(String(e?.message || e));
+        const msg = e?.message || String(e);
+        console.log("[boot] error:", msg);
+        setErr(msg);
       } finally {
         if (!cancelled) setBooting(false);
       }
     })();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
-  // Visible fallback while redirects happen (or if something fails)
   return (
     <View style={{ flex: 1, backgroundColor: colors.black, justifyContent: "center", alignItems: "center", gap: 16 }}>
       {booting ? (
