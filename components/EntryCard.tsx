@@ -1,117 +1,219 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { View, Text, StyleSheet, Image, TouchableOpacity, TextInput } from "react-native"
+import { useEffect, useState, useRef } from "react"
+import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView } from "react-native"
 import { useRouter } from "expo-router"
+import { Audio } from "expo-av"
+import { parseISO, format } from "date-fns"
 import type { Entry } from "../lib/types"
 import { colors, typography, spacing } from "../lib/theme"
 import { Avatar } from "./Avatar"
 import { FilmFrame } from "./FilmFrame"
-import { formatTime } from "../lib/utils"
 import { FontAwesome } from "@expo/vector-icons"
 import { supabase } from "../lib/supabase"
-import { getCurrentUser } from "../lib/db"
+import { getComments } from "../lib/db"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 
 interface EntryCardProps {
   entry: Entry
+  entryIds?: string[]
+  index?: number
+  returnTo?: string
 }
 
-export function EntryCard({ entry }: EntryCardProps) {
+export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home" }: EntryCardProps) {
   const router = useRouter()
-  const [isCommenting, setIsCommenting] = useState(false)
-  const [commentDraft, setCommentDraft] = useState("")
-  const [currentUserAvatar, setCurrentUserAvatar] = useState<string | undefined>()
-  const [currentUserName, setCurrentUserName] = useState("You")
+  const queryClient = useQueryClient()
 
-  useEffect(() => {
-    async function loadProfile() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-      if (user) {
-        const profile = await getCurrentUser()
-        setCurrentUserAvatar(profile?.avatar_url || undefined)
-        setCurrentUserName(profile?.name || "You")
-      }
+  function handleEntryPress() {
+    const params: Record<string, string> = {
+      entryId: entry.id,
+      returnTo,
     }
-    loadProfile().catch(() => {
-      // optional profile load failure is non-blocking
-    })
-  }, [])
-
-  function handlePress() {
+    if (entryIds && entryIds.length > 0) {
+      params.entryIds = JSON.stringify(entryIds)
+      params.index = String(index)
+    }
     router.push({
       pathname: "/(main)/modals/entry-detail",
-      params: { entryId: entry.id },
+      params,
     })
   }
 
+  // Fetch comments for this entry (with user relation like history.tsx)
+  const { data: comments = [] } = useQuery({
+    queryKey: ["comments", entry.id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("comments")
+        .select("*, user:users(*)")
+        .eq("entry_id", entry.id)
+        .order("created_at", { ascending: true })
+      return data || []
+    },
+    enabled: !!entry.id,
+  })
+
   return (
-    <View>
-      <FilmFrame>
-        <TouchableOpacity onPress={handlePress}>
-          <View style={styles.header}>
-            <Avatar uri={entry.user?.avatar_url} name={entry.user?.name || "User"} size={40} />
-            <View style={styles.headerText}>
-              <Text style={styles.userName}>{entry.user?.name}</Text>
-              <Text style={styles.time}>{formatTime(entry.created_at)}</Text>
+    <View style={styles.entryWrapper}>
+      <View style={styles.filmFrameWrapper}>
+        <Image source={require("../assets/images/film-frame.png")} style={styles.filmFrameImage} />
+        <FilmFrame style={styles.entryCardInner} contentStyle={styles.entryContent}>
+          <TouchableOpacity onPress={handleEntryPress} activeOpacity={0.9} style={styles.touchableContent}>
+            <View style={styles.entryHeader}>
+              <View style={styles.entryAuthor}>
+                <Avatar uri={entry.user?.avatar_url} name={entry.user?.name || "User"} size={28} />
+                <Text style={styles.userName}>{entry.user?.name}</Text>
+              </View>
+              <Text style={styles.time}>{format(parseISO(entry.created_at), "h:mm a")}</Text>
             </View>
-          </View>
-
-          <Text style={styles.question}>{entry.prompt?.question}</Text>
-
-          {entry.text_content && <Text style={styles.text}>{entry.text_content}</Text>}
-
-          {entry.media_urls && entry.media_urls.length > 0 && (
+            <Text style={styles.question}>{entry.prompt?.question}</Text>
+            {entry.text_content && (
+              <View style={[
+                styles.textContainer,
+                (!entry.media_urls || entry.media_urls.length === 0) && styles.textContainerNoMedia
+              ]}>
+                <Text 
+                  style={styles.entryText} 
+                  numberOfLines={entry.media_urls && entry.media_urls.length > 0 ? 10 : undefined}
+                  ellipsizeMode={entry.media_urls && entry.media_urls.length > 0 ? "tail" : undefined}
+                >
+                  {entry.text_content}
+                </Text>
+                {/* Show fade 2 lines above media if media exists */}
+                {(entry.media_urls && entry.media_urls.length > 0) && entry.text_content && entry.text_content.length > 200 && (
+                  <View style={styles.textFadeAboveMedia} pointerEvents="none" />
+                )}
+                {/* Show fade at bottom if no media and text is long */}
+                {(!entry.media_urls || entry.media_urls.length === 0) && entry.text_content && entry.text_content.length > 200 && (
+                  <View style={styles.textFadeBottom} pointerEvents="none" />
+                )}
+              </View>
+            )}
             <View style={styles.mediaContainer}>
-              {entry.media_urls.slice(0, 2).map((url, index) => (
-                <Image key={index} source={{ uri: url }} style={styles.media} resizeMode="cover" />
-              ))}
+              {entry.media_urls && Array.isArray(entry.media_urls) && entry.media_urls.length > 0 && (
+                <ScrollView 
+                  horizontal 
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.mediaCarousel}
+                  contentContainerStyle={styles.mediaCarouselContent}
+                  nestedScrollEnabled={true}
+                >
+                  {entry.media_urls.map((url: string, idx: number) => {
+                    const mediaType = entry.media_types && Array.isArray(entry.media_types) 
+                      ? entry.media_types[idx] 
+                      : undefined
+                    
+                    if (mediaType === "audio") {
+                      return (
+                        <View key={`audio-${idx}-${url}`} style={styles.audioThumbnailSquare}>
+                          <FontAwesome name="play" size={20} color={colors.white} />
+                        </View>
+                      )
+                    }
+                    
+                    if (mediaType === "video") {
+                      return (
+                        <View key={`video-${idx}-${url}`} style={styles.videoThumbnailSquare}>
+                          <FontAwesome name="video-camera" size={20} color={colors.white} />
+                        </View>
+                      )
+                    }
+                    
+                    // Default to photo
+                    return (
+                      <Image
+                        key={`photo-${idx}-${url}`}
+                        source={{ uri: url }}
+                        style={styles.mediaThumbnail}
+                        resizeMode="cover"
+                      />
+                    )
+                  })}
+                </ScrollView>
+              )}
             </View>
+          </TouchableOpacity>
+        </FilmFrame>
+      </View>
+      {comments && comments.length > 0 && (
+        <TouchableOpacity 
+          style={styles.commentPreview}
+          onPress={() => {
+            handleEntryPress()
+          }}
+        >
+          {comments.slice(0, 2).map((comment) => (
+            <View key={comment.id} style={styles.commentPreviewItem}>
+              <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={16} />
+              <Text style={styles.commentPreviewUser}>{comment.user?.name}: </Text>
+              <Text style={styles.commentPreviewText} numberOfLines={1}>
+                {comment.text}
+              </Text>
+            </View>
+          ))}
+          {comments.length > 2 && (
+            <Text style={styles.commentPreviewMore}>
+              +{comments.length - 2} more
+            </Text>
           )}
         </TouchableOpacity>
-        {isCommenting && (
-          <View style={styles.inlineComment}>
-            <Avatar uri={currentUserAvatar} name={currentUserName} size={28} />
-            <TextInput
-              style={styles.commentInput}
-              value={commentDraft}
-              onChangeText={setCommentDraft}
-              placeholder="Write a comment…"
-              placeholderTextColor={colors.gray[500]}
-              multiline
-            />
-          </View>
-        )}
-      </FilmFrame>
-
-      {/* Reactions bar */}
-      <View style={styles.reactionsBar}>
-        <TouchableOpacity style={styles.reactionButton} onPress={() => setIsCommenting((prev) => !prev)}>
-          <FontAwesome name="comment-o" size={16} color={colors.black} />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.reactionButton}>
-          <FontAwesome name="heart-o" size={16} color={colors.black} />
-        </TouchableOpacity>
-      </View>
+      )}
     </View>
   )
 }
 
 const styles = StyleSheet.create({
-  header: {
+  entryWrapper: {
+    marginBottom: spacing.lg,
+    width: "100%",
+  },
+  filmFrameWrapper: {
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+    marginBottom: spacing.lg,
+  },
+  filmFrameImage: {
+    position: "absolute",
+    width: "133%", // Reduced by 2% from 135%
+    height: 501,
+    resizeMode: "contain",
+    zIndex: 1,
+    pointerEvents: "none",
+  },
+  entryCardInner: {
+    width: 399,
+    height: 485,
+  },
+  entryContent: {
+    padding: spacing.lg,
+    paddingBottom: 0, // Remove bottom padding so media touches bottom
+    gap: spacing.sm,
+    backgroundColor: "#0C0E1A",
+    flex: 1,
+    justifyContent: "space-between",
+  },
+  touchableContent: {
+    flex: 1,
+    justifyContent: "space-between",
+  },
+  entryHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: spacing.sm,
+  },
+  entryAuthor: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: spacing.md,
-  },
-  headerText: {
-    marginLeft: spacing.sm,
-    flex: 1,
+    gap: spacing.xs,
+    flexShrink: 1,
   },
   userName: {
     ...typography.bodyBold,
-    fontSize: 16,
-    flexShrink: 1,
+    fontSize: 14,
   },
   time: {
     ...typography.caption,
@@ -119,56 +221,115 @@ const styles = StyleSheet.create({
   },
   question: {
     ...typography.h3,
-    fontSize: 18,
+    fontSize: 16,
     marginBottom: spacing.sm,
-    flexShrink: 1,
   },
-  text: {
+  textContainer: {
+    position: "relative",
+    marginBottom: spacing.xl,
+    paddingBottom: spacing.lg,
+  },
+  textContainerNoMedia: {
+    flex: 1, // Allow text to fill available space when no media
+  },
+  entryText: {
     ...typography.body,
-    fontSize: 15,
-    lineHeight: 22,
-    marginBottom: spacing.md,
-    flexShrink: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.gray[300],
+  },
+  textFadeAboveMedia: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 40, // 2 lines worth of fade
+    backgroundColor: "#0C0E1A",
+    opacity: 0.9,
+  },
+  textFadeBottom: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 40, // 2 lines worth of fade
+    backgroundColor: "#0C0E1A",
+    opacity: 0.9,
   },
   mediaContainer: {
+    marginTop: "auto",
+    alignSelf: "stretch",
+    marginBottom: 0,
+    position: "relative",
+    marginLeft: -spacing.lg, // Negative margin to align with entryContent padding
+    marginRight: -spacing.lg,
+  },
+  mediaCarousel: {
+    width: "100%",
+  },
+  mediaCarouselContent: {
     flexDirection: "row",
-    gap: spacing.sm,
-    marginTop: spacing.md,
+    alignItems: "flex-start",
+    gap: 2, // Very little gap between items
+    paddingLeft: spacing.lg, // Start at left edge of entryContent
+    paddingBottom: 0, // No bottom padding - touch bottom of container
   },
-  media: {
-    flex: 1,
-    height: 200,
-    borderRadius: 4,
+  mediaThumbnail: {
+    width: 158, // Square thumbnail
+    height: 158, // Square thumbnail - same as width
+    backgroundColor: colors.gray[900],
+    marginRight: 0,
+    marginLeft: 0,
+    flexShrink: 0, // Prevent shrinking in ScrollView
+    overflow: "hidden", // Ensure images are cropped to square
   },
-  reactionsBar: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    gap: spacing.md,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-  },
-  reactionButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.white,
+  videoThumbnailSquare: {
+    width: 158, // Square thumbnail - same as other media
+    height: 158, // Square thumbnail - same as width
+    backgroundColor: colors.gray[800],
     justifyContent: "center",
     alignItems: "center",
+    marginRight: 0,
+    marginLeft: 0,
+    flexShrink: 0, // Prevent shrinking in ScrollView
   },
-  inlineComment: {
-    flexDirection: "row",
-    gap: spacing.sm,
-    alignItems: "flex-start",
-    marginTop: spacing.md,
+  audioThumbnailSquare: {
+    width: 158, // Square thumbnail - same as other media
+    height: 158, // Square thumbnail - same as width
+    backgroundColor: colors.gray[800],
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 0,
+    marginLeft: 0,
+    flexShrink: 0, // Prevent shrinking in ScrollView
   },
-  commentInput: {
-    flex: 1,
-    backgroundColor: colors.gray[900],
-    color: colors.white,
-    paddingVertical: spacing.sm,
+  commentPreview: {
+    marginTop: spacing.xs,
+    paddingTop: spacing.xs,
     paddingHorizontal: spacing.md,
-    borderRadius: 10,
-    fontSize: 13,
-    lineHeight: 18,
+    gap: spacing.xs,
+  },
+  commentPreviewItem: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  commentPreviewUser: {
+    ...typography.bodyMedium,
+    fontSize: 12,
+    color: colors.gray[300],
+  },
+  commentPreviewText: {
+    ...typography.body,
+    fontSize: 12,
+    color: colors.gray[400],
+    flex: 1,
+  },
+  commentPreviewMore: {
+    ...typography.caption,
+    fontSize: 11,
+    color: colors.gray[500],
+    marginTop: spacing.xs,
   },
 })

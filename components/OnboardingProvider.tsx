@@ -3,12 +3,19 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 
-interface OnboardingData {
+export interface MemorialData {
+  name: string
+  photo?: string
+}
+
+export interface OnboardingData {
   // Group data
   groupName?: string
   groupType?: "family" | "friends"
   
-  // Memorial data
+  // Memorial data - support multiple memorials
+  memorials?: MemorialData[]
+  // Legacy single memorial fields (for backward compatibility)
   memorialName?: string
   memorialPhoto?: string
   
@@ -28,6 +35,8 @@ interface OnboardingContextType {
   setGroupType: (type: "family" | "friends") => void
   setMemorialName: (name: string) => void
   setMemorialPhoto: (photo: string | undefined) => void
+  addMemorial: (memorial: MemorialData) => void
+  clearCurrentMemorial: () => void
   setUserName: (name: string) => void
   setUserBirthday: (birthday: Date) => void
   setUserPhoto: (photo: string | undefined) => void
@@ -95,6 +104,26 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     setData((prev) => ({ ...prev, memorialPhoto: photo }))
   }
 
+  const addMemorial = (memorial: MemorialData) => {
+    setData((prev) => {
+      const memorials = prev.memorials || []
+      return {
+        ...prev,
+        memorials: [...memorials, memorial],
+        memorialName: "", // Clear current memorial fields
+        memorialPhoto: undefined,
+      }
+    })
+  }
+
+  const clearCurrentMemorial = () => {
+    setData((prev) => ({
+      ...prev,
+      memorialName: "",
+      memorialPhoto: undefined,
+    }))
+  }
+
   const setUserName = (name: string) => {
     setData((prev) => ({ ...prev, userName: name }))
   }
@@ -124,6 +153,8 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         setGroupType,
         setMemorialName,
         setMemorialPhoto,
+        addMemorial,
+        clearCurrentMemorial,
         setUserName,
         setUserBirthday,
         setUserPhoto,

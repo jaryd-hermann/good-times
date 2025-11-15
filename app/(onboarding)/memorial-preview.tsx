@@ -1,26 +1,82 @@
 "use client"
 
-import { View, Text, StyleSheet, ImageBackground, Dimensions, TouchableOpacity } from "react-native"
-import { useRouter } from "expo-router"
+import { useState } from "react"
+import { Alert, Dimensions, ImageBackground, StyleSheet, Text, TouchableOpacity, View } from "react-native"
+import { useLocalSearchParams, useRouter } from "expo-router"
 import { colors, typography, spacing } from "../../lib/theme"
 import { Button } from "../../components/Button"
 import { OnboardingBack } from "../../components/OnboardingBack"
 import { useOnboarding } from "../../components/OnboardingProvider"
+import { createGroupFromOnboarding } from "../../lib/onboarding-actions"
 
 const { width, height } = Dimensions.get("window")
 
 export default function MemorialPreview() {
   const router = useRouter()
-  const { data } = useOnboarding()
+  const params = useLocalSearchParams()
+  const mode = params.mode as string | undefined
+  const { data, clear, addMemorial, clearCurrentMemorial } = useOnboarding()
+  const [creating, setCreating] = useState(false)
 
   const hasPhoto = !!(data.memorialPhoto && data.memorialPhoto.length > 0)
+
+  async function handleContinue() {
+    // Save current memorial before continuing (if not already saved)
+    if (data.memorialName && data.memorialName.trim()) {
+      const isAlreadySaved = data.memorials?.some(
+        (m) => m.name === data.memorialName && m.photo === data.memorialPhoto
+      )
+      if (!isAlreadySaved) {
+        addMemorial({
+          name: data.memorialName,
+          photo: data.memorialPhoto,
+        })
+      }
+    }
+
+    if (mode === "add") {
+      try {
+        setCreating(true)
+        const group = await createGroupFromOnboarding(data)
+        clear()
+        router.replace({
+          pathname: "/(onboarding)/create-group/invite",
+          params: { groupId: group.id, mode: "add" },
+        })
+      } catch (error: any) {
+        Alert.alert("Error", error.message ?? "We couldn't create that group just yet.")
+      } finally {
+        setCreating(false)
+      }
+      return
+    }
+
+    router.push("/(onboarding)/about")
+  }
 
   const card = (
     <>
       <View style={styles.topBar}>
         <OnboardingBack />
-        <TouchableOpacity onPress={() => router.push("/(onboarding)/memorial-input")}>
-          <Text style={styles.secondaryLink}>Remember someone else</Text>
+        <TouchableOpacity
+          disabled={creating}
+          onPress={() => {
+            // Save current memorial to the list before adding another
+            if (data.memorialName && data.memorialName.trim()) {
+              addMemorial({
+                name: data.memorialName,
+                photo: data.memorialPhoto,
+              })
+            } else {
+              clearCurrentMemorial()
+            }
+            router.push({
+              pathname: "/(onboarding)/memorial-input",
+              params: mode ? { mode } : undefined,
+            })
+          }}
+        >
+          <Text style={[styles.secondaryLink, creating && styles.secondaryLinkDisabled]}>Remember someone else</Text>
         </TouchableOpacity>
       </View>
       <View style={styles.content}>
@@ -29,14 +85,15 @@ export default function MemorialPreview() {
             {data.memorialName ? `Good Times, with ${data.memorialName}` : "Good Times"}
           </Text>
           <Text style={styles.body}>
-            Each week, you'll get a prompt to share a memory, story, or thought about {data.memorialName}. We'll add everyone's share to your private group story for you all to easily look back on.
+            Each week, you'll get a question to share a memory, story, or thought about {data.memorialName}. We'll add everyone's share to your group's history for you all to easily look back on.
           </Text>
           <View style={styles.buttonContainer}>
             <Button
               title="→"
-              onPress={() => router.push("/(onboarding)/about")}
+              onPress={handleContinue}
               style={styles.button}
               textStyle={styles.buttonText}
+              loading={creating}
             />
           </View>
         </View>
@@ -123,5 +180,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.white,
     textDecorationLine: "underline",
+  },
+  secondaryLinkDisabled: {
+    opacity: 0.5,
   },
 })

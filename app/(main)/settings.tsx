@@ -12,6 +12,8 @@ import {
   Switch,
   Platform,
   Modal,
+  Linking,
+  TextInput,
 } from "react-native"
 import { useRouter } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -19,11 +21,19 @@ import * as ImagePicker from "expo-image-picker"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker"
 import { format } from "date-fns"
+import * as FileSystem from "expo-file-system"
+import { decode } from "base64-arraybuffer"
 import { supabase } from "../../lib/supabase"
 import { getCurrentUser, updateUser, getUserGroups } from "../../lib/db"
 import { colors, spacing, typography } from "../../lib/theme"
-import { Input } from "../../components/Input"
 import { Button } from "../../components/Button"
+import {
+  isBiometricAvailable,
+  getBiometricType,
+  getBiometricPreference,
+  saveBiometricPreference,
+  authenticateWithBiometric,
+} from "../../lib/biometric"
 
 export default function SettingsScreen() {
   const router = useRouter()
@@ -39,6 +49,9 @@ export default function SettingsScreen() {
   const [dailyQuestionNotifications, setDailyQuestionNotifications] = useState(true)
   const [primaryGroupId, setPrimaryGroupId] = useState<string | undefined>()
   const [showBirthdayPicker, setShowBirthdayPicker] = useState(false)
+  const [biometricEnabled, setBiometricEnabled] = useState(false)
+  const [biometricAvailable, setBiometricAvailable] = useState(false)
+  const [biometricType, setBiometricType] = useState<"face" | "fingerprint" | "iris" | "none">("none")
 
   const { data: profile } = useQuery({
     queryKey: ["profile"],
@@ -70,6 +83,20 @@ export default function SettingsScreen() {
     loadGroups()
   }, [profile?.id])
 
+  useEffect(() => {
+    async function checkBiometric() {
+      const available = await isBiometricAvailable()
+      setBiometricAvailable(available)
+      if (available) {
+        const type = await getBiometricType()
+        setBiometricType(type)
+        const enabled = await getBiometricPreference()
+        setBiometricEnabled(enabled)
+      }
+    }
+    checkBiometric()
+  }, [])
+
   async function pickImage() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
     if (status !== "granted") {
@@ -90,16 +117,25 @@ export default function SettingsScreen() {
   }
 
   async function uploadAvatar(localUri: string, userId: string) {
-    const response = await fetch(localUri)
-    const blob = await response.blob()
+    // Read file as base64
+    const base64 = await FileSystem.readAsStringAsync(localUri, {
+      encoding: FileSystem.EncodingType.Base64,
+    })
+
+    if (!base64 || base64.length === 0) {
+      throw new Error("Failed to read image file")
+    }
+
     const fileExt = localUri.split(".").pop() ?? "jpg"
     const fileName = `${userId}-${Date.now()}.${fileExt}`
     const filePath = `${userId}/${fileName}`
 
-    const { error: uploadError } = await supabase.storage.from("avatars").upload(filePath, blob, {
+    const contentType = `image/${fileExt === "png" ? "png" : fileExt === "webp" ? "webp" : "jpeg"}`
+
+    const { error: uploadError } = await supabase.storage.from("avatars").upload(filePath, decode(base64), {
       cacheControl: "3600",
       upsert: true,
-      contentType: blob.type || `image/${fileExt}`,
+      contentType,
     })
 
     if (uploadError) throw uploadError
@@ -184,8 +220,39 @@ export default function SettingsScreen() {
     })
   }
 
+  async function handleBiometricToggle(value: boolean) {
+    if (value) {
+      // User wants to enable - authenticate first
+      const result = await authenticateWithBiometric("Enable FaceID to log in quickly")
+      if (result.success) {
+        try {
+          await saveBiometricPreference(true)
+          setBiometricEnabled(true)
+          Alert.alert("FaceID Enabled", "You can now use FaceID to log in quickly.")
+        } catch (error: any) {
+          Alert.alert("Error", error.message || "Failed to enable FaceID")
+        }
+      } else {
+        // User cancelled or failed - don't enable
+        Alert.alert("FaceID Not Enabled", result.error || "Authentication required to enable FaceID")
+      }
+    } else {
+      // User wants to disable
+      try {
+        await saveBiometricPreference(false)
+        setBiometricEnabled(false)
+        Alert.alert("FaceID Disabled", "You'll need to use your password to log in.")
+      } catch (error: any) {
+        Alert.alert("Error", error.message || "Failed to disable FaceID")
+      }
+    }
+  }
+
   async function handleSignOut() {
     try {
+      // Clear biometric credentials on sign out
+      const { clearBiometricCredentials } = await import("../../lib/biometric")
+      await clearBiometricCredentials()
       await supabase.auth.signOut()
       await queryClient.invalidateQueries()
       router.replace("/(onboarding)/welcome-1")
@@ -193,6 +260,13 @@ export default function SettingsScreen() {
       Alert.alert("Error", error.message)
     }
   }
+
+  function handleReportIssue() {
+    Linking.openURL("mailto:hermannjaryd@gmail.com").catch(() => {
+      Alert.alert("Email unavailable", "Unable to open your email client right now.")
+    })
+  }
+
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.md }]}>
@@ -204,7 +278,7 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.profileRow}>
+        <View style={styles.profileSection}>
           <TouchableOpacity onPress={pickImage} style={styles.avatarButton}>
             {avatarUri ? (
               <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
@@ -214,11 +288,32 @@ export default function SettingsScreen() {
               </View>
             )}
           </TouchableOpacity>
-          <View style={styles.nameField}>
-            <Input label="Name" value={name} onChangeText={setName} placeholder="Your name" />
-          </View>
+          <Text style={styles.avatarHint}>Tap to update</Text>
         </View>
-        <Input label="Email" value={email} onChangeText={setEmail} placeholder="you@email.com" keyboardType="email-address" />
+
+        <View style={styles.inlineFieldGroup}>
+          <Text style={styles.fieldLabel}>Name</Text>
+          <TextInput
+            value={name}
+            onChangeText={setName}
+            placeholder="Your name"
+            placeholderTextColor={colors.gray[500]}
+            style={styles.inlineInput}
+          />
+        </View>
+
+        <View style={styles.inlineFieldGroup}>
+          <Text style={styles.fieldLabel}>Email</Text>
+          <TextInput
+            value={email}
+            onChangeText={setEmail}
+            placeholder="you@email.com"
+            placeholderTextColor={colors.gray[500]}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            style={styles.inlineInput}
+          />
+        </View>
 
         <View style={styles.fieldGroup}>
           <Text style={styles.fieldLabel}>Birthday</Text>
@@ -253,14 +348,14 @@ export default function SettingsScreen() {
 
         <View style={styles.sectionCard}>
           <View style={styles.sectionRow}>
-            <View>
+            <View style={styles.sectionRowText}>
               <Text style={styles.sectionTitle}>Notifications</Text>
               <Text style={styles.sectionSubtitle}>Stay updated when your group shares.</Text>
             </View>
             <Switch value={notificationsEnabled} onValueChange={setNotificationsEnabled} trackColor={{ true: colors.accent }} />
           </View>
           <View style={styles.sectionRow}>
-            <View>
+            <View style={styles.sectionRowText}>
               <Text style={styles.sectionTitle}>Daily question</Text>
               <Text style={styles.sectionSubtitle}>Get reminder each day to share.</Text>
             </View>
@@ -270,12 +365,34 @@ export default function SettingsScreen() {
               trackColor={{ true: colors.accent }}
             />
           </View>
+          {biometricAvailable && (
+            <View style={styles.sectionRow}>
+              <View style={styles.sectionRowText}>
+                <Text style={styles.sectionTitle}>
+                  Enable {biometricType === "face" ? "FaceID" : biometricType === "fingerprint" ? "TouchID" : "Biometric"}
+                </Text>
+                <Text style={styles.sectionSubtitle}>Log in quickly with {biometricType === "face" ? "FaceID" : biometricType === "fingerprint" ? "TouchID" : "biometric authentication"}.</Text>
+              </View>
+              <Switch value={biometricEnabled} onValueChange={handleBiometricToggle} trackColor={{ true: colors.accent }} />
+            </View>
+          )}
         </View>
+
 
         <View style={styles.actions}>
           <Button title="Save changes" onPress={handleSave} loading={saving} />
           <Button title="Invite your group" onPress={handleInvite} variant="secondary" />
-          <Button title="Log out" onPress={handleSignOut} variant="ghost" textStyle={styles.signOutText} />
+          <Button
+            title="Report an Issue/Feedback"
+            onPress={handleReportIssue}
+            variant="ghost"
+            style={styles.reportButton}
+            textStyle={styles.reportButtonText}
+          />
+          <TouchableOpacity onPress={handleSignOut} style={styles.logoutLink}>
+            <Text style={styles.logoutText}>Log out</Text>
+          </TouchableOpacity>
+          <Text style={styles.memorialText}>Made in memory of our mom, Amelia. We do remember all the good times.</Text>
         </View>
       </ScrollView>
     </View>
@@ -328,13 +445,9 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 18,
   },
-  profileRow: {
-    flexDirection: "row",
-    gap: spacing.md,
+  profileSection: {
     alignItems: "center",
-  },
-  nameField: {
-    flex: 1,
+    gap: spacing.sm,
   },
   avatarButton: {
     width: 72,
@@ -363,7 +476,16 @@ const styles = StyleSheet.create({
   avatarHint: {
     ...typography.caption,
     color: colors.gray[500],
-    marginTop: spacing.sm,
+  },
+  inlineFieldGroup: {
+    gap: spacing.xs,
+  },
+  inlineInput: {
+    ...typography.body,
+    color: colors.white,
+    borderBottomWidth: 1,
+    borderColor: colors.gray[700],
+    paddingVertical: spacing.sm,
   },
   sectionCard: {
     backgroundColor: colors.gray[900],
@@ -376,6 +498,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     gap: spacing.md,
+  },
+  sectionRowText: {
+    flex: 1,
   },
   sectionTitle: {
     ...typography.bodyBold,
@@ -390,8 +515,29 @@ const styles = StyleSheet.create({
   actions: {
     gap: spacing.md,
   },
-  signOutText: {
+  reportButton: {
+    borderWidth: 1,
+    borderColor: colors.white,
+    backgroundColor: "transparent",
+  },
+  reportButtonText: {
+    color: colors.white,
+  },
+  logoutLink: {
+    alignSelf: "center",
+    paddingVertical: spacing.xs,
+  },
+  logoutText: {
+    ...typography.bodyMedium,
     color: colors.gray[300],
+  },
+  memorialText: {
+    ...typography.caption,
+    color: colors.gray[600],
+    textAlign: "center",
+    marginTop: spacing.md,
+    fontSize: 11,
+    fontStyle: "italic",
   },
   modalBackdrop: {
     flex: 1,

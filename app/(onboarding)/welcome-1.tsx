@@ -22,7 +22,7 @@ export default function Welcome1() {
         <View style={styles.textContainer}>
           <Text style={styles.title}>Good Times</Text>
           <Text style={styles.subtitle}>
-            Just you and your people keeping connected without the pressure, making a shared story.
+            Just you and your favorite people keeping connected, without the pressure, making a shared story.
           </Text>
         </View>
 

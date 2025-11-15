@@ -14,7 +14,7 @@ export default function Welcome3() {
 
   return (
     <ImageBackground
-      source={require("../../assets/images/onboarding2-bg.png")}
+      source={require("../../assets/images/welcome4-bg.png")}
       style={styles.container}
       resizeMode="cover"
     >
@@ -25,8 +25,8 @@ export default function Welcome3() {
         </View>
         <View style={styles.textContainer}>
           <Text style={styles.body}>
-            I made this for you if you have family and friends you don't always see. If you want to be in touch better
-            but calls and messages can be a lot. Good Times is the simple and meaningful way to keep connected without the pressure.
+            This is for you if you have family and friends you don't always get to see and speak with. If you want to be in touch better
+            but calls and messages can be a lot. Good Times is the simple and meaningful way to keep connected with the people you love andwant to be close to, without the pressure.
           </Text>
         </View>
 

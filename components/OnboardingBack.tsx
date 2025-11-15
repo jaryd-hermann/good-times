@@ -24,7 +24,7 @@ export function OnboardingBack({ color = colors.white }: OnboardingBackProps) {
 const styles = StyleSheet.create({
   button: {
     paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: 0, // Remove horizontal padding to align with page margin
   },
   text: {
     fontFamily: "Roboto-Regular",

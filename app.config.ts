@@ -23,6 +23,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       NSPhotoLibraryUsageDescription: "Good Times needs access to your photo library to select photos for your entries.",
       NSMicrophoneUsageDescription: "Good Times needs access to your microphone to record voice notes.",
       NSContactsUsageDescription: "Good Times uses your contacts so you can invite friends and family to your group.",
+      NSFaceIDUsageDescription: "Good Times uses FaceID to securely log you in quickly.",
     },
   },
   android: {
@@ -35,6 +36,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   plugins: [
     "expo-router",
+    "expo-local-authentication",
+    "expo-secure-store",
     [
       "expo-font",
       {

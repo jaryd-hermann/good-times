@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image } from "react-native"
-import { useRouter } from "expo-router"
+import { useRouter, useLocalSearchParams } from "expo-router"
 import * as ImagePicker from "expo-image-picker"
 import { colors, spacing } from "../../lib/theme"
 import { Input } from "../../components/Input"
@@ -12,9 +12,12 @@ import { useOnboarding } from "../../components/OnboardingProvider"
 
 export default function MemorialInput() {
   const router = useRouter()
+  const params = useLocalSearchParams()
+  const mode = params.mode as string | undefined
   const { setMemorialName, setMemorialPhoto, data } = useOnboarding()
-  const [name, setName] = useState(data.memorialName || "")
-  const [photoUri, setPhotoUri] = useState<string | undefined>(data.memorialPhoto)
+  // Don't pre-populate - start fresh for each new person
+  const [name, setName] = useState("")
+  const [photoUri, setPhotoUri] = useState<string | undefined>(undefined)
 
   async function pickImage() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
@@ -39,7 +42,10 @@ export default function MemorialInput() {
     }
     setMemorialName(name.trim())
     setMemorialPhoto(photoUri)
-    router.push("/(onboarding)/memorial-preview")
+    router.push({
+      pathname: "/(onboarding)/memorial-preview",
+      params: mode ? { mode } : undefined,
+    })
   }
 
   return (

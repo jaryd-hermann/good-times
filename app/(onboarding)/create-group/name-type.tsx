@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from "react-native"
-import { useRouter } from "expo-router"
+import { useRouter, useLocalSearchParams } from "expo-router"
 import { colors, spacing } from "../../../lib/theme"
 import { Input } from "../../../components/Input"
 import { Button } from "../../../components/Button"
@@ -11,6 +11,8 @@ import { useOnboarding } from "../../../components/OnboardingProvider"
 
 export default function CreateGroupNameType() {
   const router = useRouter()
+  const params = useLocalSearchParams()
+  const mode = params.mode as string | undefined
   const { setGroupName, setGroupType, data } = useOnboarding()
   const [groupName, setLocalGroupName] = useState(data.groupName || "")
   const [groupType, setLocalGroupType] = useState<"family" | "friends">(data.groupType || "family")
@@ -23,7 +25,10 @@ export default function CreateGroupNameType() {
 
     setGroupName(groupName.trim())
     setGroupType(groupType)
-    router.push("/(onboarding)/memorial")
+    router.push({
+      pathname: "/(onboarding)/memorial",
+      params: mode ? { mode } : undefined,
+    })
   }
 
   return (

@@ -1,15 +1,58 @@
 "use client"
 
-import { View, Text, StyleSheet, ImageBackground, Dimensions } from "react-native"
-import { useRouter } from "expo-router"
-import { colors, typography, spacing } from "../../lib/theme"
+import { useState } from "react"
+import { Alert, Dimensions, ImageBackground, StyleSheet, Text, View } from "react-native"
+import { useLocalSearchParams, useRouter } from "expo-router"
+import { colors, spacing, typography } from "../../lib/theme"
 import { Button } from "../../components/Button"
 import { OnboardingBack } from "../../components/OnboardingBack"
+import { useOnboarding } from "../../components/OnboardingProvider"
+import { createGroupFromOnboarding } from "../../lib/onboarding-actions"
 
 const { width, height } = Dimensions.get("window")
 
 export default function Memorial() {
   const router = useRouter()
+  const params = useLocalSearchParams()
+  const mode = params.mode as string | undefined
+  const { data, setMemorialName, setMemorialPhoto, clear } = useOnboarding()
+  const [creating, setCreating] = useState(false)
+
+  async function handleSkip() {
+    if (mode === "add") {
+      try {
+        setCreating(true)
+        setMemorialName("")
+        setMemorialPhoto(undefined)
+        const group = await createGroupFromOnboarding({
+          ...data,
+          memorialName: undefined,
+          memorialPhoto: undefined,
+        })
+        clear()
+        router.replace({
+          pathname: "/(onboarding)/create-group/invite",
+          params: { groupId: group.id, mode: "add" },
+        })
+      } catch (error: any) {
+        Alert.alert("Error", error.message ?? "We couldn't create that group just yet.")
+      } finally {
+        setCreating(false)
+      }
+      return
+    }
+
+    router.push("/(onboarding)/about")
+  }
+
+  function handleRemember() {
+    setMemorialName("")
+    setMemorialPhoto(undefined)
+    router.push({
+      pathname: "/(onboarding)/memorial-input",
+      params: mode ? { mode } : undefined,
+    })
+  }
 
   return (
     <ImageBackground
@@ -25,8 +68,8 @@ export default function Memorial() {
         <View style={styles.textContainer}>
           <Text style={styles.title}>Remembering them...</Text>
           <Text style={styles.body}>
-            My 4 siblings and I lost our mom last year. Moments where we're together and share stories, memories, and
-            old photos of her are everything to me.
+            My siblings and I lost our mom last year. Moments where we're together and share stories, memories, and
+           photos of her are everything.
           </Text>
           <Text style={styles.body}>
             I hope you haven't, but if your group has lost someone, do you want to add this to your story book?
@@ -36,14 +79,17 @@ export default function Memorial() {
         <View style={styles.buttonContainer}>
           <Button
             title="No"
-            onPress={() => router.push("/(onboarding)/about")}
+            onPress={handleSkip}
             variant="secondary"
             style={styles.buttonNo}
+            loading={creating}
+            disabled={creating}
           />
           <Button
             title="Yes"
-            onPress={() => router.push("/(onboarding)/memorial-input")}
+            onPress={handleRemember}
             style={styles.buttonYes}
+            disabled={creating}
           />
         </View>
       </View>
