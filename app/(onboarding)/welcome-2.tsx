@@ -26,7 +26,7 @@ export default function Welcome2() {
         <View style={styles.textContainer}>
           <Text style={styles.title}>I'm Jaryd</Text>
           <Text style={styles.body}>
-          I made Good Times because I love the feeling of flipping through a photo album, telling stories at the table, and watching old family videos.
+          I made Good Times because I love that feeling of flipping through a photo album, telling stories at the table, and watching old family videos. 
           </Text>
         </View>
 

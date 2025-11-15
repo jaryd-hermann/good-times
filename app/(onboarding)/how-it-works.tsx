@@ -6,19 +6,23 @@ import { colors, typography, spacing } from "../../lib/theme"
 import { Button } from "../../components/Button"
 import { OnboardingBack } from "../../components/OnboardingBack"
 import { OnboardingProgress } from "../../components/OnboardingProgress"
+import { useOnboarding } from "../../components/OnboardingProvider"
+import { supabase } from "../../lib/supabase"
+import AsyncStorage from "@react-native-async-storage/async-storage"
 
 const { width, height } = Dimensions.get("window")
 
 const STEPS = [
-  "Every day, your group gets a new question or prompt to answer. Something simple, meaningful, or fun.",
-  "Share your answer with text, photos, or voice notes. It takes just a minute or two.",
-  "Once you've shared, you can see what everyone else said. React, comment, and connect.",
-  "Over time, you build a shared story. A living record of your lives together.",
-  "Look back anytime to relive memories, see how you've grown, and feel close even when you're far apart.",
+  "Every day, your group gets a new question. Something simple, meaningful, or fun.",
+  "Answer with text, photos, video, or voice notes. It takes just a minute or two.",
+  "Enjoy everyones answers. Get closer and connect without the pressure.",
+  "Build your group's story. A living history of your lives together.",
+  "Flip through your history to relive memories and feel closer even when you're far apart.",
 ]
 
 export default function HowItWorks() {
   const router = useRouter()
+  const { data } = useOnboarding()
 
   return (
     <ImageBackground
@@ -48,7 +52,53 @@ export default function HowItWorks() {
             <View style={styles.buttonContainer}>
               <Button
                 title="→"
-                onPress={() => router.push("/(onboarding)/create-group/name-type")}
+                onPress={async () => {
+                  // Check for pending group join
+                  const pendingGroupId = await AsyncStorage.getItem("pending_group_join")
+                  if (pendingGroupId) {
+                    // Save user profile first if we have onboarding data
+                    const {
+                      data: { session },
+                    } = await supabase.auth.getSession()
+                    if (session) {
+                      // Save profile if we have onboarding data
+                      if (data.userName && data.userBirthday) {
+                        const birthday = data.userBirthday.toISOString().split("T")[0]
+                        const emailFromSession = data.userEmail ?? session.user.email
+                        if (emailFromSession) {
+                          await supabase
+                            .from("users")
+                            .upsert(
+                              {
+                                id: session.user.id,
+                                email: emailFromSession,
+                                name: data.userName.trim(),
+                                birthday,
+                                avatar_url: data.userPhoto,
+                              },
+                              { onConflict: "id" }
+                            )
+                        }
+                      }
+                      
+                      // Join the group and go to home
+                      const { error } = await supabase.from("group_members").insert({
+                        group_id: pendingGroupId,
+                        user_id: session.user.id,
+                        role: "member",
+                      })
+                      if (!error) {
+                        await AsyncStorage.removeItem("pending_group_join")
+                        router.replace({
+                          pathname: "/(main)/home",
+                          params: { focusGroupId: pendingGroupId },
+                        })
+                        return
+                      }
+                    }
+                  }
+                  router.push("/(onboarding)/create-group/name-type")
+                }}
                 style={styles.button}
                 textStyle={styles.buttonText}
               />

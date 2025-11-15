@@ -23,6 +23,7 @@ export default function Invite() {
   const router = useRouter()
   const params = useLocalSearchParams()
   const groupId = params.groupId as string
+  const mode = params.mode as string | undefined
 
   const [contactsModalVisible, setContactsModalVisible] = useState(false)
   const [contactsLoading, setContactsLoading] = useState(false)
@@ -33,9 +34,10 @@ export default function Invite() {
   async function handleShare() {
     try {
       const inviteLink = `goodtimes://join/${groupId}`
+      // Only provide url so native copy action copies just the URL
       await Share.share({
-        message: `Join my Good Times group! ${inviteLink}`,
         url: inviteLink,
+        message: inviteLink, // Set message to URL so copy action gets just the URL
         title: "Good Times Invite",
       })
     } catch (error: any) {
@@ -44,6 +46,13 @@ export default function Invite() {
   }
 
   function handleFinish() {
+    if (mode === "add") {
+      router.replace({
+        pathname: "/(main)/home",
+        params: { focusGroupId: groupId },
+      })
+      return
+    }
     router.replace("/(main)/home")
   }
 

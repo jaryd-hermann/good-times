@@ -1,6 +1,6 @@
 import type React from "react"
-import { View, StyleSheet, Image, type ViewStyle } from "react-native"
-import { colors } from "../lib/theme"
+import { View, StyleSheet, type ViewStyle } from "react-native"
+import { colors, spacing } from "../lib/theme"
 
 interface FilmFrameProps {
   children: React.ReactNode
@@ -11,7 +11,6 @@ interface FilmFrameProps {
 export function FilmFrame({ children, style, contentStyle }: FilmFrameProps) {
   return (
     <View style={[styles.container, style]}>
-      <Image source={require("../assets/images/film-frame.png")} style={styles.frame} resizeMode="stretch" />
       <View style={[styles.content, contentStyle]}>{children}</View>
     </View>
   )
@@ -19,22 +18,13 @@ export function FilmFrame({ children, style, contentStyle }: FilmFrameProps) {
 
 const styles = StyleSheet.create({
   container: {
-    position: "relative",
     width: "100%",
-  },
-  frame: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    width: "100%",
-    height: "100%",
+    backgroundColor: colors.gray[900],
+    borderWidth: 1,
+    borderColor: colors.gray[800],
+    overflow: "hidden",
   },
   content: {
-    backgroundColor: colors.filmInner,
-    margin: 18,
-    padding: 20,
-    minHeight: 200,
+    padding: spacing.lg,
   },
 })

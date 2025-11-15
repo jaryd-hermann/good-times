@@ -72,16 +72,86 @@ export async function getPromptsByCategory(category: string): Promise<Prompt[]> 
   return data || []
 }
 
+// Helper function to get day index (moved from home.tsx)
+function getDayIndex(dateString: string, groupId?: string): number {
+  const base = new Date(dateString)
+  const start = new Date("2020-01-01")
+  const diff = Math.floor((base.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
+  const groupOffset = groupId ? groupId.length : 0
+  return diff + groupOffset
+}
+
 export async function getDailyPrompt(groupId: string, date: string): Promise<DailyPrompt | null> {
-  const { data, error } = await supabase
+  // Check if prompt already assigned for this date
+  const { data: existing, error: existingError } = await supabase
     .from("daily_prompts")
     .select("*, prompt:prompts(*)")
     .eq("group_id", groupId)
     .eq("date", date)
     .single()
 
-  if (error && error.code !== "PGRST116") throw error
-  return data
+  if (existing && !existingError) {
+    return existing
+  }
+
+  // Get preferences
+  const preferences = await getQuestionCategoryPreferences(groupId)
+  const disabledCategories = new Set(preferences.filter((p) => p.preference === "none").map((p) => p.category))
+
+  // Get all prompts
+  const { data: allPromptsRaw, error: promptsError } = await supabase.from("prompts").select("*")
+
+  if (promptsError) throw promptsError
+  if (!allPromptsRaw || allPromptsRaw.length === 0) {
+    return null
+  }
+
+  // Filter out disabled categories
+  const allPrompts = disabledCategories.size > 0 
+    ? allPromptsRaw.filter((p) => !disabledCategories.has(p.category))
+    : allPromptsRaw
+
+  if (allPrompts.length === 0) {
+    return null
+  }
+
+  // Apply weighted selection based on preferences
+  const weightedPrompts: Array<{ prompt: Prompt; weight: number }> = allPrompts.map((prompt) => {
+    const pref = preferences.find((p) => p.category === prompt.category)
+    const weight = pref?.weight ?? 1.0
+    return { prompt, weight }
+  })
+
+  // Create selection pool with weighted prompts
+  const selectionPool: Prompt[] = []
+  weightedPrompts.forEach(({ prompt, weight }) => {
+    const count = Math.ceil(weight)
+    for (let i = 0; i < count; i++) {
+      selectionPool.push(prompt)
+    }
+  })
+
+  // Select prompt based on day index
+  const dayIndex = getDayIndex(date, groupId)
+  const selectedPrompt = selectionPool[dayIndex % selectionPool.length]
+
+  // Assign prompt if not already assigned
+  if (existingError && existingError.code === "PGRST116") {
+    const { data: dailyPrompt, error: insertError } = await supabase
+      .from("daily_prompts")
+      .insert({
+        group_id: groupId,
+        prompt_id: selectedPrompt.id,
+        date,
+      })
+      .select("*, prompt:prompts(*)")
+      .single()
+
+    if (insertError) throw insertError
+    return dailyPrompt
+  }
+
+  return existing || null
 }
 
 // Queue management functions
@@ -249,4 +319,144 @@ export async function createComment(entryId: string, userId: string, text: strin
 
   if (error) throw error
   return data
+}
+
+// Group Settings functions
+export async function isGroupAdmin(groupId: string, userId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("group_members")
+    .select("role")
+    .eq("group_id", groupId)
+    .eq("user_id", userId)
+    .single()
+
+  if (error) return false
+  return data?.role === "admin"
+}
+
+export async function updateGroupName(groupId: string, newName: string, userId: string): Promise<Group> {
+  // Verify admin status
+  const isAdmin = await isGroupAdmin(groupId, userId)
+  if (!isAdmin) {
+    throw new Error("Only admins can update group name")
+  }
+
+  const { data, error } = await supabase
+    .from("groups")
+    .update({ name: newName })
+    .eq("id", groupId)
+    .select()
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+export async function getQuestionCategoryPreferences(groupId: string) {
+  const { data, error } = await supabase
+    .from("question_category_preferences")
+    .select("*")
+    .eq("group_id", groupId)
+
+  if (error) throw error
+  return data || []
+}
+
+export async function updateQuestionCategoryPreference(
+  groupId: string,
+  category: string,
+  preference: "more" | "less" | "none",
+  userId: string
+) {
+  // Verify admin status
+  const isAdmin = await isGroupAdmin(groupId, userId)
+  if (!isAdmin) {
+    throw new Error("Only admins can update question preferences")
+  }
+
+  const weightMap: Record<string, number> = {
+    more: 1.5,
+    less: 0.5,
+    none: 0,
+  }
+
+  const { data, error } = await supabase
+    .from("question_category_preferences")
+    .upsert(
+      {
+        group_id: groupId,
+        category,
+        preference,
+        weight: weightMap[preference],
+        updated_at: new Date().toISOString(),
+      },
+      {
+        onConflict: "group_id,category",
+      }
+    )
+    .select()
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+export async function clearQuestionCategoryPreference(groupId: string, category: string, userId: string) {
+  // Verify admin status
+  const isAdmin = await isGroupAdmin(groupId, userId)
+  if (!isAdmin) {
+    throw new Error("Only admins can update question preferences")
+  }
+
+  const { error } = await supabase
+    .from("question_category_preferences")
+    .delete()
+    .eq("group_id", groupId)
+    .eq("category", category)
+
+  if (error) throw error
+}
+
+export async function removeGroupMember(groupId: string, memberId: string, adminUserId: string): Promise<void> {
+  // Verify admin status
+  const isAdmin = await isGroupAdmin(groupId, adminUserId)
+  if (!isAdmin) {
+    throw new Error("Only admins can remove members")
+  }
+
+  // Prevent removing yourself
+  if (memberId === adminUserId) {
+    throw new Error("Cannot remove yourself from the group")
+  }
+
+  const { error } = await supabase
+    .from("group_members")
+    .delete()
+    .eq("group_id", groupId)
+    .eq("user_id", memberId)
+
+  if (error) throw error
+}
+
+export async function leaveGroup(groupId: string, userId: string): Promise<void> {
+  // Check if user is the last admin
+  const { data: admins, error: adminError } = await supabase
+    .from("group_members")
+    .select("user_id")
+    .eq("group_id", groupId)
+    .eq("role", "admin")
+
+  if (adminError) throw adminError
+
+  if (admins?.length === 1 && admins[0].user_id === userId) {
+    throw new Error("Cannot leave group as the last admin. Please transfer admin or delete the group.")
+  }
+
+  const { error } = await supabase
+    .from("group_members")
+    .delete()
+    .eq("group_id", groupId)
+    .eq("user_id", userId)
+
+  if (error) throw error
 }

@@ -1,19 +1,24 @@
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs"
 import { Tabs } from "expo-router"
-import { colors } from "../../lib/theme"
+import { colors, spacing } from "../../lib/theme"
 import { View, StyleSheet, TouchableOpacity, Text } from "react-native"
 import { FontAwesome } from "@expo/vector-icons"
 
 function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
   const currentRoute = state.routes[state.index]
-  if (currentRoute.name.startsWith("modals/") || currentRoute.name === "settings") {
+  if (
+    currentRoute.name.startsWith("modals/") ||
+    currentRoute.name === "settings" ||
+    currentRoute.name.startsWith("group-settings")
+  ) {
     return null
   }
 
   const visibleRoutes = state.routes.filter((route) => route.name === "home" || route.name === "history")
 
   return (
-    <View style={styles.tabBar}>
+    <View style={styles.tabWrapper}>
+      <View style={styles.tabContainer}>
       {visibleRoutes.map((route) => {
         const isFocused = state.index === state.routes.indexOf(route)
         const label = route.name === "home" ? "Today" : "History"
@@ -32,19 +37,18 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
 
         return (
           <TouchableOpacity key={route.key} onPress={onPress} style={styles.tabButton} activeOpacity={0.8}>
-            <View style={[styles.tabPill, isFocused && styles.tabPillActive]}>
-              <View style={styles.tabContent}>
-                <FontAwesome
-                  name={route.name === "home" ? "plus" : "history"}
-                  size={16}
-                  color={isFocused ? colors.black : colors.gray[400]}
-                />
-                <Text style={[styles.tabLabel, isFocused && styles.tabLabelActive]}>{label}</Text>
-              </View>
+            <View style={[styles.navItem, isFocused && styles.navItemActive]}>
+              <FontAwesome
+                name={route.name === "home" ? "heart" : "history"}
+                size={20}
+                color={isFocused ? colors.white : "#848282"}
+              />
+              <Text style={[styles.navLabel, isFocused && styles.navLabelActive]}>{label}</Text>
             </View>
           </TouchableOpacity>
         )
       })}
+      </View>
     </View>
   )
 }
@@ -84,41 +88,56 @@ export default function MainLayout() {
 }
 
 const styles = StyleSheet.create({
-  tabBar: {
+  tabWrapper: {
     position: "absolute",
     bottom: 24,
     left: 0,
     right: 0,
-    paddingHorizontal: 16,
+    alignItems: "center",
+  },
+  tabContainer: {
     flexDirection: "row",
+    backgroundColor: "#282626",
+    borderRadius: 38,
+    width: 194,
+    height: 66,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
+    borderWidth: 0.1,
+    borderColor: colors.white,
+    alignItems: "center",
     justifyContent: "center",
-    gap: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
   },
   tabButton: {
     flex: 1,
-    maxWidth: 140,
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
   },
-  tabPill: {
-    backgroundColor: "rgba(255,255,255,0.1)",
-    borderRadius: 999,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-  },
-  tabContent: {
-    flexDirection: "row",
+  navItem: {
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: 38,
+    height: "100%",
+    width: "100%",
   },
-  tabPillActive: {
-    backgroundColor: colors.white,
-  },
-  tabLabel: {
-    color: colors.gray[400],
+  navLabel: {
+    color: "#848282",
     fontFamily: "Roboto-Medium",
-    fontSize: 14,
+    fontSize: 12,
   },
-  tabLabelActive: {
-    color: colors.black,
+  navLabelActive: {
+    color: colors.white,
+  },
+  navItemActive: {
+    backgroundColor: "#8A8484",
   },
 })

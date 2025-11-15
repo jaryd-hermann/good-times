@@ -45,11 +45,16 @@ Press `i` to open in iOS Simulator.
 ## Supabase Setup
 
 1. Create a new Supabase project
-2. Run the migrations in `supabase/migrations/`
+2. Run the migrations in `supabase/migrations/` (in order: 001, 002, 003)
 3. Import `prompts_seed_us.csv` into the `prompts` table
 4. Enable Auth providers (Email, Google, Apple)
-5. Create storage bucket `entries-media` with private access
-6. Set up RLS policies for all tables
+5. **Create storage bucket `entries-media`**:
+   - Go to Storage in Supabase Dashboard
+   - Click "New bucket"
+   - Name: `entries-media`
+   - **Check "Public bucket"** (required for media URLs to work)
+   - Click "Create bucket"
+6. Run migration `003_create_storage_bucket.sql` to set up RLS policies for storage
 
 ## Project Structure
 

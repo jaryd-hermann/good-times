@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import {
   View,
   Text,
@@ -12,10 +12,13 @@ import {
   Alert,
   Dimensions,
   Modal,
+  Animated,
 } from "react-native"
-import { useRouter } from "expo-router"
+import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useCallback } from "react"
 import { supabase } from "../../lib/supabase"
+import AsyncStorage from "@react-native-async-storage/async-storage"
 import {
   getUserGroups,
   getGroupMembers,
@@ -32,6 +35,8 @@ import { FilmFrame } from "../../components/FilmFrame"
 import { Button } from "../../components/Button"
 import { EntryCard } from "../../components/EntryCard"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
+import { FontAwesome } from "@expo/vector-icons"
+import { registerForPushNotifications, savePushToken } from "../../lib/notifications"
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 
@@ -45,6 +50,8 @@ function getDayIndex(dateString: string, groupId?: string) {
 
 export default function Home() {
   const router = useRouter()
+  const params = useLocalSearchParams()
+  const focusGroupId = params.focusGroupId as string | undefined
   const queryClient = useQueryClient()
   const [selectedDate, setSelectedDate] = useState(getTodayDate())
   const [currentGroupId, setCurrentGroupId] = useState<string>()
@@ -54,10 +61,43 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false)
   const insets = useSafeAreaInsets()
   const [groupPickerVisible, setGroupPickerVisible] = useState(false)
+  const scrollY = useRef(new Animated.Value(0)).current
+  const headerTranslateY = useRef(new Animated.Value(0)).current
+  const contentPaddingTop = useRef(new Animated.Value(0)).current
+  const lastScrollY = useRef(0)
 
   useEffect(() => {
     loadUser()
   }, [])
+
+  // Reload user profile when screen comes into focus (e.g., returning from settings)
+  useFocusEffect(
+    useCallback(() => {
+      loadUser()
+    }, [])
+  )
+
+  // Request push notification permission on first visit to home
+  useEffect(() => {
+    async function requestNotificationsOnFirstVisit() {
+      const hasRequestedNotifications = await AsyncStorage.getItem("has_requested_notifications")
+      if (!hasRequestedNotifications && userId) {
+        try {
+          const token = await registerForPushNotifications()
+          if (token) {
+            await savePushToken(userId, token)
+            console.log("[home] push notifications registered")
+          }
+          await AsyncStorage.setItem("has_requested_notifications", "true")
+        } catch (error) {
+          console.warn("[home] failed to register push notifications:", error)
+          // Still mark as requested so we don't keep asking
+          await AsyncStorage.setItem("has_requested_notifications", "true")
+        }
+      }
+    }
+    requestNotificationsOnFirstVisit()
+  }, [userId])
 
   async function loadUser() {
     const {
@@ -73,7 +113,8 @@ export default function Home() {
       // Get user's first group
       const groups = await getUserGroups(user.id)
       if (groups.length > 0) {
-        setCurrentGroupId(groups[0].id)
+        const initial = focusGroupId && groups.some((group) => group.id === focusGroupId) ? focusGroupId : groups[0].id
+        setCurrentGroupId(initial)
       }
     }
   }
@@ -82,6 +123,59 @@ export default function Home() {
     queryKey: ["groups", userId],
     queryFn: () => (userId ? getUserGroups(userId) : []),
     enabled: !!userId,
+  })
+
+  useEffect(() => {
+    if (focusGroupId && focusGroupId !== currentGroupId && groups.some((group) => group.id === focusGroupId)) {
+      setCurrentGroupId(focusGroupId)
+    }
+  }, [focusGroupId, groups, currentGroupId])
+
+  // Check for unseen updates in each group
+  const { data: groupUnseenStatus = {} } = useQuery({
+    queryKey: ["groupUnseenStatus", groups.map((g) => g.id).join(","), userId],
+    queryFn: async () => {
+      if (groups.length === 0 || !userId) return {}
+      const status: Record<string, boolean> = {}
+      for (const group of groups) {
+        if (group.id === currentGroupId) {
+          status[group.id] = false // Current group is always "seen"
+          continue
+        }
+        // Get last visit time
+        const lastVisitStr = await AsyncStorage.getItem(`group_visited_${group.id}`)
+        const lastVisit = lastVisitStr ? new Date(lastVisitStr) : null
+
+        // Check for new entries by others since last visit
+        const { data: recentEntries } = await supabase
+          .from("entries")
+          .select("created_at")
+          .eq("group_id", group.id)
+          .neq("user_id", userId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        // Check for new daily prompts since last visit
+        const { data: recentPrompt } = await supabase
+          .from("daily_prompts")
+          .select("created_at")
+          .eq("group_id", group.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        const latestActivity = recentEntries?.created_at || recentPrompt?.created_at
+        if (latestActivity) {
+          const latestActivityDate = new Date(latestActivity)
+          status[group.id] = !lastVisit || latestActivityDate > lastVisit
+        } else {
+          status[group.id] = false
+        }
+      }
+      return status
+    },
+    enabled: groups.length > 0 && !!userId,
   })
 
   const { data: allPrompts = [] } = useQuery({
@@ -116,6 +210,7 @@ export default function Home() {
   const weekDates = getWeekDates()
   const currentGroup = groups.find((g) => g.id === currentGroupId)
   const otherEntries = entries.filter((entry) => entry.user_id !== userId)
+  const entryIdList = entries.map((item) => item.id)
   const basePrompt = dailyPrompt?.prompt ?? entries[0]?.prompt
 
   const fallbackPrompt =
@@ -136,9 +231,10 @@ export default function Home() {
     if (!currentGroupId) return
     try {
       const inviteLink = `goodtimes://join/${currentGroupId}`
+      // Set message to URL so copy action copies just the URL
       await Share.share({
-        message: `Join my Good Times group! ${inviteLink}`,
         url: inviteLink,
+        message: inviteLink,
       })
     } catch (error: any) {
       Alert.alert("Error", error.message)
@@ -159,22 +255,88 @@ export default function Home() {
     })
   }
 
-  function handleSelectGroup(groupId: string) {
+  async function handleSelectGroup(groupId: string) {
     if (groupId !== currentGroupId) {
       setCurrentGroupId(groupId)
       setSelectedDate(getTodayDate())
+      // Mark group as visited
+      await AsyncStorage.setItem(`group_visited_${groupId}`, new Date().toISOString())
     }
     setGroupPickerVisible(false)
   }
 
+  // Mark current group as visited when component mounts or group changes
+  useEffect(() => {
+    if (currentGroupId) {
+      AsyncStorage.setItem(`group_visited_${currentGroupId}`, new Date().toISOString())
+    }
+  }, [currentGroupId])
+
   function handleCreateGroupSoon() {
-    Alert.alert("Coming soon", "Creating a new group from here is on the way.")
+    setGroupPickerVisible(false)
+    router.push("/(onboarding)/start-new-group")
   }
+
+  // Calculate full header height including day scroller
+  const headerHeight = useMemo(() => {
+    return insets.top + spacing.xl + spacing.md + 36 + spacing.md + 32 + spacing.md + 48 + spacing.md + spacing.sm + 48 + spacing.md
+  }, [insets.top])
+
+  useEffect(() => {
+    contentPaddingTop.setValue(headerHeight)
+  }, [headerHeight])
+
+  const handleScroll = Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+    useNativeDriver: false, // Need false for paddingTop animation
+    listener: (event: any) => {
+      const currentScrollY = event.nativeEvent.contentOffset.y
+      const scrollDiff = currentScrollY - lastScrollY.current
+      lastScrollY.current = currentScrollY
+
+      if (scrollDiff > 5 && currentScrollY > 50) {
+        // Scrolling down - hide header and reduce padding
+        Animated.parallel([
+          Animated.timing(headerTranslateY, {
+            toValue: -(headerHeight + 100), // Hide entire header including day scroller
+            duration: 300,
+            useNativeDriver: true,
+          }),
+          Animated.timing(contentPaddingTop, {
+            toValue: spacing.md, // Minimal padding when header hidden
+            duration: 300,
+            useNativeDriver: false,
+          }),
+        ]).start()
+      } else if (scrollDiff < -5) {
+        // Scrolling up - show header and restore padding
+        Animated.parallel([
+          Animated.timing(headerTranslateY, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+          Animated.timing(contentPaddingTop, {
+            toValue: headerHeight,
+            duration: 300,
+            useNativeDriver: false,
+          }),
+        ]).start()
+      }
+    },
+  })
 
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + spacing.xl }]}>
+      <Animated.View
+        style={[
+          styles.header,
+          { paddingTop: insets.top + spacing.xl },
+          {
+            transform: [{ translateY: headerTranslateY }],
+          },
+        ]}
+      >
         <View style={styles.headerTop}>
           <TouchableOpacity style={styles.groupSelector} onPress={() => setGroupPickerVisible(true)}>
             <Text style={styles.groupName}>{currentGroup?.name || "Loading..."}</Text>
@@ -217,13 +379,20 @@ export default function Home() {
             )
           })}
         </ScrollView>
-      </View>
+      </Animated.View>
 
       {/* Content */}
-      <ScrollView
+      <Animated.ScrollView
         style={styles.content}
-        contentContainerStyle={styles.contentContainer}
+        contentContainerStyle={[
+          styles.contentContainer,
+          {
+            paddingTop: contentPaddingTop,
+          },
+        ]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.white} />}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
       >
         {otherEntries.length === 0 && !userEntry && (
           <View style={styles.notice}>
@@ -257,12 +426,18 @@ export default function Home() {
           </View>
         ) : userEntry ? (
           <View style={styles.entriesContainer}>
-            {entries.map((entry) => (
-              <EntryCard key={entry.id} entry={entry} />
+            {entries.map((entry, entryIndex) => (
+              <EntryCard
+                key={entry.id}
+                entry={entry}
+                entryIds={entryIdList}
+                index={entryIndex}
+                returnTo="/(main)/home"
+              />
             ))}
           </View>
         ) : null}
-      </ScrollView>
+      </Animated.ScrollView>
 
       <Modal visible={groupPickerVisible} transparent animationType="fade" onRequestClose={() => setGroupPickerVisible(false)}>
         <TouchableOpacity style={styles.groupModalBackdrop} activeOpacity={1} onPress={() => setGroupPickerVisible(false)}>
@@ -270,16 +445,35 @@ export default function Home() {
             <Text style={styles.groupModalTitle}>Switch group</Text>
             <ScrollView contentContainerStyle={styles.groupList}>
               {groups.map((group) => (
-                <TouchableOpacity
-                  key={group.id}
-                  style={[
-                    styles.groupRow,
-                    group.id === currentGroupId && styles.groupRowActive,
-                  ]}
-                  onPress={() => handleSelectGroup(group.id)}
-                >
-                  <Text style={styles.groupRowText}>{group.name}</Text>
-                </TouchableOpacity>
+                <View key={group.id} style={styles.groupRowContainer}>
+                  <TouchableOpacity
+                    style={[
+                      styles.groupRow,
+                      group.id === currentGroupId && styles.groupRowActive,
+                      styles.groupRowFlex,
+                    ]}
+                    onPress={() => handleSelectGroup(group.id)}
+                  >
+                    <View style={styles.groupRowContent}>
+                      <Text style={styles.groupRowText}>{group.name}</Text>
+                      {groupUnseenStatus[group.id] && (
+                        <View style={styles.unseenDot} />
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.groupSettingsButton}
+                    onPress={() => {
+                      setGroupPickerVisible(false)
+                      router.push({
+                        pathname: "/(main)/group-settings",
+                        params: { groupId: group.id },
+                      })
+                    }}
+                  >
+                    <FontAwesome name="cog" size={16} color={colors.gray[400]} />
+                  </TouchableOpacity>
+                </View>
               ))}
             </ScrollView>
             <TouchableOpacity style={styles.createGroupButton} onPress={handleCreateGroupSoon}>
@@ -303,6 +497,12 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.gray[800],
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.black,
+    zIndex: 10,
   },
   headerTop: {
     flexDirection: "row",
@@ -387,6 +587,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+    // No marginTop - header will overlay content when visible
   },
   contentContainer: {
     paddingTop: spacing.md,
@@ -394,12 +595,14 @@ const styles = StyleSheet.create({
   },
   promptCard: {
     marginBottom: spacing.lg,
-    width: SCREEN_WIDTH,
+    width: 399,
     alignSelf: "center",
+    backgroundColor: "#0C0E1A",
   },
   promptInner: {
     margin: spacing.md,
     padding: spacing.lg,
+    backgroundColor: "#0C0E1A",
   },
   promptQuestion: {
     ...typography.h3,
@@ -456,20 +659,51 @@ const styles = StyleSheet.create({
   groupList: {
     gap: spacing.sm,
   },
+  groupRowContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  groupRowFlex: {
+    flex: 1,
+  },
   groupRow: {
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.sm,
     borderRadius: 12,
     backgroundColor: colors.gray[900],
+    flex: 1,
   },
   groupRowActive: {
     borderWidth: 1,
     borderColor: colors.white,
   },
+  groupRowContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flex: 1,
+  },
+  groupSettingsButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.gray[900],
+    justifyContent: "center",
+    alignItems: "center",
+  },
   groupRowText: {
     ...typography.bodyBold,
     color: colors.white,
     fontSize: 18,
+    flex: 1,
+  },
+  unseenDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.accent,
+    marginLeft: spacing.sm,
   },
   createGroupButton: {
     paddingVertical: spacing.md,

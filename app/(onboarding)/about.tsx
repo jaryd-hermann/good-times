@@ -22,6 +22,9 @@ import { Button } from "../../components/Button"
 import { Avatar } from "../../components/Avatar"
 import { OnboardingBack } from "../../components/OnboardingBack"
 import { useOnboarding } from "../../components/OnboardingProvider"
+import AsyncStorage from "@react-native-async-storage/async-storage"
+
+const PENDING_GROUP_KEY = "pending_group_join"
 
 export default function About() {
   const router = useRouter()
@@ -69,7 +72,7 @@ export default function About() {
     }
   }
 
-  function handleContinue() {
+  async function handleContinue() {
     if (!name.trim()) {
       Alert.alert("Error", "Please enter your name")
       return
@@ -79,7 +82,16 @@ export default function About() {
     setUserName(name.trim())
     setUserBirthday(birthday)
     setUserPhoto(photoUri)
-    router.push("/(onboarding)/auth")
+    
+    // Check if we're in a group join flow
+    const pendingGroupId = await AsyncStorage.getItem(PENDING_GROUP_KEY)
+    if (pendingGroupId) {
+      // In group join flow - go to auth, then how-it-works
+      router.push("/(onboarding)/auth")
+    } else {
+      // Normal onboarding - go to auth
+      router.push("/(onboarding)/auth")
+    }
     setLoading(false)
   }
 
@@ -103,7 +115,7 @@ export default function About() {
         </View>
 
         <View style={styles.form}>
-          <Text style={styles.prompt}>What name should your group see?</Text>
+          <Text style={styles.prompt}>What does your group call you?</Text>
           <Input
             value={name}
             onChangeText={setName}
@@ -114,7 +126,7 @@ export default function About() {
           />
 
           <View style={styles.dateSection}>
-            <Text style={styles.label}>When is your birthday? We'll make sure that day is special for you here.</Text>
+            <Text style={styles.label}>When is your birthday? We'll make sure it's a good day for you here.</Text>
             <TouchableOpacity onPress={openDatePicker} style={styles.dateButton}>
               <Text style={styles.dateText}>
                 {birthday.getDate()} {birthday.toLocaleString("default", { month: "short" })} {birthday.getFullYear()}

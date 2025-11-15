@@ -1,11 +1,20 @@
 "use client"
 
-import { useMemo, useState, useEffect } from "react"
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Modal } from "react-native"
-import { useRouter } from "expo-router"
+import { useMemo, useState, useEffect, useRef } from "react"
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Modal, ImageBackground, Animated, Dimensions } from "react-native"
+import { useRouter, useLocalSearchParams } from "expo-router"
 import { useQuery } from "@tanstack/react-query"
 import { supabase } from "../../lib/supabase"
-import { format } from "date-fns"
+import {
+  format,
+  parseISO,
+  startOfWeek,
+  endOfWeek,
+  startOfMonth,
+  endOfMonth,
+  startOfYear,
+  endOfYear,
+} from "date-fns"
 import { colors, typography, spacing } from "../../lib/theme"
 import { FilmFrame } from "../../components/FilmFrame"
 import { truncateText } from "../../lib/utils"
@@ -14,11 +23,122 @@ import { Avatar } from "../../components/Avatar"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { Button } from "../../components/Button"
 import { getTodayDate } from "../../lib/utils"
+import { FontAwesome } from "@expo/vector-icons"
 
 type ViewMode = "Days" | "Weeks" | "Months" | "Years"
+type PeriodMode = Exclude<ViewMode, "Days">
+
+interface PeriodSummary {
+  key: string
+  start: string
+  end: string
+  title: string
+  subtitle: string
+  count: number
+  image?: string
+}
+
+interface ActivePeriod {
+  mode: PeriodMode
+  start: string
+  end: string
+  title: string
+  subtitle: string
+}
+
+function getFirstMediaImage(entry: any): string | undefined {
+  if (!entry?.media_urls || entry.media_urls.length === 0) {
+    return undefined
+  }
+
+  if (entry.media_types && Array.isArray(entry.media_types)) {
+    const photoIndex = entry.media_types.findIndex((type: string) => type === "photo")
+    if (photoIndex >= 0 && entry.media_urls[photoIndex]) {
+      return entry.media_urls[photoIndex]
+    }
+  }
+
+  return entry.media_urls[0]
+}
+
+function buildPeriodSummaries(entries: any[], mode: PeriodMode): PeriodSummary[] {
+  const groups = new Map<
+    string,
+    {
+      start: Date
+      end: Date
+      entries: any[]
+      image?: string
+    }
+  >()
+
+  entries.forEach((entry) => {
+    if (!entry?.date) return
+    const entryDate = parseISO(entry.date)
+    if (Number.isNaN(entryDate.getTime())) return
+
+    let start: Date
+    let end: Date
+
+    if (mode === "Weeks") {
+      start = startOfWeek(entryDate, { weekStartsOn: 0 })
+      end = endOfWeek(entryDate, { weekStartsOn: 0 })
+    } else if (mode === "Months") {
+      start = startOfMonth(entryDate)
+      end = endOfMonth(entryDate)
+    } else {
+      start = startOfYear(entryDate)
+      end = endOfYear(entryDate)
+    }
+
+    const key = start.toISOString()
+    const existing = groups.get(key) ?? { start, end, entries: [], image: undefined }
+    existing.entries.push(entry)
+
+    if (!existing.image) {
+      const image = getFirstMediaImage(entry)
+      if (image) {
+        existing.image = image
+      }
+    }
+
+    groups.set(key, existing)
+  })
+
+  const ordered = Array.from(groups.values()).sort((a, b) => b.start.getTime() - a.start.getTime())
+
+  return ordered.map((group, index) => {
+    const order = ordered.length - index
+    let title: string
+    let subtitle: string
+
+    if (mode === "Weeks") {
+      title = format(group.start, "d-MMMM yyyy")
+      subtitle = `Week ${order} of your history`
+    } else if (mode === "Months") {
+      title = format(group.start, "MMMM yyyy")
+      subtitle = `Month ${order} of your history`
+    } else {
+      title = format(group.start, "yyyy")
+      subtitle = `Year ${order} of your history`
+    }
+
+    return {
+      key: `${mode}-${group.start.toISOString()}`,
+      start: group.start.toISOString(),
+      end: group.end.toISOString(),
+      title,
+      subtitle,
+      count: group.entries.length,
+      image: group.image,
+    }
+  })
+}
 
 export default function History() {
   const router = useRouter()
+  const params = useLocalSearchParams()
+  const focusGroupId = params.focusGroupId as string | undefined
   const [viewMode, setViewMode] = useState<ViewMode>("Days")
   const [showFilter, setShowFilter] = useState(false)
   const [showFilterModal, setShowFilterModal] = useState(false)
@@ -26,11 +146,26 @@ export default function History() {
   const [selectedMembers, setSelectedMembers] = useState<string[]>([])
   const [currentGroupId, setCurrentGroupId] = useState<string>()
   const [userId, setUserId] = useState<string>()
+  const [activePeriod, setActivePeriod] = useState<ActivePeriod | null>(null)
   const insets = useSafeAreaInsets()
+  const scrollY = useRef(new Animated.Value(0)).current
+  const headerTranslateY = useRef(new Animated.Value(0)).current
+  const contentPaddingTop = useRef(new Animated.Value(0)).current
+  const lastScrollY = useRef(0)
 
   useEffect(() => {
     loadUserAndGroup()
   }, [])
+
+  useEffect(() => {
+    if (focusGroupId && focusGroupId !== currentGroupId) {
+      setCurrentGroupId(focusGroupId)
+      // Reset filters when switching groups
+      setActivePeriod(null)
+      setSelectedCategories([])
+      setSelectedMembers([])
+    }
+  }, [focusGroupId, currentGroupId])
 
   async function loadUserAndGroup() {
     const {
@@ -38,32 +173,52 @@ export default function History() {
     } = await supabase.auth.getUser()
     if (user) {
       setUserId(user.id)
-      const { data: membership } = await supabase
+      // Get all user's groups and use the first one (or focusGroupId if provided)
+      const { data: memberships } = await supabase
         .from("group_members")
         .select("group_id")
         .eq("user_id", user.id)
-        .limit(1)
-        .single()
-      if (membership) {
-        setCurrentGroupId(membership.group_id)
+        .order("joined_at", { ascending: false })
+      
+      if (memberships && memberships.length > 0) {
+        const initial = focusGroupId && memberships.some((m) => m.group_id === focusGroupId) 
+          ? focusGroupId 
+          : memberships[0].group_id
+        setCurrentGroupId(initial)
       }
     }
   }
 
-  const { data: entries = [] } = useQuery({
+  const { data: entries = [], isLoading: entriesLoading } = useQuery({
     queryKey: ["historyEntries", currentGroupId],
     queryFn: async (): Promise<any[]> => {
       if (!currentGroupId) return []
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("entries")
         .select("*, user:users(*), prompt:prompts(*)")
         .eq("group_id", currentGroupId)
         .order("date", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(50)
+      if (error) {
+        console.error("[history] entries query error:", error)
+        return []
+      }
       return data || []
     },
     enabled: !!currentGroupId,
+    staleTime: 0, // Always fetch fresh data when group changes
+    gcTime: 1000 * 60 * 60, // Keep in cache for 1 hour
+    placeholderData: (previousData, query) => {
+      // Only use previous data if it's for the same group
+      if (query && query.queryKey && query.queryKey[1]) {
+        const previousGroupId = query.queryKey[1] as string | undefined
+        if (previousGroupId === currentGroupId && previousData) {
+          return previousData
+        }
+      }
+      return undefined
+    },
   })
 
   const { data: members = [] } = useQuery({
@@ -90,16 +245,40 @@ export default function History() {
     enabled: !!currentGroupId,
   })
 
-  function handleEntryPress(entryId: string) {
+  function handleEntryPress(entryId: string, context?: { entryIds?: string[]; index?: number; scrollToComments?: boolean }) {
+    const params: Record<string, string> = {
+      entryId,
+      returnTo: "/(main)/history",
+    }
+    if (context?.entryIds) {
+      params.entryIds = JSON.stringify(context.entryIds)
+    }
+    if (typeof context?.index === "number") {
+      params.index = String(context.index)
+    }
     router.push({
       pathname: "/(main)/modals/entry-detail",
-      params: { entryId },
+      params,
     })
   }
 
+  const entriesWithinPeriod = useMemo(() => {
+    if (!activePeriod) {
+      return entries
+    }
+    const start = parseISO(activePeriod.start)
+    const end = parseISO(activePeriod.end)
+    return entries.filter((entry) => {
+      if (!entry?.date) return false
+      const entryDate = parseISO(entry.date)
+      if (Number.isNaN(entryDate.getTime())) return false
+      return entryDate >= start && entryDate <= end
+    })
+  }, [entries, activePeriod])
+
   const filteredEntries = useMemo(
     () =>
-      entries.filter((entry) => {
+      entriesWithinPeriod.filter((entry) => {
         const category = entry.prompt?.category ?? ""
 
         if (selectedCategories.length > 0 && (!category || !selectedCategories.includes(category))) {
@@ -110,14 +289,50 @@ export default function History() {
         }
         return true
       }),
-    [entries, selectedCategories, selectedMembers],
+    [entriesWithinPeriod, selectedCategories, selectedMembers],
   )
+
+  // Fetch comments for all entries to show previews
+  const entryIdsString = useMemo(() => {
+    return filteredEntries.map((e) => e.id).join(",")
+  }, [filteredEntries])
+
+  const { data: allComments = [] } = useQuery({
+    queryKey: ["historyComments", entryIdsString],
+    queryFn: async () => {
+      if (filteredEntries.length === 0) return []
+      const entryIds = filteredEntries.map((e) => e.id)
+      const { data } = await supabase
+        .from("comments")
+        .select("*, user:users(*), entry_id")
+        .in("entry_id", entryIds)
+        .order("created_at", { ascending: true })
+      return data || []
+    },
+    enabled: filteredEntries.length > 0 && entryIdsString.length > 0,
+  })
+
+  // Group comments by entry_id
+  const commentsByEntry = useMemo(() => {
+    const grouped: Record<string, typeof allComments> = {}
+    allComments.forEach((comment) => {
+      if (!grouped[comment.entry_id]) {
+        grouped[comment.entry_id] = []
+      }
+      grouped[comment.entry_id].push(comment)
+    })
+    return grouped
+  }, [allComments])
+
+  const weekSummaries = useMemo(() => buildPeriodSummaries(entries, "Weeks"), [entries])
+  const monthSummaries = useMemo(() => buildPeriodSummaries(entries, "Months"), [entries])
+  const yearSummaries = useMemo(() => buildPeriodSummaries(entries, "Years"), [entries])
 
   function handleAnswerToday() {
     if (todayPrompt?.prompt_id) {
       router.push({
         pathname: "/(main)/modals/entry-composer",
-        params: { promptId: todayPrompt.prompt_id, date: getTodayDate() },
+        params: { promptId: todayPrompt.prompt_id, date: getTodayDate(), returnTo: "/(main)/history" },
       })
     } else {
       router.push("/(main)/home")
@@ -135,6 +350,66 @@ export default function History() {
     })
   }
 
+  function handlePeriodSelect(mode: PeriodMode, period: PeriodSummary) {
+    setActivePeriod({
+      mode,
+      start: period.start,
+      end: period.end,
+      title: period.title,
+      subtitle: period.subtitle,
+    })
+    setViewMode("Days")
+    setShowFilter(false)
+  }
+
+  function renderPeriodGrid(periods: PeriodSummary[], mode: PeriodMode) {
+    if (periods.length === 0) {
+      return (
+        <View style={styles.placeholderContainer}>
+          <Text style={styles.placeholderText}>No {mode.toLowerCase()} captured yet</Text>
+        </View>
+      )
+    }
+
+    return (
+      <View style={styles.periodGrid}>
+        {periods.map((period) => {
+          const textContent = (
+            <View style={styles.periodOverlay}>
+              <Text style={styles.periodTitle}>{period.title}</Text>
+              <Text style={styles.periodSubtitle}>{period.subtitle}</Text>
+              <Text style={styles.periodCount}>
+                {period.count} {period.count === 1 ? "entry" : "entries"}
+              </Text>
+            </View>
+          )
+
+          return (
+            <TouchableOpacity
+              key={period.key}
+              style={styles.periodCard}
+              onPress={() => handlePeriodSelect(mode, period)}
+              activeOpacity={0.85}
+            >
+              {period.image ? (
+                <ImageBackground
+                  source={{ uri: period.image }}
+                  style={styles.periodBackground}
+                  imageStyle={styles.periodImage}
+                >
+                  <View style={styles.periodShade} />
+                  {textContent}
+                </ImageBackground>
+              ) : (
+                <View style={[styles.periodBackground, styles.periodFallback]}>{textContent}</View>
+              )}
+            </TouchableOpacity>
+          )
+        })}
+      </View>
+    )
+  }
+
   // Group entries by date for Days view
   const entriesByDate = filteredEntries.reduce(
     (acc, entry) => {
@@ -145,42 +420,116 @@ export default function History() {
       acc[date].push(entry)
       return acc
     },
-    {} as Record<string, typeof entries>,
+    {} as Record<string, any[]>,
   )
+
+  useEffect(() => {
+    // Calculate header height and set initial padding
+    const headerHeight = spacing.xxl * 2 + spacing.md + 40 + spacing.md
+    contentPaddingTop.setValue(headerHeight)
+  }, [])
+
+  const handleScroll = Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+    useNativeDriver: false, // Need false for paddingTop animation
+    listener: (event: any) => {
+      const currentScrollY = event.nativeEvent.contentOffset.y
+      const scrollDiff = currentScrollY - lastScrollY.current
+      lastScrollY.current = currentScrollY
+
+      // Calculate header height
+      const headerHeight = spacing.xxl * 2 + spacing.md + 40 + spacing.md
+
+      if (scrollDiff > 5 && currentScrollY > 50) {
+        // Scrolling down - hide header and reduce padding
+        Animated.parallel([
+          Animated.timing(headerTranslateY, {
+            toValue: -200,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+          Animated.timing(contentPaddingTop, {
+            toValue: spacing.md, // Minimal padding when header hidden
+            duration: 300,
+            useNativeDriver: false,
+          }),
+        ]).start()
+      } else if (scrollDiff < -5) {
+        // Scrolling up - show header and restore padding
+        Animated.parallel([
+          Animated.timing(headerTranslateY, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+          Animated.timing(contentPaddingTop, {
+            toValue: headerHeight,
+            duration: 300,
+            useNativeDriver: false,
+          }),
+        ]).start()
+      }
+    },
+  })
 
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <Animated.View
+        style={[
+          styles.header,
+          {
+            transform: [{ translateY: headerTranslateY }],
+          },
+        ]}
+      >
         <View style={styles.headerTop}>
           <Text style={styles.title}>History</Text>
           <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.filterButton} onPress={() => setShowFilter((prev) => !prev)}>
-              <Text style={styles.filterText}>{viewMode}</Text>
-              <Text style={styles.filterChevron}>▼</Text>
-            </TouchableOpacity>
+            <View style={styles.filterButtonWrapper}>
+              <TouchableOpacity style={styles.filterButton} onPress={() => setShowFilter((prev) => !prev)}>
+                <Text style={styles.filterText}>{viewMode}</Text>
+                <Text style={styles.filterChevron}>▼</Text>
+              </TouchableOpacity>
+              {showFilter && (
+                <View style={styles.filterMenu}>
+                  {(["Days", "Weeks", "Months", "Years"] as ViewMode[]).map((mode) => (
+                    <TouchableOpacity
+                      key={mode}
+                      style={styles.filterOption}
+                      onPress={() => {
+                        if (mode !== "Days") {
+                          setActivePeriod(null)
+                        }
+                        setViewMode(mode)
+                        setShowFilter(false)
+                      }}
+                    >
+                      <Text style={[styles.filterOptionText, viewMode === mode && styles.filterOptionTextActive]}>
+                        {mode}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
             <TouchableOpacity style={styles.filterCTA} onPress={() => setShowFilterModal(true)}>
-              <Text style={styles.filterCTAText}>Filters</Text>
+              <FontAwesome name="sliders" size={16} color={colors.white} />
             </TouchableOpacity>
           </View>
         </View>
-        {showFilter && (
-          <View style={styles.filterMenu}>
-            {(["Days", "Weeks", "Months", "Years"] as ViewMode[]).map((mode) => (
-              <TouchableOpacity
-                key={mode}
-                style={styles.filterOption}
-                onPress={() => {
-                  setViewMode(mode)
-                  setShowFilter(false)
-                }}
-              >
-                <Text style={[styles.filterOptionText, viewMode === mode && styles.filterOptionTextActive]}>{mode}</Text>
-              </TouchableOpacity>
-            ))}
+      </Animated.View>
+
+      {activePeriod && (
+        <View style={styles.periodBanner}>
+          <View>
+            <Text style={styles.periodBannerTitle}>{activePeriod.title}</Text>
+            <Text style={styles.periodBannerSubtitle}>{activePeriod.subtitle}</Text>
           </View>
-        )}
-      </View>
+          <TouchableOpacity onPress={() => setActivePeriod(null)} style={styles.periodBannerAction}>
+            <Text style={styles.periodBannerClear}>Clear</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       <Modal
         animationType="slide"
@@ -244,8 +593,22 @@ export default function History() {
       </Modal>
 
       {/* Content */}
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
-        {filteredEntries.length === 0 ? (
+      <Animated.ScrollView
+        style={styles.content}
+        contentContainerStyle={[
+          styles.contentContainer,
+          {
+            paddingTop: contentPaddingTop,
+          },
+        ]}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+      >
+        {entriesLoading ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>Loading...</Text>
+          </View>
+        ) : filteredEntries.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyTitle}>No history yet.</Text>
             <Text style={styles.emptySubtitle}>
@@ -256,50 +619,142 @@ export default function History() {
           </View>
         ) : viewMode === "Days" ? (
           <>
-            {Object.entries(entriesByDate).map(([date, dateEntries]) => (
+            {Object.entries(entriesByDate).map(([date, dateEntries]) => {
+              const entries = dateEntries as any[]
+              return (
               <View key={date} style={styles.daySection}>
-                <Text style={styles.dateHeader}>{format(new Date(date), "EEEE, d MMMM yyyy")}</Text>
-                {dateEntries.map((entry) => (
-                  <TouchableOpacity key={entry.id} onPress={() => handleEntryPress(entry.id)}>
-                    <FilmFrame style={styles.entryCard}>
-                      <View style={styles.entryHeader}>
-                        <Text style={styles.userName}>{entry.user?.name}</Text>
-                        <Text style={styles.time}>{format(new Date(entry.created_at), "h:mm a")}</Text>
-                      </View>
-                      <Text style={styles.question}>{entry.prompt?.question}</Text>
-                      {entry.text_content && (
-                        <Text style={styles.entryText}>{truncateText(entry.text_content, 150)}</Text>
-                      )}
-                      {entry.media_urls && entry.media_urls.length > 0 && (
-                        <View style={styles.mediaPreview}>
-                          <Image source={{ uri: entry.media_urls[0] }} style={styles.mediaThumbnail} />
-                          {entry.media_urls.length > 1 && (
-                            <View style={styles.mediaCount}>
-                              <Text style={styles.mediaCountText}>+{entry.media_urls.length - 1}</Text>
+                <Text style={styles.dateHeader}>{format(parseISO(date), "EEEE, d MMMM yyyy")}</Text>
+                {entries.map((entry: any, entryIndex: number) => {
+                  const entryIdList = entries.map((item: any) => item.id)
+                  return (
+                    <TouchableOpacity
+                      key={entry.id}
+                      onPress={() =>
+                        handleEntryPress(entry.id, {
+                          entryIds: entryIdList,
+                          index: entryIndex,
+                        })
+                      }
+                    >
+                    <View style={styles.entryWrapper}>
+                      <View style={styles.filmFrameWrapper}>
+                        <Image source={require("../../assets/images/film-frame.png")} style={styles.filmFrameImage} />
+                        <FilmFrame style={styles.entryCardInner} contentStyle={styles.entryContent}>
+                          <View style={styles.entryHeader}>
+                            <View style={styles.entryAuthor}>
+                              <Avatar uri={entry.user?.avatar_url} name={entry.user?.name || "User"} size={28} />
+                              <Text style={styles.userName}>{entry.user?.name}</Text>
+                            </View>
+                            <Text style={styles.time}>{format(parseISO(entry.created_at), "h:mm a")}</Text>
+                          </View>
+                          <Text style={styles.question}>{entry.prompt?.question}</Text>
+                          {entry.text_content && (
+                            <View style={styles.textContainer}>
+                              <Text 
+                                style={styles.entryText} 
+                                numberOfLines={entry.media_urls && entry.media_urls.length > 0 ? 10 : undefined}
+                                ellipsizeMode={entry.media_urls && entry.media_urls.length > 0 ? "tail" : undefined}
+                              >
+                                {entry.text_content}
+                              </Text>
+                              {/* Show fade 2 lines above media if media exists */}
+                              {(entry.media_urls && entry.media_urls.length > 0) && entry.text_content && entry.text_content.length > 200 && (
+                                <View style={styles.textFadeAboveMedia} pointerEvents="none" />
+                              )}
+                              {/* Show fade at bottom if no media and text is long */}
+                              {(!entry.media_urls || entry.media_urls.length === 0) && entry.text_content && entry.text_content.length > 200 && (
+                                <View style={styles.textFadeBottom} pointerEvents="none" />
+                              )}
                             </View>
                           )}
-                        </View>
+                          <View style={styles.mediaContainer}>
+                            {entry.media_urls && Array.isArray(entry.media_urls) && entry.media_urls.length > 0 && (
+                              <ScrollView 
+                                horizontal 
+                                showsHorizontalScrollIndicator={false}
+                                style={styles.mediaCarousel}
+                                contentContainerStyle={styles.mediaCarouselContent}
+                                nestedScrollEnabled={true}
+                              >
+                                {entry.media_urls.map((url: string, idx: number) => {
+                                  const mediaType = entry.media_types && Array.isArray(entry.media_types) 
+                                    ? entry.media_types[idx] 
+                                    : undefined
+                                  
+                                  if (mediaType === "audio") {
+                                    return (
+                                      <View key={`audio-${idx}-${url}`} style={styles.audioThumbnailSquare}>
+                                        <FontAwesome name="play" size={20} color={colors.white} />
+                                      </View>
+                                    )
+                                  }
+                                  
+                                  if (mediaType === "video") {
+                                    return (
+                                      <View key={`video-${idx}-${url}`} style={styles.videoThumbnailSquare}>
+                                        <FontAwesome name="video-camera" size={20} color={colors.white} />
+                                      </View>
+                                    )
+                                  }
+                                  
+                                  // Default to photo
+                                  return (
+                                    <Image
+                                      key={`photo-${idx}-${url}`}
+                                      source={{ uri: url }}
+                                      style={styles.mediaThumbnail}
+                                      resizeMode="cover"
+                                    />
+                                  )
+                                })}
+                              </ScrollView>
+                            )}
+                          </View>
+                        </FilmFrame>
+                      </View>
+                      {commentsByEntry[entry.id] && commentsByEntry[entry.id].length > 0 && (
+                        <TouchableOpacity 
+                          style={styles.commentPreview}
+                          onPress={() => {
+                            handleEntryPress(entry.id, {
+                              entryIds: entryIdList,
+                              index: entryIndex,
+                              scrollToComments: true,
+                            })
+                          }}
+                        >
+                          {commentsByEntry[entry.id].slice(0, 2).map((comment) => (
+                            <View key={comment.id} style={styles.commentPreviewItem}>
+                              <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={16} />
+                              <Text style={styles.commentPreviewUser}>{comment.user?.name}: </Text>
+                              <Text style={styles.commentPreviewText} numberOfLines={1}>
+                                {comment.text}
+                              </Text>
+                            </View>
+                          ))}
+                          {commentsByEntry[entry.id].length > 2 && (
+                            <Text style={styles.commentPreviewMore}>
+                              +{commentsByEntry[entry.id].length - 2} more
+                            </Text>
+                          )}
+                        </TouchableOpacity>
                       )}
-                    </FilmFrame>
-                  </TouchableOpacity>
-                ))}
+                    </View>
+                    </TouchableOpacity>
+                  )
+                })}
               </View>
-            ))}
+              )
+            })}
           </>
         ) : viewMode === "Weeks" ? (
-          <View style={styles.placeholderContainer}>
-            <Text style={styles.placeholderText}>Weeks view coming soon</Text>
-          </View>
+          renderPeriodGrid(weekSummaries, "Weeks")
         ) : viewMode === "Months" ? (
-          <View style={styles.placeholderContainer}>
-            <Text style={styles.placeholderText}>Months view coming soon</Text>
-          </View>
+          renderPeriodGrid(monthSummaries, "Months")
         ) : (
-          <View style={styles.placeholderContainer}>
-            <Text style={styles.placeholderText}>Years view coming soon</Text>
-          </View>
+          renderPeriodGrid(yearSummaries, "Years")
         )}
-      </ScrollView>
+      </Animated.ScrollView>
     </View>
   )
 }
@@ -315,8 +770,15 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.gray[800],
-    position: "relative",
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.black,
     gap: spacing.sm,
+    zIndex: 20,
+    elevation: 20,
+    overflow: "visible",
   },
   headerTop: {
     flexDirection: "row",
@@ -342,6 +804,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: colors.gray[800],
   },
+  filterButtonWrapper: {
+    position: "relative",
+  },
   filterText: {
     ...typography.bodyMedium,
     color: colors.white,
@@ -351,10 +816,14 @@ const styles = StyleSheet.create({
     color: colors.gray[400],
   },
   filterCTA: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
     borderRadius: 16,
-    backgroundColor: colors.white,
+    backgroundColor: colors.gray[800],
+    minHeight: 40,
   },
   filterCTAText: {
     ...typography.bodyBold,
@@ -362,14 +831,17 @@ const styles = StyleSheet.create({
   },
   filterMenu: {
     position: "absolute",
-    top: spacing.xxl * 2 + spacing.md,
-    left: spacing.md,
+    top: "100%",
+    right: 0,
     backgroundColor: colors.gray[900],
     borderRadius: 12,
     paddingVertical: spacing.xs,
     borderWidth: 1,
     borderColor: colors.gray[700],
     width: 140,
+    zIndex: 1000,
+    elevation: 12,
+    marginTop: spacing.xs,
   },
   filterOption: {
     paddingVertical: spacing.sm,
@@ -384,9 +856,10 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+    // No marginTop - header overlays content
   },
   contentContainer: {
-    paddingTop: spacing.md,
+    paddingBottom: spacing.xxl * 3,
   },
   daySection: {
     marginBottom: spacing.xl,
@@ -395,18 +868,140 @@ const styles = StyleSheet.create({
   dateHeader: {
     ...typography.h3,
     fontSize: 18,
-    marginBottom: spacing.md,
+    marginBottom: spacing.xl,
     color: colors.gray[300],
   },
   entryCard: {
-    marginBottom: spacing.md,
-    marginHorizontal: 0,
+    marginBottom: spacing.lg,
+    width: "100%",
+    alignItems: "center",
+  },
+  entryWrapper: {
+    marginBottom: spacing.lg,
+    width: "100%",
+  },
+  entryCardInner: {
+    width: 399,
+    height: 485,
+  },
+  entryContent: {
+    padding: spacing.lg,
+    paddingBottom: 0, // Remove bottom padding so media touches bottom
+    gap: spacing.sm,
+    backgroundColor: "#0C0E1A",
+    flex: 1,
+    justifyContent: "space-between",
+  },
+  textContainer: {
+    position: "relative",
+    marginBottom: spacing.xl,
+    paddingBottom: spacing.lg,
+  },
+  textContainerNoMedia: {
+    flex: 1, // Allow text to fill available space when no media
+  },
+  textFadeAboveMedia: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 40, // 2 lines worth of fade
+    backgroundColor: "#0C0E1A",
+    opacity: 0.9,
+  },
+  textFadeBottom: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 40, // 2 lines worth of fade
+    backgroundColor: "#0C0E1A",
+    opacity: 0.9,
+  },
+  mediaContainer: {
+    marginTop: "auto",
+    alignSelf: "stretch",
+    marginBottom: 0,
+    position: "relative",
+    marginLeft: -spacing.lg, // Negative margin to align with entryContent padding
+    marginRight: -spacing.lg,
+  },
+  mediaCarousel: {
+    width: "100%",
+  },
+  mediaCarouselContent: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 2, // Very little gap between items
+    paddingLeft: spacing.lg, // Start at left edge of entryContent
+    paddingBottom: 0, // No bottom padding - touch bottom of container
+  },
+  audioThumbnail: {
+    backgroundColor: colors.gray[900],
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  audioThumbnailLabel: {
+    ...typography.caption,
+    color: colors.white,
+    fontSize: 12,
+    flex: 1,
+  },
+  audioThumbnailSquare: {
+    width: 158, // Square thumbnail - same as other media
+    height: 158, // Square thumbnail - same as width
+    backgroundColor: colors.gray[800],
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 0,
+    marginLeft: 0,
+    flexShrink: 0, // Prevent shrinking in ScrollView
+  },
+  commentPreview: {
+    marginTop: spacing.xs,
+    paddingTop: spacing.xs,
+    paddingHorizontal: spacing.md,
+    gap: spacing.xs,
+  },
+  commentPreviewItem: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  commentPreviewUser: {
+    ...typography.bodyMedium,
+    fontSize: 12,
+    color: colors.gray[300],
+  },
+  commentPreviewText: {
+    ...typography.body,
+    fontSize: 12,
+    color: colors.gray[400],
+    flex: 1,
+  },
+  commentPreviewMore: {
+    ...typography.caption,
+    fontSize: 11,
+    color: colors.gray[500],
+    marginTop: spacing.xs,
   },
   entryHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: spacing.sm,
+  },
+  entryAuthor: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    flexShrink: 1,
   },
   userName: {
     ...typography.bodyBold,
@@ -427,26 +1022,48 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: colors.gray[300],
   },
-  mediaPreview: {
-    marginTop: spacing.md,
+  filmFrameWrapper: {
     position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+    marginBottom: spacing.lg,
+  },
+  filmFrameImage: {
+    position: "absolute",
+    width: "135%",
+    height: 501,
+    resizeMode: "contain",
+    zIndex: 1,
+    pointerEvents: "none",
   },
   mediaThumbnail: {
-    width: "100%",
-    height: 150,
-    borderRadius: 4,
+    width: 158, // Square thumbnail
+    height: 158, // Square thumbnail - same as width
+    backgroundColor: colors.gray[900],
+    marginRight: 0,
+    marginLeft: 0,
+    flexShrink: 0, // Prevent shrinking in ScrollView
+    overflow: "hidden", // Ensure images are cropped to square
   },
-  mediaCount: {
-    position: "absolute",
-    bottom: spacing.sm,
-    right: spacing.sm,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    borderRadius: 12,
+  videoThumbnailSquare: {
+    width: 158, // Square thumbnail - same as other media
+    height: 158, // Square thumbnail - same as width
+    backgroundColor: colors.gray[800],
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 0,
+    marginLeft: 0,
+    flexShrink: 0, // Prevent shrinking in ScrollView
   },
-  mediaCountText: {
-    ...typography.caption,
+  mediaMoreIndicator: {
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  mediaMoreText: {
+    ...typography.bodyBold,
+    fontSize: 14,
     color: colors.white,
   },
   placeholderContainer: {
@@ -537,4 +1154,72 @@ const styles = StyleSheet.create({
     color: colors.white,
     textAlign: "center",
   },
+  periodBanner: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.gray[900],
+    borderBottomWidth: 1,
+    borderBottomColor: colors.gray[800],
+  },
+  periodBannerTitle: {
+    ...typography.bodyBold,
+    color: colors.white,
+  },
+  periodBannerSubtitle: {
+    ...typography.caption,
+    color: colors.gray[400],
+  },
+  periodBannerAction: {
+    padding: spacing.xs,
+  },
+  periodBannerClear: {
+    ...typography.bodyMedium,
+    color: colors.accent,
+  },
+  periodGrid: {
+    gap: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+  },
+  periodCard: {
+    overflow: "hidden",
+  },
+  periodBackground: {
+    height: 220,
+    overflow: "hidden",
+    justifyContent: "flex-end",
+  },
+  periodImage: {
+    // No borderRadius - square edges
+  },
+  periodFallback: {
+    backgroundColor: colors.gray[800],
+  },
+  periodShade: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.35)",
+  },
+  periodOverlay: {
+    padding: spacing.xxl,
+    gap: spacing.sm,
+  },
+  periodTitle: {
+    ...typography.bodyBold,
+    fontSize: 24,
+    color: colors.white,
+  },
+  periodSubtitle: {
+    ...typography.caption,
+    fontSize: 16,
+    color: colors.gray[100],
+  },
+  periodCount: {
+    ...typography.caption,
+    fontSize: 14,
+    color: colors.gray[200],
+  },
 })
+

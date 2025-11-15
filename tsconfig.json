@@ -9,7 +9,8 @@
     "jsx": "react-native",
     "strict": true,
     "target": "ES2020",
-    "moduleResolution": "node"
+    "moduleResolution": "node",
+    "typeRoots": ["./node_modules/@types", "./types"]
   },
   "extends": "expo/tsconfig.base"
 }
