@@ -94,35 +94,41 @@ export default function RootLayout() {
   // Handle OAuth redirects and deep links
   useEffect(() => {
     const handleURL = async (event: { url: string }) => {
-      const { url } = event
-      // Handle OAuth callback from Supabase
-      if (url.includes("#access_token=") || url.includes("?code=")) {
-        // Supabase will handle the session automatically
-        // Just ensure we're listening for auth state changes
-        const { data: { session } } = await supabase.auth.getSession()
-        if (session) {
-          // User successfully authenticated via OAuth
-          // Save biometric credentials if enabled
-          try {
-            const { getBiometricPreference, saveBiometricCredentials } = await import("../lib/biometric")
-            const biometricEnabled = await getBiometricPreference()
-            if (biometricEnabled && session.refresh_token) {
-              await saveBiometricCredentials(session.refresh_token, session.user.id)
-            }
-          } catch (error) {
-            console.warn("[_layout] failed to save biometric credentials after OAuth:", error)
+      try {
+        const { url } = event
+        // Handle OAuth callback from Supabase
+        if (url.includes("#access_token=") || url.includes("?code=")) {
+          // Supabase will handle the session automatically
+          // Just ensure we're listening for auth state changes
+          if (!supabase?.auth) {
+            console.warn("[_layout] Supabase auth not available")
+            return
           }
-          // Navigation will happen automatically via app/index.tsx
+          const { data: { session } } = await supabase.auth.getSession()
+          if (session) {
+            // User successfully authenticated via OAuth
+            // Save biometric credentials if enabled
+            try {
+              const { getBiometricPreference, saveBiometricCredentials } = await import("../lib/biometric")
+              const biometricEnabled = await getBiometricPreference()
+              if (biometricEnabled && session.refresh_token) {
+                await saveBiometricCredentials(session.refresh_token, session.user.id)
+              }
+            } catch (error) {
+              console.warn("[_layout] failed to save biometric credentials after OAuth:", error)
+            }
+            // Navigation will happen automatically via app/index.tsx
+          }
+        }
+        // Handle join links
+        else if (url.includes("goodtimes://join/")) {
+          const groupId = url.split("goodtimes://join/")[1]?.split("?")[0]?.split("/")[0]
+          if (groupId) {
+            router.push(`/join/${groupId}`)
+          }
         }
       } catch (error) {
         console.error("[_layout] Error handling URL:", error)
-      }
-      // Handle join links
-      if (url.includes("goodtimes://join/")) {
-        const groupId = url.split("goodtimes://join/")[1]?.split("?")[0]?.split("/")[0]
-        if (groupId) {
-          router.push(`/join/${groupId}`)
-        }
       }
     }
 
