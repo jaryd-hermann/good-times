@@ -9,8 +9,6 @@
     "jsx": "react-native",
     "strict": true,
     "target": "ES2020",
-    "module": "commonjs",
-    "moduleResolution": "node",
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "typeRoots": ["./node_modules/@types", "./types"]
