@@ -21,7 +21,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     supportsTablet: false,
     bundleIdentifier: "com.jarydhermann.goodtimes",
     buildNumber: "2", // Increment for each TestFlight submission (e.g., "1", "2", "3" or "1.1.0.1", "1.1.0.2")
-    deploymentTarget: "15.1", // Required for React Native 0.81+
+    // deploymentTarget is set in ios/Podfile.properties.json (not a valid property here in Expo SDK 54)
     infoPlist: {
       NSCameraUsageDescription: "Good Times needs access to your camera to capture photos and videos for your entries.",
       NSPhotoLibraryUsageDescription: "Good Times needs access to your photo library to select photos for your entries.",
