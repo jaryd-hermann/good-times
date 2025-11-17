@@ -59,6 +59,15 @@ target 'GoodTimes' do
       :ccache_enabled => ccache_enabled?(podfile_properties),
     )
     
+    # Remove react-native-reanimated target (not using it, causes build errors)
+    # The app uses React Native's built-in Animated API, not Reanimated
+    installer.pods_project.targets.each do |target|
+      if target.name == 'RNReanimated'
+        target.remove_from_project
+        puts "✅ Removed RNReanimated target (not using Reanimated)"
+      end
+    end
+    
     # Fix RCT-Folly coroutine header issue for React Native 0.81
     # Method 1: Set preprocessor definition (should work but sometimes doesn't)
     installer.pods_project.targets.each do |target|

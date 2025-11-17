@@ -4,6 +4,23 @@ import { View, ActivityIndicator, Text, Pressable, Alert } from "react-native";
 import { useRouter, Link } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+// Global error handler for uncaught errors
+if (typeof global !== 'undefined') {
+  const originalError = console.error;
+  console.error = (...args: any[]) => {
+    originalError(...args);
+    // In development, show alert for critical errors
+    if (__DEV__) {
+      const errorMsg = args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+      ).join(' ');
+      if (errorMsg.includes('Error') || errorMsg.includes('Failed') || errorMsg.includes('undefined')) {
+        Alert.alert('Debug Error', errorMsg.substring(0, 200));
+      }
+    }
+  };
+}
+
 // Import supabase safely to prevent crashes
 let supabase: any
 try {
@@ -46,9 +63,26 @@ export default function Index() {
         console.log("[boot] start");
         
         // Check if Supabase is configured
-        const { isSupabaseConfigured } = await import("../lib/supabase");
-        if (!isSupabaseConfigured()) {
-          setErr("Supabase is not configured. Please set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY as EAS secrets.");
+        console.log("[boot] Checking Supabase configuration...");
+        let isConfigured = false;
+        try {
+          const { isSupabaseConfigured } = await import("../lib/supabase");
+          isConfigured = isSupabaseConfigured();
+          console.log("[boot] Supabase configured:", isConfigured);
+        } catch (error: any) {
+          console.error("[boot] Failed to check Supabase config:", error);
+          const errorMsg = `Failed to check Supabase: ${error?.message || String(error)}`;
+          setErr(errorMsg);
+          if (__DEV__) Alert.alert("Boot Error", errorMsg);
+          setBooting(false);
+          return;
+        }
+        
+        if (!isConfigured) {
+          const errorMsg = "Supabase is not configured. Please set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY as EAS secrets.";
+          console.error("[boot]", errorMsg);
+          setErr(errorMsg);
+          if (__DEV__) Alert.alert("Configuration Error", errorMsg);
           setBooting(false);
           return;
         }
@@ -180,8 +214,15 @@ export default function Index() {
         console.log("[boot] router.replace called");
       } catch (e: any) {
         const msg = e?.message || String(e);
-        console.log("[boot] error:", msg);
-        setErr(msg);
+        const stack = e?.stack || '';
+        console.error("[boot] FATAL ERROR:", msg, stack);
+        setErr(`Boot failed: ${msg}`);
+        // Show alert in both dev and production for critical boot errors
+        Alert.alert(
+          "App Failed to Start",
+          `Error: ${msg}\n\nPlease check your configuration and try again.`,
+          [{ text: "OK" }]
+        );
       } finally {
         if (!cancelled) setBooting(false);
       }

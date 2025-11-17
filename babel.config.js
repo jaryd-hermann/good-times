@@ -5,7 +5,7 @@ module.exports = function (api) {
     presets: ['babel-preset-expo'],
     plugins: [
       // (remove: require.resolve('expo-router/babel'))
-      'react-native-reanimated/plugin', // must be last
+      // Removed react-native-reanimated/plugin - not using Reanimated, using React Native's built-in Animated API
     ],
   };
 };
