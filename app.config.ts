@@ -4,7 +4,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: "Good Times",
   slug: "good-times",
-  version: "1.0.0", // User-facing version (e.g., "1.1.0", "1.2.0")
+  version: "1.1.0", // User-facing version (e.g., "1.1.0", "1.2.0")
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: "goodtimes",
@@ -20,8 +20,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     supportsTablet: false,
     bundleIdentifier: "com.jarydhermann.goodtimes",
-    buildNumber: "1", // Increment for each TestFlight submission (e.g., "1", "2", "3" or "1.1.0.1", "1.1.0.2")
-    deploymentTarget: "15.1", // Required for React Native 0.81+
+    buildNumber: "2", // Increment for each TestFlight submission (e.g., "1", "2", "3" or "1.1.0.1", "1.1.0.2")
+    // deploymentTarget is set in ios/Podfile.properties.json (not a valid property here in Expo SDK 54)
     infoPlist: {
       NSCameraUsageDescription: "Good Times needs access to your camera to capture photos and videos for your entries.",
       NSPhotoLibraryUsageDescription: "Good Times needs access to your photo library to select photos for your entries.",
