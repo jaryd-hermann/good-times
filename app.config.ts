@@ -44,12 +44,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     "expo-router",
     "expo-local-authentication",
     "expo-secure-store",
-    "expo-av",
-    "expo-image-picker",
-    "expo-notifications",
-    "expo-contacts",
-    "expo-clipboard",
-    "expo-file-system",
     [
       "expo-font",
       {

@@ -48,8 +48,10 @@
   },
   "devDependencies": {
     "@react-native-community/cli": "^20.0.2",
+    "@types/node": "^24.10.1",
     "@types/react": "~19.1.10",
     "babel-plugin-module-resolver": "^5.0.2",
+    "ts-node": "^10.9.2",
     "typescript": "~5.9.2"
   },
   "private": true
