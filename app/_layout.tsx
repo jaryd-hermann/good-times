@@ -9,6 +9,7 @@ import { useEffect } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { SafeAreaProvider } from "react-native-safe-area-context"
 import { AuthProvider } from "../components/AuthProvider"
+import { ErrorBoundary } from "../components/ErrorBoundary"
 import * as Linking from "expo-linking"
 import * as Notifications from "expo-notifications"
 import { router } from "expo-router"
@@ -138,13 +139,15 @@ export default function RootLayout() {
   }
 
   return (
-    <SafeAreaProvider>
-      <AuthProvider>
-        <QueryClientProvider client={queryClient}>
-          <Stack screenOptions={{ headerShown: false }} />
-        </QueryClientProvider>
-      </AuthProvider>
-    </SafeAreaProvider>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <AuthProvider>
+          <QueryClientProvider client={queryClient}>
+            <Stack screenOptions={{ headerShown: false }} />
+          </QueryClientProvider>
+        </AuthProvider>
+      </SafeAreaProvider>
+    </ErrorBoundary>
   )
 }
 
