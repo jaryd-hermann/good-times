@@ -13,7 +13,21 @@ import { ErrorBoundary } from "../components/ErrorBoundary"
 import * as Linking from "expo-linking"
 import * as Notifications from "expo-notifications"
 import { router } from "expo-router"
-import { supabase } from "../lib/supabase"
+// Import supabase with error handling
+let supabase: any
+try {
+  const supabaseModule = require("../lib/supabase")
+  supabase = supabaseModule.supabase
+} catch (error) {
+  console.error("[_layout] Failed to import supabase:", error)
+  // Create a minimal fallback to prevent crash
+  supabase = {
+    auth: {
+      getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+    },
+  }
+}
 
 SplashScreen.preventAutoHideAsync().catch(() => {})
 
@@ -100,9 +114,11 @@ export default function RootLayout() {
           }
           // Navigation will happen automatically via app/index.tsx
         }
+      } catch (error) {
+        console.error("[_layout] Error handling URL:", error)
       }
       // Handle join links
-      else if (url.includes("goodtimes://join/")) {
+      if (url.includes("goodtimes://join/")) {
         const groupId = url.split("goodtimes://join/")[1]?.split("?")[0]?.split("/")[0]
         if (groupId) {
           router.push(`/join/${groupId}`)

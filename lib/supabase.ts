@@ -1,4 +1,12 @@
-import "react-native-url-polyfill/auto"
+// Wrap in try-catch to prevent crashes during module initialization
+let urlPolyfillLoaded = false
+try {
+  require("react-native-url-polyfill/auto")
+  urlPolyfillLoaded = true
+} catch (error) {
+  console.warn("[supabase] Failed to load url-polyfill:", error)
+}
+
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { createClient } from "@supabase/supabase-js"
 
