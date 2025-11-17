@@ -71,10 +71,32 @@ export default function Home() {
   }, [])
 
   // Reload user profile when screen comes into focus (e.g., returning from settings)
+  // But don't reset group - only update if focusGroupId param is provided
   useFocusEffect(
     useCallback(() => {
-      loadUser()
-    }, [])
+      // Only reload user profile, not group (preserve current group)
+      async function reloadProfile() {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+        if (user) {
+          setUserId(user.id)
+          const profile = await getCurrentUser()
+          if (profile) {
+            setUserAvatarUrl(profile.avatar_url || undefined)
+            setUserName(profile.name || "User")
+          }
+          // Only update group if focusGroupId param is provided
+          if (focusGroupId) {
+            const groups = await getUserGroups(user.id)
+            if (groups.some((group) => group.id === focusGroupId)) {
+              setCurrentGroupId(focusGroupId)
+            }
+          }
+        }
+      }
+      reloadProfile()
+    }, [focusGroupId])
   )
 
   // Request push notification permission on first visit to home
@@ -110,11 +132,30 @@ export default function Home() {
         setUserAvatarUrl(profile.avatar_url || undefined)
         setUserName(profile.name || "User")
       }
-      // Get user's first group
+      // Get user's groups
       const groups = await getUserGroups(user.id)
       if (groups.length > 0) {
-        const initial = focusGroupId && groups.some((group) => group.id === focusGroupId) ? focusGroupId : groups[0].id
-        setCurrentGroupId(initial)
+        // Priority order:
+        // 1. focusGroupId param (highest priority)
+        // 2. Persisted group ID from AsyncStorage
+        // 3. Current state (if already set)
+        // 4. First group (fallback)
+        
+        if (focusGroupId && groups.some((group) => group.id === focusGroupId)) {
+          setCurrentGroupId(focusGroupId)
+          await AsyncStorage.setItem("current_group_id", focusGroupId)
+        } else if (!currentGroupId) {
+          // Try to restore from AsyncStorage
+          const persistedGroupId = await AsyncStorage.getItem("current_group_id")
+          if (persistedGroupId && groups.some((group) => group.id === persistedGroupId)) {
+            setCurrentGroupId(persistedGroupId)
+          } else {
+            // Fallback to first group
+            setCurrentGroupId(groups[0].id)
+            await AsyncStorage.setItem("current_group_id", groups[0].id)
+          }
+        }
+        // Otherwise, preserve the existing currentGroupId
       }
     }
   }
@@ -242,7 +283,7 @@ export default function Home() {
   }
 
   function handleAnswerPrompt() {
-    if (!promptId) {
+    if (!promptId || !currentGroupId) {
       Alert.alert("No prompt available", "Please check back shortly — today's prompt is still loading.")
       return
     }
@@ -251,6 +292,7 @@ export default function Home() {
       params: {
         promptId,
         date: selectedDate,
+        groupId: currentGroupId, // Pass current group ID explicitly
       },
     })
   }
@@ -259,6 +301,8 @@ export default function Home() {
     if (groupId !== currentGroupId) {
       setCurrentGroupId(groupId)
       setSelectedDate(getTodayDate())
+      // Persist current group ID to prevent loss on navigation
+      await AsyncStorage.setItem("current_group_id", groupId)
       // Mark group as visited
       await AsyncStorage.setItem(`group_visited_${groupId}`, new Date().toISOString())
     }

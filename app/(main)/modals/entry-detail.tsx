@@ -12,6 +12,8 @@ import { formatTime } from "../../../lib/utils"
 import { Video, Audio, ResizeMode } from "expo-av"
 import { getCurrentUser } from "../../../lib/db"
 import { FontAwesome } from "@expo/vector-icons"
+import { EmbeddedPlayer } from "../../../components/EmbeddedPlayer"
+import type { EmbeddedMedia } from "../../../lib/types"
 
 export default function EntryDetail() {
   const router = useRouter()
@@ -272,6 +274,24 @@ export default function EntryDetail() {
             <Text style={styles.question}>{entry.prompt?.question}</Text>
 
             {entry.text_content && <Text style={styles.text}>{entry.text_content}</Text>}
+
+            {/* Embedded media (Spotify/Soundcloud) */}
+            {entry.embedded_media && entry.embedded_media.length > 0 && (
+              <View style={styles.embeddedMediaContainer}>
+                {entry.embedded_media.map((embed: EmbeddedMedia, index: number) => (
+                  <EmbeddedPlayer
+                    key={`${embed.platform}-${embed.embedId}-${index}`}
+                    embed={{
+                      platform: embed.platform,
+                      url: embed.url,
+                      embedId: embed.embedId,
+                      embedType: embed.embedType,
+                      embedUrl: embed.embedUrl,
+                    }}
+                  />
+                ))}
+              </View>
+            )}
 
             {entry.media_urls && entry.media_urls.length > 0 && (
               <View style={styles.mediaContainer}>
@@ -596,5 +616,10 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: {
     backgroundColor: colors.gray[700],
+  },
+  embeddedMediaContainer: {
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+    gap: spacing.sm,
   },
 })

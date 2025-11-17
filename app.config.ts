@@ -4,11 +4,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: "Good Times",
   slug: "good-times",
-  version: "1.0.0",
+  version: "1.0.0", // User-facing version (e.g., "1.1.0", "1.2.0")
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: "goodtimes",
   userInterfaceStyle: "dark",
+  // Disable New Architecture - causing crashes during native module registration
+  newArchEnabled: false,
   splash: {
     // image: "./assets/images/splash.png", //
     resizeMode: "contain",
@@ -18,12 +20,16 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     supportsTablet: false,
     bundleIdentifier: "com.jarydhermann.goodtimes",
+    buildNumber: "1", // Increment for each TestFlight submission (e.g., "1", "2", "3" or "1.1.0.1", "1.1.0.2")
+    deploymentTarget: "15.1", // Required for React Native 0.81+
     infoPlist: {
       NSCameraUsageDescription: "Good Times needs access to your camera to capture photos and videos for your entries.",
       NSPhotoLibraryUsageDescription: "Good Times needs access to your photo library to select photos for your entries.",
       NSMicrophoneUsageDescription: "Good Times needs access to your microphone to record voice notes.",
       NSContactsUsageDescription: "Good Times uses your contacts so you can invite friends and family to your group.",
       NSFaceIDUsageDescription: "Good Times uses FaceID to securely log you in quickly.",
+      // Export compliance: App only uses standard HTTPS/TLS and Apple's built-in encryption APIs
+      ITSAppUsesNonExemptEncryption: false,
     },
   },
   android: {

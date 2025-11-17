@@ -18,8 +18,11 @@
     },
     "production": {
       "ios": {
-        "simulator": false
-      }
+        "simulator": false,
+        "image": "latest",
+        "buildConfiguration": "Release"
+      },
+      "autoIncrement": true
     }
   },
   "submit": {
