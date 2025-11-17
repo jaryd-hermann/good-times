@@ -26,7 +26,7 @@ export default function Welcome3() {
         <View style={styles.textContainer}>
           <Text style={styles.body}>
             This is for you if you have family and friends you don't always get to see and speak with. If you want to be in touch better
-            but calls and messages can be a lot. Good Times is the simple and meaningful way to keep connected with the people you love andwant to be close to, without the pressure.
+            but calls and messages can be a lot. Good Times is the simple and meaningful way to keep connected with the people you love and want to be close to, without the pressure.
           </Text>
         </View>
 

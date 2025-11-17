@@ -32,6 +32,7 @@ export default function OnboardingAuth() {
   const [password, setPassword] = useState("")
   const [continueLoading, setContinueLoading] = useState(false)
   const [oauthLoading, setOauthLoading] = useState<OAuthProvider | null>(null)
+  const oauthTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const [persisting, setPersisting] = useState(false)
   const insets = useSafeAreaInsets()
 
@@ -150,6 +151,12 @@ export default function OnboardingAuth() {
       if (url.includes("#access_token=") || url.includes("?code=") || url.includes("access_token=") || url.includes("error=")) {
         console.log("[OAuth] OAuth callback detected, processing...")
         setOauthLoading(null) // Stop loading spinner
+        
+        // Clear any timeout that was set
+        if (oauthTimeoutRef.current) {
+          clearTimeout(oauthTimeoutRef.current)
+          oauthTimeoutRef.current = null
+        }
         
         // Check for errors in the URL
         if (url.includes("error=")) {
@@ -396,9 +403,26 @@ export default function OnboardingAuth() {
   async function handleOAuthSignIn(provider: OAuthProvider) {
     console.log(`[OAuth] Starting ${provider} sign-in...`)
     setOauthLoading(provider)
+    
+    // Set a timeout to stop the spinner if redirect doesn't happen (common in simulators)
+    if (oauthTimeoutRef.current) {
+      clearTimeout(oauthTimeoutRef.current)
+    }
+    oauthTimeoutRef.current = setTimeout(() => {
+      console.warn("[OAuth] Timeout waiting for redirect - this is common in iOS simulators")
+      setOauthLoading(null)
+      oauthTimeoutRef.current = null
+      Alert.alert(
+        "OAuth Sign-In",
+        "OAuth redirects don't always work in iOS simulators. Please test on a real device or use email/password sign-in.\n\nIf testing on a real device, make sure 'goodtimes://' is added to your Supabase project's allowed redirect URLs.",
+        [{ text: "OK" }]
+      )
+    }, 30000) // 30 second timeout
+    
     try {
       // Use the app scheme for redirect URL - required for OAuth in Expo
-      const redirectTo = Linking.createURL("/", { scheme: "goodtimes" })
+      // Use explicit scheme without createURL to avoid trailing slash issues
+      const redirectTo = "goodtimes://"
       console.log(`[OAuth] Redirect URL: ${redirectTo}`)
       
       const { data, error } = await supabase.auth.signInWithOAuth({
@@ -412,17 +436,29 @@ export default function OnboardingAuth() {
       console.log(`[OAuth] Response:`, { data, error })
       
       if (error) {
+        if (oauthTimeoutRef.current) {
+          clearTimeout(oauthTimeoutRef.current)
+          oauthTimeoutRef.current = null
+        }
         console.error(`[OAuth] Error:`, error)
-        throw error
+        setOauthLoading(null)
+        Alert.alert("Error", error.message || `Failed to sign in with ${provider}. Make sure OAuth redirect URL is configured in Supabase: goodtimes://`)
+        return
       }
       
       // Note: OAuth will open browser, user completes auth, then redirects back to app
-      // The redirect will be handled by the Linking listener in _layout.tsx
+      // The redirect will be handled by the Linking listener in auth.tsx
       console.log(`[OAuth] OAuth flow initiated, waiting for redirect...`)
+      console.log(`[OAuth] Browser should open. After signing in, you'll be redirected back to the app.`)
+      console.log(`[OAuth] NOTE: OAuth redirects often don't work in iOS simulators - test on a real device`)
     } catch (error: any) {
+      if (oauthTimeoutRef.current) {
+        clearTimeout(oauthTimeoutRef.current)
+        oauthTimeoutRef.current = null
+      }
       console.error(`[OAuth] Failed:`, error)
-      Alert.alert("Error", error.message || `Failed to sign in with ${provider}. Make sure OAuth redirect URL is configured in Supabase: goodtimes://`)
       setOauthLoading(null)
+      Alert.alert("Error", error.message || `Failed to sign in with ${provider}. Make sure OAuth redirect URL is configured in Supabase: goodtimes://`)
     }
   }
 

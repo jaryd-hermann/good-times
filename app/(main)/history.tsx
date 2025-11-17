@@ -1,8 +1,8 @@
 "use client"
 
-import { useMemo, useState, useEffect, useRef } from "react"
+import { useMemo, useState, useEffect, useRef, useCallback } from "react"
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Modal, ImageBackground, Animated, Dimensions } from "react-native"
-import { useRouter, useLocalSearchParams } from "expo-router"
+import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
 import { useQuery } from "@tanstack/react-query"
 import { supabase } from "../../lib/supabase"
 import AsyncStorage from "@react-native-async-storage/async-storage"
@@ -160,9 +160,28 @@ export default function History() {
     loadUserAndGroup()
   }, [])
 
+  // CRITICAL: Sync group ID with AsyncStorage on focus to match home.tsx
+  useFocusEffect(
+    useCallback(() => {
+      async function syncGroupId() {
+        const persistedGroupId = await AsyncStorage.getItem("current_group_id")
+        if (persistedGroupId && persistedGroupId !== currentGroupId) {
+          console.log(`[history] Syncing group ID from AsyncStorage: ${persistedGroupId}`)
+          setCurrentGroupId(persistedGroupId)
+          // Reset filters when switching groups
+          setActivePeriod(null)
+          setSelectedCategories([])
+          setSelectedMembers([])
+        }
+      }
+      syncGroupId()
+    }, [currentGroupId])
+  )
+
   useEffect(() => {
     if (focusGroupId && focusGroupId !== currentGroupId) {
       setCurrentGroupId(focusGroupId)
+      AsyncStorage.setItem("current_group_id", focusGroupId).catch(() => {})
       // Reset filters when switching groups
       setActivePeriod(null)
       setSelectedCategories([])
@@ -216,6 +235,7 @@ export default function History() {
     queryKey: ["historyEntries", currentGroupId],
     queryFn: async (): Promise<any[]> => {
       if (!currentGroupId) return []
+      console.log(`[history] Fetching entries for group: ${currentGroupId}`)
       const { data, error } = await supabase
         .from("entries")
         .select("*, user:users(*), prompt:prompts(*)")
@@ -227,19 +247,29 @@ export default function History() {
         console.error("[history] entries query error:", error)
         return []
       }
-      return data || []
+      // CRITICAL: Double-check all entries belong to the correct group (safety filter)
+      const filteredData = (data || []).filter((entry: any) => entry.group_id === currentGroupId)
+      if (filteredData.length !== (data?.length || 0)) {
+        console.warn(`[history] Found ${(data?.length || 0) - filteredData.length} entries with wrong group_id - filtered out`)
+      }
+      console.log(`[history] Loaded ${filteredData.length} entries for group: ${currentGroupId}`)
+      return filteredData
     },
     enabled: !!currentGroupId,
     staleTime: 0, // Always fetch fresh data when group changes
-    gcTime: 1000 * 60 * 60, // Keep in cache for 1 hour
+    gcTime: 1000 * 60 * 60 * 24, // Keep in cache for 24 hours (longer to preserve across group switches)
     placeholderData: (previousData, query) => {
-      // Only use previous data if it's for the same group
+      // CRITICAL: Preserve data when switching groups to prevent history from appearing wiped
+      // React Query automatically caches by queryKey, so data for each group is preserved separately
       if (query && query.queryKey && query.queryKey[1]) {
-        const previousGroupId = query.queryKey[1] as string | undefined
-        if (previousGroupId === currentGroupId && previousData) {
+        const queryGroupId = query.queryKey[1] as string | undefined
+        // If this query is for the current group and we have cached data, use it
+        if (queryGroupId === currentGroupId && previousData && Array.isArray(previousData) && previousData.length > 0) {
+          console.log(`[history] Using cached data for group: ${currentGroupId} (${previousData.length} entries)`)
           return previousData
         }
       }
+      // Return undefined to trigger fresh fetch, but React Query keeps old data in cache
       return undefined
     },
   })

@@ -73,6 +73,7 @@ export default function EntryComposer() {
   const [showSongModal, setShowSongModal] = useState(false)
   const [songUrlInput, setSongUrlInput] = useState("")
   const textInputRef = useRef<TextInput>(null)
+  const [showSuccessModal, setShowSuccessModal] = useState(false)
 
   useEffect(() => {
     loadUserAndGroup()
@@ -547,8 +548,8 @@ export default function EntryComposer() {
         queryClient.invalidateQueries({ queryKey: ["historyComments"] }),
       ])
 
-      Alert.alert("Success", "Your entry has been posted")
-      exitComposer()
+      // Show custom success modal instead of native alert
+      setShowSuccessModal(true)
     } catch (error: any) {
       Alert.alert("Error", error.message)
     } finally {
@@ -840,6 +841,31 @@ export default function EntryComposer() {
             <TouchableOpacity style={styles.voiceCancel} onPress={() => (!recording ? cleanupVoiceModal() : null)}>
               <Text style={styles.voiceCancelText}>{recording ? "Stop recording to close" : "Close"}</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Success Modal */}
+      <Modal
+        visible={showSuccessModal}
+        animationType="fade"
+        transparent
+        onRequestClose={() => {
+          setShowSuccessModal(false)
+          exitComposer()
+        }}
+      >
+        <View style={styles.successBackdrop}>
+          <View style={styles.successContainer}>
+            <Text style={styles.successTitle}>You've answered today's question!</Text>
+            <Button
+              title="See what everyone else said"
+              onPress={() => {
+                setShowSuccessModal(false)
+                exitComposer()
+              }}
+              style={styles.successButton}
+            />
           </View>
         </View>
       </Modal>
@@ -1192,6 +1218,28 @@ const styles = StyleSheet.create({
   },
   addSongButton: {
     marginTop: spacing.md,
+    width: "100%",
+  },
+  successBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.95)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.xl,
+  },
+  successContainer: {
+    width: "100%",
+    maxWidth: 400,
+    alignItems: "center",
+    gap: spacing.xl,
+  },
+  successTitle: {
+    ...typography.h1,
+    fontSize: 32,
+    color: colors.white,
+    textAlign: "center",
+  },
+  successButton: {
     width: "100%",
   },
 })

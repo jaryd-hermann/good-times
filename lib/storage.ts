@@ -1,5 +1,5 @@
 import { supabase } from "./supabase"
-import * as FileSystem from "expo-file-system"
+import * as FileSystem from "expo-file-system/legacy"
 import { decode } from "base64-arraybuffer"
 
 export async function uploadMedia(
@@ -9,9 +9,9 @@ export async function uploadMedia(
   fileType: "photo" | "video" | "audio",
 ): Promise<string> {
   try {
-    // Read file as base64
+    // Read file as base64 - SDK 54 uses string literal
     const base64 = await FileSystem.readAsStringAsync(fileUri, {
-      encoding: FileSystem.EncodingType.Base64,
+      encoding: "base64" as any,
     })
 
     // Generate unique filename

@@ -96,8 +96,17 @@ export default function RootLayout() {
     const handleURL = async (event: { url: string }) => {
       try {
         const { url } = event
+        console.log("[_layout] Received URL:", url)
+        
+        // Filter out non-OAuth URLs (like expo development client URLs)
+        if (url.includes("expo-development-client") || url.includes("192.168")) {
+          console.log("[_layout] Ignoring non-OAuth URL")
+          return
+        }
+        
         // Handle OAuth callback from Supabase
-        if (url.includes("#access_token=") || url.includes("?code=")) {
+        if (url.includes("#access_token=") || url.includes("?code=") || url.includes("access_token=") || url.includes("error=")) {
+          console.log("[_layout] OAuth callback detected")
           // Supabase will handle the session automatically
           // Just ensure we're listening for auth state changes
           if (!supabase?.auth) {
