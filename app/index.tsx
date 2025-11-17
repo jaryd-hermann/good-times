@@ -2,8 +2,23 @@
 import { useEffect, useState } from "react";
 import { View, ActivityIndicator, Text, Pressable, Alert } from "react-native";
 import { useRouter, Link } from "expo-router";
-import { supabase } from "../lib/supabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+
+// Import supabase safely to prevent crashes
+let supabase: any
+try {
+  const supabaseModule = require("../lib/supabase")
+  supabase = supabaseModule.supabase
+} catch (error) {
+  console.error("[index] Failed to import supabase:", error)
+  // Create a minimal fallback to prevent crash
+  supabase = {
+    auth: {
+      getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+      refreshSession: () => Promise.resolve({ data: { session: null }, error: null }),
+    },
+  }
+}
 import {
   getBiometricPreference,
   authenticateWithBiometric,

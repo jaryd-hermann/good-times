@@ -1,9 +1,32 @@
 "use client"
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
-import { supabase } from "../lib/supabase"
 import type { User } from "../lib/types"
 import { getBiometricPreference, saveBiometricCredentials, clearBiometricCredentials } from "../lib/biometric"
+
+// Import supabase safely to prevent crashes
+let supabase: any
+try {
+  const supabaseModule = require("../lib/supabase")
+  supabase = supabaseModule.supabase
+} catch (error) {
+  console.error("[AuthProvider] Failed to import supabase:", error)
+  // Create a minimal fallback to prevent crash
+  supabase = {
+    auth: {
+      getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+      signOut: () => Promise.resolve({ error: null }),
+    },
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          single: () => Promise.resolve({ data: null, error: null }),
+        }),
+      }),
+    }),
+  }
+}
 
 interface AuthContextType {
   user: User | null
