@@ -6,21 +6,26 @@ const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || ""
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || ""
 
 // Validate environment variables
-if (!supabaseUrl || !supabaseAnonKey) {
+const hasValidConfig = supabaseUrl && supabaseAnonKey && 
+  supabaseUrl !== "https://placeholder.supabase.co" && 
+  supabaseAnonKey !== "placeholder-key"
+
+if (!hasValidConfig) {
   const errorMsg = `Missing Supabase environment variables!
 EXPO_PUBLIC_SUPABASE_URL: ${supabaseUrl ? "✓" : "✗ MISSING"}
 EXPO_PUBLIC_SUPABASE_ANON_KEY: ${supabaseAnonKey ? "✓" : "✗ MISSING"}
-Check your .env file or EAS secrets.`
+Check your .env file or EAS secrets.
+For EAS Build, set secrets with:
+  eas secret:create --scope project --name EXPO_PUBLIC_SUPABASE_URL --value YOUR_URL
+  eas secret:create --scope project --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value YOUR_KEY`
   console.error("[supabase]", errorMsg)
-  // Don't throw immediately - create a dummy client that will fail gracefully
-  // This prevents crashes during module initialization
 }
 
 let supabase: ReturnType<typeof createClient>
 
 try {
-  if (!supabaseUrl || !supabaseAnonKey) {
-    // Create a dummy client that will fail on first use
+  if (!hasValidConfig) {
+    // Create a dummy client that will fail gracefully
     supabase = createClient("https://placeholder.supabase.co", "placeholder-key", {
       auth: {
         storage: AsyncStorage,
@@ -51,6 +56,11 @@ try {
       detectSessionInUrl: false,
     },
   })
+}
+
+// Export a function to check if Supabase is configured
+export function isSupabaseConfigured(): boolean {
+  return hasValidConfig
 }
 
 export { supabase }

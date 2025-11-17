@@ -29,6 +29,14 @@ export default function Index() {
     (async () => {
       try {
         console.log("[boot] start");
+        
+        // Check if Supabase is configured
+        const { isSupabaseConfigured } = await import("../lib/supabase");
+        if (!isSupabaseConfigured()) {
+          setErr("Supabase is not configured. Please set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY as EAS secrets.");
+          setBooting(false);
+          return;
+        }
 
         // Check for pending group join (from deep link before auth)
         const pendingGroupId = await AsyncStorage.getItem(PENDING_GROUP_KEY);
