@@ -34,7 +34,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     adaptiveIcon: {
-      foregroundImage: "./assets/images/adaptive-icon.png",
+      // foregroundImage: "./assets/images/adaptive-icon.png", // File doesn't exist, commented out
       backgroundColor: "#000000",
     },
     package: "com.goodtimes.app",
