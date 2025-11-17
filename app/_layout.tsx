@@ -132,6 +132,11 @@ export default function RootLayout() {
   }, [fontsLoaded])
 
   // 3️⃣ Render the app normally
+  // Add error boundary for crashes
+  if (!fontsLoaded) {
+    return null // Keep splash screen visible while fonts load
+  }
+
   return (
     <SafeAreaProvider>
       <AuthProvider>

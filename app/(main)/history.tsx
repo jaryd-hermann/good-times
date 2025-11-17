@@ -5,6 +5,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Modal, Ima
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { useQuery } from "@tanstack/react-query"
 import { supabase } from "../../lib/supabase"
+import AsyncStorage from "@react-native-async-storage/async-storage"
 import {
   format,
   parseISO,
@@ -24,6 +25,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { Button } from "../../components/Button"
 import { getTodayDate } from "../../lib/utils"
 import { FontAwesome } from "@expo/vector-icons"
+import { EmbeddedPlayer } from "../../components/EmbeddedPlayer"
+import type { EmbeddedMedia } from "../../lib/types"
 
 type ViewMode = "Days" | "Weeks" | "Months" | "Years"
 type PeriodMode = Exclude<ViewMode, "Days">
@@ -173,7 +176,7 @@ export default function History() {
     } = await supabase.auth.getUser()
     if (user) {
       setUserId(user.id)
-      // Get all user's groups and use the first one (or focusGroupId if provided)
+      // Get all user's groups
       const { data: memberships } = await supabase
         .from("group_members")
         .select("group_id")
@@ -181,10 +184,30 @@ export default function History() {
         .order("joined_at", { ascending: false })
       
       if (memberships && memberships.length > 0) {
-        const initial = focusGroupId && memberships.some((m) => m.group_id === focusGroupId) 
-          ? focusGroupId 
-          : memberships[0].group_id
-        setCurrentGroupId(initial)
+        const groupIds = memberships.map((m: { group_id: string }) => m.group_id)
+        
+        // Priority order:
+        // 1. focusGroupId param (highest priority)
+        // 2. Persisted group ID from AsyncStorage
+        // 3. Current state (if already set)
+        // 4. First group (fallback)
+        
+        if (focusGroupId && groupIds.includes(focusGroupId)) {
+          setCurrentGroupId(focusGroupId)
+          await AsyncStorage.setItem("current_group_id", focusGroupId)
+        } else if (!currentGroupId) {
+          // Try to restore from AsyncStorage
+          const persistedGroupId = await AsyncStorage.getItem("current_group_id")
+          if (persistedGroupId && groupIds.includes(persistedGroupId)) {
+            setCurrentGroupId(persistedGroupId)
+          } else {
+            // Fallback to first group
+            const firstGroup = memberships[0] as { group_id: string }
+            setCurrentGroupId(firstGroup.group_id)
+            await AsyncStorage.setItem("current_group_id", firstGroup.group_id)
+          }
+        }
+        // Otherwise, preserve the existing currentGroupId
       }
     }
   }
@@ -297,7 +320,19 @@ export default function History() {
     return filteredEntries.map((e) => e.id).join(",")
   }, [filteredEntries])
 
-  const { data: allComments = [] } = useQuery({
+  interface CommentWithUser {
+    id: string
+    entry_id: string
+    text: string
+    user?: {
+      id: string
+      name?: string
+      avatar_url?: string
+    }
+    created_at: string
+  }
+
+  const { data: allComments = [] } = useQuery<CommentWithUser[]>({
     queryKey: ["historyComments", entryIdsString],
     queryFn: async () => {
       if (filteredEntries.length === 0) return []
@@ -307,14 +342,14 @@ export default function History() {
         .select("*, user:users(*), entry_id")
         .in("entry_id", entryIds)
         .order("created_at", { ascending: true })
-      return data || []
+      return (data || []) as CommentWithUser[]
     },
     enabled: filteredEntries.length > 0 && entryIdsString.length > 0,
   })
 
   // Group comments by entry_id
   const commentsByEntry = useMemo(() => {
-    const grouped: Record<string, typeof allComments> = {}
+    const grouped: Record<string, CommentWithUser[]> = {}
     allComments.forEach((comment) => {
       if (!grouped[comment.entry_id]) {
         grouped[comment.entry_id] = []
@@ -329,10 +364,15 @@ export default function History() {
   const yearSummaries = useMemo(() => buildPeriodSummaries(entries, "Years"), [entries])
 
   function handleAnswerToday() {
-    if (todayPrompt?.prompt_id) {
+    if (todayPrompt?.prompt_id && currentGroupId) {
       router.push({
         pathname: "/(main)/modals/entry-composer",
-        params: { promptId: todayPrompt.prompt_id, date: getTodayDate(), returnTo: "/(main)/history" },
+        params: { 
+          promptId: todayPrompt.prompt_id, 
+          date: getTodayDate(), 
+          returnTo: "/(main)/history",
+          groupId: currentGroupId, // Pass current group ID explicitly
+        },
       })
     } else {
       router.push("/(main)/home")
@@ -648,23 +688,52 @@ export default function History() {
                             <Text style={styles.time}>{format(parseISO(entry.created_at), "h:mm a")}</Text>
                           </View>
                           <Text style={styles.question}>{entry.prompt?.question}</Text>
+                          {/* Song shared badge */}
+                          {entry.embedded_media && entry.embedded_media.length > 0 && (
+                            <View style={styles.songBadge}>
+                              <FontAwesome name="play" size={12} color={colors.white} />
+                              <Text style={styles.songBadgeText}>
+                                {entry.user?.name || "User"} shared a song with you
+                              </Text>
+                            </View>
+                          )}
                           {entry.text_content && (
-                            <View style={styles.textContainer}>
+                            <View style={[
+                              styles.textContainer,
+                              (!entry.media_urls || entry.media_urls.length === 0) && (!entry.embedded_media || entry.embedded_media.length === 0) && styles.textContainerNoMedia
+                            ]}>
                               <Text 
                                 style={styles.entryText} 
-                                numberOfLines={entry.media_urls && entry.media_urls.length > 0 ? 10 : undefined}
-                                ellipsizeMode={entry.media_urls && entry.media_urls.length > 0 ? "tail" : undefined}
+                                numberOfLines={(entry.media_urls && entry.media_urls.length > 0) || (entry.embedded_media && entry.embedded_media.length > 0) ? 10 : undefined}
+                                ellipsizeMode={(entry.media_urls && entry.media_urls.length > 0) || (entry.embedded_media && entry.embedded_media.length > 0) ? "tail" : undefined}
                               >
                                 {entry.text_content}
                               </Text>
                               {/* Show fade 2 lines above media if media exists */}
-                              {(entry.media_urls && entry.media_urls.length > 0) && entry.text_content && entry.text_content.length > 200 && (
+                              {((entry.media_urls && entry.media_urls.length > 0) || (entry.embedded_media && entry.embedded_media.length > 0)) && entry.text_content && entry.text_content.length > 200 && (
                                 <View style={styles.textFadeAboveMedia} pointerEvents="none" />
                               )}
                               {/* Show fade at bottom if no media and text is long */}
-                              {(!entry.media_urls || entry.media_urls.length === 0) && entry.text_content && entry.text_content.length > 200 && (
+                              {(!entry.media_urls || entry.media_urls.length === 0) && (!entry.embedded_media || entry.embedded_media.length === 0) && entry.text_content && entry.text_content.length > 200 && (
                                 <View style={styles.textFadeBottom} pointerEvents="none" />
                               )}
+                            </View>
+                          )}
+                          {/* Embedded media inline with text */}
+                          {entry.embedded_media && entry.embedded_media.length > 0 && (
+                            <View style={styles.embeddedMediaContainer}>
+                              {entry.embedded_media.map((embed: EmbeddedMedia, embedIndex: number) => (
+                                <EmbeddedPlayer
+                                  key={`${embed.platform}-${embed.embedId}-${embedIndex}`}
+                                  embed={{
+                                    platform: embed.platform,
+                                    url: embed.url,
+                                    embedId: embed.embedId,
+                                    embedType: embed.embedType,
+                                    embedUrl: embed.embedUrl,
+                                  }}
+                                />
+                              ))}
                             </View>
                           )}
                           <View style={styles.mediaContainer}>
@@ -684,7 +753,22 @@ export default function History() {
                                   if (mediaType === "audio") {
                                     return (
                                       <View key={`audio-${idx}-${url}`} style={styles.audioThumbnailSquare}>
-                                        <FontAwesome name="play" size={20} color={colors.white} />
+                                        {entry.user?.avatar_url ? (
+                                          <>
+                                            <Image 
+                                              source={{ uri: entry.user.avatar_url }} 
+                                              style={styles.audioThumbnailImage}
+                                              resizeMode="cover"
+                                            />
+                                            <View style={styles.audioThumbnailOverlay} />
+                                          </>
+                                        ) : null}
+                                        <View style={styles.audioThumbnailContent}>
+                                          <FontAwesome name="play" size={20} color={colors.white} />
+                                          <Text style={styles.audioThumbnailLabel} numberOfLines={2}>
+                                            {entry.user?.name || "User"} left a voice message
+                                          </Text>
+                                        </View>
                                       </View>
                                     )
                                   }
@@ -946,12 +1030,6 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     marginBottom: spacing.xs,
   },
-  audioThumbnailLabel: {
-    ...typography.caption,
-    color: colors.white,
-    fontSize: 12,
-    flex: 1,
-  },
   audioThumbnailSquare: {
     width: 158, // Square thumbnail - same as other media
     height: 158, // Square thumbnail - same as width
@@ -961,6 +1039,39 @@ const styles = StyleSheet.create({
     marginRight: 0,
     marginLeft: 0,
     flexShrink: 0, // Prevent shrinking in ScrollView
+    position: "relative",
+    overflow: "hidden",
+  },
+  audioThumbnailImage: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: "100%",
+    height: "100%",
+  },
+  audioThumbnailOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+  },
+  audioThumbnailContent: {
+    position: "relative",
+    zIndex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.xs,
+    gap: spacing.xs,
+  },
+  audioThumbnailLabel: {
+    ...typography.caption,
+    color: colors.white,
+    fontSize: 10,
+    textAlign: "center",
   },
   commentPreview: {
     marginTop: spacing.xs,
@@ -1220,6 +1331,29 @@ const styles = StyleSheet.create({
     ...typography.caption,
     fontSize: 14,
     color: colors.gray[200],
+  },
+  embeddedMediaContainer: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+    gap: spacing.xs,
+  },
+  songBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    backgroundColor: colors.black,
+    borderWidth: 1,
+    borderColor: colors.white,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: 16,
+    alignSelf: "flex-start",
+    marginBottom: spacing.sm,
+  },
+  songBadgeText: {
+    ...typography.caption,
+    color: colors.white,
+    fontSize: 11,
   },
 })
 

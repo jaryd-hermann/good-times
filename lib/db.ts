@@ -94,49 +94,140 @@ export async function getDailyPrompt(groupId: string, date: string): Promise<Dai
     return existing
   }
 
-  // Get preferences
-  const preferences = await getQuestionCategoryPreferences(groupId)
-  const disabledCategories = new Set(preferences.filter((p) => p.preference === "none").map((p) => p.category))
-
-  // Get all prompts
-  const { data: allPromptsRaw, error: promptsError } = await supabase.from("prompts").select("*")
-
-  if (promptsError) throw promptsError
-  if (!allPromptsRaw || allPromptsRaw.length === 0) {
-    return null
-  }
-
-  // Filter out disabled categories
-  const allPrompts = disabledCategories.size > 0 
-    ? allPromptsRaw.filter((p) => !disabledCategories.has(p.category))
-    : allPromptsRaw
-
-  if (allPrompts.length === 0) {
-    return null
-  }
-
-  // Apply weighted selection based on preferences
-  const weightedPrompts: Array<{ prompt: Prompt; weight: number }> = allPrompts.map((prompt) => {
-    const pref = preferences.find((p) => p.category === prompt.category)
-    const weight = pref?.weight ?? 1.0
-    return { prompt, weight }
-  })
-
-  // Create selection pool with weighted prompts
-  const selectionPool: Prompt[] = []
-  weightedPrompts.forEach(({ prompt, weight }) => {
-    const count = Math.ceil(weight)
-    for (let i = 0; i < count; i++) {
-      selectionPool.push(prompt)
-    }
-  })
-
-  // Select prompt based on day index
-  const dayIndex = getDayIndex(date, groupId)
-  const selectedPrompt = selectionPool[dayIndex % selectionPool.length]
-
-  // Assign prompt if not already assigned
+  // If no existing prompt, select one using queue-first approach
   if (existingError && existingError.code === "PGRST116") {
+    let selectedPrompt: Prompt | null = null
+
+    // Step 1: Check queue first (group-specific queue)
+    const { data: queuedItem } = await supabase
+      .from("group_prompt_queue")
+      .select("prompt_id, prompt:prompts(*)")
+      .eq("group_id", groupId)
+      .order("position", { ascending: true })
+      .limit(1)
+      .single()
+
+    if (queuedItem && queuedItem.prompt) {
+      selectedPrompt = queuedItem.prompt as Prompt
+      // Remove from queue after selection
+      await supabase
+        .from("group_prompt_queue")
+        .delete()
+        .eq("group_id", groupId)
+        .eq("prompt_id", queuedItem.prompt_id)
+    }
+
+    // Step 2: If no queue item, get prompts that haven't been used for this group
+    if (!selectedPrompt) {
+      // Get all prompts used for this group
+      const { data: usedPrompts } = await supabase
+        .from("daily_prompts")
+        .select("prompt_id")
+        .eq("group_id", groupId)
+
+      const usedPromptIds = usedPrompts?.map((p) => p.prompt_id) || []
+
+      // Get preferences
+      const preferences = await getQuestionCategoryPreferences(groupId)
+      const disabledCategories = new Set(preferences.filter((p) => p.preference === "none").map((p) => p.category))
+
+      // Get all prompts, excluding used ones
+      let availablePrompts: Prompt[] = []
+      
+      if (usedPromptIds.length > 0) {
+        // Get all prompts and filter out used ones in JavaScript
+        const { data: allPromptsData, error: promptsError } = await supabase
+          .from("prompts")
+          .select("*")
+        
+        if (promptsError) throw promptsError
+        availablePrompts = (allPromptsData || []).filter((p) => !usedPromptIds.includes(p.id))
+      } else {
+        // No used prompts yet, get all
+        const { data: allPromptsData, error: promptsError } = await supabase
+          .from("prompts")
+          .select("*")
+        
+        if (promptsError) throw promptsError
+        availablePrompts = allPromptsData || []
+      }
+
+      if (!availablePrompts || availablePrompts.length === 0) {
+        // If all prompts have been used, reset and use all prompts again
+        const { data: allPromptsRaw, error: allPromptsError } = await supabase
+          .from("prompts")
+          .select("*")
+
+        if (allPromptsError) throw allPromptsError
+        if (!allPromptsRaw || allPromptsRaw.length === 0) {
+          return null
+        }
+
+        // Filter out disabled categories
+        const allPrompts = disabledCategories.size > 0 
+          ? allPromptsRaw.filter((p) => !disabledCategories.has(p.category))
+          : allPromptsRaw
+
+        if (allPrompts.length === 0) {
+          return null
+        }
+
+        // Apply weighted selection based on preferences
+        const weightedPrompts: Array<{ prompt: Prompt; weight: number }> = allPrompts.map((prompt) => {
+          const pref = preferences.find((p) => p.category === prompt.category)
+          const weight = pref?.weight ?? 1.0
+          return { prompt, weight }
+        })
+
+        // Create selection pool with weighted prompts
+        const selectionPool: Prompt[] = []
+        weightedPrompts.forEach(({ prompt, weight }) => {
+          const count = Math.ceil(weight)
+          for (let i = 0; i < count; i++) {
+            selectionPool.push(prompt)
+          }
+        })
+
+        // Select prompt based on day index (group-specific)
+        const dayIndex = getDayIndex(date, groupId)
+        selectedPrompt = selectionPool[dayIndex % selectionPool.length]
+      } else {
+        // Filter out disabled categories from available prompts
+        const filteredPrompts = disabledCategories.size > 0 
+          ? availablePrompts.filter((p) => !disabledCategories.has(p.category))
+          : availablePrompts
+
+        if (filteredPrompts.length === 0) {
+          return null
+        }
+
+        // Apply weighted selection based on preferences
+        const weightedPrompts: Array<{ prompt: Prompt; weight: number }> = filteredPrompts.map((prompt) => {
+          const pref = preferences.find((p) => p.category === prompt.category)
+          const weight = pref?.weight ?? 1.0
+          return { prompt, weight }
+        })
+
+        // Create selection pool with weighted prompts
+        const selectionPool: Prompt[] = []
+        weightedPrompts.forEach(({ prompt, weight }) => {
+          const count = Math.ceil(weight)
+          for (let i = 0; i < count; i++) {
+            selectionPool.push(prompt)
+          }
+        })
+
+        // Select prompt based on day index (group-specific)
+        const dayIndex = getDayIndex(date, groupId)
+        selectedPrompt = selectionPool[dayIndex % selectionPool.length]
+      }
+    }
+
+    if (!selectedPrompt) {
+      return null
+    }
+
+    // Assign prompt for this date
     const { data: dailyPrompt, error: insertError } = await supabase
       .from("daily_prompts")
       .insert({
@@ -221,6 +312,7 @@ export async function createEntry(entry: {
   text_content?: string
   media_urls?: string[]
   media_types?: ("photo" | "video" | "audio")[]
+  embedded_media?: any[] // JSONB array
 }): Promise<Entry> {
   const { data, error } = await supabase
     .from("entries")
@@ -229,6 +321,48 @@ export async function createEntry(entry: {
     .single()
 
   if (error) throw error
+
+  // Store songs in user_songs and group_songs for personalization
+  if (entry.embedded_media && entry.embedded_media.length > 0) {
+    const songPromises = entry.embedded_media.map(async (embed) => {
+      // Upsert to user_songs
+      await supabase
+        .from("user_songs")
+        .upsert(
+          {
+            user_id: entry.user_id,
+            platform: embed.platform,
+            url: embed.url,
+            embed_id: embed.embedId,
+            embed_type: embed.embedType,
+          },
+          { onConflict: "user_id,platform,embed_id" }
+        )
+        .select()
+
+      // Upsert to group_songs
+      await supabase
+        .from("group_songs")
+        .upsert(
+          {
+            group_id: entry.group_id,
+            user_id: entry.user_id,
+            platform: embed.platform,
+            url: embed.url,
+            embed_id: embed.embedId,
+            embed_type: embed.embedType,
+          },
+          { onConflict: "group_id,platform,embed_id" }
+        )
+        .select()
+    })
+
+    // Don't await - fire and forget for performance
+    Promise.all(songPromises).catch((err) => {
+      console.warn("[createEntry] Failed to store songs:", err)
+    })
+  }
+
   return data
 }
 

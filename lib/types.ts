@@ -41,6 +41,15 @@ export interface DailyPrompt {
   prompt?: Prompt
 }
 
+export interface EmbeddedMedia {
+  platform: "spotify" | "apple_music"
+  url: string
+  embedId: string
+  embedType: string
+  embedUrl: string
+  position?: number // Character position in text where embed should appear
+}
+
 export interface Entry {
   id: string
   group_id: string
@@ -50,6 +59,7 @@ export interface Entry {
   text_content?: string
   media_urls?: string[]
   media_types?: ("photo" | "video" | "audio")[]
+  embedded_media?: EmbeddedMedia[]
   created_at: string
   user?: User
   prompt?: Prompt

@@ -13,6 +13,8 @@ import { FontAwesome } from "@expo/vector-icons"
 import { supabase } from "../lib/supabase"
 import { getComments } from "../lib/db"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { EmbeddedPlayer } from "./EmbeddedPlayer"
+import type { EmbeddedMedia } from "../lib/types"
 
 interface EntryCardProps {
   entry: Entry
@@ -68,26 +70,52 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
               <Text style={styles.time}>{format(parseISO(entry.created_at), "h:mm a")}</Text>
             </View>
             <Text style={styles.question}>{entry.prompt?.question}</Text>
+            {/* Song shared badge */}
+            {entry.embedded_media && entry.embedded_media.length > 0 && (
+              <View style={styles.songBadge}>
+                <FontAwesome name="play" size={12} color={colors.white} />
+                <Text style={styles.songBadgeText}>
+                  {entry.user?.name || "User"} shared a song with you
+                </Text>
+              </View>
+            )}
             {entry.text_content && (
               <View style={[
                 styles.textContainer,
-                (!entry.media_urls || entry.media_urls.length === 0) && styles.textContainerNoMedia
+                (!entry.media_urls || entry.media_urls.length === 0) && (!entry.embedded_media || entry.embedded_media.length === 0) && styles.textContainerNoMedia
               ]}>
                 <Text 
                   style={styles.entryText} 
-                  numberOfLines={entry.media_urls && entry.media_urls.length > 0 ? 10 : undefined}
-                  ellipsizeMode={entry.media_urls && entry.media_urls.length > 0 ? "tail" : undefined}
+                  numberOfLines={(entry.media_urls && entry.media_urls.length > 0) || (entry.embedded_media && entry.embedded_media.length > 0) ? 10 : undefined}
+                  ellipsizeMode={(entry.media_urls && entry.media_urls.length > 0) || (entry.embedded_media && entry.embedded_media.length > 0) ? "tail" : undefined}
                 >
                   {entry.text_content}
                 </Text>
                 {/* Show fade 2 lines above media if media exists */}
-                {(entry.media_urls && entry.media_urls.length > 0) && entry.text_content && entry.text_content.length > 200 && (
+                {((entry.media_urls && entry.media_urls.length > 0) || (entry.embedded_media && entry.embedded_media.length > 0)) && entry.text_content && entry.text_content.length > 200 && (
                   <View style={styles.textFadeAboveMedia} pointerEvents="none" />
                 )}
                 {/* Show fade at bottom if no media and text is long */}
-                {(!entry.media_urls || entry.media_urls.length === 0) && entry.text_content && entry.text_content.length > 200 && (
+                {(!entry.media_urls || entry.media_urls.length === 0) && (!entry.embedded_media || entry.embedded_media.length === 0) && entry.text_content && entry.text_content.length > 200 && (
                   <View style={styles.textFadeBottom} pointerEvents="none" />
                 )}
+              </View>
+            )}
+            {/* Embedded media inline with text */}
+            {entry.embedded_media && entry.embedded_media.length > 0 && (
+              <View style={styles.embeddedMediaContainer}>
+                {entry.embedded_media.map((embed: EmbeddedMedia, index: number) => (
+                  <EmbeddedPlayer
+                    key={`${embed.platform}-${embed.embedId}-${index}`}
+                    embed={{
+                      platform: embed.platform,
+                      url: embed.url,
+                      embedId: embed.embedId,
+                      embedType: embed.embedType,
+                      embedUrl: embed.embedUrl,
+                    }}
+                  />
+                ))}
               </View>
             )}
             <View style={styles.mediaContainer}>
@@ -107,7 +135,22 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                     if (mediaType === "audio") {
                       return (
                         <View key={`audio-${idx}-${url}`} style={styles.audioThumbnailSquare}>
-                          <FontAwesome name="play" size={20} color={colors.white} />
+                          {entry.user?.avatar_url ? (
+                            <>
+                              <Image 
+                                source={{ uri: entry.user.avatar_url }} 
+                                style={styles.audioThumbnailImage}
+                                resizeMode="cover"
+                              />
+                              <View style={styles.audioThumbnailOverlay} />
+                            </>
+                          ) : null}
+                          <View style={styles.audioThumbnailContent}>
+                            <FontAwesome name="play" size={20} color={colors.white} />
+                            <Text style={styles.audioThumbnailLabel} numberOfLines={2}>
+                              {entry.user?.name || "User"} left a voice message
+                            </Text>
+                          </View>
                         </View>
                       )
                     }
@@ -302,6 +345,62 @@ const styles = StyleSheet.create({
     marginRight: 0,
     marginLeft: 0,
     flexShrink: 0, // Prevent shrinking in ScrollView
+    position: "relative",
+    overflow: "hidden",
+  },
+  audioThumbnailImage: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: "100%",
+    height: "100%",
+  },
+  audioThumbnailOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+  },
+  audioThumbnailContent: {
+    position: "relative",
+    zIndex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.xs,
+    gap: spacing.xs,
+  },
+  audioThumbnailLabel: {
+    ...typography.caption,
+    color: colors.white,
+    fontSize: 10,
+    textAlign: "center",
+  },
+  embeddedMediaContainer: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+    gap: spacing.xs,
+  },
+  songBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    backgroundColor: colors.black,
+    borderWidth: 1,
+    borderColor: colors.white,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: 16,
+    alignSelf: "flex-start",
+    marginBottom: spacing.sm,
+  },
+  songBadgeText: {
+    ...typography.caption,
+    color: colors.white,
+    fontSize: 11,
   },
   commentPreview: {
     marginTop: spacing.xs,

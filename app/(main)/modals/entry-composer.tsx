@@ -26,6 +26,9 @@ import { uploadMedia } from "../../../lib/storage"
 import { colors, typography, spacing } from "../../../lib/theme"
 import { Button } from "../../../components/Button"
 import { FontAwesome } from "@expo/vector-icons"
+import { parseEmbedUrl, extractEmbedUrls, type ParsedEmbed } from "../../../lib/embed-parser"
+import { EmbeddedPlayer } from "../../../components/EmbeddedPlayer"
+import * as Clipboard from "expo-clipboard"
 
 type MediaItem = {
   id: string
@@ -43,6 +46,7 @@ export default function EntryComposer() {
   const promptId = params.promptId as string
   const date = params.date as string
   const returnTo = (params.returnTo as string) || undefined
+  const groupIdParam = params.groupId as string | undefined
 
   const [text, setText] = useState("")
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([])
@@ -65,10 +69,14 @@ export default function EntryComposer() {
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const soundRef = useRef<Audio.Sound | null>(null)
   const queryClient = useQueryClient()
+  const [embeddedMedia, setEmbeddedMedia] = useState<ParsedEmbed[]>([])
+  const [showSongModal, setShowSongModal] = useState(false)
+  const [songUrlInput, setSongUrlInput] = useState("")
+  const textInputRef = useRef<TextInput>(null)
 
-  useState(() => {
+  useEffect(() => {
     loadUserAndGroup()
-  })
+  }, [groupIdParam])
 
   async function loadUserAndGroup() {
     const {
@@ -76,14 +84,31 @@ export default function EntryComposer() {
     } = await supabase.auth.getUser()
     if (user) {
       setUserId(user.id)
-      const { data: membership } = await supabase
+      
+      // If groupId is passed as param, use it (most reliable)
+      if (groupIdParam) {
+        // Verify user is a member of this group
+        const { data: membership } = await supabase
+          .from("group_members")
+          .select("group_id")
+          .eq("user_id", user.id)
+          .eq("group_id", groupIdParam)
+          .single()
+        if (membership) {
+          setCurrentGroupId(groupIdParam)
+          return
+        }
+      }
+      
+      // Fallback: get the most recently joined group (not just first)
+      const { data: memberships } = await supabase
         .from("group_members")
         .select("group_id")
         .eq("user_id", user.id)
+        .order("joined_at", { ascending: false })
         .limit(1)
-        .single()
-      if (membership) {
-        setCurrentGroupId(membership.group_id)
+      if (memberships && memberships.length > 0) {
+        setCurrentGroupId(memberships[0].group_id)
       }
     }
   }
@@ -136,6 +161,66 @@ export default function EntryComposer() {
     setAudioDurations({})
     setAudioLoading({})
   }, [promptId, date])
+
+  // Detect embed URLs on blur - preserve existing embeds
+  function handleTextBlur() {
+    const newEmbeds = extractEmbedUrls(text)
+    // Merge with existing embeds, avoiding duplicates
+    setEmbeddedMedia((prev) => {
+      const merged = [...prev]
+      newEmbeds.forEach((newEmbed) => {
+        const exists = merged.some((e) => e.url === newEmbed.url || e.embedId === newEmbed.embedId)
+        if (!exists) {
+          merged.push(newEmbed)
+        }
+      })
+      return merged
+    })
+  }
+
+  // Handle paste in text input
+  async function handlePaste() {
+    try {
+      const clipboardText = await Clipboard.getStringAsync()
+      if (clipboardText) {
+        const parsed = parseEmbedUrl(clipboardText.trim())
+        if (parsed) {
+          // Add to embedded media if not already present
+          setEmbeddedMedia((prev) => {
+            const exists = prev.some((e) => e.url === parsed.url)
+            if (exists) return prev
+            return [...prev, parsed]
+          })
+        }
+      }
+    } catch (error) {
+      // Ignore clipboard errors
+    }
+  }
+
+  // Add song from modal
+  function handleAddSong() {
+    const parsed = parseEmbedUrl(songUrlInput.trim())
+    if (parsed) {
+      setEmbeddedMedia((prev) => {
+        const exists = prev.some((e) => e.url === parsed.url || e.embedId === parsed.embedId)
+        if (exists) {
+          Alert.alert("Already added", "This song is already in your entry.")
+          return prev
+        }
+        return [...prev, parsed]
+      })
+      setSongUrlInput("")
+      setShowSongModal(false)
+    } else {
+      Alert.alert("Invalid URL", "Please enter a valid Spotify or Apple Music URL.")
+    }
+  }
+
+  // Remove embedded media
+  function handleRemoveEmbed(index: number) {
+    setEmbeddedMedia((prev) => prev.filter((_, i) => i !== index))
+  }
 
   async function pickImages() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
@@ -432,6 +517,15 @@ export default function EntryComposer() {
         }),
       )
 
+      // Prepare embedded media for storage
+      const embeddedMediaForStorage = embeddedMedia.map((embed) => ({
+        platform: embed.platform,
+        url: embed.url,
+        embedId: embed.embedId,
+        embedType: embed.embedType,
+        embedUrl: embed.embedUrl,
+      }))
+
       await createEntry({
         group_id: currentGroupId,
         user_id: userId,
@@ -440,14 +534,16 @@ export default function EntryComposer() {
         text_content: text.trim() || undefined,
         media_urls: uploadedMedia.map((item) => item.url),
         media_types: uploadedMedia.map((item) => item.type),
+        embedded_media: embeddedMediaForStorage.length > 0 ? embeddedMediaForStorage : undefined,
       })
 
-      // Invalidate all related queries to ensure fresh data
+      // Invalidate queries scoped to the specific group to prevent cross-group contamination
+      // Use prefix matching to invalidate all related queries
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["entries"] }),
-        queryClient.invalidateQueries({ queryKey: ["userEntry"] }),
-        queryClient.invalidateQueries({ queryKey: ["historyEntries"] }),
-        queryClient.invalidateQueries({ queryKey: ["dailyPrompt"] }),
+        queryClient.invalidateQueries({ queryKey: ["entries", currentGroupId], exact: false }),
+        queryClient.invalidateQueries({ queryKey: ["userEntry", currentGroupId], exact: false }),
+        queryClient.invalidateQueries({ queryKey: ["historyEntries", currentGroupId], exact: false }),
+        queryClient.invalidateQueries({ queryKey: ["dailyPrompt", currentGroupId], exact: false }),
         queryClient.invalidateQueries({ queryKey: ["historyComments"] }),
       ])
 
@@ -475,15 +571,34 @@ export default function EntryComposer() {
         <Text style={styles.description}>{activePrompt?.description}</Text>
 
         <TextInput
+          ref={textInputRef}
           style={styles.input}
           value={text}
           onChangeText={setText}
+          onBlur={handleTextBlur}
           placeholder="Start writing..."
           placeholderTextColor={colors.gray[500]}
           multiline
           autoFocus
           showSoftInputOnFocus
         />
+
+        {/* Embedded media preview - show inline where they appear in text */}
+        {embeddedMedia.length > 0 && (
+          <View style={styles.embeddedMediaContainer}>
+            {embeddedMedia.map((embed, index) => (
+              <View key={`${embed.platform}-${embed.embedId}-${index}`} style={styles.embeddedMediaItem}>
+                <EmbeddedPlayer embed={embed} />
+                <TouchableOpacity
+                  style={styles.embeddedMediaRemove}
+                  onPress={() => handleRemoveEmbed(index)}
+                >
+                  <FontAwesome name="times" size={14} color={colors.white} />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
 
         {/* Media preview */}
         {mediaItems.length > 0 && (
@@ -603,6 +718,12 @@ export default function EntryComposer() {
             <TouchableOpacity style={styles.iconButton} onPress={shufflePrompt}>
               <FontAwesome name="random" size={18} color={colors.white} />
             </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={() => setShowSongModal(true)}
+            >
+              <FontAwesome name="music" size={18} color={colors.white} />
+            </TouchableOpacity>
           </View>
           <View style={styles.toolbarRight}>
             {text.trim().length > 0 && (
@@ -624,6 +745,42 @@ export default function EntryComposer() {
           </View>
         </View>
       </View>
+
+      {/* Add Song Modal */}
+      <Modal
+        visible={showSongModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowSongModal(false)}
+      >
+        <View style={styles.voiceBackdrop}>
+          <View style={styles.voiceSheet}>
+            <Text style={styles.voiceTitle}>Add a song</Text>
+            <Text style={styles.voiceDescription}>
+              Paste a Spotify or Apple Music link to embed it in your entry
+            </Text>
+            <TextInput
+              style={styles.songUrlInput}
+              value={songUrlInput}
+              onChangeText={setSongUrlInput}
+              placeholder="https://open.spotify.com/track/..."
+              placeholderTextColor={colors.gray[500]}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+            />
+            <Button
+              title="Add Song"
+              onPress={handleAddSong}
+              disabled={!songUrlInput.trim()}
+              style={styles.addSongButton}
+            />
+            <TouchableOpacity style={styles.voiceCancel} onPress={() => setShowSongModal(false)}>
+              <Text style={styles.voiceCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={voiceModalVisible}
@@ -991,5 +1148,50 @@ const styles = StyleSheet.create({
   voiceCancelText: {
     ...typography.caption,
     color: colors.gray[400],
+  },
+  voiceDescription: {
+    ...typography.body,
+    color: colors.gray[400],
+    textAlign: "center",
+    marginBottom: spacing.md,
+  },
+  songUrlInput: {
+    ...typography.body,
+    color: colors.white,
+    backgroundColor: colors.gray[900],
+    borderRadius: 12,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.gray[700],
+  },
+  voiceButtonLabel: {
+    ...typography.caption,
+    color: colors.white,
+    marginTop: spacing.xs,
+    fontSize: 12,
+  },
+  embeddedMediaContainer: {
+    marginTop: spacing.md,
+    gap: spacing.sm,
+  },
+  embeddedMediaItem: {
+    position: "relative",
+  },
+  embeddedMediaRemove: {
+    position: "absolute",
+    top: spacing.xs,
+    right: spacing.xs,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 10,
+  },
+  addSongButton: {
+    marginTop: spacing.md,
+    width: "100%",
   },
 })
