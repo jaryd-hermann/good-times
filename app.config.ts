@@ -21,6 +21,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     supportsTablet: false,
     bundleIdentifier: "com.jarydhermann.goodtimes",
     buildNumber: "5", // Increment for each TestFlight submission (e.g., "1", "2", "3" or "1.1.0.1", "1.1.0.2")
+    usesAppleSignIn: true, // Enable Apple Sign In capability
     // deploymentTarget is set in ios/Podfile.properties.json (not a valid property here in Expo SDK 54)
     infoPlist: {
       NSCameraUsageDescription: "Good Times needs access to your camera to capture photos and videos for your entries.",
