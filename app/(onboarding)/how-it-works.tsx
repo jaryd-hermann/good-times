@@ -31,11 +31,11 @@ export default function HowItWorks() {
       resizeMode="cover"
     >
       <View style={styles.overlay} />
-      <View style={styles.topBar}>
-        <OnboardingBack />
-      </View>
       <View style={styles.content}>
-        <View style={styles.floatingContent}>
+        <View style={styles.topBar}>
+          <OnboardingBack />
+        </View>
+        <View style={styles.textContainer}>
           <Text style={styles.title}>How to use it</Text>
 
           <View style={styles.steps}>
@@ -46,63 +46,63 @@ export default function HowItWorks() {
               </View>
             ))}
           </View>
+        </View>
 
-          <View style={styles.controls}>
-            <OnboardingProgress total={3} current={3} />
-            <View style={styles.buttonContainer}>
-              <Button
-                title="→"
-                onPress={async () => {
-                  // Check for pending group join
-                  const pendingGroupId = await AsyncStorage.getItem("pending_group_join")
-                  if (pendingGroupId) {
-                    // Save user profile first if we have onboarding data
-                    const {
-                      data: { session },
-                    } = await supabase.auth.getSession()
-                    if (session) {
-                      // Save profile if we have onboarding data
-                      if (data.userName && data.userBirthday) {
-                        const birthday = data.userBirthday.toISOString().split("T")[0]
-                        const emailFromSession = data.userEmail ?? session.user.email
-                        if (emailFromSession) {
-                          await supabase
-                            .from("users")
-                            .upsert(
-                              {
-                                id: session.user.id,
-                                email: emailFromSession,
-                                name: data.userName.trim(),
-                                birthday,
-                                avatar_url: data.userPhoto,
-                              },
-                              { onConflict: "id" }
-                            )
-                        }
-                      }
-                      
-                      // Join the group and go to home
-                      const { error } = await supabase.from("group_members").insert({
-                        group_id: pendingGroupId,
-                        user_id: session.user.id,
-                        role: "member",
-                      })
-                      if (!error) {
-                        await AsyncStorage.removeItem("pending_group_join")
-                        router.replace({
-                          pathname: "/(main)/home",
-                          params: { focusGroupId: pendingGroupId },
-                        })
-                        return
+        <View style={styles.bottomContainer}>
+          <OnboardingProgress total={3} current={3} />
+          <View style={styles.buttonContainer}>
+            <Button
+              title="→"
+              onPress={async () => {
+                // Check for pending group join
+                const pendingGroupId = await AsyncStorage.getItem("pending_group_join")
+                if (pendingGroupId) {
+                  // Save user profile first if we have onboarding data
+                  const {
+                    data: { session },
+                  } = await supabase.auth.getSession()
+                  if (session) {
+                    // Save profile if we have onboarding data
+                    if (data.userName && data.userBirthday) {
+                      const birthday = data.userBirthday.toISOString().split("T")[0]
+                      const emailFromSession = data.userEmail ?? session.user.email
+                      if (emailFromSession) {
+                        await supabase
+                          .from("users")
+                          .upsert(
+                            {
+                              id: session.user.id,
+                              email: emailFromSession,
+                              name: data.userName.trim(),
+                              birthday,
+                              avatar_url: data.userPhoto,
+                            } as any,
+                            { onConflict: "id" }
+                          )
                       }
                     }
+                    
+                    // Join the group and go to home
+                    const { error } = await supabase.from("group_members").insert({
+                      group_id: pendingGroupId,
+                      user_id: session.user.id,
+                      role: "member",
+                    } as any)
+                    if (!error) {
+                      await AsyncStorage.removeItem("pending_group_join")
+                      router.replace({
+                        pathname: "/(main)/home",
+                        params: { focusGroupId: pendingGroupId },
+                      })
+                      return
+                    }
                   }
-                  router.push("/(onboarding)/create-group/name-type")
-                }}
-                style={styles.button}
-                textStyle={styles.buttonText}
-              />
-            </View>
+                }
+                router.push("/(onboarding)/create-group/name-type")
+              }}
+              style={styles.button}
+              textStyle={styles.buttonText}
+            />
           </View>
         </View>
       </View>
@@ -120,22 +120,23 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0, 0, 0, 0.5)",
   },
+  content: {
+    flex: 1,
+    justifyContent: "space-between",
+    padding: spacing.lg,
+    paddingTop: spacing.xxl * 2,
+    paddingBottom: spacing.xxl * 2,
+  },
   topBar: {
     position: "absolute",
     top: spacing.xxl,
     left: spacing.lg,
     zIndex: 1,
   },
-  content: {
-    padding: spacing.lg,
+  textContainer: {
     flex: 1,
-  },
-  floatingContent: {
-    position: "absolute",
-    left: spacing.lg,
-    right: spacing.lg,
-    bottom: spacing.xl,
-    gap: spacing.lg,
+    justifyContent: "flex-end",
+    paddingBottom: spacing.xxl,
   },
   title: {
     ...typography.h1,
@@ -162,14 +163,14 @@ const styles = StyleSheet.create({
     color: colors.white,
     flex: 1,
   },
-  controls: {
+  bottomContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-    gap: spacing.md,
+    alignItems: "flex-end",
   },
   buttonContainer: {
     alignItems: "flex-end",
+    marginLeft: spacing.md,
   },
   button: {
     width: 100,

@@ -29,6 +29,8 @@ export interface Prompt {
   description: string
   category: string
   is_default: boolean
+  birthday_type?: "your_birthday" | "their_birthday" | null
+  dynamic_variables?: string[] // Array of variable names like ["member_name", "memorial_name"]
   created_at: string
 }
 
@@ -37,6 +39,7 @@ export interface DailyPrompt {
   group_id: string
   prompt_id: string
   date: string
+  user_id?: string | null // NULL for general prompts, user_id for user-specific prompts (birthdays)
   created_at: string
   prompt?: Prompt
 }

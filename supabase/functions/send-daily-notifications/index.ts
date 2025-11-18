@@ -36,48 +36,64 @@ serve(async (req) => {
 
     const today = new Date().toISOString().split("T")[0]
 
-    // Get all group prompts for today
-    const { data: groupPrompts, error: promptsError } = await supabaseClient
-      .from("group_prompts")
+    // Get all daily prompts for today (both general and user-specific)
+    const { data: dailyPrompts, error: promptsError } = await supabaseClient
+      .from("daily_prompts")
       .select(`
         id,
         group_id,
         prompt_id,
+        user_id,
         groups (
           id,
           name
         ),
         prompts (
-          question
+          question,
+          dynamic_variables,
+          birthday_type
         )
       `)
-      .eq("scheduled_for", today)
+      .eq("date", today)
 
     if (promptsError) throw promptsError
 
     const notifications = []
 
-    for (const groupPrompt of groupPrompts || []) {
-      const group = groupPrompt.groups
-      const prompt = groupPrompt.prompts
+    for (const dailyPrompt of dailyPrompts || []) {
+      const group = dailyPrompt.groups as any
+      const prompt = dailyPrompt.prompts as any
 
-      // Get all members with push tokens from push_tokens table
+      if (!group || !prompt) continue
+
+      // Get members for this group
       const { data: members, error: membersError } = await supabaseClient
         .from("group_members")
-        .select("user_id")
-        .eq("group_id", groupPrompt.group_id)
+        .select("user_id, user:users(id, name, birthday)")
+        .eq("group_id", dailyPrompt.group_id)
 
       if (membersError) {
-        console.error(`[send-daily-notifications] Error fetching members for group ${groupPrompt.group_id}:`, membersError)
+        console.error(`[send-daily-notifications] Error fetching members for group ${dailyPrompt.group_id}:`, membersError)
         continue
       }
 
-      for (const member of members || []) {
+      // Determine which users should receive this prompt
+      let targetUsers: Array<{ user_id: string }> = []
+      
+      if (dailyPrompt.user_id) {
+        // User-specific prompt (e.g., birthday prompt)
+        targetUsers = [{ user_id: dailyPrompt.user_id }]
+      } else {
+        // General prompt - send to all members
+        targetUsers = (members || []).map((m: any) => ({ user_id: m.user_id }))
+      }
+
+      for (const targetUser of targetUsers) {
         // Get push token for this user
         const { data: pushTokens, error: tokenError } = await supabaseClient
           .from("push_tokens")
           .select("token")
-          .eq("user_id", member.user_id)
+          .eq("user_id", targetUser.user_id)
           .limit(1)
 
         if (tokenError || !pushTokens || pushTokens.length === 0) continue
@@ -85,16 +101,45 @@ serve(async (req) => {
         const pushToken = pushTokens[0].token
         if (!pushToken) continue
 
+        // Personalize prompt text with dynamic variables
+        let personalizedQuestion = prompt.question
+        
+        if (prompt.dynamic_variables && Array.isArray(prompt.dynamic_variables)) {
+          const variables: Record<string, string> = {}
+          
+          // Handle member_name variable for birthday prompts
+          if (prompt.birthday_type === "their_birthday" && members) {
+            const todayMonthDay = today.substring(5) // MM-DD
+            for (const member of members) {
+              const user = member.user as any
+              if (user?.birthday && user.birthday.substring(5) === todayMonthDay) {
+                variables.member_name = user.name || "them"
+                break
+              }
+            }
+          }
+          
+          // Replace variables in question text
+          if (Object.keys(variables).length > 0) {
+            for (const [key, value] of Object.entries(variables)) {
+              personalizedQuestion = personalizedQuestion.replace(
+                new RegExp(`\\{\\{?${key}\\}?\\}`, "gi"),
+                value
+              )
+            }
+          }
+        }
+
         // Send push notification via Expo
         const message = {
           to: pushToken,
           sound: "default",
           title: `Today's question for ${group.name}`,
-          body: prompt.question,
+          body: personalizedQuestion,
           data: {
             type: "daily_prompt",
             group_id: group.id,
-            prompt_id: groupPrompt.prompt_id,
+            prompt_id: dailyPrompt.prompt_id,
           },
         }
 
@@ -111,16 +156,16 @@ serve(async (req) => {
           
           // Save notification to database
           await supabaseClient.from("notifications").insert({
-            user_id: member.user_id,
+            user_id: targetUser.user_id,
             type: "daily_prompt",
             title: message.title,
             body: message.body,
             data: message.data,
           })
 
-          notifications.push({ user_id: member.user_id, status: result.data?.status || "sent" })
+          notifications.push({ user_id: targetUser.user_id, status: result.data?.status || "sent" })
         } catch (error) {
-          console.error(`[send-daily-notifications] Error sending to user ${member.user_id}:`, error)
+          console.error(`[send-daily-notifications] Error sending to user ${targetUser.user_id}:`, error)
         }
       }
     }

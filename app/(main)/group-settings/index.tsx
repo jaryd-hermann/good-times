@@ -50,6 +50,13 @@ export default function GroupSettingsIndex() {
       icon: "question-circle",
     },
     {
+      id: "remembering-them",
+      title: "Remembering Them",
+      subtitle: "See and manage people you're remembering",
+      adminOnly: true,
+      icon: "heart",
+    },
+    {
       id: "manage-members",
       title: "Manage Members",
       subtitle: "Remove members from the group",

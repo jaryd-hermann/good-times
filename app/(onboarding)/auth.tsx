@@ -11,8 +11,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  TouchableOpacity,
 } from "react-native"
 import * as Linking from "expo-linking"
+import * as WebBrowser from "expo-web-browser"
 import { useRouter } from "expo-router"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { supabase } from "../../lib/supabase"
@@ -70,6 +72,19 @@ export default function OnboardingAuth() {
         if (profileError) throw profileError
 
         const group = await createGroup(data.groupName, data.groupType, userId)
+
+        // Set NSFW preference for friends groups
+        if (data.groupType === "friends") {
+          const { updateQuestionCategoryPreference } = await import("../../lib/db")
+          // If NSFW is enabled, set preference to "more", otherwise set to "none" (disabled)
+          const nsfwPreference = data.enableNSFW ? "more" : "none"
+          try {
+            await updateQuestionCategoryPreference(group.id, "Edgy/NSFW", nsfwPreference, userId)
+          } catch (error) {
+            // If category doesn't exist yet, that's okay - it will be set later when prompts are added
+            console.warn("[auth] Failed to set NSFW preference:", error)
+          }
+        }
 
         // Save all memorials - both from the array and the current single memorial (for backward compatibility)
         const memorialsToSave: Array<{ name: string; photo?: string }> = []
@@ -259,6 +274,8 @@ export default function OnboardingAuth() {
 
     return () => {
       subscription.remove()
+      // Complete WebBrowser auth session on unmount
+      WebBrowser.maybeCompleteAuthSession()
     }
   }, [router, data, persistOnboarding])
 
@@ -405,53 +422,142 @@ export default function OnboardingAuth() {
     console.log(`[OAuth] Starting ${provider} sign-in...`)
     setOauthLoading(provider)
     
-    // Set a timeout to stop the spinner if redirect doesn't happen (common in simulators)
+    // Set a timeout to stop the spinner if redirect doesn't happen
     if (oauthTimeoutRef.current) {
       clearTimeout(oauthTimeoutRef.current)
     }
     oauthTimeoutRef.current = setTimeout(() => {
-      console.warn("[OAuth] Timeout waiting for redirect - this is common in iOS simulators")
+      console.warn("[OAuth] Timeout waiting for redirect")
       setOauthLoading(null)
       oauthTimeoutRef.current = null
       Alert.alert(
         "OAuth Sign-In",
-        "OAuth redirects don't always work in iOS simulators. Please test on a real device or use email/password sign-in.\n\nIf testing on a real device, make sure 'goodtimes://' is added to your Supabase project's allowed redirect URLs.",
+        "The sign-in process is taking longer than expected. Please try again.",
         [{ text: "OK" }]
       )
-    }, 30000) // 30 second timeout
+    }, 60000) // 60 second timeout
     
     try {
-      // Use the app scheme for redirect URL - required for OAuth in Expo
-      // Use explicit scheme without createURL to avoid trailing slash issues
+      // Get OAuth URL from Supabase with skipBrowserRedirect: true
+      // This returns the URL without opening a browser automatically
       const redirectTo = "goodtimes://"
-      console.log(`[OAuth] Redirect URL: ${redirectTo}`)
+      console.log(`[OAuth] Getting OAuth URL with redirect: ${redirectTo}`)
       
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider,
         options: { 
           redirectTo,
-          skipBrowserRedirect: false,
+          skipBrowserRedirect: true, // Important: we'll open browser manually
         },
       })
       
-      console.log(`[OAuth] Response:`, { data, error })
+      console.log(`[OAuth] Supabase response:`, { data, error })
       
       if (error) {
         if (oauthTimeoutRef.current) {
           clearTimeout(oauthTimeoutRef.current)
           oauthTimeoutRef.current = null
         }
-        console.error(`[OAuth] Error:`, error)
+        console.error(`[OAuth] Error getting OAuth URL:`, error)
         setOauthLoading(null)
-        Alert.alert("Error", error.message || `Failed to sign in with ${provider}. Make sure OAuth redirect URL is configured in Supabase: goodtimes://`)
+        Alert.alert("Error", error.message || `Failed to start ${provider} sign-in. Please try again.`)
         return
       }
       
-      // Note: OAuth will open browser, user completes auth, then redirects back to app
-      // The redirect will be handled by the Linking listener in auth.tsx
-      console.log(`[OAuth] OAuth flow initiated, waiting for redirect...`)
-      console.log(`[OAuth] Browser should open. After signing in, you'll be redirected back to the app.`)
-      console.log(`[OAuth] NOTE: OAuth redirects often don't work in iOS simulators - test on a real device`)
+      if (!data?.url) {
+        if (oauthTimeoutRef.current) {
+          clearTimeout(oauthTimeoutRef.current)
+          oauthTimeoutRef.current = null
+        }
+        console.error(`[OAuth] No URL returned from Supabase`)
+        setOauthLoading(null)
+        Alert.alert("Error", `Failed to get ${provider} sign-in URL. Please try again.`)
+        return
+      }
+      
+      console.log(`[OAuth] Opening browser with URL: ${data.url}`)
+      
+      // Open the OAuth URL in a browser/webview
+      // WebBrowser will handle the redirect back to the app automatically
+      const result = await WebBrowser.openAuthSessionAsync(
+        data.url,
+        redirectTo
+      )
+      
+      console.log(`[OAuth] Browser session result:`, result)
+      
+      // Clear timeout since we got a response
+      if (oauthTimeoutRef.current) {
+        clearTimeout(oauthTimeoutRef.current)
+        oauthTimeoutRef.current = null
+      }
+      
+      if (result.type === "success" && result.url) {
+        // Parse the URL to extract tokens
+        const url = result.url
+        console.log(`[OAuth] Success! Parsing URL: ${url}`)
+        
+        // Extract hash fragment (Supabase sends tokens in hash)
+        const hashMatch = url.match(/#(.+)/)
+        if (hashMatch) {
+          const hashParams = new URLSearchParams(hashMatch[1])
+          const accessToken = hashParams.get("access_token")
+          const refreshToken = hashParams.get("refresh_token")
+          const type = hashParams.get("type")
+          
+          if (accessToken && (type === "recovery" || type === "signup" || type === "login")) {
+            // Set session with tokens
+            const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken || "",
+            })
+            
+            if (sessionError) {
+              console.error(`[OAuth] Error setting session:`, sessionError)
+              setOauthLoading(null)
+              Alert.alert("Error", "Failed to complete sign-in. Please try again.")
+              return
+            }
+            
+            if (sessionData.session) {
+              console.log(`[OAuth] Session set successfully, processing...`)
+              // The existing OAuth redirect handler will process this
+              // But we'll also handle it here to be safe
+              await handleOAuthSuccess(sessionData.session)
+            }
+          } else {
+            // Try to get session from Supabase (it might have processed the URL automatically)
+            const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+            if (session && !sessionError) {
+              console.log(`[OAuth] Session found after redirect, processing...`)
+              await handleOAuthSuccess(session)
+            } else {
+              console.error(`[OAuth] No session found after redirect`)
+              setOauthLoading(null)
+              Alert.alert("Error", "Failed to complete sign-in. Please try again.")
+            }
+          }
+        } else {
+          // No hash fragment, check if Supabase processed it
+          const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+          if (session && !sessionError) {
+            console.log(`[OAuth] Session found after redirect (no hash), processing...`)
+            await handleOAuthSuccess(session)
+          } else {
+            console.error(`[OAuth] No session found after redirect (no hash)`)
+            setOauthLoading(null)
+            Alert.alert("Error", "Failed to complete sign-in. Please try again.")
+          }
+        }
+      } else if (result.type === "cancel") {
+        console.log(`[OAuth] User cancelled`)
+        setOauthLoading(null)
+        // Don't show alert for user cancellation
+      } else {
+        console.error(`[OAuth] Unexpected result type:`, result.type)
+        setOauthLoading(null)
+        Alert.alert("Error", "Sign-in was cancelled or failed. Please try again.")
+      }
     } catch (error: any) {
       if (oauthTimeoutRef.current) {
         clearTimeout(oauthTimeoutRef.current)
@@ -459,7 +565,63 @@ export default function OnboardingAuth() {
       }
       console.error(`[OAuth] Failed:`, error)
       setOauthLoading(null)
-      Alert.alert("Error", error.message || `Failed to sign in with ${provider}. Make sure OAuth redirect URL is configured in Supabase: goodtimes://`)
+      Alert.alert("Error", error.message || `Failed to sign in with ${provider}. Please try again.`)
+    }
+  }
+
+  async function handleOAuthSuccess(session: any) {
+    try {
+      setOauthLoading(null)
+      
+      // Save biometric credentials if enabled
+      const biometricEnabled = await getBiometricPreference()
+      if (biometricEnabled && session.refresh_token) {
+        try {
+          await saveBiometricCredentials(session.refresh_token, session.user.id)
+        } catch (error) {
+          console.warn("[OAuth] failed to save biometric credentials:", error)
+        }
+      }
+      
+      // Check if user has profile and group (same logic as handleContinue)
+      const { data: user } = await supabase
+        .from("users")
+        .select("name, birthday")
+        .eq("id", session.user.id)
+        .maybeSingle()
+      
+      if (user?.name && user?.birthday) {
+        // Existing user - check if they have a group
+        const { data: membership } = await supabase
+          .from("group_members")
+          .select("group_id")
+          .eq("user_id", session.user.id)
+          .limit(1)
+          .maybeSingle()
+        
+        if (membership) {
+          // Existing user with group - go to home
+          router.replace("/(main)/home")
+        } else {
+          // Existing user without group
+          if (data.groupName && data.groupType) {
+            await persistOnboarding(session.user.id)
+          } else {
+            router.replace("/(onboarding)/create-group/name-type")
+          }
+        }
+      } else {
+        // New user or incomplete profile - continue with onboarding flow
+        if (data.groupName && data.groupType) {
+          await persistOnboarding(session.user.id)
+        } else {
+          router.replace("/(onboarding)/about")
+        }
+      }
+    } catch (error: any) {
+      console.error("[OAuth] Error handling success:", error)
+      setOauthLoading(null)
+      Alert.alert("Error", error.message || "Failed to complete sign-in. Please try again.")
     }
   }
 
@@ -488,6 +650,12 @@ export default function OnboardingAuth() {
           >
             <View style={styles.topBar}>
               <OnboardingBack />
+              <TouchableOpacity
+                onPress={() => router.push("/(onboarding)/forgot-password")}
+                style={styles.forgotPasswordLink}
+              >
+                <Text style={styles.forgotPasswordText}>Forgot Password</Text>
+              </TouchableOpacity>
             </View>
 
             <View style={styles.content}>
@@ -580,6 +748,20 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: spacing.xl + spacing.sm,
     left: spacing.lg,
+    right: spacing.lg,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  forgotPasswordLink: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  forgotPasswordText: {
+    fontFamily: "Roboto-Regular",
+    fontSize: 14,
+    color: colors.white,
+    textDecorationLine: "underline",
   },
   content: {
     gap: spacing.lg,

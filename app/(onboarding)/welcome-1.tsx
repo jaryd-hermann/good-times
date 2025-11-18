@@ -1,24 +1,73 @@
 "use client"
 
+import { useEffect } from "react"
 import { View, Text, StyleSheet, ImageBackground, Dimensions, TouchableOpacity } from "react-native"
 import { useRouter } from "expo-router"
 import { colors, typography, spacing } from "../../lib/theme"
 import { Button } from "../../components/Button"
+import { 
+  isBiometricAvailable, 
+  getBiometricPreference, 
+  getBiometricRefreshToken, 
+  getBiometricUserId,
+  authenticateWithBiometric 
+} from "../../lib/biometric"
+import { supabase } from "../../lib/supabase"
 
 const { width, height } = Dimensions.get("window")
 
 export default function Welcome1() {
   const router = useRouter()
 
+  useEffect(() => {
+    async function attemptBiometricLogin() {
+      try {
+        // Check if biometric is available and enabled
+        const biometricAvailable = await isBiometricAvailable()
+        if (!biometricAvailable) return
+
+        const biometricEnabled = await getBiometricPreference()
+        if (!biometricEnabled) return
+
+        // Check if we have stored credentials
+        const refreshToken = await getBiometricRefreshToken()
+        const userId = await getBiometricUserId()
+        if (!refreshToken || !userId) return
+
+        // Attempt biometric authentication
+        const authResult = await authenticateWithBiometric("Authenticate to log in")
+        if (!authResult.success) return
+
+        // Use refresh token to get new session
+        const { data, error } = await supabase.auth.refreshSession({
+          refresh_token: refreshToken,
+        })
+
+        if (error || !data.session) {
+          console.warn("[welcome-1] Failed to refresh session with biometric:", error)
+          return
+        }
+
+        // Successfully authenticated - navigate to home
+        router.replace("/(main)/home")
+      } catch (error) {
+        // Silently fail - user can still log in manually
+        console.warn("[welcome-1] Biometric login error:", error)
+      }
+    }
+
+    // Attempt biometric login after a short delay to allow screen to render
+    const timeout = setTimeout(() => {
+      attemptBiometricLogin()
+    }, 500)
+
+    return () => clearTimeout(timeout)
+  }, [router])
+
   return (
-    <ImageBackground source={require("../../assets/images/welcome-bg.png")} style={styles.container} resizeMode="cover">
+    <ImageBackground source={require("../../assets/images/newgroup-bg.png")} style={styles.container} resizeMode="cover">
       <View style={styles.overlay} />
       <View style={styles.content}>
-        <View style={styles.loginContainer}>
-          <TouchableOpacity onPress={() => router.push("/(onboarding)/auth")} activeOpacity={0.8}>
-            <Text style={styles.loginText}>Login</Text>
-          </TouchableOpacity>
-        </View>
         <View style={styles.textContainer}>
           <Text style={styles.title}>Good Times</Text>
           <Text style={styles.subtitle}>
@@ -27,6 +76,12 @@ export default function Welcome1() {
         </View>
 
         <View style={styles.buttonContainer}>
+          <View style={styles.loginContainer}>
+            <Text style={styles.loginPrefix}>Already in a group? </Text>
+            <TouchableOpacity onPress={() => router.push("/(onboarding)/auth")} activeOpacity={0.8}>
+              <Text style={styles.loginText}>Login</Text>
+            </TouchableOpacity>
+          </View>
           <Button
             title="→"
             onPress={() => router.push("/(onboarding)/welcome-2")}
@@ -57,14 +112,20 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xxl * 2,
   },
   loginContainer: {
-    position: "absolute",
-    top: spacing.xxl,
-    right: spacing.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
   },
-  loginText: {
-    fontFamily: "Roboto-Medium",
+  loginPrefix: {
+    fontFamily: "Roboto-Regular",
     fontSize: 16,
     color: colors.white,
+  },
+  loginText: {
+    fontFamily: "Roboto-Bold",
+    fontSize: 16,
+    color: colors.white,
+    textDecorationLine: "underline",
   },
   textContainer: {
     flex: 1,
@@ -85,7 +146,9 @@ const styles = StyleSheet.create({
     color: colors.white,
   },
   buttonContainer: {
-    alignItems: "flex-end",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   button: {
     width: 100,

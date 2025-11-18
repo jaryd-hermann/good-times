@@ -1,11 +1,61 @@
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs"
 import { Tabs } from "expo-router"
 import { colors, spacing } from "../../lib/theme"
-import { View, StyleSheet, TouchableOpacity, Text } from "react-native"
+import { View, StyleSheet, TouchableOpacity, Text, Animated } from "react-native"
 import { FontAwesome } from "@expo/vector-icons"
+import { useEffect, useRef } from "react"
 
 function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
   const currentRoute = state.routes[state.index]
+  const previousIndexRef = useRef(state.index)
+  const animatedValuesRef = useRef<Record<string, Animated.Value>>({})
+
+  const visibleRoutes = state.routes.filter((route) => route.name === "home" || route.name === "history")
+
+  // Initialize animated values for each route
+  visibleRoutes.forEach((route) => {
+    if (!animatedValuesRef.current[route.key]) {
+      animatedValuesRef.current[route.key] = new Animated.Value(0)
+    }
+  })
+
+  // Animate tab changes
+  useEffect(() => {
+    const currentIndex = state.index
+    const previousIndex = previousIndexRef.current
+
+    if (currentIndex !== previousIndex) {
+      // Animate out previous tab
+      const previousRoute = state.routes[previousIndex]
+      if (previousRoute && animatedValuesRef.current[previousRoute.key]) {
+        Animated.timing(animatedValuesRef.current[previousRoute.key], {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }).start()
+      }
+
+      // Animate in current tab
+      const currentRoute = state.routes[currentIndex]
+      if (currentRoute && animatedValuesRef.current[currentRoute.key]) {
+        Animated.timing(animatedValuesRef.current[currentRoute.key], {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }).start()
+      }
+
+      previousIndexRef.current = currentIndex
+    } else {
+      // Initialize current tab
+      const currentRoute = state.routes[currentIndex]
+      if (currentRoute && animatedValuesRef.current[currentRoute.key]) {
+        animatedValuesRef.current[currentRoute.key].setValue(1)
+      }
+    }
+  }, [state.index, state.routes])
+
+  // Early return AFTER all hooks
   if (
     currentRoute.name.startsWith("modals/") ||
     currentRoute.name === "settings" ||
@@ -14,14 +64,23 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
     return null
   }
 
-  const visibleRoutes = state.routes.filter((route) => route.name === "home" || route.name === "history")
-
   return (
     <View style={styles.tabWrapper}>
       <View style={styles.tabContainer}>
       {visibleRoutes.map((route) => {
         const isFocused = state.index === state.routes.indexOf(route)
         const label = route.name === "home" ? "Today" : "History"
+        const animatedValue = animatedValuesRef.current[route.key] || new Animated.Value(isFocused ? 1 : 0)
+
+        const iconScale = animatedValue.interpolate({
+          inputRange: [0, 1],
+          outputRange: [1, 1.1],
+        })
+
+        const iconOpacity = animatedValue.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0.5, 1],
+        })
 
         const onPress = () => {
           const event = navigation.emit({
@@ -37,14 +96,24 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
 
         return (
           <TouchableOpacity key={route.key} onPress={onPress} style={styles.tabButton} activeOpacity={0.8}>
-            <View style={[styles.navItem, isFocused && styles.navItemActive]}>
-              <FontAwesome
-                name={route.name === "home" ? "heart" : "history"}
-                size={20}
-                color={isFocused ? colors.white : "#848282"}
-              />
+            <Animated.View 
+              style={[
+                styles.navItem, 
+                isFocused && styles.navItemActive,
+                {
+                  opacity: iconOpacity,
+                }
+              ]}
+            >
+              <Animated.View style={{ transform: [{ scale: iconScale }] }}>
+                <FontAwesome
+                  name={route.name === "home" ? "home" : "book"}
+                  size={20}
+                  color={isFocused ? colors.white : "#848282"}
+                />
+              </Animated.View>
               <Text style={[styles.navLabel, isFocused && styles.navLabelActive]}>{label}</Text>
-            </View>
+            </Animated.View>
           </TouchableOpacity>
         )
       })}

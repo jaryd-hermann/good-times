@@ -1,5 +1,6 @@
 import { supabase } from "./supabase"
 import type { User, Group, GroupMember, Prompt, DailyPrompt, Entry, Memorial, Reaction, Comment } from "./types"
+import { personalizeMemorialPrompt, replaceDynamicVariables } from "./prompts"
 
 // User queries
 export async function getCurrentUser(): Promise<User | null> {
@@ -28,6 +29,12 @@ export async function getUserGroups(userId: string): Promise<Group[]> {
 
   if (error) throw error
   return data?.map((item: any) => item.group) || []
+}
+
+export async function getGroup(groupId: string): Promise<Group | null> {
+  const { data, error } = await supabase.from("groups").select("*").eq("id", groupId).single()
+  if (error) throw error
+  return data
 }
 
 export async function getGroupMembers(groupId: string): Promise<(GroupMember & { user: User })[]> {
@@ -81,21 +88,256 @@ function getDayIndex(dateString: string, groupId?: string): number {
   return diff + groupOffset
 }
 
-export async function getDailyPrompt(groupId: string, date: string): Promise<DailyPrompt | null> {
-  // Check if prompt already assigned for this date
+export async function getDailyPrompt(groupId: string, date: string, userId?: string): Promise<DailyPrompt | null> {
+  // First, check for user-specific prompt (for birthdays)
+  if (userId) {
+    const { data: userSpecificPrompt, error: userPromptError } = await supabase
+      .from("daily_prompts")
+      .select("*, prompt:prompts(*)")
+      .eq("group_id", groupId)
+      .eq("date", date)
+      .eq("user_id", userId)
+      .maybeSingle()
+
+    if (userSpecificPrompt && !userPromptError && userSpecificPrompt.prompt) {
+      const prompt = userSpecificPrompt.prompt as any
+      let personalizedQuestion = prompt.question
+
+      // Handle dynamic variables for birthday prompts
+      if (prompt.dynamic_variables && Array.isArray(prompt.dynamic_variables)) {
+        const variables: Record<string, string> = {}
+        
+        // If it's a "their_birthday" prompt, we need the birthday person's name
+        if (prompt.birthday_type === "their_birthday") {
+          // Get the birthday person's name from the group members
+          const { data: members } = await supabase
+            .from("group_members")
+            .select("user_id, user:users(id, name, birthday)")
+            .eq("group_id", groupId)
+          
+          if (members) {
+            const todayMonthDay = date.substring(5) // MM-DD
+            for (const member of members) {
+              const user = member.user as any
+              if (user?.birthday && user.birthday.substring(5) === todayMonthDay) {
+                variables.member_name = user.name || "them"
+                break
+              }
+            }
+          }
+        }
+
+        // Replace variables in question text
+        if (Object.keys(variables).length > 0) {
+          personalizedQuestion = replaceDynamicVariables(prompt.question, variables)
+        }
+      }
+
+      return {
+        ...userSpecificPrompt,
+        prompt: {
+          ...prompt,
+          question: personalizedQuestion,
+        },
+      }
+    }
+  }
+
+  // Check for general prompt (applies to all members)
   const { data: existing, error: existingError } = await supabase
     .from("daily_prompts")
     .select("*, prompt:prompts(*)")
     .eq("group_id", groupId)
     .eq("date", date)
-    .single()
+    .is("user_id", null)
+    .maybeSingle()
 
-  if (existing && !existingError) {
+  if (existing && !existingError && existing.prompt) {
+    // Personalize prompts with dynamic variables using usage tracking
+    const prompt = existing.prompt as any
+    let personalizedQuestion = prompt.question
+
+    // Handle dynamic variables
+    if (prompt.dynamic_variables && Array.isArray(prompt.dynamic_variables)) {
+      const variables: Record<string, string> = {}
+
+      // Handle memorial_name variable
+      if (prompt.dynamic_variables.includes("memorial_name") && prompt.category === "Remembering") {
+        const memorials = await getMemorials(groupId)
+        if (memorials.length > 0) {
+          // Get recently used memorial names for this prompt
+          const { data: recentUsage } = await supabase
+            .from("prompt_name_usage")
+            .select("name_used")
+            .eq("group_id", groupId)
+            .eq("prompt_id", prompt.id)
+            .eq("variable_type", "memorial_name")
+            .order("date_used", { ascending: false })
+            .limit(memorials.length)
+
+          const usedNames = new Set(recentUsage?.map((u) => u.name_used) || [])
+          
+          // Find unused memorials first
+          const unusedMemorials = memorials.filter((m) => !usedNames.has(m.name))
+          
+          // If all have been used, reset and start fresh
+          const availableMemorials = unusedMemorials.length > 0 ? unusedMemorials : memorials
+          
+          // Select next memorial (cycle through)
+          const dayIndex = getDayIndex(date, groupId)
+          const memorialIndex = dayIndex % availableMemorials.length
+          const selectedMemorial = availableMemorials[memorialIndex]
+          
+          variables.memorial_name = selectedMemorial.name
+
+          // Record usage for this date (ignore errors if already exists)
+          await supabase.from("prompt_name_usage").insert({
+            group_id: groupId,
+            prompt_id: prompt.id,
+            variable_type: "memorial_name",
+            name_used: selectedMemorial.name,
+            date_used: date,
+          }).catch(() => {
+            // Ignore duplicate errors - usage already recorded
+          })
+        }
+      }
+
+      // Handle member_name variable
+      if (prompt.dynamic_variables.includes("member_name")) {
+        if (prompt.birthday_type === "their_birthday") {
+          // For birthday prompts, get the birthday person's name
+          const { data: members } = await supabase
+            .from("group_members")
+            .select("user_id, user:users(id, name, birthday)")
+            .eq("group_id", groupId)
+          
+          if (members) {
+            const todayMonthDay = date.substring(5) // MM-DD
+            for (const member of members) {
+              const user = member.user as any
+              if (user?.birthday && user.birthday.substring(5) === todayMonthDay) {
+                variables.member_name = user.name || "them"
+                
+                // Record usage for this date (ignore errors if already exists)
+                await supabase.from("prompt_name_usage").insert({
+                  group_id: groupId,
+                  prompt_id: prompt.id,
+                  variable_type: "member_name",
+                  name_used: variables.member_name,
+                  date_used: date,
+                }).catch(() => {
+                  // Ignore duplicate errors - usage already recorded
+                })
+                break
+              }
+            }
+          }
+        } else {
+          // For general prompts with member_name, cycle through all group members
+          const members = await getGroupMembers(groupId)
+          if (members.length > 0) {
+            // Get recently used member names for this prompt
+            const { data: recentUsage } = await supabase
+              .from("prompt_name_usage")
+              .select("name_used")
+              .eq("group_id", groupId)
+              .eq("prompt_id", prompt.id)
+              .eq("variable_type", "member_name")
+              .order("date_used", { ascending: false })
+              .limit(members.length)
+
+            const usedNames = new Set(recentUsage?.map((u) => u.name_used) || [])
+            
+            // Find unused members first (filter by name)
+            const unusedMembers = members.filter((m) => {
+              const memberName = m.user?.name || "Unknown"
+              return !usedNames.has(memberName)
+            })
+            
+            // If all have been used, reset and start fresh
+            const availableMembers = unusedMembers.length > 0 ? unusedMembers : members
+            
+            // Select next member (cycle through)
+            const dayIndex = getDayIndex(date, groupId)
+            const memberIndex = dayIndex % availableMembers.length
+            const selectedMember = availableMembers[memberIndex]
+            
+            variables.member_name = selectedMember.user?.name || "them"
+
+            // Record usage for this date (ignore errors if already exists)
+            await supabase.from("prompt_name_usage").insert({
+              group_id: groupId,
+              prompt_id: prompt.id,
+              variable_type: "member_name",
+              name_used: variables.member_name,
+              date_used: date,
+            }).catch(() => {
+              // Ignore duplicate errors - usage already recorded
+            })
+          }
+        }
+      }
+
+      // Replace variables in question text
+      if (Object.keys(variables).length > 0) {
+        personalizedQuestion = replaceDynamicVariables(prompt.question, variables)
+      }
+    } else if (prompt.category === "Remembering") {
+      // Legacy support: if no dynamic_variables but category is Remembering, use old logic
+      const memorials = await getMemorials(groupId)
+      if (memorials.length > 0) {
+        // Get recently used memorial names for this prompt
+        const { data: recentUsage } = await supabase
+          .from("prompt_name_usage")
+          .select("name_used")
+          .eq("group_id", groupId)
+          .eq("prompt_id", prompt.id)
+          .eq("variable_type", "memorial_name")
+          .order("date_used", { ascending: false })
+          .limit(memorials.length)
+
+        const usedNames = new Set(recentUsage?.map((u) => u.name_used) || [])
+        const unusedMemorials = memorials.filter((m) => !usedNames.has(m.name))
+        const availableMemorials = unusedMemorials.length > 0 ? unusedMemorials : memorials
+        
+        const dayIndex = getDayIndex(date, groupId)
+        const memorialIndex = dayIndex % availableMemorials.length
+        const selectedMemorial = availableMemorials[memorialIndex]
+        
+        personalizedQuestion = personalizeMemorialPrompt(prompt.question, selectedMemorial.name)
+
+        // Record usage
+        await supabase.from("prompt_name_usage").insert({
+          group_id: groupId,
+          prompt_id: prompt.id,
+          variable_type: "memorial_name",
+          name_used: selectedMemorial.name,
+          date_used: date,
+        }).catch(() => {
+          // Ignore duplicate errors
+        })
+      }
+    }
+
+    if (personalizedQuestion !== prompt.question) {
+      return {
+        ...existing,
+        prompt: {
+          ...prompt,
+          question: personalizedQuestion,
+        },
+      }
+    }
     return existing
   }
 
   // If no existing prompt, select one using queue-first approach
   if (existingError && existingError.code === "PGRST116") {
+    // Check if group has memorials early - needed for filtering and personalization
+    const memorials = await getMemorials(groupId)
+    const hasMemorials = memorials.length > 0
+    
     let selectedPrompt: Prompt | null = null
 
     // Step 1: Check queue first (group-specific queue)
@@ -108,13 +350,20 @@ export async function getDailyPrompt(groupId: string, date: string): Promise<Dai
       .single()
 
     if (queuedItem && queuedItem.prompt) {
-      selectedPrompt = queuedItem.prompt as Prompt
-      // Remove from queue after selection
-      await supabase
-        .from("group_prompt_queue")
-        .delete()
-        .eq("group_id", groupId)
-        .eq("prompt_id", queuedItem.prompt_id)
+      const queuedPrompt = queuedItem.prompt as Prompt
+      // Filter out "Remembering" category if no memorials
+      if (queuedPrompt.category === "Remembering" && !hasMemorials) {
+        // Skip this queued prompt if it's Remembering and group has no memorials
+        // Continue to Step 2 to find another prompt
+      } else {
+        selectedPrompt = queuedPrompt
+        // Remove from queue after selection
+        await supabase
+          .from("group_prompt_queue")
+          .delete()
+          .eq("group_id", groupId)
+          .eq("prompt_id", queuedItem.prompt_id)
+      }
     }
 
     // Step 2: If no queue item, get prompts that haven't been used for this group
@@ -127,9 +376,20 @@ export async function getDailyPrompt(groupId: string, date: string): Promise<Dai
 
       const usedPromptIds = usedPrompts?.map((p) => p.prompt_id) || []
 
-      // Get preferences
+      // Get preferences and group type
       const preferences = await getQuestionCategoryPreferences(groupId)
       const disabledCategories = new Set(preferences.filter((p) => p.preference === "none").map((p) => p.category))
+
+      // Get group type to filter Edgy/NSFW for family groups
+      const group = await getGroup(groupId)
+      if (group?.type === "family") {
+        disabledCategories.add("Edgy/NSFW")
+      }
+
+      // Filter out "Remembering" category if no memorials
+      if (!hasMemorials) {
+        disabledCategories.add("Remembering")
+      }
 
       // Get all prompts, excluding used ones
       let availablePrompts: Prompt[] = []
@@ -227,18 +487,190 @@ export async function getDailyPrompt(groupId: string, date: string): Promise<Dai
       return null
     }
 
+    // Personalize prompts with dynamic variables before saving
+    let personalizedPrompt = selectedPrompt
+    const prompt = selectedPrompt as any
+
+    // Handle dynamic variables
+    if (prompt.dynamic_variables && Array.isArray(prompt.dynamic_variables)) {
+      const variables: Record<string, string> = {}
+
+      // Handle memorial_name variable
+      if (prompt.dynamic_variables.includes("memorial_name") && prompt.category === "Remembering" && memorials.length > 0) {
+        // Get recently used memorial names for this prompt
+        const { data: recentUsage } = await supabase
+          .from("prompt_name_usage")
+          .select("name_used")
+          .eq("group_id", groupId)
+          .eq("prompt_id", prompt.id)
+          .eq("variable_type", "memorial_name")
+          .order("date_used", { ascending: false })
+          .limit(memorials.length)
+
+        const usedNames = new Set(recentUsage?.map((u) => u.name_used) || [])
+        const unusedMemorials = memorials.filter((m) => !usedNames.has(m.name))
+        const availableMemorials = unusedMemorials.length > 0 ? unusedMemorials : memorials
+        
+        const dayIndex = getDayIndex(date, groupId)
+        const memorialIndex = dayIndex % availableMemorials.length
+        const selectedMemorial = availableMemorials[memorialIndex]
+        
+        variables.memorial_name = selectedMemorial.name
+
+        // Record usage
+        await supabase.from("prompt_name_usage").insert({
+          group_id: groupId,
+          prompt_id: prompt.id,
+          variable_type: "memorial_name",
+          name_used: selectedMemorial.name,
+          date_used: date,
+        }).catch(() => {
+          // Ignore duplicate errors
+        })
+      }
+
+      // Handle member_name variable
+      if (prompt.dynamic_variables.includes("member_name")) {
+        if (prompt.birthday_type === "their_birthday") {
+          // For birthday prompts, get the birthday person's name
+          const { data: members } = await supabase
+            .from("group_members")
+            .select("user_id, user:users(id, name, birthday)")
+            .eq("group_id", groupId)
+          
+          if (members) {
+            const todayMonthDay = date.substring(5) // MM-DD
+            for (const member of members) {
+              const user = member.user as any
+              if (user?.birthday && user.birthday.substring(5) === todayMonthDay) {
+                variables.member_name = user.name || "them"
+                
+                // Record usage
+                await supabase.from("prompt_name_usage").insert({
+                  group_id: groupId,
+                  prompt_id: prompt.id,
+                  variable_type: "member_name",
+                  name_used: variables.member_name,
+                  date_used: date,
+                }).catch(() => {
+                  // Ignore duplicate errors
+                })
+                break
+              }
+            }
+          }
+        } else {
+          // For general prompts with member_name, cycle through all group members
+          const members = await getGroupMembers(groupId)
+          if (members.length > 0) {
+            // Get recently used member names for this prompt
+            const { data: recentUsage } = await supabase
+              .from("prompt_name_usage")
+              .select("name_used")
+              .eq("group_id", groupId)
+              .eq("prompt_id", prompt.id)
+              .eq("variable_type", "member_name")
+              .order("date_used", { ascending: false })
+              .limit(members.length)
+
+            const usedNames = new Set(recentUsage?.map((u) => u.name_used) || [])
+            
+            // Find unused members first (filter by name)
+            const unusedMembers = members.filter((m) => {
+              const memberName = m.user?.name || "Unknown"
+              return !usedNames.has(memberName)
+            })
+            
+            // If all have been used, reset and start fresh
+            const availableMembers = unusedMembers.length > 0 ? unusedMembers : members
+            
+            // Select next member (cycle through)
+            const dayIndex = getDayIndex(date, groupId)
+            const memberIndex = dayIndex % availableMembers.length
+            const selectedMember = availableMembers[memberIndex]
+            
+            variables.member_name = selectedMember.user?.name || "them"
+
+            // Record usage
+            await supabase.from("prompt_name_usage").insert({
+              group_id: groupId,
+              prompt_id: prompt.id,
+              variable_type: "member_name",
+              name_used: variables.member_name,
+              date_used: date,
+            }).catch(() => {
+              // Ignore duplicate errors
+            })
+          }
+        }
+      }
+
+      // Replace variables in question text
+      if (Object.keys(variables).length > 0) {
+        const personalizedQuestion = replaceDynamicVariables(prompt.question, variables)
+        personalizedPrompt = {
+          ...prompt,
+          question: personalizedQuestion,
+        }
+      }
+    } else if (prompt.category === "Remembering" && memorials.length > 0) {
+      // Legacy support: if no dynamic_variables but category is Remembering
+      const { data: recentUsage } = await supabase
+        .from("prompt_name_usage")
+        .select("name_used")
+        .eq("group_id", groupId)
+        .eq("prompt_id", prompt.id)
+        .eq("variable_type", "memorial_name")
+        .order("date_used", { ascending: false })
+        .limit(memorials.length)
+
+      const usedNames = new Set(recentUsage?.map((u) => u.name_used) || [])
+      const unusedMemorials = memorials.filter((m) => !usedNames.has(m.name))
+      const availableMemorials = unusedMemorials.length > 0 ? unusedMemorials : memorials
+      
+      const dayIndex = getDayIndex(date, groupId)
+      const memorialIndex = dayIndex % availableMemorials.length
+      const selectedMemorial = availableMemorials[memorialIndex]
+      
+      const personalizedQuestion = personalizeMemorialPrompt(prompt.question, selectedMemorial.name)
+      personalizedPrompt = {
+        ...prompt,
+        question: personalizedQuestion,
+      }
+
+      // Record usage
+      await supabase.from("prompt_name_usage").insert({
+        group_id: groupId,
+        prompt_id: prompt.id,
+        variable_type: "memorial_name",
+        name_used: selectedMemorial.name,
+        date_used: date,
+      }).catch(() => {
+        // Ignore duplicate errors
+      })
+    }
+
     // Assign prompt for this date
     const { data: dailyPrompt, error: insertError } = await supabase
       .from("daily_prompts")
       .insert({
         group_id: groupId,
-        prompt_id: selectedPrompt.id,
+        prompt_id: selectedPrompt.id, // Store original prompt ID
         date,
       })
       .select("*, prompt:prompts(*)")
       .single()
 
     if (insertError) throw insertError
+    
+    // Return with personalized question if it's a Remembering prompt
+    if (personalizedPrompt !== selectedPrompt) {
+      return {
+        ...dailyPrompt,
+        prompt: personalizedPrompt,
+      }
+    }
+    
     return dailyPrompt
   }
 
@@ -286,6 +718,18 @@ export async function getEntriesForDate(groupId: string, date: string): Promise<
     .eq("group_id", groupId)
     .eq("date", date)
     .order("created_at", { ascending: true })
+
+  if (error) throw error
+  return data || []
+}
+
+export async function getAllEntriesForGroup(groupId: string): Promise<Entry[]> {
+  const { data, error } = await supabase
+    .from("entries")
+    .select("*, user:users(*), prompt:prompts(*)")
+    .eq("group_id", groupId)
+    .order("date", { ascending: false })
+    .order("created_at", { ascending: false })
 
   if (error) throw error
   return data || []
@@ -408,6 +852,49 @@ export async function createMemorial(memorial: {
   const { data, error } = await supabase.from("memorials").insert(memorial).select().single()
   if (error) throw error
   return data
+}
+
+export async function updateMemorial(
+  memorialId: string,
+  updates: { photo_url?: string; name?: string },
+  userId: string
+): Promise<Memorial> {
+  // Verify user has permission (must be admin of the group)
+  const { data: memorial } = await supabase.from("memorials").select("group_id").eq("id", memorialId).single()
+  if (!memorial) {
+    throw new Error("Memorial not found")
+  }
+  
+  const isAdmin = await isGroupAdmin(memorial.group_id, userId)
+  if (!isAdmin) {
+    throw new Error("Only admins can update memorials")
+  }
+
+  const { data, error } = await supabase
+    .from("memorials")
+    .update(updates)
+    .eq("id", memorialId)
+    .select()
+    .single()
+  
+  if (error) throw error
+  return data
+}
+
+export async function deleteMemorial(memorialId: string, userId: string): Promise<void> {
+  // Verify user has permission (must be admin of the group)
+  const { data: memorial } = await supabase.from("memorials").select("group_id").eq("id", memorialId).single()
+  if (!memorial) {
+    throw new Error("Memorial not found")
+  }
+  
+  const isAdmin = await isGroupAdmin(memorial.group_id, userId)
+  if (!isAdmin) {
+    throw new Error("Only admins can delete memorials")
+  }
+
+  const { error } = await supabase.from("memorials").delete().eq("id", memorialId)
+  if (error) throw error
 }
 
 // Reaction queries

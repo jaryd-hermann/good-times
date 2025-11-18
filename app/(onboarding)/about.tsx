@@ -99,7 +99,7 @@ export default function About() {
     <KeyboardAvoidingView
       style={styles.screen}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={insets.top}
+      keyboardVerticalOffset={0}
     >
       <View style={[styles.topBarWrapper, { paddingTop: insets.top + spacing.lg }]}>
         <OnboardingBack color={colors.black} />
@@ -172,17 +172,17 @@ export default function About() {
             </TouchableOpacity>
           </View>
         </View>
-      </ScrollView>
 
-      <View style={[styles.ctaContainer, { paddingBottom: insets.bottom + spacing.lg }]}>
-        <Button
-          title="→"
-          onPress={handleContinue}
-          loading={loading}
-          style={styles.button}
-          textStyle={styles.buttonText}
-        />
-      </View>
+        <View style={styles.buttonContainer}>
+          <Button
+            title="→"
+            onPress={handleContinue}
+            loading={loading}
+            style={styles.button}
+            textStyle={styles.buttonText}
+          />
+        </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   )
 }
@@ -299,8 +299,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.white,
   },
-  ctaContainer: {
-    paddingHorizontal: spacing.lg,
+  buttonContainer: {
     alignItems: "flex-end",
   },
   button: {

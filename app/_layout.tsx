@@ -136,6 +136,43 @@ export default function RootLayout() {
             router.push(`/join/${groupId}`)
           }
         }
+        // Handle password reset links
+        else if (url.includes("goodtimes://reset-password")) {
+          // Extract tokens from hash fragment
+          const hashMatch = url.match(/#(.+)/)
+          if (hashMatch) {
+            const hashParams = new URLSearchParams(hashMatch[1])
+            const accessToken = hashParams.get("access_token")
+            const type = hashParams.get("type")
+            
+            if (accessToken && type === "recovery") {
+              // Set session with recovery token
+              if (!supabase?.auth) {
+                console.warn("[_layout] Supabase auth not available")
+                return
+              }
+              
+              const { data, error } = await supabase.auth.setSession({
+                access_token: accessToken,
+                refresh_token: hashParams.get("refresh_token") || "",
+              })
+              
+              if (error) {
+                console.error("[_layout] Failed to set recovery session:", error)
+                router.push("/(onboarding)/forgot-password")
+                return
+              }
+              
+              if (data.session) {
+                // Navigate to reset password screen
+                router.push("/(onboarding)/reset-password")
+              }
+            }
+          } else {
+            // No hash fragment, just navigate to reset password screen
+            router.push("/(onboarding)/reset-password")
+          }
+        }
       } catch (error) {
         console.error("[_layout] Error handling URL:", error)
       }

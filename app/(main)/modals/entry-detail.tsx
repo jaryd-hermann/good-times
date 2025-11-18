@@ -5,7 +5,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, TextInput,
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { supabase } from "../../../lib/supabase"
-import { getEntryById, getReactions, getComments, toggleReaction, createComment } from "../../../lib/db"
+import { getEntryById, getReactions, getComments, toggleReaction, createComment, getAllEntriesForGroup } from "../../../lib/db"
 import { colors, typography, spacing } from "../../../lib/theme"
 import { Avatar } from "../../../components/Avatar"
 import { formatTime } from "../../../lib/utils"
@@ -82,6 +82,44 @@ export default function EntryDetail() {
     enabled: !!entryId,
   })
 
+  // Fetch all entries for the group to enable Next navigation through history
+  const { data: allGroupEntries = [] } = useQuery({
+    queryKey: ["allGroupEntries", entry?.group_id],
+    queryFn: () => (entry?.group_id ? getAllEntriesForGroup(entry.group_id) : []),
+    enabled: !!entry?.group_id,
+  })
+
+  // Build chronological entry list for navigation (newest first, then by created_at)
+  const chronologicalEntryIds = useMemo(() => {
+    if (allGroupEntries.length === 0) {
+      // Fallback to provided entryIds if available
+      return entryIds.length > 0 ? entryIds : []
+    }
+    // Sort: date descending, then created_at descending (newest first)
+    const sorted = [...allGroupEntries].sort((a, b) => {
+      const dateCompare = new Date(b.date).getTime() - new Date(a.date).getTime()
+      if (dateCompare !== 0) return dateCompare
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    })
+    return sorted.map((e) => e.id)
+  }, [allGroupEntries, entryIds])
+
+  // Find current entry index in chronological list
+  const currentChronologicalIndex = useMemo(() => {
+    if (!entryId || chronologicalEntryIds.length === 0) return undefined
+    return chronologicalEntryIds.indexOf(entryId)
+  }, [entryId, chronologicalEntryIds])
+
+  // Determine next entry ID (use chronological list if available, otherwise fallback to provided entryIds)
+  const effectiveEntryIds = chronologicalEntryIds.length > 0 ? chronologicalEntryIds : entryIds
+  const effectiveCurrentIndex = currentChronologicalIndex !== undefined && currentChronologicalIndex >= 0 
+    ? currentChronologicalIndex 
+    : currentIndex
+  const effectiveNextIndex = typeof effectiveCurrentIndex === "number" ? effectiveCurrentIndex + 1 : undefined
+  const effectiveNextEntryId = typeof effectiveNextIndex === "number" && effectiveNextIndex < effectiveEntryIds.length 
+    ? effectiveEntryIds[effectiveNextIndex] 
+    : undefined
+
   const { data: reactions = [] } = useQuery({
     queryKey: ["reactions", entryId],
     queryFn: () => getReactions(entryId),
@@ -147,13 +185,14 @@ export default function EntryDetail() {
   }
 
   function handleNext() {
-    if (!nextEntryId) return
-    const params: Record<string, string> = { entryId: nextEntryId }
+    if (!effectiveNextEntryId) return
+    const params: Record<string, string> = { entryId: effectiveNextEntryId }
     if (returnTo) params.returnTo = returnTo
-    if (rawEntryIds) {
-      params.entryIds = rawEntryIds
-      if (typeof nextIndex === "number") {
-        params.index = String(nextIndex)
+    // Use chronological entry IDs for navigation
+    if (effectiveEntryIds.length > 0) {
+      params.entryIds = JSON.stringify(effectiveEntryIds)
+      if (typeof effectiveNextIndex === "number") {
+        params.index = String(effectiveNextIndex)
       }
     }
     router.replace({
@@ -260,10 +299,10 @@ export default function EntryDetail() {
           </TouchableOpacity>
           <TouchableOpacity
             onPress={handleNext}
-            disabled={!nextEntryId}
-            style={[styles.navAction, !nextEntryId && styles.navActionDisabled]}
+            disabled={!effectiveNextEntryId}
+            style={[styles.navAction, !effectiveNextEntryId && styles.navActionDisabled]}
           >
-            <Text style={[styles.backButton, !nextEntryId && styles.navActionDisabledText]}>Next →</Text>
+            <Text style={[styles.backButton, !effectiveNextEntryId && styles.navActionDisabledText]}>Next →</Text>
           </TouchableOpacity>
         </View>
 

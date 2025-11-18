@@ -14,6 +14,7 @@ import {
   Image,
   Modal,
   ActivityIndicator,
+  Keyboard,
 } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import * as ImagePicker from "expo-image-picker"
@@ -73,6 +74,8 @@ export default function EntryComposer() {
   const [showSongModal, setShowSongModal] = useState(false)
   const [songUrlInput, setSongUrlInput] = useState("")
   const textInputRef = useRef<TextInput>(null)
+  const scrollViewRef = useRef<ScrollView>(null)
+  const inputContainerRef = useRef<View>(null)
   const [showSuccessModal, setShowSuccessModal] = useState(false)
 
   useEffect(() => {
@@ -162,6 +165,86 @@ export default function EntryComposer() {
     setAudioDurations({})
     setAudioLoading({})
   }, [promptId, date])
+
+  // Handle keyboard show/hide to scroll input into view
+  useEffect(() => {
+    // Check if Keyboard API is available
+    if (typeof Keyboard === "undefined" || !Keyboard || typeof Keyboard.addListener !== "function") {
+      console.warn("[entry-composer] Keyboard API not available, skipping keyboard listener")
+      return
+    }
+
+    let keyboardWillShowListener: any = null
+    try {
+      keyboardWillShowListener = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      (e) => {
+        // Scroll to show the input area above the keyboard
+        // The toolbar will be pushed up by KeyboardAvoidingView
+        setTimeout(() => {
+          if (inputContainerRef.current && scrollViewRef.current) {
+            inputContainerRef.current.measureLayout(
+              scrollViewRef.current as any,
+              (x, y) => {
+                // Calculate scroll position to show input above keyboard
+                // Account for safe area and some padding
+                const keyboardHeight = e.endCoordinates.height
+                const toolbarHeight = 60 // Approximate toolbar height
+                const availableHeight = e.endCoordinates.screenY - toolbarHeight
+                const inputHeight = 200 // Approximate input height
+                const targetY = y - (availableHeight - inputHeight) / 2
+                
+                scrollViewRef.current?.scrollTo({
+                  y: Math.max(0, targetY),
+                  animated: true,
+                })
+              },
+              () => {
+                // Fallback: scroll to show input area
+                setTimeout(() => {
+                  if (textInputRef.current && scrollViewRef.current) {
+                    textInputRef.current.measureLayout(
+                      scrollViewRef.current as any,
+                      (x, y) => {
+                        scrollViewRef.current?.scrollTo({
+                          y: Math.max(0, y - 150),
+                          animated: true,
+                        })
+                      },
+                      () => {
+                        scrollViewRef.current?.scrollToEnd({ animated: true })
+                      }
+                    )
+                  } else {
+                    scrollViewRef.current?.scrollToEnd({ animated: true })
+                  }
+                }, 150)
+              }
+            )
+          } else {
+            // Fallback: scroll to end
+            setTimeout(() => {
+              scrollViewRef.current?.scrollToEnd({ animated: true })
+            }, 150)
+          }
+        }, 200)
+      }
+      )
+    } catch (error) {
+      console.warn("[entry-composer] Failed to add keyboard listener:", error)
+      return
+    }
+
+    return () => {
+      if (keyboardWillShowListener && typeof keyboardWillShowListener.remove === "function") {
+        try {
+          keyboardWillShowListener.remove()
+        } catch (error) {
+          console.warn("[entry-composer] Failed to remove keyboard listener:", error)
+        }
+      }
+    }
+  }, [])
 
   // Detect embed URLs on blur - preserve existing embeds
   function handleTextBlur() {
@@ -564,6 +647,7 @@ export default function EntryComposer() {
       keyboardVerticalOffset={0}
     >
       <ScrollView 
+        ref={scrollViewRef}
         style={styles.content} 
         contentContainerStyle={styles.contentContainer}
         keyboardShouldPersistTaps="handled"
@@ -571,18 +655,47 @@ export default function EntryComposer() {
         <Text style={styles.question}>{activePrompt?.question}</Text>
         <Text style={styles.description}>{activePrompt?.description}</Text>
 
-        <TextInput
-          ref={textInputRef}
-          style={styles.input}
-          value={text}
-          onChangeText={setText}
-          onBlur={handleTextBlur}
-          placeholder="Start writing..."
-          placeholderTextColor={colors.gray[500]}
-          multiline
-          autoFocus
-          showSoftInputOnFocus
-        />
+        <View ref={inputContainerRef}>
+          <TextInput
+            ref={textInputRef}
+            style={styles.input}
+            value={text}
+            onChangeText={setText}
+            onBlur={handleTextBlur}
+            onFocus={() => {
+              // Scroll to show input when focused - keyboard will open
+              // The KeyboardAvoidingView will handle pushing toolbar up
+              setTimeout(() => {
+                if (inputContainerRef.current && scrollViewRef.current) {
+                  inputContainerRef.current.measureLayout(
+                    scrollViewRef.current as any,
+                    (x, y) => {
+                      // Scroll to position input in visible area above keyboard
+                      scrollViewRef.current?.scrollTo({
+                        y: Math.max(0, y - 150),
+                        animated: true,
+                      })
+                    },
+                    () => {
+                      setTimeout(() => {
+                        scrollViewRef.current?.scrollToEnd({ animated: true })
+                      }, 150)
+                    }
+                  )
+                } else {
+                  setTimeout(() => {
+                    scrollViewRef.current?.scrollToEnd({ animated: true })
+                  }, 150)
+                }
+              }, 200)
+            }}
+            placeholder="Start writing..."
+            placeholderTextColor={colors.gray[500]}
+            multiline
+            autoFocus
+            showSoftInputOnFocus
+          />
+        </View>
 
         {/* Embedded media preview - show inline where they appear in text */}
         {embeddedMedia.length > 0 && (
@@ -907,6 +1020,7 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     padding: spacing.lg,
+    paddingBottom: spacing.xxl * 2, // Extra padding at bottom for toolbar clearance
   },
   question: {
     ...typography.h2,

@@ -206,7 +206,7 @@ export default function Home() {
           .limit(1)
           .maybeSingle()
 
-        const latestActivity = recentEntries?.created_at || recentPrompt?.created_at
+        const latestActivity = (recentEntries as any)?.created_at || (recentPrompt as any)?.created_at
         if (latestActivity) {
           const latestActivityDate = new Date(latestActivity)
           status[group.id] = !lastVisit || latestActivityDate > lastVisit
@@ -231,8 +231,8 @@ export default function Home() {
   })
 
   const { data: dailyPrompt } = useQuery({
-    queryKey: ["dailyPrompt", currentGroupId, selectedDate],
-    queryFn: () => (currentGroupId ? getDailyPrompt(currentGroupId, selectedDate) : null),
+    queryKey: ["dailyPrompt", currentGroupId, selectedDate, userId],
+    queryFn: () => (currentGroupId ? getDailyPrompt(currentGroupId, selectedDate, userId) : null),
     enabled: !!currentGroupId,
   })
 
@@ -375,7 +375,7 @@ export default function Home() {
       <Animated.View
         style={[
           styles.header,
-          { paddingTop: insets.top + spacing.xl },
+          { paddingTop: insets.top + spacing.md },
           {
             transform: [{ translateY: headerTranslateY }],
           },

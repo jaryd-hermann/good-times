@@ -12,6 +12,7 @@ import {
   clearQuestionCategoryPreference,
   getAllPrompts,
   isGroupAdmin,
+  getGroup,
 } from "../../../lib/db"
 import { colors, spacing, typography } from "../../../lib/theme"
 import { FontAwesome } from "@expo/vector-icons"
@@ -27,6 +28,7 @@ export default function QuestionTypesSettings() {
   const [userId, setUserId] = useState<string>()
   const [isAdmin, setIsAdmin] = useState(false)
   const [saving, setSaving] = useState<string | null>(null)
+  const [groupType, setGroupType] = useState<"family" | "friends" | null>(null)
 
   const { data: preferences = [] } = useQuery({
     queryKey: ["questionPreferences", groupId],
@@ -55,6 +57,11 @@ export default function QuestionTypesSettings() {
             params: { groupId },
           })
         }
+        // Load group type
+        const group = await getGroup(groupId)
+        if (group) {
+          setGroupType(group.type)
+        }
       }
     }
     if (groupId) {
@@ -62,8 +69,16 @@ export default function QuestionTypesSettings() {
     }
   }, [groupId, router])
 
-  // Get unique categories from prompts
-  const categories = Array.from(new Set(allPrompts.map((p) => p.category))).sort()
+  // Get unique categories from prompts, filtering out Edgy/NSFW for family groups
+  const allCategories = Array.from(new Set(allPrompts.map((p) => p.category))).sort()
+  // Ensure "A Bit Deeper" always shows if it's in the descriptions (even if no prompts exist yet)
+  const categoriesFromPrompts = groupType === "family" 
+    ? allCategories.filter((c) => c !== "Edgy/NSFW")
+    : allCategories
+  // Add "A Bit Deeper" if it's not already in the list but is in descriptions
+  const categories = categoriesFromPrompts.includes("A Bit Deeper") 
+    ? categoriesFromPrompts 
+    : [...categoriesFromPrompts, "A Bit Deeper"].sort()
 
   function getPreferenceForCategory(category: string): Preference {
     const pref = preferences.find((p) => p.category === category)
@@ -110,6 +125,8 @@ export default function QuestionTypesSettings() {
     Fun: "Lighthearted and entertaining questions",
     Seasonal: "Questions tied to holidays and seasons",
     Birthday: "Questions for celebrating birthdays and special occasions",
+    "Edgy/NSFW": "Mature content questions for adult groups",
+    "A Bit Deeper": "Thought-provoking questions for deeper conversations",
   }
 
   if (!isAdmin) {

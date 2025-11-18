@@ -12,6 +12,7 @@ export interface OnboardingData {
   // Group data
   groupName?: string
   groupType?: "family" | "friends"
+  enableNSFW?: boolean // For friends groups only
   
   // Memorial data - support multiple memorials
   memorials?: MemorialData[]
@@ -33,6 +34,7 @@ interface OnboardingContextType {
   data: OnboardingData
   setGroupName: (name: string) => void
   setGroupType: (type: "family" | "friends") => void
+  setEnableNSFW: (enable: boolean) => void
   setMemorialName: (name: string) => void
   setMemorialPhoto: (photo: string | undefined) => void
   addMemorial: (memorial: MemorialData) => void
@@ -93,7 +95,16 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   }
 
   const setGroupType = (type: "family" | "friends") => {
-    setData((prev) => ({ ...prev, groupType: type }))
+    setData((prev) => ({ 
+      ...prev, 
+      groupType: type,
+      // Reset NSFW preference when switching to family
+      enableNSFW: type === "family" ? false : prev.enableNSFW
+    }))
+  }
+
+  const setEnableNSFW = (enable: boolean) => {
+    setData((prev) => ({ ...prev, enableNSFW: enable }))
   }
 
   const setMemorialName = (name: string) => {
@@ -151,6 +162,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         data,
         setGroupName,
         setGroupType,
+        setEnableNSFW,
         setMemorialName,
         setMemorialPhoto,
         addMemorial,

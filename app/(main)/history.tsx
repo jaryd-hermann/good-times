@@ -19,7 +19,8 @@ import {
 import { colors, typography, spacing } from "../../lib/theme"
 import { FilmFrame } from "../../components/FilmFrame"
 import { truncateText } from "../../lib/utils"
-import { getGroupMembers, getAllPrompts, getDailyPrompt } from "../../lib/db"
+import { getGroupMembers, getAllPrompts, getDailyPrompt, getMemorials } from "../../lib/db"
+import { personalizeMemorialPrompt } from "../../lib/prompts"
 import { Avatar } from "../../components/Avatar"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { Button } from "../../components/Button"
@@ -277,6 +278,13 @@ export default function History() {
   const { data: members = [] } = useQuery({
     queryKey: ["history-members", currentGroupId],
     queryFn: () => (currentGroupId ? getGroupMembers(currentGroupId) : []),
+    enabled: !!currentGroupId,
+  })
+
+  // Fetch memorials for personalizing prompt questions
+  const { data: memorials = [] } = useQuery({
+    queryKey: ["history-memorials", currentGroupId],
+    queryFn: () => (currentGroupId ? getMemorials(currentGroupId) : []),
     enabled: !!currentGroupId,
   })
 
@@ -717,7 +725,21 @@ export default function History() {
                             </View>
                             <Text style={styles.time}>{format(parseISO(entry.created_at), "h:mm a")}</Text>
                           </View>
-                          <Text style={styles.question}>{entry.prompt?.question}</Text>
+                          <Text style={styles.question}>
+                            {(() => {
+                              // Personalize prompt question if it has placeholders
+                              if (!entry.prompt?.question) return entry.prompt?.question
+                              let question = entry.prompt.question
+                              
+                              // Check for memorial_name placeholder
+                              if (question.match(/\{.*memorial_name.*\}/i) && memorials.length > 0) {
+                                // Use first memorial (or could cycle based on date)
+                                question = personalizeMemorialPrompt(question, memorials[0].name)
+                              }
+                              
+                              return question
+                            })()}
+                          </Text>
                           {/* Song shared badge */}
                           {entry.embedded_media && entry.embedded_media.length > 0 && (
                             <View style={styles.songBadge}>
@@ -727,30 +749,72 @@ export default function History() {
                               </Text>
                             </View>
                           )}
-                          {entry.text_content && (
-                            <View style={[
-                              styles.textContainer,
-                              (!entry.media_urls || entry.media_urls.length === 0) && (!entry.embedded_media || entry.embedded_media.length === 0) && styles.textContainerNoMedia
-                            ]}>
-                              <Text 
-                                style={styles.entryText} 
-                                numberOfLines={(entry.media_urls && entry.media_urls.length > 0) || (entry.embedded_media && entry.embedded_media.length > 0) ? 10 : undefined}
-                                ellipsizeMode={(entry.media_urls && entry.media_urls.length > 0) || (entry.embedded_media && entry.embedded_media.length > 0) ? "tail" : undefined}
-                              >
-                                {entry.text_content}
-                              </Text>
-                              {/* Show fade 2 lines above media if media exists */}
-                              {((entry.media_urls && entry.media_urls.length > 0) || (entry.embedded_media && entry.embedded_media.length > 0)) && entry.text_content && entry.text_content.length > 200 && (
-                                <View style={styles.textFadeAboveMedia} pointerEvents="none" />
-                              )}
-                              {/* Show fade at bottom if no media and text is long */}
-                              {(!entry.media_urls || entry.media_urls.length === 0) && (!entry.embedded_media || entry.embedded_media.length === 0) && entry.text_content && entry.text_content.length > 200 && (
-                                <View style={styles.textFadeBottom} pointerEvents="none" />
-                              )}
-                            </View>
-                          )}
-                          {/* Embedded media inline with text */}
-                          {entry.embedded_media && entry.embedded_media.length > 0 && (
+                          {(() => {
+                            // Calculate max lines based on media gallery and song badge presence
+                            const hasMediaGallery = entry.media_urls && entry.media_urls.length > 0
+                            const hasSongBadge = entry.embedded_media && entry.embedded_media.length > 0
+                            
+                            let maxLines: number
+                            if (hasMediaGallery) {
+                              maxLines = 7 // With media gallery: 7 lines max
+                            } else {
+                              maxLines = 15 // Without media gallery: 15 lines max
+                            }
+                            
+                            // Reduce by 2 lines if song badge exists (in either case)
+                            if (hasSongBadge) {
+                              maxLines -= 2
+                            }
+                            
+                            // Only show fade if text is long enough to potentially exceed the line limit
+                            // Rough estimate: ~50 characters per line (conservative estimate)
+                            const estimatedCharsPerLine = 50
+                            const minCharsForFade = maxLines * estimatedCharsPerLine
+                            const shouldShowFade = entry.text_content && entry.text_content.length >= minCharsForFade
+                            
+                            return (
+                              entry.text_content && (
+                                <View style={[
+                                  styles.textContainer,
+                                  hasMediaGallery && styles.textContainerWithMedia,
+                                  !hasMediaGallery && styles.textContainerNoMedia
+                                ]}>
+                                  <Text 
+                                    style={styles.entryText}
+                                    numberOfLines={maxLines}
+                                  >
+                                    {entry.text_content}
+                                  </Text>
+                                  {/* Embedded media inline with text - moved inside text container to prevent gap */}
+                                  {entry.embedded_media && entry.embedded_media.length > 0 && (
+                                    <View style={styles.embeddedMediaContainer}>
+                                      {entry.embedded_media.map((embed: EmbeddedMedia, embedIndex: number) => (
+                                        <EmbeddedPlayer
+                                          key={`${embed.platform}-${embed.embedId}-${embedIndex}`}
+                                          embed={{
+                                            platform: embed.platform,
+                                            url: embed.url,
+                                            embedId: embed.embedId,
+                                            embedType: embed.embedType,
+                                            embedUrl: embed.embedUrl,
+                                          }}
+                                        />
+                                      ))}
+                                    </View>
+                                  )}
+                                  {/* Fade overlay for last 2 lines */}
+                                  {shouldShowFade && (
+                                    <View style={styles.textFadeOverlay} pointerEvents="none">
+                                      <View style={styles.fadeLine1} />
+                                      <View style={styles.fadeLine2} />
+                                    </View>
+                                  )}
+                                </View>
+                              )
+                            )
+                          })()}
+                          {/* Embedded media only if no text content */}
+                          {!entry.text_content && entry.embedded_media && entry.embedded_media.length > 0 && (
                             <View style={styles.embeddedMediaContainer}>
                               {entry.embedded_media.map((embed: EmbeddedMedia, embedIndex: number) => (
                                 <EmbeddedPlayer
@@ -839,7 +903,7 @@ export default function History() {
                         >
                           {commentsByEntry[entry.id].slice(0, 2).map((comment) => (
                             <View key={comment.id} style={styles.commentPreviewItem}>
-                              <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={16} />
+                              <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={20} />
                               <Text style={styles.commentPreviewUser}>{comment.user?.name}: </Text>
                               <Text style={styles.commentPreviewText} numberOfLines={1}>
                                 {comment.text}
@@ -1004,41 +1068,58 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     backgroundColor: "#0C0E1A",
     flex: 1,
-    justifyContent: "space-between",
+    justifyContent: "flex-start", // Changed from "space-between" to allow absolute positioning
+    position: "relative", // Enable absolute positioning for children
   },
   textContainer: {
     position: "relative",
     marginBottom: spacing.xl,
     paddingBottom: spacing.lg,
+    zIndex: 1,
+  },
+  textContainerWithMedia: {
+    marginBottom: 0, // Remove margin - media will be absolutely positioned
+    paddingBottom: 0, // No padding - text ends before media
   },
   textContainerNoMedia: {
     flex: 1, // Allow text to fill available space when no media
+    paddingBottom: spacing.lg,
   },
-  textFadeAboveMedia: {
+  textFadeOverlay: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    height: 40, // 2 lines worth of fade
-    backgroundColor: "#0C0E1A",
-    opacity: 0.9,
+    height: 48, // 2 lines fade (2 * 24px line height)
+    zIndex: 2, // Above text
   },
-  textFadeBottom: {
+  fadeLine1: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    height: 40, // 2 lines worth of fade
+    height: 24, // Line 7 (or 15) - more opacity
     backgroundColor: "#0C0E1A",
-    opacity: 0.9,
+    opacity: 0.85,
+  },
+  fadeLine2: {
+    position: "absolute",
+    bottom: 24,
+    left: 0,
+    right: 0,
+    height: 24, // Line 6 (or 14) - less opacity
+    backgroundColor: "#0C0E1A",
+    opacity: 0.6,
   },
   mediaContainer: {
-    marginTop: "auto",
-    alignSelf: "stretch",
-    marginBottom: 0,
-    position: "relative",
+    position: "absolute", // Absolutely position at bottom
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 158, // Fixed height matching thumbnail height
     marginLeft: -spacing.lg, // Negative margin to align with entryContent padding
     marginRight: -spacing.lg,
+    zIndex: 10, // Ensure it's above text
   },
   mediaCarousel: {
     width: "100%",
@@ -1117,18 +1198,18 @@ const styles = StyleSheet.create({
   },
   commentPreviewUser: {
     ...typography.bodyMedium,
-    fontSize: 12,
+    fontSize: 14,
     color: colors.gray[300],
   },
   commentPreviewText: {
     ...typography.body,
-    fontSize: 12,
+    fontSize: 14,
     color: colors.gray[400],
     flex: 1,
   },
   commentPreviewMore: {
     ...typography.caption,
-    fontSize: 11,
+    fontSize: 13,
     color: colors.gray[500],
     marginTop: spacing.xs,
   },
@@ -1159,8 +1240,8 @@ const styles = StyleSheet.create({
   },
   entryText: {
     ...typography.body,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 16,
+    lineHeight: 24,
     color: colors.gray[300],
   },
   filmFrameWrapper: {
@@ -1364,7 +1445,7 @@ const styles = StyleSheet.create({
   },
   embeddedMediaContainer: {
     marginTop: spacing.sm,
-    marginBottom: spacing.sm,
+    marginBottom: 0, // Remove bottom margin to prevent gap
     gap: spacing.xs,
   },
   songBadge: {

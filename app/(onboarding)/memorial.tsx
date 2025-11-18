@@ -56,7 +56,7 @@ export default function Memorial() {
 
   return (
     <ImageBackground
-      source={require("../../assets/images/memorial-bg.png")}
+      source={require("../../assets/images/mom-bg.png")}
       style={styles.container}
       resizeMode="cover"
     >

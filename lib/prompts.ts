@@ -25,6 +25,22 @@ export async function getPromptsByCategory(category: PromptCategory) {
 export function personalizeMemorialPrompt(question: string, memorialPersonName?: string) {
   if (!memorialPersonName) return question
 
-  // Replace placeholders with the memorial person's name
-  return question.replace(/\[Name\]/g, memorialPersonName).replace(/\[name\]/g, memorialPersonName)
+  // Replace placeholders with the memorial person's name (case-insensitive)
+  // Support both old format [Name] and new format {memorial_name} or {{memorial_name}}
+  return question
+    .replace(/\[Name\]/g, memorialPersonName)
+    .replace(/\[name\]/g, memorialPersonName)
+    .replace(/\[memorial_name\]/gi, memorialPersonName)
+    .replace(/\[memorialName\]/gi, memorialPersonName)
+    .replace(/\{\{?memorial_name\}\}?/gi, memorialPersonName)
+}
+
+// Helper to replace dynamic variables in prompt text
+export function replaceDynamicVariables(text: string, variables: Record<string, string>): string {
+  let result = text
+  for (const [key, value] of Object.entries(variables)) {
+    // Replace {variable_name} or {{variable_name}} patterns (case-insensitive)
+    result = result.replace(new RegExp(`\\{\\{?${key}\\}?\\}`, "gi"), value)
+  }
+  return result
 }

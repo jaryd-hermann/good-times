@@ -1,5 +1,5 @@
 import { supabase } from "./supabase"
-import { createGroup, createMemorial } from "./db"
+import { createGroup, createMemorial, updateQuestionCategoryPreference } from "./db"
 import type { OnboardingData } from "../components/OnboardingProvider"
 
 export async function createGroupFromOnboarding(data: OnboardingData) {
@@ -19,6 +19,18 @@ export async function createGroupFromOnboarding(data: OnboardingData) {
   }
 
   const group = await createGroup(groupName, groupType, user.id)
+
+  // Set NSFW preference for friends groups
+  if (groupType === "friends") {
+    // If NSFW is enabled, set preference to "more", otherwise set to "none" (disabled)
+    const nsfwPreference = data.enableNSFW ? "more" : "none"
+    try {
+      await updateQuestionCategoryPreference(group.id, "Edgy/NSFW", nsfwPreference, user.id)
+    } catch (error) {
+      // If category doesn't exist yet, that's okay - it will be set later when prompts are added
+      console.warn("[onboarding] Failed to set NSFW preference:", error)
+    }
+  }
 
   // Save all memorials - both from the array and the current single memorial (for backward compatibility)
   const memorialsToSave: Array<{ name: string; photo?: string }> = []
