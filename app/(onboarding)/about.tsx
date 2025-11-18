@@ -134,8 +134,12 @@ export default function About() {
             </TouchableOpacity>
             {Platform.OS === "ios" && (
               <Modal transparent animationType="fade" visible={showDatePicker} onRequestClose={() => setShowDatePicker(false)}>
-                <View style={styles.modalBackdrop}>
-                  <View style={styles.modalContent}>
+                <TouchableOpacity 
+                  style={styles.modalBackdrop} 
+                  activeOpacity={1} 
+                  onPress={() => setShowDatePicker(false)}
+                >
+                  <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
                     <DateTimePicker
                       value={birthday}
                       mode="date"
@@ -152,7 +156,7 @@ export default function About() {
                       <Text style={styles.modalButtonText}>Done</Text>
                     </TouchableOpacity>
                   </View>
-                </View>
+                </TouchableOpacity>
               </Modal>
             )}
           </View>
@@ -277,6 +281,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     alignItems: "center",
     minHeight: 300,
+    gap: spacing.lg,
   },
   iosPicker: {
     width: "100%",

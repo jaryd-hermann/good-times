@@ -10,6 +10,7 @@ import {
   ImageBackground,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
 } from "react-native"
 import * as Linking from "expo-linking"
 import { useRouter } from "expo-router"
@@ -472,19 +473,24 @@ export default function OnboardingAuth() {
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.flex}
-        keyboardVerticalOffset={insets.top}
+        keyboardVerticalOffset={0}
       >
-        <View
-          style={[
-            styles.container,
-            { paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.xl },
-          ]}
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <View style={styles.topBar}>
-            <OnboardingBack />
-          </View>
+          <View
+            style={[
+              styles.container,
+              { paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.xl },
+            ]}
+          >
+            <View style={styles.topBar}>
+              <OnboardingBack />
+            </View>
 
-          <View style={styles.content}>
+            <View style={styles.content}>
             <Text style={styles.title}>Sign in</Text>
 
             <View style={styles.fieldGroup}>
@@ -545,6 +551,7 @@ export default function OnboardingAuth() {
             </View>
           </View>
         </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </ImageBackground>
   )
@@ -560,6 +567,9 @@ const styles = StyleSheet.create({
   },
   flex: {
     flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
   container: {
     flex: 1,
