@@ -29,7 +29,7 @@
       "autoIncrement": true,
       "env": {
         "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
-        "EXPO_NO_CAPABILITY_SYNC": "true"
+        "EXPO_NO_CAPABILITY_SYNC": "1"
       }
     }
   },
