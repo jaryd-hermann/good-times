@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, TextInput, Alert, ActivityIndicator } from "react-native"
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { supabase } from "../../../lib/supabase"
@@ -14,6 +14,7 @@ import { getCurrentUser } from "../../../lib/db"
 import { FontAwesome } from "@expo/vector-icons"
 import { EmbeddedPlayer } from "../../../components/EmbeddedPlayer"
 import type { EmbeddedMedia } from "../../../lib/types"
+import { useSafeAreaInsets } from "react-native-safe-area-context"
 
 export default function EntryDetail() {
   const router = useRouter()
@@ -45,6 +46,7 @@ export default function EntryDetail() {
   const [audioProgress, setAudioProgress] = useState<Record<string, number>>({})
   const [audioDurations, setAudioDurations] = useState<Record<string, number>>({})
   const [audioLoading, setAudioLoading] = useState<Record<string, boolean>>({})
+  const insets = useSafeAreaInsets()
 
   useEffect(() => {
     return () => {
@@ -246,170 +248,198 @@ export default function EntryDetail() {
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleBack} style={styles.navAction}>
-          <Text style={styles.backButton}>← Back</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={handleNext}
-          disabled={!nextEntryId}
-          style={[styles.navAction, !nextEntryId && styles.navActionDisabled]}
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={0}
+    >
+      <View style={styles.containerInner}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={handleBack} style={styles.navAction}>
+            <Text style={styles.backButton}>← Back</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={handleNext}
+            disabled={!nextEntryId}
+            style={[styles.navAction, !nextEntryId && styles.navActionDisabled]}
+          >
+            <Text style={[styles.backButton, !nextEntryId && styles.navActionDisabledText]}>Next →</Text>
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView 
+          ref={scrollViewRef} 
+          style={styles.content}
+          contentContainerStyle={styles.contentContainer}
+          keyboardShouldPersistTaps="handled"
         >
-          <Text style={[styles.backButton, !nextEntryId && styles.navActionDisabledText]}>Next →</Text>
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView ref={scrollViewRef} style={styles.content}>
-        {entry && (
-          <>
-            <View style={styles.entryHeader}>
-              <Avatar uri={entry.user?.avatar_url} name={entry.user?.name || "User"} size={48} />
-              <View style={styles.headerText}>
-                <Text style={styles.userName}>{entry.user?.name}</Text>
-                <Text style={styles.time}>{formatTime(entry.created_at)}</Text>
-              </View>
-            </View>
-
-            <Text style={styles.question}>{entry.prompt?.question}</Text>
-
-            {entry.text_content && <Text style={styles.text}>{entry.text_content}</Text>}
-
-            {/* Embedded media (Spotify/Soundcloud) */}
-            {entry.embedded_media && entry.embedded_media.length > 0 && (
-              <View style={styles.embeddedMediaContainer}>
-                {entry.embedded_media.map((embed: EmbeddedMedia, index: number) => (
-                  <EmbeddedPlayer
-                    key={`${embed.platform}-${embed.embedId}-${index}`}
-                    embed={{
-                      platform: embed.platform,
-                      url: embed.url,
-                      embedId: embed.embedId,
-                      embedType: embed.embedType,
-                      embedUrl: embed.embedUrl,
-                    }}
-                  />
-                ))}
-              </View>
-            )}
-
-            {entry.media_urls && entry.media_urls.length > 0 && (
-              <View style={styles.mediaContainer}>
-                {/* Voice memos first */}
-                {entry.media_urls.map((url, index) => {
-                  const mediaType = entry.media_types?.[index]
-                  if (mediaType === "audio") {
-                    const audioId = `${entry.id}-audio-${index}`
-                    const duration = audioDurations[audioId] ?? 0
-                    const position = audioProgress[audioId] ?? 0
-                    const progressRatio = duration > 0 ? Math.min(position / duration, 1) : 0
-                    return (
-                      <TouchableOpacity
-                        key={audioId}
-                        style={[styles.audioPill, activeAudioId === audioId && styles.audioPillActive]}
-                        onPress={() => handleToggleAudio(audioId, url)}
-                        activeOpacity={0.85}
-                      >
-                        <View style={styles.audioIcon}>
-                          {audioLoading[audioId] ? (
-                            <ActivityIndicator size="small" color={colors.white} />
-                          ) : (
-                            <FontAwesome
-                              name={activeAudioId === audioId ? "pause" : "play"}
-                              size={16}
-                              color={colors.white}
-                            />
-                          )}
-                        </View>
-                        <View style={styles.audioInfo}>
-                          <Text style={styles.audioLabel}>
-                            Listen to what {entry.user?.name || "they"} said
-                          </Text>
-                          <View style={styles.audioProgressTrack}>
-                            <View style={[styles.audioProgressFill, { width: `${Math.max(progressRatio, 0.02) * 100}%` }]} />
-                          </View>
-                          <Text style={styles.audioTime}>
-                            {formatMillis(position)} / {duration ? formatMillis(duration) : "--:--"}
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                    )
-                  }
-                  return null
-                })}
-                {/* Photos and videos */}
-                {entry.media_urls.map((url, index) => {
-                  const mediaType = entry.media_types?.[index]
-                  if (mediaType === "photo") {
-                    return <Image key={index} source={{ uri: url }} style={styles.mediaImage} resizeMode="cover" />
-                  }
-                  if (mediaType === "video") {
-                    return (
-                      <Video
-                        key={index}
-                        source={{ uri: url }}
-                        style={styles.videoPlayer}
-                        useNativeControls
-                        resizeMode={ResizeMode.COVER}
-                      />
-                    )
-                  }
-                  return null
-                })}
-              </View>
-            )}
-
-            {/* Reactions */}
-            <View style={styles.reactionsSection}>
-              <TouchableOpacity
-                style={[styles.reactionButton, hasLiked && styles.reactionButtonActive]}
-                onPress={handleToggleReaction}
-              >
-                <Text style={[styles.reactionIcon, hasLiked && styles.reactionIconActive]}>{hasLiked ? "❤️" : "🤍"}</Text>
-                <Text style={styles.reactionCount}>{reactions.length}</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Comments */}
-            <View ref={commentsSectionRef} style={styles.commentsSection}>
-              <Text style={styles.commentsTitle}>Comments</Text>
-              {comments.map((comment) => (
-                <View key={comment.id} style={styles.comment}>
-                  <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={32} />
-                  <View style={styles.commentContent}>
-                    <Text style={styles.commentUser}>{comment.user?.name}</Text>
-                    <Text style={styles.commentText}>{comment.text}</Text>
-                  </View>
+          {entry && (
+            <>
+              <View style={styles.entryHeader}>
+                <Avatar uri={entry.user?.avatar_url} name={entry.user?.name || "User"} size={48} />
+                <View style={styles.headerText}>
+                  <Text style={styles.userName}>{entry.user?.name}</Text>
+                  <Text style={styles.time}>{formatTime(entry.created_at)}</Text>
                 </View>
-              ))}
+              </View>
 
-              <View style={styles.addComment}>
-                <Avatar uri={currentUserAvatar} name={currentUserName} size={32} />
-                <TextInput
-                  value={commentText}
-                  onChangeText={setCommentText}
-                  placeholder="Add a comment..."
-                  placeholderTextColor={colors.gray[500]}
-                  style={styles.commentInput}
-                  multiline
-                />
+              <Text style={styles.question}>{entry.prompt?.question}</Text>
+
+              {entry.text_content && <Text style={styles.text}>{entry.text_content}</Text>}
+
+              {/* Embedded media (Spotify/Soundcloud) */}
+              {entry.embedded_media && entry.embedded_media.length > 0 && (
+                <View style={styles.embeddedMediaContainer}>
+                  {entry.embedded_media.map((embed: EmbeddedMedia, index: number) => (
+                    <EmbeddedPlayer
+                      key={`${embed.platform}-${embed.embedId}-${index}`}
+                      embed={{
+                        platform: embed.platform,
+                        url: embed.url,
+                        embedId: embed.embedId,
+                        embedType: embed.embedType,
+                        embedUrl: embed.embedUrl,
+                      }}
+                    />
+                  ))}
+                </View>
+              )}
+
+              {entry.media_urls && entry.media_urls.length > 0 && (
+                <View style={styles.mediaContainer}>
+                  {/* Voice memos first */}
+                  {entry.media_urls.map((url, index) => {
+                    const mediaType = entry.media_types?.[index]
+                    if (mediaType === "audio") {
+                      const audioId = `${entry.id}-audio-${index}`
+                      const duration = audioDurations[audioId] ?? 0
+                      const position = audioProgress[audioId] ?? 0
+                      const progressRatio = duration > 0 ? Math.min(position / duration, 1) : 0
+                      return (
+                        <TouchableOpacity
+                          key={audioId}
+                          style={[styles.audioPill, activeAudioId === audioId && styles.audioPillActive]}
+                          onPress={() => handleToggleAudio(audioId, url)}
+                          activeOpacity={0.85}
+                        >
+                          <View style={styles.audioIcon}>
+                            {audioLoading[audioId] ? (
+                              <ActivityIndicator size="small" color={colors.white} />
+                            ) : (
+                              <FontAwesome
+                                name={activeAudioId === audioId ? "pause" : "play"}
+                                size={16}
+                                color={colors.white}
+                              />
+                            )}
+                          </View>
+                          <View style={styles.audioInfo}>
+                            <Text style={styles.audioLabel}>
+                              Listen to what {entry.user?.name || "they"} said
+                            </Text>
+                            <View style={styles.audioProgressTrack}>
+                              <View style={[styles.audioProgressFill, { width: `${Math.max(progressRatio, 0.02) * 100}%` }]} />
+                            </View>
+                            <Text style={styles.audioTime}>
+                              {formatMillis(position)} / {duration ? formatMillis(duration) : "--:--"}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      )
+                    }
+                    return null
+                  })}
+                  {/* Photos and videos */}
+                  {entry.media_urls.map((url, index) => {
+                    const mediaType = entry.media_types?.[index]
+                    if (mediaType === "photo") {
+                      return <Image key={index} source={{ uri: url }} style={styles.mediaImage} resizeMode="cover" />
+                    }
+                    if (mediaType === "video") {
+                      return (
+                        <Video
+                          key={index}
+                          source={{ uri: url }}
+                          style={styles.videoPlayer}
+                          useNativeControls
+                          resizeMode={ResizeMode.COVER}
+                        />
+                      )
+                    }
+                    return null
+                  })}
+                </View>
+              )}
+
+              {/* Reactions */}
+              <View style={styles.reactionsSection}>
                 <TouchableOpacity
-                  style={[styles.sendButton, !canSendComment && styles.sendButtonDisabled]}
-                  disabled={!canSendComment}
-                  onPress={handleSubmitComment}
+                  style={[styles.reactionButton, hasLiked && styles.reactionButtonActive]}
+                  onPress={handleToggleReaction}
                 >
-                  <FontAwesome
-                    name="paper-plane"
-                    size={16}
-                    color={canSendComment ? colors.white : colors.gray[500]}
-                  />
+                  <Text style={[styles.reactionIcon, hasLiked && styles.reactionIconActive]}>{hasLiked ? "❤️" : "🤍"}</Text>
+                  <Text style={styles.reactionCount}>{reactions.length}</Text>
                 </TouchableOpacity>
               </View>
-            </View>
-          </>
-        )}
-      </ScrollView>
-    </View>
+
+              {/* Comments */}
+              <View ref={commentsSectionRef} style={styles.commentsSection}>
+                <Text style={styles.commentsTitle}>Comments</Text>
+                {comments.map((comment) => (
+                  <View key={comment.id} style={styles.comment}>
+                    <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={32} />
+                    <View style={styles.commentContent}>
+                      <Text style={styles.commentUser}>{comment.user?.name}</Text>
+                      <Text style={styles.commentText}>{comment.text}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </>
+          )}
+        </ScrollView>
+
+        {/* Fixed comment input at bottom */}
+        <View style={[styles.fixedCommentInput, { paddingBottom: insets.bottom + spacing.md }]}>
+          <Avatar uri={currentUserAvatar} name={currentUserName} size={32} />
+          <TextInput
+            value={commentText}
+            onChangeText={setCommentText}
+            placeholder="Add a comment..."
+            placeholderTextColor={colors.gray[500]}
+            style={styles.commentInput}
+            multiline
+            onFocus={() => {
+              // Scroll to comments section when input is focused
+              setTimeout(() => {
+                if (scrollViewRef.current && commentsSectionRef.current) {
+                  commentsSectionRef.current.measureLayout(
+                    scrollViewRef.current as any,
+                    (x, y) => {
+                      scrollViewRef.current?.scrollTo({ y: Math.max(0, y - 100), animated: true })
+                    },
+                    () => {
+                      scrollViewRef.current?.scrollToEnd({ animated: true })
+                    }
+                  )
+                }
+              }, 300)
+            }}
+          />
+          <TouchableOpacity
+            style={[styles.sendButton, !canSendComment && styles.sendButtonDisabled]}
+            disabled={!canSendComment}
+            onPress={handleSubmitComment}
+          >
+            <FontAwesome
+              name="paper-plane"
+              size={16}
+              color={canSendComment ? colors.white : colors.gray[500]}
+            />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </KeyboardAvoidingView>
   )
 }
 
@@ -424,6 +454,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.black,
+  },
+  containerInner: {
+    flex: 1,
   },
   header: {
     flexDirection: "row",
@@ -448,8 +481,10 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  contentContainer: {
     padding: spacing.lg,
-    paddingBottom: spacing.xxl * 6,
+    paddingBottom: spacing.xxl * 2,
   },
   entryHeader: {
     flexDirection: "row",
@@ -568,7 +603,6 @@ const styles = StyleSheet.create({
   },
   commentsSection: {
     marginTop: spacing.lg,
-    marginBottom: spacing.xxl * 2,
   },
   commentsTitle: {
     ...typography.h3,
@@ -592,6 +626,17 @@ const styles = StyleSheet.create({
     ...typography.body,
     fontSize: 14,
     lineHeight: 20,
+  },
+  fixedCommentInput: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md,
+    backgroundColor: colors.black,
+    borderTopWidth: 1,
+    borderTopColor: colors.gray[800],
   },
   addComment: {
     marginTop: spacing.md,
