@@ -111,11 +111,11 @@ export default function About() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
-          <Text style={styles.title}>You</Text>
+          <Text style={styles.title}>About You</Text>
         </View>
 
         <View style={styles.form}>
-          <Text style={styles.prompt}>What does your group call you?</Text>
+          <Text style={styles.prompt}>What does everyone call you?</Text>
           <Input
             value={name}
             onChangeText={setName}
@@ -162,7 +162,7 @@ export default function About() {
           </View>
 
           <View style={styles.photoSection}>
-            <Text style={styles.label}>Add a photo that will show next to your entries</Text>
+            <Text style={styles.label}>Add a photo of yourself</Text>
             <TouchableOpacity onPress={pickImage} style={styles.photoButton}>
               {photoUri ? (
                 <Avatar uri={photoUri} name={name || "User"} size={80} />
@@ -274,7 +274,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   modalContent: {
-    backgroundColor: colors.white,
+    backgroundColor: colors.black,
     padding: spacing.lg,
     width: "100%",
     borderTopLeftRadius: 24,
@@ -292,12 +292,12 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.lg,
     borderWidth: 1,
-    borderColor: colors.black,
+    borderColor: colors.white,
   },
   modalButtonText: {
     fontFamily: "Roboto-Regular",
     fontSize: 16,
-    color: colors.black,
+    color: colors.white,
   },
   ctaContainer: {
     paddingHorizontal: spacing.lg,
