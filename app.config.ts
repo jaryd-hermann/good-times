@@ -45,6 +45,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     "expo-router",
     "expo-dev-client",
     "expo-local-authentication",
+    "expo-apple-authentication", // Required for EAS to recognize Apple Sign In capability
     "expo-secure-store",
     [
       "expo-font",
