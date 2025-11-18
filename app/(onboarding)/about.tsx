@@ -266,19 +266,21 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    justifyContent: "center",
-    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-end",
   },
   modalContent: {
     backgroundColor: colors.white,
     padding: spacing.lg,
-    width: "80%",
-    borderRadius: 12,
+    width: "100%",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     alignItems: "center",
+    minHeight: 300,
   },
   iosPicker: {
     width: "100%",
+    height: 200,
   },
   modalButton: {
     marginTop: spacing.md,
