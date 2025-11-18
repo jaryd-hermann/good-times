@@ -6,7 +6,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   slug: "good-times",
   version: "1.1.0", // User-facing version (e.g., "1.1.0", "1.2.0")
   orientation: "portrait",
-  icon: "./assets/images/icon.png",
+  icon: "./assets/images/icon-new.png",
   scheme: "goodtimes",
   userInterfaceStyle: "dark",
   // Disable New Architecture - causing crashes during native module registration
