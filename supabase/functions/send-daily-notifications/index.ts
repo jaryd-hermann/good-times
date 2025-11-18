@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { Deno } from "https://deno.land/std@0.168.0/node/globals.ts"
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -155,7 +154,7 @@ serve(async (req) => {
           const result = await response.json()
           
           // Save notification to database
-          await supabaseClient.from("notifications").insert({
+          const { error: insertError } = await supabaseClient.from("notifications").insert({
             user_id: targetUser.user_id,
             type: "daily_prompt",
             title: message.title,
@@ -163,9 +162,14 @@ serve(async (req) => {
             data: message.data,
           })
 
+          if (insertError) {
+            console.error(`[send-daily-notifications] Error saving notification for user ${targetUser.user_id}:`, insertError)
+          }
+
           notifications.push({ user_id: targetUser.user_id, status: result.data?.status || "sent" })
         } catch (error) {
-          console.error(`[send-daily-notifications] Error sending to user ${targetUser.user_id}:`, error)
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          console.error(`[send-daily-notifications] Error sending to user ${targetUser.user_id}:`, errorMessage)
         }
       }
     }
@@ -174,9 +178,11 @@ serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     })
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error("[send-daily-notifications] Fatal error:", errorMessage)
+    return new Response(JSON.stringify({ error: errorMessage }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 400,
+      status: 500,
     })
   }
 })

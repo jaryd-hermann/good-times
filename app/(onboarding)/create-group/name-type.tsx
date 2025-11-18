@@ -136,7 +136,7 @@ export default function CreateGroupNameType() {
 
       <Modal
         transparent
-        animationType="slide"
+        animationType="fade"
         visible={showNSFWModal}
         onRequestClose={() => setShowNSFWModal(false)}
       >

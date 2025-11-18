@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { Deno } from "https://deno.land/std@0.168.0/node/process.ts" // Added import for Deno
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -42,13 +41,43 @@ serve(async (req) => {
       // Check if group already has prompts for today (general or user-specific)
       const { data: existingPrompts } = await supabaseClient
         .from("daily_prompts")
-        .select("id, user_id")
+        .select("id, user_id, prompt_id, prompt:prompts(category)")
         .eq("group_id", group.id)
         .eq("date", today)
 
+      // Check if existing prompt is Remembering category and group has no memorials
+      // If so, delete it and reschedule
+      const hasMemorialsCheck = await supabaseClient
+        .from("memorials")
+        .select("id")
+        .eq("group_id", group.id)
+        .limit(1)
+      const hasMemorials = (hasMemorialsCheck.data?.length || 0) > 0
+
       if (existingPrompts && existingPrompts.length > 0) {
-        results.push({ group_id: group.id, status: "already_scheduled" })
-        continue
+        // Check if any existing prompt is Remembering without memorials
+        const hasRememberingWithoutMemorials = existingPrompts.some((ep: any) => {
+          const prompt = ep.prompt as any
+          return prompt?.category === "Remembering" && !hasMemorials
+        })
+
+        if (hasRememberingWithoutMemorials) {
+          // Delete the Remembering prompt and reschedule
+          await supabaseClient
+            .from("daily_prompts")
+            .delete()
+            .eq("group_id", group.id)
+            .eq("date", today)
+            .in("prompt_id", 
+              existingPrompts
+                .filter((ep: any) => ep.prompt?.category === "Remembering")
+                .map((ep: any) => ep.prompt_id)
+            )
+          // Continue to reschedule below
+        } else {
+          results.push({ group_id: group.id, status: "already_scheduled" })
+          continue
+        }
       }
 
       // Get all group members with their birthdays
@@ -130,19 +159,14 @@ serve(async (req) => {
       }
 
       // No birthdays today - proceed with regular prompt logic
-      // Get group type and check for memorials
+      // Get group type
       const { data: groupData } = await supabaseClient
         .from("groups")
         .select("type")
         .eq("id", group.id)
         .single()
 
-      // Check if group has memorials
-      const { data: memorials } = await supabaseClient
-        .from("memorials")
-        .select("id")
-        .eq("group_id", group.id)
-      const hasMemorials = (memorials?.length || 0) > 0
+      // hasMemorials already checked above
 
       // Get category preferences
       const { data: preferences } = await supabaseClient
@@ -322,9 +346,11 @@ serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     })
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error("[schedule-daily-prompts] Fatal error:", errorMessage)
+    return new Response(JSON.stringify({ error: errorMessage }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 400,
+      status: 500,
     })
   }
 })

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState, useMemo } from "react"
 import {
   View,
   Text,
@@ -21,7 +21,7 @@ import * as ImagePicker from "expo-image-picker"
 import { Audio } from "expo-av"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { supabase } from "../../../lib/supabase"
-import { createEntry, getAllPrompts } from "../../../lib/db"
+import { createEntry, getAllPrompts, getMemorials, getGroupMembers } from "../../../lib/db"
 import type { Prompt } from "../../../lib/types"
 import { uploadMedia } from "../../../lib/storage"
 import { colors, typography, spacing } from "../../../lib/theme"
@@ -30,6 +30,7 @@ import { FontAwesome } from "@expo/vector-icons"
 import { parseEmbedUrl, extractEmbedUrls, type ParsedEmbed } from "../../../lib/embed-parser"
 import { EmbeddedPlayer } from "../../../components/EmbeddedPlayer"
 import * as Clipboard from "expo-clipboard"
+import { personalizeMemorialPrompt, replaceDynamicVariables } from "../../../lib/prompts"
 
 type MediaItem = {
   id: string
@@ -139,6 +140,42 @@ export default function EntryComposer() {
       setActivePrompt(prompt as Prompt)
     }
   }, [prompt])
+
+  // Fetch memorials and members for variable replacement
+  const { data: memorials = [] } = useQuery({
+    queryKey: ["memorials", currentGroupId],
+    queryFn: () => (currentGroupId ? getMemorials(currentGroupId) : []),
+    enabled: !!currentGroupId && !!activePrompt?.question?.match(/\{.*memorial_name.*\}/i),
+  })
+
+  const { data: members = [] } = useQuery({
+    queryKey: ["members", currentGroupId],
+    queryFn: () => (currentGroupId ? getGroupMembers(currentGroupId) : []),
+    enabled: !!currentGroupId && !!activePrompt?.question?.match(/\{.*member_name.*\}/i),
+  })
+
+  // Personalize prompt question with variables
+  const personalizedQuestion = useMemo(() => {
+    if (!activePrompt?.question) return activePrompt?.question
+    
+    let question = activePrompt.question
+    const variables: Record<string, string> = {}
+    
+    // Handle memorial_name variable
+    if (question.match(/\{.*memorial_name.*\}/i) && memorials.length > 0) {
+      // Use first memorial (or could cycle based on date)
+      question = personalizeMemorialPrompt(question, memorials[0].name)
+    }
+    
+    // Handle member_name variable
+    if (question.match(/\{.*member_name.*\}/i) && members.length > 0) {
+      // For now, use first member (could be improved to cycle)
+      variables.member_name = members[0].user?.name || "them"
+      question = replaceDynamicVariables(question, variables)
+    }
+    
+    return question
+  }, [activePrompt?.question, memorials, members])
 
   // Reset form when promptId or date changes (new question)
   useEffect(() => {
@@ -652,7 +689,7 @@ export default function EntryComposer() {
         contentContainerStyle={styles.contentContainer}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.question}>{activePrompt?.question}</Text>
+        <Text style={styles.question}>{personalizedQuestion || activePrompt?.question}</Text>
         <Text style={styles.description}>{activePrompt?.description}</Text>
 
         <View ref={inputContainerRef}>

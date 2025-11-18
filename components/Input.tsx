@@ -1,3 +1,4 @@
+import { forwardRef } from "react"
 import { View, TextInput, Text, StyleSheet, type TextInputProps } from "react-native"
 import { colors, typography, spacing } from "../lib/theme"
 
@@ -6,19 +7,22 @@ interface InputProps extends TextInputProps {
   error?: string
 }
 
-export function Input({ label, error, style, ...props }: InputProps) {
-  return (
-    <View style={styles.container}>
-      {label && <Text style={styles.label}>{label}</Text>}
-      <TextInput
-        style={[styles.input, error && styles.inputError, style]}
-        placeholderTextColor={colors.gray[500]}
-        {...props}
-      />
-      {error && <Text style={styles.error}>{error}</Text>}
-    </View>
-  )
-}
+export const Input = forwardRef<TextInput, InputProps>(
+  ({ label, error, style, ...props }, ref) => {
+    return (
+      <View style={styles.container}>
+        {label && <Text style={styles.label}>{label}</Text>}
+        <TextInput
+          ref={ref}
+          style={[styles.input, error && styles.inputError, style]}
+          placeholderTextColor={colors.gray[500]}
+          {...props}
+        />
+        {error && <Text style={styles.error}>{error}</Text>}
+      </View>
+    )
+  }
+)
 
 const styles = StyleSheet.create({
   container: {

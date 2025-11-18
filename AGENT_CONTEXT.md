@@ -199,6 +199,100 @@ eas submit --platform ios --latest
 
 ---
 
+## Git Repository Setup
+
+### Repository Information
+- **Remote URL**: `git@github.com:jaryd-hermann/good-times.git` (SSH)
+- **Default Branch**: `main`
+- **Repository Type**: Private GitHub repository
+
+### SSH Setup for New Agent Sessions
+
+When starting a new agent session, SSH keys may not be loaded in the SSH agent. Follow these steps to enable git operations:
+
+#### 1. Verify SSH Key Exists
+```bash
+ls -la ~/.ssh/id_ed25519
+# Should show: -rw-------  1 user  staff  419 [date] /Users/[user]/.ssh/id_ed25519
+```
+
+#### 2. Add SSH Key to SSH Agent
+```bash
+ssh-add ~/.ssh/id_ed25519
+# Should output: Identity added: /Users/[user]/.ssh/id_ed25519 ([email])
+```
+
+#### 3. Verify SSH Connection to GitHub
+```bash
+ssh -T git@github.com
+# Should output: Hi jaryd-hermann! You've successfully authenticated, but GitHub does not provide shell access.
+```
+
+#### 4. Verify Git Remote Configuration
+```bash
+git remote -v
+# Should show:
+# origin	git@github.com:jaryd-hermann/good-times.git (fetch)
+# origin	git@github.com:jaryd-hermann/good-times.git (push)
+```
+
+### Standard Git Operations
+
+Once SSH is configured, you can perform standard git operations:
+
+```bash
+# Stage all changes
+git add -A
+
+# Commit changes
+git commit -m "Your commit message"
+
+# Push to remote main branch
+git push origin main
+
+# Pull latest changes
+git pull origin main
+
+# Check status
+git status
+```
+
+### Troubleshooting Git/SSH Issues
+
+#### "The agent has no identities"
+- **Fix**: Run `ssh-add ~/.ssh/id_ed25519` to load your SSH key
+
+#### "Could not read from remote repository"
+- **Check**: Verify SSH connection with `ssh -T git@github.com`
+- **Check**: Ensure SSH key is added with `ssh-add -l`
+- **Check**: Verify remote URL with `git remote -v`
+- **Note**: If GitHub is experiencing issues, check https://www.githubstatus.com
+
+#### "upstream connect error" or "Connection refused"
+- **Possible causes**: 
+  - Temporary GitHub connectivity issues
+  - Network/VPN blocking SSH port 22
+  - GitHub service outage
+- **Solution**: Wait a few minutes and retry, or check GitHub status page
+
+#### SSH Key Not Persisting Between Sessions
+- **macOS Solution**: Add to `~/.ssh/config`:
+  ```
+  Host github.com
+    AddKeysToAgent yes
+    UseKeychain yes
+    IdentityFile ~/.ssh/id_ed25519
+  ```
+- This will automatically add the key to the agent and macOS keychain
+
+### Important Notes
+- **Always verify SSH connection** before attempting git push/pull operations
+- **Commit messages** should be descriptive and follow project conventions
+- **Never force push** to main branch without explicit approval
+- **Check git status** before committing to see what changes will be included
+
+---
+
 ## Build Configuration
 
 ### `app.config.ts`
@@ -461,6 +555,7 @@ try {
 8. **REMEMBER**: OAuth redirects don't work in simulators - test on device
 9. **REMEMBER**: Local builds require RCT-Folly patch (handled in Podfile)
 10. **REMEMBER**: EAS builds are recommended for production/TestFlight
+11. **SETUP REQUIRED**: Before git operations, run `ssh-add ~/.ssh/id_ed25519` to load SSH key (see Git Repository Setup section)
 
 ---
 
@@ -479,7 +574,7 @@ try {
 
 ---
 
-**Last Updated**: Based on commits through `f9d64d9` (date picker visibility fix)  
+**Last Updated**: Based on commits through `3cbbea6` (birthday prompts, cron jobs, UI improvements)  
 **App Version**: `1.1.0` (Build `5`)  
 **Status**: Ready for TestFlight testing
 

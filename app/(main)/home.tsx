@@ -37,6 +37,8 @@ import { EntryCard } from "../../components/EntryCard"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { FontAwesome } from "@expo/vector-icons"
 import { registerForPushNotifications, savePushToken } from "../../lib/notifications"
+import { getMemorials } from "../../lib/db"
+import { personalizeMemorialPrompt, replaceDynamicVariables } from "../../lib/prompts"
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 
@@ -262,6 +264,42 @@ export default function Home() {
 
   const promptId = dailyPrompt?.prompt_id ?? entries[0]?.prompt_id ?? fallbackPrompt?.id
 
+  // Fetch memorials and members for variable replacement
+  const { data: memorials = [] } = useQuery({
+    queryKey: ["memorials", currentGroupId],
+    queryFn: () => (currentGroupId ? getMemorials(currentGroupId) : []),
+    enabled: !!currentGroupId && !!(fallbackPrompt?.question?.match(/\{.*memorial_name.*\}/i)),
+  })
+
+  const { data: groupMembersForVariables = [] } = useQuery({
+    queryKey: ["membersForVariables", currentGroupId],
+    queryFn: () => (currentGroupId ? getGroupMembers(currentGroupId) : []),
+    enabled: !!currentGroupId && !!(fallbackPrompt?.question?.match(/\{.*member_name.*\}/i)),
+  })
+
+  // Personalize prompt question with variables
+  const personalizedPromptQuestion = useMemo(() => {
+    if (!fallbackPrompt?.question) return fallbackPrompt?.question
+    
+    let question = fallbackPrompt.question
+    const variables: Record<string, string> = {}
+    
+    // Handle memorial_name variable
+    if (question.match(/\{.*memorial_name.*\}/i) && memorials.length > 0) {
+      // Use first memorial (or could cycle based on date)
+      question = personalizeMemorialPrompt(question, memorials[0].name)
+    }
+    
+    // Handle member_name variable
+    if (question.match(/\{.*member_name.*\}/i) && groupMembersForVariables.length > 0) {
+      // For now, use first member (could be improved to cycle)
+      variables.member_name = groupMembersForVariables[0].user?.name || "them"
+      question = replaceDynamicVariables(question, variables)
+    }
+    
+    return question
+  }, [fallbackPrompt?.question, memorials, groupMembersForVariables])
+
   async function handleRefresh() {
     setRefreshing(true)
     await queryClient.invalidateQueries()
@@ -447,7 +485,7 @@ export default function Home() {
         {!userEntry && (
           <FilmFrame style={styles.promptCard} contentStyle={styles.promptInner}>
             <Text style={styles.promptQuestion}>
-              {fallbackPrompt?.question ?? "Share a moment that made you smile today."}
+              {personalizedPromptQuestion || fallbackPrompt?.question || "Share a moment that made you smile today."}
             </Text>
             <Text style={styles.promptDescription}>
               {fallbackPrompt?.description ?? "Tell your group about something meaningful or memorable from your day."}
@@ -673,6 +711,7 @@ const styles = StyleSheet.create({
   },
   entriesContainer: {
     gap: spacing.lg,
+    marginTop: -spacing.md, // Negative margin to reduce space from divider above
   },
   notice: {
     marginBottom: spacing.md,

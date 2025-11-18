@@ -5,7 +5,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, TextInput,
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { supabase } from "../../../lib/supabase"
-import { getEntryById, getReactions, getComments, toggleReaction, createComment, getAllEntriesForGroup } from "../../../lib/db"
+import { getEntryById, getReactions, getComments, toggleReaction, createComment, getAllEntriesForGroup, getMemorials, getGroupMembers } from "../../../lib/db"
 import { colors, typography, spacing } from "../../../lib/theme"
 import { Avatar } from "../../../components/Avatar"
 import { formatTime } from "../../../lib/utils"
@@ -15,6 +15,7 @@ import { FontAwesome } from "@expo/vector-icons"
 import { EmbeddedPlayer } from "../../../components/EmbeddedPlayer"
 import type { EmbeddedMedia } from "../../../lib/types"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
+import { personalizeMemorialPrompt, replaceDynamicVariables } from "../../../lib/prompts"
 
 export default function EntryDetail() {
   const router = useRouter()
@@ -131,6 +132,42 @@ export default function EntryDetail() {
     queryFn: () => getComments(entryId),
     enabled: !!entryId,
   })
+
+  // Fetch memorials and members for variable replacement
+  const { data: memorials = [] } = useQuery({
+    queryKey: ["memorials", entry?.group_id],
+    queryFn: () => (entry?.group_id ? getMemorials(entry.group_id) : []),
+    enabled: !!entry?.group_id && !!entry?.prompt?.question?.match(/\{.*memorial_name.*\}/i),
+  })
+
+  const { data: members = [] } = useQuery({
+    queryKey: ["members", entry?.group_id],
+    queryFn: () => (entry?.group_id ? getGroupMembers(entry.group_id) : []),
+    enabled: !!entry?.group_id && !!entry?.prompt?.question?.match(/\{.*member_name.*\}/i),
+  })
+
+  // Personalize prompt question with variables
+  const personalizedQuestion = useMemo(() => {
+    if (!entry?.prompt?.question) return entry?.prompt?.question
+    
+    let question = entry.prompt.question
+    const variables: Record<string, string> = {}
+    
+    // Handle memorial_name variable
+    if (question.match(/\{.*memorial_name.*\}/i) && memorials.length > 0) {
+      // Use first memorial (or could cycle based on date)
+      question = personalizeMemorialPrompt(question, memorials[0].name)
+    }
+    
+    // Handle member_name variable
+    if (question.match(/\{.*member_name.*\}/i) && members.length > 0) {
+      // For now, use first member (could be improved to cycle)
+      variables.member_name = members[0].user?.name || "them"
+      question = replaceDynamicVariables(question, variables)
+    }
+    
+    return question
+  }, [entry?.prompt?.question, memorials, members])
 
   const commentsSectionRef = useRef<View>(null)
 
@@ -322,7 +359,7 @@ export default function EntryDetail() {
                 </View>
               </View>
 
-              <Text style={styles.question}>{entry.prompt?.question}</Text>
+              <Text style={styles.question}>{personalizedQuestion || entry.prompt?.question}</Text>
 
               {entry.text_content && <Text style={styles.text}>{entry.text_content}</Text>}
 

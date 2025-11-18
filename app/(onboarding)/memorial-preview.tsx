@@ -80,13 +80,18 @@ export default function MemorialPreview() {
         </TouchableOpacity>
       </View>
       <View style={styles.content}>
-        <View style={styles.floatingCard}>
-          <Text style={styles.title}>
-            {data.memorialName ? `Good Times, with ${data.memorialName}` : "Good Times"}
-          </Text>
-          <Text style={styles.body}>
-            Each week, you'll get a question to share a memory, story, or thought about {data.memorialName}. We'll add everyone's share to your group's history for you all to easily look back on.
-          </Text>
+        <View style={styles.textContainer}>
+          <View style={styles.floatingCard}>
+            <Text style={styles.title}>
+              {data.memorialName ? `Good Times, with ${data.memorialName}` : "Good Times"}
+            </Text>
+            <Text style={styles.body}>
+              Each week, you'll get a question to share a memory, story, or thought about {data.memorialName}. We'll add everyone's share to your group's history for you all to easily look back on.
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.bottomContainer}>
           <View style={styles.buttonContainer}>
             <Button
               title="→"
@@ -146,13 +151,19 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    justifyContent: "flex-end",
+    justifyContent: "space-between",
     padding: spacing.lg,
+    paddingTop: spacing.xxl * 2,
+    paddingBottom: spacing.xxl * 2,
+  },
+  textContainer: {
+    flex: 1,
+    justifyContent: "flex-end",
+    paddingBottom: spacing.xxl,
   },
   floatingCard: {
     gap: spacing.md,
     maxWidth: 420,
-    padding: spacing.lg,
   },
   title: {
     ...typography.h1,
@@ -164,6 +175,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
     color: colors.white,
+  },
+  bottomContainer: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "flex-end",
   },
   buttonContainer: {
     alignItems: "flex-end",
