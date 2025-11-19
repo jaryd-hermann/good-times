@@ -5,6 +5,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Modal, Ima
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
 import { useQuery } from "@tanstack/react-query"
 import { supabase } from "../../lib/supabase"
+import { Video, ResizeMode } from "expo-av"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import {
   format,
@@ -869,9 +870,7 @@ export default function History() {
                                   
                                   if (mediaType === "video") {
                                     return (
-                                      <View key={`video-${idx}-${url}`} style={styles.videoThumbnailSquare}>
-                                        <FontAwesome name="video-camera" size={20} color={colors.white} />
-                                      </View>
+                                      <VideoThumbnail key={`video-${idx}-${url}`} uri={url} style={styles.videoThumbnailSquare} />
                                     )
                                   }
                                   
@@ -1277,6 +1276,16 @@ const styles = StyleSheet.create({
     marginRight: 0,
     marginLeft: 0,
     flexShrink: 0, // Prevent shrinking in ScrollView
+    position: "relative",
+    overflow: "hidden",
+  },
+  videoThumbnailOverlay: {
+    position: "absolute",
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.3)",
   },
   mediaMoreIndicator: {
     backgroundColor: "rgba(0,0,0,0.6)",
@@ -1467,4 +1476,27 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
 })
+
+// Component to render video thumbnail
+function VideoThumbnail({ uri, style }: { uri: string; style?: any }) {
+  const videoRef = useRef<Video>(null)
+
+  return (
+    <View style={[styles.videoThumbnailSquare, style]}>
+      <Video
+        ref={videoRef}
+        source={{ uri }}
+        style={StyleSheet.absoluteFill}
+        resizeMode={ResizeMode.COVER}
+        shouldPlay={false}
+        isMuted={true}
+        isLooping={false}
+        useNativeControls={false}
+      />
+      <View style={styles.videoThumbnailOverlay}>
+        <FontAwesome name="play-circle" size={24} color={colors.white} />
+      </View>
+    </View>
+  )
+}
 

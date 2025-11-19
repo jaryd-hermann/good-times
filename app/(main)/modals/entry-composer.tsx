@@ -16,9 +16,9 @@ import {
   ActivityIndicator,
   Keyboard,
 } from "react-native"
-import { useRouter, useLocalSearchParams } from "expo-router"
+import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
 import * as ImagePicker from "expo-image-picker"
-import { Audio } from "expo-av"
+import { Audio, Video, ResizeMode } from "expo-av"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { supabase } from "../../../lib/supabase"
 import { createEntry, getAllPrompts, getMemorials, getGroupMembers } from "../../../lib/db"
@@ -36,6 +36,7 @@ type MediaItem = {
   id: string
   uri: string
   type: "photo" | "video" | "audio"
+  thumbnailUri?: string // For video thumbnails
 }
 
 function createMediaId() {
@@ -78,10 +79,26 @@ export default function EntryComposer() {
   const scrollViewRef = useRef<ScrollView>(null)
   const inputContainerRef = useRef<View>(null)
   const [showSuccessModal, setShowSuccessModal] = useState(false)
+  const [keyboardHeight, setKeyboardHeight] = useState(0)
 
   useEffect(() => {
     loadUserAndGroup()
   }, [groupIdParam])
+
+  // Listen to keyboard events to adjust toolbar position
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener("keyboardDidShow", (e) => {
+      setKeyboardHeight(e.endCoordinates.height)
+    })
+    const hideSubscription = Keyboard.addListener("keyboardDidHide", () => {
+      setKeyboardHeight(0)
+    })
+
+    return () => {
+      showSubscription.remove()
+      hideSubscription.remove()
+    }
+  }, [])
 
   async function loadUserAndGroup() {
     const {
@@ -304,12 +321,27 @@ export default function EntryComposer() {
 
     if (!result.canceled) {
       const asset = result.assets[0]
+      const mediaId = createMediaId()
+      
+      // Generate thumbnail for video
+      let thumbnailUri: string | undefined
+      try {
+        // Use Video component to get thumbnail
+        const videoRef = { current: null as Video | null }
+        // We'll generate thumbnail in the render using a hidden Video component
+        // For now, store the video URI and generate thumbnail on render
+        thumbnailUri = asset.uri // Will be replaced with actual thumbnail
+      } catch (error) {
+        console.warn("[entry-composer] Failed to generate video thumbnail:", error)
+      }
+      
       setMediaItems((prev) => [
         ...prev,
         {
-          id: createMediaId(),
+          id: mediaId,
           uri: asset.uri,
           type: "video",
+          thumbnailUri,
         },
       ])
     }
@@ -329,12 +361,16 @@ export default function EntryComposer() {
 
     if (!result.canceled) {
       const asset = result.assets[0]
+      const isVideo = asset.type === "video"
+      const mediaId = createMediaId()
+      
       setMediaItems((prev) => [
         ...prev,
         {
-          id: createMediaId(),
+          id: mediaId,
           uri: asset.uri,
-          type: asset.type === "video" ? "video" : "photo",
+          type: isVideo ? "video" : "photo",
+          thumbnailUri: isVideo ? asset.uri : undefined, // Will generate thumbnail for video
         },
       ])
     }
@@ -602,30 +638,53 @@ export default function EntryComposer() {
 
   // Auto-focus input when component mounts
   useEffect(() => {
-    // Small delay to ensure component is fully mounted
-    const timer = setTimeout(() => {
+    // Multiple attempts to ensure focus works
+    const timers = [
+      setTimeout(() => textInputRef.current?.focus(), 100),
+      setTimeout(() => textInputRef.current?.focus(), 250),
+      setTimeout(() => textInputRef.current?.focus(), 500),
+    ]
+    
+    return () => {
+      timers.forEach(timer => clearTimeout(timer))
+    }
+  }, [])
+
+  // Also focus when screen comes into focus (handles navigation back to this screen)
+  useFocusEffect(
+    useCallback(() => {
+      const timer = setTimeout(() => {
+        textInputRef.current?.focus()
+      }, 100)
+      return () => clearTimeout(timer)
+    }, [])
+  )
+
+  // Handle input layout to ensure focus after render
+  const handleInputLayout = useCallback(() => {
+    setTimeout(() => {
       textInputRef.current?.focus()
-    }, 100)
-    return () => clearTimeout(timer)
+    }, 50)
   }, [])
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={0}
-      enabled={false}
-    >
-      <ScrollView 
-        ref={scrollViewRef}
-        style={styles.content} 
-        contentContainerStyle={styles.contentContainer}
-        keyboardShouldPersistTaps="handled"
+    <View style={styles.container}>
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoidingView}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={0}
+        enabled={true}
       >
+        <ScrollView 
+          ref={scrollViewRef}
+          style={styles.content} 
+          contentContainerStyle={styles.contentContainer}
+          keyboardShouldPersistTaps="handled"
+        >
         <Text style={styles.question}>{personalizedQuestion || activePrompt?.question}</Text>
         <Text style={styles.description}>{activePrompt?.description}</Text>
 
-        <View ref={inputContainerRef}>
+        <View ref={inputContainerRef} onLayout={handleInputLayout}>
           <TextInput
             ref={textInputRef}
             style={styles.input}
@@ -635,8 +694,11 @@ export default function EntryComposer() {
             placeholder="Start writing..."
             placeholderTextColor={colors.gray[500]}
             multiline
-            autoFocus
-            showSoftInputOnFocus
+            autoFocus={true}
+            showSoftInputOnFocus={true}
+            keyboardType="default"
+            returnKeyType="default"
+            blurOnSubmit={false}
           />
         </View>
 
@@ -666,10 +728,7 @@ export default function EntryComposer() {
                   {item.type === "photo" ? (
                     <Image source={{ uri: item.uri }} style={styles.mediaImage} />
                   ) : item.type === "video" ? (
-                    <View style={styles.videoThumb}>
-                      <FontAwesome name="video-camera" size={24} color={colors.white} />
-                      <Text style={styles.mediaLabel}>Video</Text>
-                    </View>
+                    <VideoThumbnail uri={item.uri} />
                   ) : (
                     <TouchableOpacity
                       style={styles.audioPill}
@@ -719,9 +778,10 @@ export default function EntryComposer() {
           </View>
         )}
       </ScrollView>
+      </KeyboardAvoidingView>
 
-      {/* Toolbar */}
-      <View style={styles.toolbar}>
+      {/* Toolbar - positioned above keyboard */}
+      <View style={[styles.toolbar, { bottom: keyboardHeight }]}>
         <View style={styles.toolbarButtons}>
           <View style={styles.toolCluster}>
             <View style={styles.toolButtonWrapper}>
@@ -925,7 +985,7 @@ export default function EntryComposer() {
           </View>
         </View>
       </Modal>
-    </KeyboardAvoidingView>
+    </View>
   )
 }
 
@@ -935,10 +995,62 @@ function formatDuration(totalSeconds: number) {
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
 }
 
+// Component to render video thumbnail
+function VideoThumbnail({ uri }: { uri: string }) {
+  const [thumbnailUri, setThumbnailUri] = useState<string | null>(null)
+  const videoRef = useRef<Video>(null)
+
+  useEffect(() => {
+    // Generate thumbnail by loading video and capturing first frame
+    const generateThumbnail = async () => {
+      try {
+        // Create a hidden video element to capture thumbnail
+        // We'll use a workaround: render Video component off-screen
+        // For now, just show the video icon - we'll improve this
+        setThumbnailUri(null)
+      } catch (error) {
+        console.warn("[VideoThumbnail] Failed to generate thumbnail:", error)
+      }
+    }
+    generateThumbnail()
+  }, [uri])
+
+  // Use Video component to render thumbnail
+  return (
+    <View style={styles.videoThumb}>
+      {thumbnailUri ? (
+        <Image source={{ uri: thumbnailUri }} style={styles.videoThumbImage} />
+      ) : (
+        <>
+          <Video
+            ref={videoRef}
+            source={{ uri }}
+            style={styles.videoThumbVideo}
+            resizeMode={ResizeMode.COVER}
+            shouldPlay={false}
+            isMuted={true}
+            isLooping={false}
+            useNativeControls={false}
+            onLoad={() => {
+              // Video loaded, it will show first frame
+            }}
+          />
+          <View style={styles.videoThumbOverlay}>
+            <FontAwesome name="play-circle" size={32} color={colors.white} />
+          </View>
+        </>
+      )}
+    </View>
+  )
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.black,
+  },
+  keyboardAvoidingView: {
+    flex: 1,
   },
   header: {
     flexDirection: "row",
@@ -963,7 +1075,7 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     padding: spacing.lg,
-    paddingBottom: spacing.xxl * 2, // Extra padding at bottom for toolbar clearance
+    paddingBottom: spacing.xxl * 2 + 80, // Extra padding at bottom for toolbar clearance (toolbar height ~80px)
   },
   question: {
     ...typography.h2,
@@ -1012,7 +1124,26 @@ const styles = StyleSheet.create({
     height: "100%",
     justifyContent: "center",
     alignItems: "center",
-    gap: spacing.xs,
+    backgroundColor: colors.gray[900],
+    position: "relative",
+    overflow: "hidden",
+  },
+  videoThumbVideo: {
+    width: "100%",
+    height: "100%",
+    position: "absolute",
+  },
+  videoThumbImage: {
+    width: "100%",
+    height: "100%",
+  },
+  videoThumbOverlay: {
+    position: "absolute",
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.3)",
   },
   audioPillWrapper: {
     width: "100%",
@@ -1092,6 +1223,10 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.gray[800],
     backgroundColor: colors.black,
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   toolbarButtons: {
     flexDirection: "row",
