@@ -746,7 +746,7 @@ const styles = StyleSheet.create({
   },
   topBar: {
     position: "absolute",
-    top: spacing.xl + spacing.sm,
+    top: spacing.xxl + spacing.lg,
     left: spacing.lg,
     right: spacing.lg,
     flexDirection: "row",

@@ -178,9 +178,12 @@ serve(async (req) => {
         (preferences || []).filter((p) => p.preference === "none").map((p) => p.category)
       )
 
-      // Get group type to filter Edgy/NSFW for family groups
+      // Get group type to filter prompts by group type
       if (groupData?.type === "family") {
         disabledCategories.add("Edgy/NSFW")
+        disabledCategories.add("Friends") // Exclude Friends category for Family groups
+      } else if (groupData?.type === "friends") {
+        disabledCategories.add("Family") // Exclude Family category for Friends groups
       }
 
       // Filter out "Remembering" category if no memorials
@@ -204,6 +207,10 @@ serve(async (req) => {
         // Filter out "Remembering" category if no memorials
         if (queuedPrompt.category === "Remembering" && !hasMemorials) {
           // Skip this queued prompt, continue to selection logic
+        } else if (groupData?.type === "family" && queuedPrompt.category === "Friends") {
+          // Skip Friends category prompts for Family groups
+        } else if (groupData?.type === "friends" && queuedPrompt.category === "Family") {
+          // Skip Family category prompts for Friends groups
         } else {
           selectedPrompt = queuedPrompt
         }

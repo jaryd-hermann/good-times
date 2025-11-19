@@ -4,7 +4,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: "Good Times",
   slug: "good-times",
-  version: "1.1.0", // User-facing version (e.g., "1.1.0", "1.2.0")
+  version: "1.2.0", // User-facing version (e.g., "1.1.0", "1.2.0")
   orientation: "portrait",
   icon: "./assets/images/icon-new.png",
   scheme: "goodtimes",

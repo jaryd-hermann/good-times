@@ -338,6 +338,9 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
     const memorials = await getMemorials(groupId)
     const hasMemorials = memorials.length > 0
     
+    // Get group type early for filtering
+    const group = await getGroup(groupId)
+    
     let selectedPrompt: Prompt | null = null
 
     // Step 1: Check queue first (group-specific queue)
@@ -355,6 +358,10 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
       if (queuedPrompt.category === "Remembering" && !hasMemorials) {
         // Skip this queued prompt if it's Remembering and group has no memorials
         // Continue to Step 2 to find another prompt
+      } else if (group?.type === "family" && queuedPrompt.category === "Friends") {
+        // Skip Friends category prompts for Family groups
+      } else if (group?.type === "friends" && queuedPrompt.category === "Family") {
+        // Skip Family category prompts for Friends groups
       } else {
         selectedPrompt = queuedPrompt
         // Remove from queue after selection
@@ -380,10 +387,12 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
       const preferences = await getQuestionCategoryPreferences(groupId)
       const disabledCategories = new Set(preferences.filter((p) => p.preference === "none").map((p) => p.category))
 
-      // Get group type to filter Edgy/NSFW for family groups
-      const group = await getGroup(groupId)
+      // Filter prompts by group type (group already fetched above)
       if (group?.type === "family") {
         disabledCategories.add("Edgy/NSFW")
+        disabledCategories.add("Friends") // Exclude Friends category for Family groups
+      } else if (group?.type === "friends") {
+        disabledCategories.add("Family") // Exclude Family category for Friends groups
       }
 
       // Filter out "Remembering" category if no memorials

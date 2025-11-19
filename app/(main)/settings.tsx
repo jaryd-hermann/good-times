@@ -21,7 +21,7 @@ import * as ImagePicker from "expo-image-picker"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker"
 import { format } from "date-fns"
-import * as FileSystem from "expo-file-system"
+import * as FileSystem from "expo-file-system/legacy"
 import { decode } from "base64-arraybuffer"
 import { supabase } from "../../lib/supabase"
 import { getCurrentUser, updateUser, getUserGroups } from "../../lib/db"
@@ -117,9 +117,9 @@ export default function SettingsScreen() {
   }
 
   async function uploadAvatar(localUri: string, userId: string) {
-    // Read file as base64
+    // Read file as base64 - SDK 54 uses string literal
     const base64 = await FileSystem.readAsStringAsync(localUri, {
-      encoding: FileSystem.EncodingType.Base64,
+      encoding: "base64" as any,
     })
 
     if (!base64 || base64.length === 0) {

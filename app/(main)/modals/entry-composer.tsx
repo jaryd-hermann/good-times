@@ -203,85 +203,7 @@ export default function EntryComposer() {
     setAudioLoading({})
   }, [promptId, date])
 
-  // Handle keyboard show/hide to scroll input into view
-  useEffect(() => {
-    // Check if Keyboard API is available
-    if (typeof Keyboard === "undefined" || !Keyboard || typeof Keyboard.addListener !== "function") {
-      console.warn("[entry-composer] Keyboard API not available, skipping keyboard listener")
-      return
-    }
-
-    let keyboardWillShowListener: any = null
-    try {
-      keyboardWillShowListener = Keyboard.addListener(
-      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
-      (e) => {
-        // Scroll to show the input area above the keyboard
-        // The toolbar will be pushed up by KeyboardAvoidingView
-        setTimeout(() => {
-          if (inputContainerRef.current && scrollViewRef.current) {
-            inputContainerRef.current.measureLayout(
-              scrollViewRef.current as any,
-              (x, y) => {
-                // Calculate scroll position to show input above keyboard
-                // Account for safe area and some padding
-                const keyboardHeight = e.endCoordinates.height
-                const toolbarHeight = 60 // Approximate toolbar height
-                const availableHeight = e.endCoordinates.screenY - toolbarHeight
-                const inputHeight = 200 // Approximate input height
-                const targetY = y - (availableHeight - inputHeight) / 2
-                
-                scrollViewRef.current?.scrollTo({
-                  y: Math.max(0, targetY),
-                  animated: true,
-                })
-              },
-              () => {
-                // Fallback: scroll to show input area
-                setTimeout(() => {
-                  if (textInputRef.current && scrollViewRef.current) {
-                    textInputRef.current.measureLayout(
-                      scrollViewRef.current as any,
-                      (x, y) => {
-                        scrollViewRef.current?.scrollTo({
-                          y: Math.max(0, y - 150),
-                          animated: true,
-                        })
-                      },
-                      () => {
-                        scrollViewRef.current?.scrollToEnd({ animated: true })
-                      }
-                    )
-                  } else {
-                    scrollViewRef.current?.scrollToEnd({ animated: true })
-                  }
-                }, 150)
-              }
-            )
-          } else {
-            // Fallback: scroll to end
-            setTimeout(() => {
-              scrollViewRef.current?.scrollToEnd({ animated: true })
-            }, 150)
-          }
-        }, 200)
-      }
-      )
-    } catch (error) {
-      console.warn("[entry-composer] Failed to add keyboard listener:", error)
-      return
-    }
-
-    return () => {
-      if (keyboardWillShowListener && typeof keyboardWillShowListener.remove === "function") {
-        try {
-          keyboardWillShowListener.remove()
-        } catch (error) {
-          console.warn("[entry-composer] Failed to remove keyboard listener:", error)
-        }
-      }
-    }
-  }, [])
+  // Keyboard listener removed to prevent push animation
 
   // Detect embed URLs on blur - preserve existing embeds
   function handleTextBlur() {
@@ -368,14 +290,15 @@ export default function EntryComposer() {
   }
 
   async function takeVideo() {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync()
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
     if (status !== "granted") {
-      Alert.alert("Permission needed", "Please grant camera access")
+      Alert.alert("Permission needed", "Please grant photo library access")
       return
     }
 
-    const result = await ImagePicker.launchCameraAsync({
+    const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      allowsEditing: false,
       quality: 0.8,
     })
 
@@ -677,11 +600,21 @@ export default function EntryComposer() {
     }
   }
 
+  // Auto-focus input when component mounts
+  useEffect(() => {
+    // Small delay to ensure component is fully mounted
+    const timer = setTimeout(() => {
+      textInputRef.current?.focus()
+    }, 100)
+    return () => clearTimeout(timer)
+  }, [])
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={0}
+      enabled={false}
     >
       <ScrollView 
         ref={scrollViewRef}
@@ -699,33 +632,6 @@ export default function EntryComposer() {
             value={text}
             onChangeText={setText}
             onBlur={handleTextBlur}
-            onFocus={() => {
-              // Scroll to show input when focused - keyboard will open
-              // The KeyboardAvoidingView will handle pushing toolbar up
-              setTimeout(() => {
-                if (inputContainerRef.current && scrollViewRef.current) {
-                  inputContainerRef.current.measureLayout(
-                    scrollViewRef.current as any,
-                    (x, y) => {
-                      // Scroll to position input in visible area above keyboard
-                      scrollViewRef.current?.scrollTo({
-                        y: Math.max(0, y - 150),
-                        animated: true,
-                      })
-                    },
-                    () => {
-                      setTimeout(() => {
-                        scrollViewRef.current?.scrollToEnd({ animated: true })
-                      }, 150)
-                    }
-                  )
-                } else {
-                  setTimeout(() => {
-                    scrollViewRef.current?.scrollToEnd({ animated: true })
-                  }, 150)
-                }
-              }, 200)
-            }}
             placeholder="Start writing..."
             placeholderTextColor={colors.gray[500]}
             multiline

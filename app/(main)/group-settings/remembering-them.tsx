@@ -59,9 +59,9 @@ export default function RememberingThemSettings() {
   }, [groupId, router])
 
   async function uploadMemorialPhoto(localUri: string, memorialId: string): Promise<string> {
-    // Read file as base64
+    // Read file as base64 - SDK 54 uses string literal
     const base64 = await FileSystem.readAsStringAsync(localUri, {
-      encoding: FileSystem.EncodingType.Base64,
+      encoding: "base64" as any,
     })
 
     if (!base64 || base64.length === 0) {

@@ -1,6 +1,6 @@
 // app/index.tsx
 import { useEffect, useState } from "react";
-import { View, ActivityIndicator, Text, Pressable, Alert } from "react-native";
+import { View, ActivityIndicator, Text, Pressable, Alert, ImageBackground } from "react-native";
 import { useRouter, Link } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -234,12 +234,13 @@ export default function Index() {
   }, [router]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.black, justifyContent: "center", alignItems: "center", gap: 16 }}>
+    <View style={{ flex: 1, backgroundColor: colors.black }}>
       {booting ? (
-        <>
-          <ActivityIndicator size="large" color={colors.accent} />
-          <Text style={{ color: colors.white, opacity: 0.8 }}>Booting…</Text>
-        </>
+        <ImageBackground
+          source={require("../assets/images/welcome-bg.png")}
+          style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
+          resizeMode="cover"
+        />
       ) : (
         <>
           <Text style={{ color: colors.white, textAlign: "center", paddingHorizontal: 24 }}>
