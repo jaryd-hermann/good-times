@@ -53,6 +53,9 @@ export default function CreateGroupNameType() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={0}
     >
+      <View style={styles.topBar}>
+        <OnboardingBack color={colors.black} />
+      </View>
       <ScrollView 
         ref={scrollViewRef}
         style={styles.scrollView} 
@@ -65,9 +68,6 @@ export default function CreateGroupNameType() {
           }, 100)
         }}
       >
-        <View style={styles.topBar}>
-          <OnboardingBack />
-        </View>
         <View style={styles.header}>
           <Text style={styles.title}>Give your group a name</Text>
         </View>
@@ -180,15 +180,18 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.white,
   },
+  topBar: {
+    position: "absolute",
+    top: spacing.xxl,
+    left: spacing.lg,
+    zIndex: 1,
+  },
   scrollView: {
     flex: 1,
   },
   content: {
     padding: spacing.lg,
     paddingTop: spacing.xxl * 2,
-  },
-  topBar: {
-    marginBottom: spacing.lg,
   },
   header: {
     marginBottom: spacing.xl,

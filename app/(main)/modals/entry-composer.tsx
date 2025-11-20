@@ -80,6 +80,7 @@ export default function EntryComposer() {
   const inputContainerRef = useRef<View>(null)
   const [showSuccessModal, setShowSuccessModal] = useState(false)
   const [keyboardHeight, setKeyboardHeight] = useState(0)
+  const [uploadingMedia, setUploadingMedia] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     loadUserAndGroup()
@@ -587,13 +588,25 @@ export default function EntryComposer() {
     try {
       const storageKey = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 
+      // Set uploading state for all local media items
+      const localMediaItems = mediaItems.filter(item => !item.uri.startsWith("http"))
+      localMediaItems.forEach(item => {
+        setUploadingMedia(prev => ({ ...prev, [item.id]: true }))
+      })
+
       const uploadedMedia = await Promise.all(
         mediaItems.map(async (item) => {
           if (item.uri.startsWith("http")) {
             return { url: item.uri, type: item.type }
           }
-          const remoteUrl = await uploadMedia(currentGroupId, storageKey, item.uri, item.type)
-          return { url: remoteUrl, type: item.type }
+          try {
+            const remoteUrl = await uploadMedia(currentGroupId, storageKey, item.uri, item.type)
+            setUploadingMedia(prev => ({ ...prev, [item.id]: false }))
+            return { url: remoteUrl, type: item.type }
+          } catch (error) {
+            setUploadingMedia(prev => ({ ...prev, [item.id]: false }))
+            throw error
+          }
         }),
       )
 
@@ -630,9 +643,13 @@ export default function EntryComposer() {
       // Show custom success modal instead of native alert
       setShowSuccessModal(true)
     } catch (error: any) {
+      // Clear all uploading states on error
+      setUploadingMedia({})
       Alert.alert("Error", error.message)
     } finally {
       setLoading(false)
+      // Clear uploading states after successful upload
+      setUploadingMedia({})
     }
   }
 
@@ -719,63 +736,99 @@ export default function EntryComposer() {
           </View>
         )}
 
-        {/* Media preview */}
-        {mediaItems.length > 0 && (
-          <View style={styles.mediaListContainer}>
-            {mediaItems.map((item) => (
-              <View key={item.id} style={styles.mediaItemWrapper}>
-                <View style={styles.mediaItem}>
-                  {item.type === "photo" ? (
-                    <Image source={{ uri: item.uri }} style={styles.mediaImage} />
-                  ) : item.type === "video" ? (
-                    <VideoThumbnail uri={item.uri} />
-                  ) : (
-                    <TouchableOpacity
-                      style={styles.audioPill}
-                      onPress={() => handleToggleAudio(item.id, item.uri)}
-                      activeOpacity={0.85}
-                    >
-                      <View style={styles.audioIcon}>
-                        {audioLoading[item.id] ? (
-                          <ActivityIndicator size="small" color={colors.white} />
-                        ) : (
-                          <FontAwesome
-                            name={playingAudioId === item.id ? "pause" : "play"}
-                            size={16}
-                            color={colors.white}
-                          />
-                        )}
-                      </View>
-                      <View style={styles.audioInfo}>
-                        <Text style={styles.audioLabel}>Voice memo</Text>
-                        <View style={styles.audioProgressTrack}>
-                          <View
-                            style={[
-                              styles.audioProgressFill,
-                              {
-                                width: `${
-                                  audioDurations[item.id] > 0
-                                    ? Math.max((audioProgress[item.id] || 0) / audioDurations[item.id], 0.02) * 100
-                                    : 2
-                                }%`,
-                              },
-                            ]}
-                          />
-                        </View>
-                        <Text style={styles.audioTime}>
-                          {formatMillis(audioProgress[item.id] || 0)} /{" "}
-                          {audioDurations[item.id] ? formatMillis(audioDurations[item.id]) : "--:--"}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                  )}
+        {/* Voice memos inline (not in carousel) */}
+        {mediaItems.filter(item => item.type === "audio").map((item) => (
+          <View key={item.id} style={styles.inlineAudioContainer}>
+            <TouchableOpacity
+              style={styles.audioPill}
+              onPress={() => handleToggleAudio(item.id, item.uri)}
+              activeOpacity={0.85}
+            >
+              <View style={styles.audioIcon}>
+                {audioLoading[item.id] ? (
+                  <ActivityIndicator size="small" color={colors.white} />
+                ) : (
+                  <FontAwesome
+                    name={playingAudioId === item.id ? "pause" : "play"}
+                    size={16}
+                    color={colors.white}
+                  />
+                )}
+              </View>
+              <View style={styles.audioInfo}>
+                <Text style={styles.audioLabel}>Voice memo</Text>
+                <View style={styles.audioProgressTrack}>
+                  <View
+                    style={[
+                      styles.audioProgressFill,
+                      {
+                        width: `${
+                          audioDurations[item.id] > 0
+                            ? Math.max((audioProgress[item.id] || 0) / audioDurations[item.id], 0.02) * 100
+                            : 2
+                        }%`,
+                      },
+                    ]}
+                  />
                 </View>
-                <TouchableOpacity style={styles.mediaDelete} onPress={() => handleRemoveMedia(item.id)}>
-                  <FontAwesome name="times" size={12} color={colors.white} />
-                </TouchableOpacity>
+                <Text style={styles.audioTime}>
+                  {formatMillis(audioProgress[item.id] || 0)} /{" "}
+                  {audioDurations[item.id] ? formatMillis(audioDurations[item.id]) : "--:--"}
+                </Text>
+              </View>
+            </TouchableOpacity>
+            {!uploadingMedia[item.id] && (
+              <TouchableOpacity style={styles.inlineAudioDelete} onPress={() => handleRemoveMedia(item.id)}>
+                <FontAwesome name="times" size={12} color={colors.white} />
+              </TouchableOpacity>
+            )}
+            {uploadingMedia[item.id] && (
+              <View style={styles.inlineAudioUploadOverlay}>
+                <ActivityIndicator size="small" color={colors.white} />
+              </View>
+            )}
+          </View>
+        ))}
+
+        {/* Media preview - horizontal scrollable feed (photos/videos only, newest first) */}
+        {mediaItems.filter(item => item.type !== "audio").length > 0 && (
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            style={styles.mediaScrollContainer}
+            contentContainerStyle={styles.mediaScrollContent}
+          >
+            {[...mediaItems.filter(item => item.type !== "audio")].reverse().map((item) => (
+              <View key={item.id} style={styles.mediaThumbnailWrapper}>
+                {item.type === "photo" ? (
+                  <>
+                    <Image source={{ uri: item.uri }} style={styles.mediaThumbnail} resizeMode="cover" />
+                    {uploadingMedia[item.id] && (
+                      <View style={styles.uploadOverlay}>
+                        <ActivityIndicator size="large" color={colors.white} />
+                        <Text style={styles.uploadText}>Uploading...</Text>
+                      </View>
+                    )}
+                  </>
+                ) : item.type === "video" ? (
+                  <>
+                    <VideoThumbnail uri={item.uri} />
+                    {uploadingMedia[item.id] && (
+                      <View style={styles.uploadOverlay}>
+                        <ActivityIndicator size="large" color={colors.white} />
+                        <Text style={styles.uploadText}>Uploading...</Text>
+                      </View>
+                    )}
+                  </>
+                ) : null}
+                {!uploadingMedia[item.id] && (
+                  <TouchableOpacity style={styles.mediaDelete} onPress={() => handleRemoveMedia(item.id)}>
+                    <FontAwesome name="times" size={12} color={colors.white} />
+                  </TouchableOpacity>
+                )}
               </View>
             ))}
-          </View>
+          </ScrollView>
         )}
       </ScrollView>
       </KeyboardAvoidingView>
@@ -1096,32 +1149,37 @@ const styles = StyleSheet.create({
     minHeight: 200,
     textAlignVertical: "top",
   },
-  mediaListContainer: {
+  mediaScrollContainer: {
     marginTop: spacing.md,
-    gap: spacing.sm,
+    marginBottom: spacing.md,
   },
-  mediaItemWrapper: {
+  mediaScrollContent: {
+    gap: spacing.sm,
+    paddingRight: spacing.lg,
+  },
+  mediaThumbnailWrapper: {
+    width: 120,
+    height: 120,
     borderRadius: 12,
     overflow: "hidden",
     backgroundColor: colors.gray[900],
-    width: "100%",
-    marginBottom: spacing.sm,
     position: "relative",
+    marginRight: spacing.sm,
   },
-  mediaItem: {
-    width: "100%",
-    minHeight: 200,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  mediaImage: {
-    width: "100%",
-    height: 200,
-    resizeMode: "cover",
-  },
-  videoThumb: {
+  mediaThumbnail: {
     width: "100%",
     height: "100%",
+  },
+  audioThumbnail: {
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.xs,
+  },
+  videoThumb: {
+    width: 120,
+    height: 120,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: colors.gray[900],
@@ -1131,7 +1189,6 @@ const styles = StyleSheet.create({
   videoThumbVideo: {
     width: "100%",
     height: "100%",
-    position: "absolute",
   },
   videoThumbImage: {
     width: "100%",
@@ -1149,6 +1206,11 @@ const styles = StyleSheet.create({
     width: "100%",
     position: "relative",
   },
+  inlineAudioContainer: {
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+    position: "relative",
+  },
   audioPill: {
     flexDirection: "row",
     alignItems: "center",
@@ -1157,8 +1219,29 @@ const styles = StyleSheet.create({
     backgroundColor: colors.gray[900],
     borderRadius: 16,
     width: "100%",
-    height: "auto",
-    minHeight: 60,
+  },
+  inlineAudioDelete: {
+    position: "absolute",
+    top: spacing.xs,
+    right: spacing.xs,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 10,
+  },
+  inlineAudioUploadOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    borderRadius: 16,
+    justifyContent: "center",
+    alignItems: "center",
   },
   audioDelete: {
     position: "absolute",
@@ -1178,10 +1261,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.gray[800],
     justifyContent: "center",
     alignItems: "center",
+    flexShrink: 0,
   },
   audioInfo: {
     flex: 1,
     gap: spacing.xs,
+    minWidth: 0,
   },
   audioLabel: {
     ...typography.bodyMedium,
@@ -1216,6 +1301,24 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.6)",
     justifyContent: "center",
     alignItems: "center",
+    zIndex: 10,
+  },
+  uploadOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 12,
+    gap: spacing.xs,
+  },
+  uploadText: {
+    ...typography.caption,
+    color: colors.white,
+    fontSize: 12,
   },
   toolbar: {
     paddingVertical: spacing.sm,

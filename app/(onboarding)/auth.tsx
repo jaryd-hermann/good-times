@@ -177,9 +177,22 @@ export default function OnboardingAuth() {
         // Check for errors in the URL
         if (url.includes("error=")) {
           const errorMatch = url.match(/error=([^&]+)/)
+          const errorDescMatch = url.match(/error_description=([^&#]+)/)
           const error = errorMatch ? decodeURIComponent(errorMatch[1]) : "Unknown error"
-          console.error("[OAuth] Error in callback:", error)
-          Alert.alert("Sign-in Failed", error)
+          const errorDesc = errorDescMatch ? decodeURIComponent(errorDescMatch[1]) : ""
+          
+          console.error("[OAuth] Error in callback:", error, errorDesc)
+          
+          // Provide helpful error messages for common issues
+          let userMessage = errorDesc || error
+          if (error === "server_error" && errorDesc.includes("Unable to exchange external code")) {
+            userMessage = "OAuth configuration error. Please check your Supabase OAuth settings for Apple/Google."
+          } else if (error === "access_denied") {
+            userMessage = "Sign-in was cancelled. Please try again."
+          }
+          
+          setOauthLoading(null)
+          Alert.alert("Sign-in Failed", userMessage)
           return
         }
         
@@ -497,57 +510,104 @@ export default function OnboardingAuth() {
         const url = result.url
         console.log(`[OAuth] Success! Parsing URL: ${url}`)
         
-        // Extract hash fragment (Supabase sends tokens in hash)
+        // Check for errors first
+        if (url.includes("error=")) {
+          const errorMatch = url.match(/error=([^&#]+)/)
+          const errorDescMatch = url.match(/error_description=([^&#]+)/)
+          const error = errorMatch ? decodeURIComponent(errorMatch[1]) : "Unknown error"
+          const errorDesc = errorDescMatch ? decodeURIComponent(errorDescMatch[1]) : ""
+          console.error(`[OAuth] Error in redirect URL:`, error, errorDesc)
+          
+          // Provide helpful error messages
+          let userMessage = errorDesc || error
+          if (error === "server_error" && errorDesc.includes("Unable to exchange external code")) {
+            userMessage = "OAuth configuration error. Please check your Supabase OAuth settings. See OAUTH_TROUBLESHOOTING.md for help."
+          } else if (error === "access_denied") {
+            userMessage = "Sign-in was cancelled. Please try again."
+          }
+          
+          setOauthLoading(null)
+          Alert.alert("Sign-in Failed", userMessage)
+          return
+        }
+        
+        // Extract hash fragment (Supabase sends tokens in hash for OAuth)
         const hashMatch = url.match(/#(.+)/)
         if (hashMatch) {
           const hashParams = new URLSearchParams(hashMatch[1])
           const accessToken = hashParams.get("access_token")
           const refreshToken = hashParams.get("refresh_token")
-          const type = hashParams.get("type")
+          const expiresIn = hashParams.get("expires_in")
           
-          if (accessToken && (type === "recovery" || type === "signup" || type === "login")) {
-            // Set session with tokens
-            const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken || "",
-            })
+          if (accessToken && refreshToken) {
+            console.log(`[OAuth] Found tokens in hash, setting session...`)
             
-            if (sessionError) {
-              console.error(`[OAuth] Error setting session:`, sessionError)
+            // Manually set session - use a reasonable timeout
+            try {
+              console.log(`[OAuth] Setting session directly...`)
+              
+              // Create a promise that resolves/rejects quickly
+              const setSessionPromise = supabase.auth.setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken,
+              })
+              
+              // Race with timeout
+              const timeoutId = setTimeout(() => {
+                console.warn(`[OAuth] setSession taking longer than expected...`)
+              }, 3000)
+              
+              const { data: sessionData, error: sessionError } = await setSessionPromise
+              clearTimeout(timeoutId)
+              
+              if (sessionError) {
+                console.error(`[OAuth] setSession error:`, sessionError)
+                throw sessionError
+              }
+              
+              if (sessionData?.session) {
+                console.log(`[OAuth] Session set successfully`)
+                await handleOAuthSuccess(sessionData.session)
+                return
+              } else {
+                throw new Error("No session in response")
+              }
+            } catch (error: any) {
+              console.error(`[OAuth] setSession failed:`, error.message)
+              
+              // Fallback: Manually trigger the URL handler by calling Linking.openURL
+              // This will cause the useEffect handler to process it
+              console.log(`[OAuth] Triggering URL handler as fallback...`)
+              try {
+                await Linking.openURL(url)
+                // Wait for handler to process
+                await new Promise(resolve => setTimeout(resolve, 1500))
+                
+                const { data: { session }, error: checkError } = await supabase.auth.getSession()
+                if (session && !checkError) {
+                  console.log(`[OAuth] Session found via URL handler fallback`)
+                  await handleOAuthSuccess(session)
+                  return
+                }
+              } catch (linkError) {
+                console.error(`[OAuth] Linking fallback failed:`, linkError)
+              }
+              
               setOauthLoading(null)
-              Alert.alert("Error", "Failed to complete sign-in. Please try again.")
+              Alert.alert("Error", error.message || "Failed to complete sign-in. Please try again.")
               return
             }
-            
-            if (sessionData.session) {
-              console.log(`[OAuth] Session set successfully, processing...`)
-              // The existing OAuth redirect handler will process this
-              // But we'll also handle it here to be safe
-              await handleOAuthSuccess(sessionData.session)
-            }
           } else {
-            // Try to get session from Supabase (it might have processed the URL automatically)
-            const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-            if (session && !sessionError) {
-              console.log(`[OAuth] Session found after redirect, processing...`)
-              await handleOAuthSuccess(session)
-            } else {
-              console.error(`[OAuth] No session found after redirect`)
-              setOauthLoading(null)
-              Alert.alert("Error", "Failed to complete sign-in. Please try again.")
-            }
+            console.error(`[OAuth] Missing tokens in hash fragment`)
+            setOauthLoading(null)
+            Alert.alert("Error", "Failed to complete sign-in. Missing authentication tokens.")
+            return
           }
         } else {
-          // No hash fragment, check if Supabase processed it
-          const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-          if (session && !sessionError) {
-            console.log(`[OAuth] Session found after redirect (no hash), processing...`)
-            await handleOAuthSuccess(session)
-          } else {
-            console.error(`[OAuth] No session found after redirect (no hash)`)
-            setOauthLoading(null)
-            Alert.alert("Error", "Failed to complete sign-in. Please try again.")
-          }
+          console.error(`[OAuth] No hash fragment in URL`)
+          setOauthLoading(null)
+          Alert.alert("Error", "Failed to complete sign-in. Invalid redirect URL.")
+          return
         }
       } else if (result.type === "cancel") {
         console.log(`[OAuth] User cancelled`)

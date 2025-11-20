@@ -393,6 +393,11 @@ export default function SettingsScreen() {
             <Text style={styles.logoutText}>Log out</Text>
           </TouchableOpacity>
           <Text style={styles.memorialText}>Made in memory of our mom, Amelia. We do remember all the good times.</Text>
+          <Image 
+            source={require("../../assets/images/wordmark.png")} 
+            style={styles.wordmark}
+            resizeMode="contain"
+          />
         </View>
       </ScrollView>
     </View>
@@ -530,6 +535,13 @@ const styles = StyleSheet.create({
   logoutText: {
     ...typography.bodyMedium,
     color: colors.gray[300],
+  },
+  wordmark: {
+    width: 120,
+    height: 40,
+    marginTop: spacing.md,
+    alignSelf: "center",
+    opacity: 0.6,
   },
   memorialText: {
     ...typography.caption,
