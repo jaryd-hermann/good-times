@@ -66,7 +66,7 @@ export default function Welcome1() {
   }, [router])
 
   return (
-    <ImageBackground source={require("../../assets/images/mom-open.png")} style={styles.container} resizeMode="cover">
+    <ImageBackground source={require("../../assets/images/welcome-home.png")} style={styles.container} resizeMode="cover">
       <LinearGradient
         colors={["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0.3)", "rgba(0, 0, 0, 0.8)", "rgba(0, 0, 0, 1)"]}
         locations={[0, 0.4, 0.7, 1]}

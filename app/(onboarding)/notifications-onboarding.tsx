@@ -78,22 +78,34 @@ export default function NotificationsOnboarding() {
       }
 
       // Request notification permission (this will show Apple's native modal)
+      // This will show the native iOS permission modal to the user
       const token = await registerForPushNotifications()
 
       if (token) {
-        // Save push token to database
-        await savePushToken(user.id, token)
-        console.log("[notifications-onboarding] Push token saved:", token)
+        // Permission granted and token received
+        try {
+          // Save push token to database
+          await savePushToken(user.id, token)
+          console.log("[notifications-onboarding] Push token saved:", token)
+        } catch (saveError) {
+          // Token save failed, but permission was granted
+          // Don't block user - they can enable notifications later
+          console.error("[notifications-onboarding] Failed to save push token:", saveError)
+          // Continue without showing error - permission was granted, saving token is secondary
+        }
+        // Complete onboarding and route to home
+        await completeOnboarding()
       } else {
-        // User denied permission, but that's okay - continue anyway
+        // User denied permission in the native modal - that's okay
         console.log("[notifications-onboarding] Permission denied, continuing without notifications")
+        // Complete onboarding without showing error (user made their choice)
+        await completeOnboarding()
       }
-
-      // Complete onboarding regardless of permission result
-      await completeOnboarding()
     } catch (error: any) {
       console.error("[notifications-onboarding] Error:", error)
-      // Even if there's an error, continue to home
+      // Only show error alert for actual errors (network issues, etc.)
+      // Permission denial returns null and is handled above, so this is a real error
+      // Show error but still allow user to continue
       Alert.alert("Notice", "You can enable notifications later in Settings.")
       await completeOnboarding()
     } finally {
@@ -108,7 +120,7 @@ export default function NotificationsOnboarding() {
 
   return (
     <ImageBackground
-      source={require("../../assets/images/family.png")}
+      source={require("../../assets/images/mom-open.png")}
       style={styles.container}
       resizeMode="cover"
     >

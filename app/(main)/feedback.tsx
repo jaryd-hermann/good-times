@@ -16,12 +16,8 @@ export default function Feedback() {
   async function handleEmail() {
     try {
       const url = `mailto:${EMAIL}`
-      const canOpen = await Linking.canOpenURL(url)
-      if (canOpen) {
-        await Linking.openURL(url)
-      } else {
-        Alert.alert("Email unavailable", "Unable to open your email client right now.")
-      }
+      // Try to open email - iOS will show picker if multiple email apps installed
+      await Linking.openURL(url)
     } catch (error: any) {
       Alert.alert("Error", "Unable to open email. Please try again.")
     }
@@ -44,22 +40,27 @@ export default function Feedback() {
 
   async function handleWhatsApp() {
     try {
-      // Try WhatsApp app first (whatsapp://)
-      const whatsappUrl = `whatsapp://send?phone=${PHONE.replace("+", "")}`
-      const canOpenWhatsApp = await Linking.canOpenURL(whatsappUrl)
-
-      if (canOpenWhatsApp) {
+      // Remove + and any spaces from phone number
+      const cleanPhone = PHONE.replace(/[\s+]/g, "")
+      
+      // Try WhatsApp app first (whatsapp://send?phone=)
+      const whatsappUrl = `whatsapp://send?phone=${cleanPhone}`
+      
+      try {
         await Linking.openURL(whatsappUrl)
-      } else {
-        // Fallback to web WhatsApp
-        const webUrl = `https://wa.me/${PHONE.replace("+", "")}`
-        const canOpenWeb = await Linking.canOpenURL(webUrl)
-        if (canOpenWeb) {
+        // If this succeeds, WhatsApp opened
+        return
+      } catch (whatsappError) {
+        // WhatsApp app not available, try web version
+        const webUrl = `https://wa.me/${cleanPhone}`
+        try {
           await Linking.openURL(webUrl)
-        } else {
+          return
+        } catch (webError) {
+          // Neither worked
           Alert.alert(
             "WhatsApp unavailable",
-            "WhatsApp doesn't appear to be installed. You can reach me via email or text message instead."
+            "Unable to open WhatsApp. You can reach me via email or text message instead."
           )
         }
       }

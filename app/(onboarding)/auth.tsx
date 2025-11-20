@@ -12,7 +12,9 @@ import {
   Platform,
   ScrollView,
   TouchableOpacity,
+  Keyboard,
 } from "react-native"
+import { FontAwesome } from "@expo/vector-icons"
 import { LinearGradient } from "expo-linear-gradient"
 import * as Linking from "expo-linking"
 import * as WebBrowser from "expo-web-browser"
@@ -43,9 +45,31 @@ export default function OnboardingAuth() {
   const [password, setPassword] = useState("")
   const [continueLoading, setContinueLoading] = useState(false)
   const [oauthLoading, setOauthLoading] = useState<OAuthProvider | null>(null)
+  const oauthProcessingRef = useRef(false) // Prevent duplicate processing
   const oauthTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const [persisting, setPersisting] = useState(false)
   const insets = useSafeAreaInsets()
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false)
+  const [emailFocused, setEmailFocused] = useState(false)
+  const [passwordFocused, setPasswordFocused] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+
+  // Keyboard visibility listener
+  useEffect(() => {
+    const keyboardWillShow = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      () => setIsKeyboardVisible(true)
+    )
+    const keyboardWillHide = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => setIsKeyboardVisible(false)
+    )
+
+    return () => {
+      keyboardWillShow.remove()
+      keyboardWillHide.remove()
+    }
+  }, [])
 
   const persistOnboarding = useCallback(
     async (userId: string) => {
@@ -173,7 +197,14 @@ export default function OnboardingAuth() {
       
       // Check if this is an OAuth callback
       if (url.includes("#access_token=") || url.includes("?code=") || url.includes("access_token=") || url.includes("error=")) {
+        // Prevent duplicate processing
+        if (oauthProcessingRef.current) {
+          console.log("[OAuth] Already processing OAuth, ignoring duplicate URL")
+          return
+        }
+        
         console.log("[OAuth] OAuth callback detected, processing...")
+        oauthProcessingRef.current = true
         setOauthLoading(null) // Stop loading spinner
         
         // Clear any timeout that was set
@@ -199,94 +230,112 @@ export default function OnboardingAuth() {
             userMessage = "Sign-in was cancelled. Please try again."
           }
           
+          oauthProcessingRef.current = false
           setOauthLoading(null)
           Alert.alert("Sign-in Failed", userMessage)
           return
         }
         
-        // Parse the URL to extract tokens if needed
-        // Supabase should handle this automatically, but we'll wait for it to process
-        let attempts = 0
-        const maxAttempts = 10
-        
-        const checkSession = async () => {
-          attempts++
-          console.log(`[OAuth] Checking session (attempt ${attempts}/${maxAttempts})...`)
+        // Extract tokens from URL and set session directly
+        // Note: Supabase may auto-process the URL, but we'll set it explicitly for reliability
+        const hashMatch = url.match(/#(.+)/)
+        if (hashMatch) {
+          const hashParams = new URLSearchParams(hashMatch[1])
+          const accessToken = hashParams.get("access_token")
+          const refreshToken = hashParams.get("refresh_token")
           
-          const { data: { session }, error } = await supabase.auth.getSession()
-          
-          if (error) {
-            console.error("[OAuth] Session error:", error)
-            if (attempts >= maxAttempts) {
+          if (accessToken && refreshToken) {
+            console.log("[OAuth] Found tokens in URL - starting parallel setSession and polling")
+            
+            // Strategy: Start setSession in background (non-blocking) and poll getSession() immediately
+            // This prevents hanging - if setSession hangs, polling will still work
+            let setSessionCompleted = false
+            let setSessionResult: any = null
+            
+            // Start setSession in background (fire and forget, but track result)
+            supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            }).then((result) => {
+              setSessionCompleted = true
+              setSessionResult = result
+              console.log("[OAuth] setSession completed in background")
+            }).catch((error) => {
+              setSessionCompleted = true
+              setSessionResult = { error }
+              console.warn("[OAuth] setSession failed in background:", error)
+            })
+            
+            // Start polling immediately (don't wait for setSession)
+            let attempts = 0
+            const maxAttempts = 20 // 10 seconds total
+            
+            const pollSession = async (): Promise<void> => {
+              attempts++
+              console.log(`[OAuth] Polling for session (attempt ${attempts}/${maxAttempts})...`)
+              
+              const { data: { session }, error } = await supabase.auth.getSession()
+              
+              if (error) {
+                console.error("[OAuth] getSession error:", error)
+                if (attempts >= maxAttempts) {
+                  throw new Error("Failed to get session after polling")
+                }
+                setTimeout(pollSession, 500)
+                return
+              }
+              
+              if (session?.user) {
+                console.log("[OAuth] Session found via polling!")
+                oauthProcessingRef.current = false
+                await handleOAuthSuccess(session)
+                return
+              }
+              
+              // Check if setSession completed while we were polling
+              if (setSessionCompleted && setSessionResult) {
+                if (setSessionResult?.data?.session?.user) {
+                  console.log("[OAuth] setSession completed successfully!")
+                  oauthProcessingRef.current = false
+                  await handleOAuthSuccess(setSessionResult.data.session)
+                  return
+                } else if (setSessionResult?.error) {
+                  console.warn("[OAuth] setSession returned error:", setSessionResult.error)
+                }
+              }
+              
+              // Continue polling if no session yet
+              if (attempts < maxAttempts) {
+                setTimeout(pollSession, 500)
+              } else {
+                throw new Error("No session found after polling")
+              }
+            }
+            
+            // Start polling immediately
+            try {
+              await pollSession()
+            } catch (pollError: any) {
+              console.error("[OAuth] Polling failed:", pollError)
+              oauthProcessingRef.current = false
+              setOauthLoading(null)
               Alert.alert("Error", "Failed to complete sign-in. Please try again.")
-            } else {
-              setTimeout(checkSession, 500)
             }
             return
-          }
-          
-          if (session?.user) {
-            console.log("[OAuth] Session found, routing user...")
-            
-            // Save biometric credentials if enabled
-            const biometricEnabled = await getBiometricPreference()
-            if (biometricEnabled && session.refresh_token) {
-              try {
-                await saveBiometricCredentials(session.refresh_token, session.user.id)
-              } catch (error) {
-                console.warn("[OAuth] failed to save biometric credentials:", error)
-              }
-            }
-            
-            // Check if user has profile and group (same logic as handleContinue)
-            const { data: user } = await (supabase
-              .from("users") as any)
-              .select("name, birthday")
-              .eq("id", session.user.id)
-              .maybeSingle() as { data: Pick<User, "name" | "birthday"> | null }
-            
-            if (user?.name && user?.birthday) {
-              // Existing user - check if they have a group
-              const { data: membership } = await supabase
-                .from("group_members")
-                .select("group_id")
-                .eq("user_id", session.user.id)
-                .limit(1)
-                .maybeSingle()
-              
-            if (membership) {
-              // Check post-auth onboarding (user-specific)
-              const onboardingKey = getPostAuthOnboardingKey(session.user.id)
-              const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
-              if (!hasCompletedPostAuth) {
-                router.replace("/(onboarding)/welcome-post-auth")
-              } else {
-                router.replace("/(main)/home")
-              }
-            } else {
-              router.replace("/(onboarding)/create-group/name-type")
-            }
-            } else {
-              // New user - continue onboarding
-              if (data.groupName && data.groupType) {
-                await persistOnboarding(session.user.id)
-              } else {
-                router.replace("/(onboarding)/about")
-              }
-            }
           } else {
-            if (attempts < maxAttempts) {
-              console.log(`[OAuth] No session yet, retrying...`)
-              setTimeout(checkSession, 500)
-            } else {
-              console.log("[OAuth] No session found after redirect")
-              Alert.alert("Error", "Sign-in was cancelled or failed. Please try again.")
-            }
+            console.error("[OAuth] Missing tokens in URL hash")
+            oauthProcessingRef.current = false
+            setOauthLoading(null)
+            Alert.alert("Error", "Failed to complete sign-in. Missing authentication tokens.")
+            return
           }
+        } else {
+          console.error("[OAuth] No hash fragment in URL")
+          oauthProcessingRef.current = false
+          setOauthLoading(null)
+          Alert.alert("Error", "Failed to complete sign-in. Invalid redirect URL.")
+          return
         }
-        
-        // Start checking for session
-        setTimeout(checkSession, 500)
       }
     }
 
@@ -453,8 +502,15 @@ export default function OnboardingAuth() {
   }
 
   async function handleOAuthSignIn(provider: OAuthProvider) {
+    // Prevent duplicate OAuth attempts
+    if (oauthProcessingRef.current || oauthLoading) {
+      console.log(`[OAuth] Already processing OAuth, ignoring duplicate request`)
+      return
+    }
+    
     console.log(`[OAuth] Starting ${provider} sign-in...`)
     setOauthLoading(provider)
+    oauthProcessingRef.current = true // Set BEFORE opening browser to prevent Linking handler from processing
     
     // Set a timeout to stop the spinner if redirect doesn't happen
     if (oauthTimeoutRef.current) {
@@ -462,6 +518,7 @@ export default function OnboardingAuth() {
     }
     oauthTimeoutRef.current = setTimeout(() => {
       console.warn("[OAuth] Timeout waiting for redirect")
+      oauthProcessingRef.current = false
       setOauthLoading(null)
       oauthTimeoutRef.current = null
       Alert.alert(
@@ -561,61 +618,82 @@ export default function OnboardingAuth() {
           const expiresIn = hashParams.get("expires_in")
           
           if (accessToken && refreshToken) {
-            console.log(`[OAuth] Found tokens in hash, setting session...`)
+            console.log(`[OAuth] Found tokens in hash, starting parallel setSession and polling...`)
             
-            // Manually set session - use a reasonable timeout
-            try {
-              console.log(`[OAuth] Setting session directly...`)
+            // Strategy: Start setSession in background and poll immediately
+            // This prevents hanging - polling will find session even if setSession hangs
+            let setSessionCompleted = false
+            let setSessionResult: any = null
+            
+            // Start setSession in background (non-blocking)
+            supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            }).then((result) => {
+              setSessionCompleted = true
+              setSessionResult = result
+              console.log(`[OAuth] setSession completed in background`)
+            }).catch((error) => {
+              setSessionCompleted = true
+              setSessionResult = { error }
+              console.warn(`[OAuth] setSession failed in background:`, error)
+            })
+            
+            // Start polling immediately (don't wait for setSession)
+            let attempts = 0
+            const maxAttempts = 20 // 10 seconds total
+            
+            const pollSession = async (): Promise<void> => {
+              attempts++
+              console.log(`[OAuth] Polling for session (attempt ${attempts}/${maxAttempts})...`)
               
-              // Create a promise that resolves/rejects quickly
-              const setSessionPromise = supabase.auth.setSession({
-                access_token: accessToken,
-                refresh_token: refreshToken,
-              })
+              const { data: { session }, error } = await supabase.auth.getSession()
               
-              // Race with timeout
-              const timeoutId = setTimeout(() => {
-                console.warn(`[OAuth] setSession taking longer than expected...`)
-              }, 3000)
-              
-              const { data: sessionData, error: sessionError } = await setSessionPromise
-              clearTimeout(timeoutId)
-              
-              if (sessionError) {
-                console.error(`[OAuth] setSession error:`, sessionError)
-                throw sessionError
-              }
-              
-              if (sessionData?.session) {
-                console.log(`[OAuth] Session set successfully`)
-                await handleOAuthSuccess(sessionData.session)
-                return
-              } else {
-                throw new Error("No session in response")
-              }
-            } catch (error: any) {
-              console.error(`[OAuth] setSession failed:`, error.message)
-              
-              // Fallback: Manually trigger the URL handler by calling Linking.openURL
-              // This will cause the useEffect handler to process it
-              console.log(`[OAuth] Triggering URL handler as fallback...`)
-              try {
-                await Linking.openURL(url)
-                // Wait for handler to process
-                await new Promise(resolve => setTimeout(resolve, 1500))
-                
-                const { data: { session }, error: checkError } = await supabase.auth.getSession()
-                if (session && !checkError) {
-                  console.log(`[OAuth] Session found via URL handler fallback`)
-                  await handleOAuthSuccess(session)
-                  return
+              if (error) {
+                console.error(`[OAuth] getSession error:`, error)
+                if (attempts >= maxAttempts) {
+                  throw new Error("Failed to get session after polling")
                 }
-              } catch (linkError) {
-                console.error(`[OAuth] Linking fallback failed:`, linkError)
+                setTimeout(pollSession, 500)
+                return
               }
               
+              if (session?.user) {
+                console.log(`[OAuth] Session found via polling!`)
+                oauthProcessingRef.current = false
+                await handleOAuthSuccess(session)
+                return
+              }
+              
+              // Check if setSession completed while we were polling
+              if (setSessionCompleted && setSessionResult) {
+                if (setSessionResult?.data?.session?.user) {
+                  console.log(`[OAuth] setSession completed successfully!`)
+                  oauthProcessingRef.current = false
+                  await handleOAuthSuccess(setSessionResult.data.session)
+                  return
+                } else if (setSessionResult?.error) {
+                  console.warn(`[OAuth] setSession returned error:`, setSessionResult.error)
+                }
+              }
+              
+              // Continue polling if no session yet
+              if (attempts < maxAttempts) {
+                setTimeout(pollSession, 500)
+              } else {
+                throw new Error("No session found after polling")
+              }
+            }
+            
+            // Start polling immediately
+            try {
+              await pollSession()
+              return
+            } catch (pollError: any) {
+              console.error(`[OAuth] Polling failed:`, pollError)
+              oauthProcessingRef.current = false
               setOauthLoading(null)
-              Alert.alert("Error", error.message || "Failed to complete sign-in. Please try again.")
+              Alert.alert("Error", "Failed to complete sign-in. Please try again.")
               return
             }
           } else {
@@ -633,10 +711,12 @@ export default function OnboardingAuth() {
       } else if (result.type === "cancel") {
         console.log(`[OAuth] User cancelled`)
         setOauthLoading(null)
+        oauthProcessingRef.current = false
         // Don't show alert for user cancellation
       } else {
         console.error(`[OAuth] Unexpected result type:`, result.type)
         setOauthLoading(null)
+        oauthProcessingRef.current = false
         Alert.alert("Error", "Sign-in was cancelled or failed. Please try again.")
       }
     } catch (error: any) {
@@ -645,8 +725,27 @@ export default function OnboardingAuth() {
         oauthTimeoutRef.current = null
       }
       console.error(`[OAuth] Failed:`, error)
+      oauthProcessingRef.current = false
       setOauthLoading(null)
-      Alert.alert("Error", error.message || `Failed to sign in with ${provider}. Please try again.`)
+      
+      // Extract error message safely
+      let errorMessage = `Failed to sign in with ${provider}. Please try again.`
+      if (error && typeof error === 'object') {
+        if (error.message) {
+          errorMessage = error.message
+        } else if (error.error_description) {
+          errorMessage = error.error_description
+        } else if (typeof error.toString === 'function') {
+          const errorStr = error.toString()
+          if (errorStr !== '[object Object]') {
+            errorMessage = errorStr
+          }
+        }
+      } else if (typeof error === 'string') {
+        errorMessage = error
+      }
+      
+      Alert.alert("Error", errorMessage)
     }
   }
 
@@ -733,50 +832,75 @@ export default function OnboardingAuth() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <View
+            <View
             style={[
               styles.container,
               { paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.xl },
             ]}
           >
-            <View style={styles.topBar}>
-              <OnboardingBack />
-              <TouchableOpacity
-                onPress={() => router.push("/(onboarding)/forgot-password")}
-                style={styles.forgotPasswordLink}
-              >
-                <Text style={styles.forgotPasswordText}>Forgot Password</Text>
-              </TouchableOpacity>
-            </View>
+            {!isKeyboardVisible && (
+              <View style={styles.topBar}>
+                <OnboardingBack />
+                <TouchableOpacity
+                  onPress={() => router.push("/(onboarding)/forgot-password")}
+                  style={styles.forgotPasswordLink}
+                >
+                  <Text style={styles.forgotPasswordText}>Forgot Password</Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             <View style={styles.content}>
             <Text style={styles.title}>Sign in</Text>
 
-            <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>Email</Text>
-              <TextInput
-                value={email}
-                onChangeText={setEmail}
-                placeholder="you@email.com"
-                placeholderTextColor="rgba(255,255,255,0.6)"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoComplete="email"
-                style={styles.fieldInput}
-              />
-            </View>
+            <View style={styles.fieldsContainer}>
+              {(emailFocused || passwordFocused) && (
+                <View style={styles.formBackground} />
+              )}
 
-            <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>Password</Text>
-              <TextInput
-                value={password}
-                onChangeText={setPassword}
-                placeholder="••••••••"
-                placeholderTextColor="rgba(255,255,255,0.6)"
-                secureTextEntry
-                autoCapitalize="none"
-                style={styles.fieldInput}
-              />
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Email</Text>
+                <TextInput
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="you@email.com"
+                  placeholderTextColor="rgba(255,255,255,0.6)"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  style={styles.fieldInput}
+                  onFocus={() => setEmailFocused(true)}
+                  onBlur={() => setEmailFocused(false)}
+                />
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Password</Text>
+                <View style={styles.passwordContainer}>
+                  <TextInput
+                    value={password}
+                    onChangeText={setPassword}
+                    placeholder="••••••••"
+                    placeholderTextColor="rgba(255,255,255,0.6)"
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    style={styles.passwordInput}
+                    onFocus={() => setPasswordFocused(true)}
+                    onBlur={() => setPasswordFocused(false)}
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    style={styles.eyeButton}
+                    activeOpacity={0.7}
+                  >
+                    <FontAwesome
+                      name={showPassword ? "eye-slash" : "eye"}
+                      size={20}
+                      color="rgba(255,255,255,0.6)"
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
 
             <Button
@@ -809,7 +933,7 @@ export default function OnboardingAuth() {
               />
             </View>
           </View>
-        </View>
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </ImageBackground>
@@ -856,6 +980,9 @@ const styles = StyleSheet.create({
   content: {
     gap: spacing.lg,
     maxWidth: 460,
+  },
+  fieldsContainer: {
+    position: "relative",
   },
   title: {
     fontFamily: "LibreBaskerville-Bold",
@@ -910,6 +1037,32 @@ const styles = StyleSheet.create({
   socialButton: {
     minHeight: 56,
     flex: 1,
+  },
+  formBackground: {
+    position: "absolute",
+    top: -spacing.md,
+    left: -spacing.md,
+    right: -spacing.md,
+    bottom: -spacing.md,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    borderRadius: 8,
+  },
+  passwordContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderColor: "rgba(255,255,255,0.6)",
+  },
+  passwordInput: {
+    flex: 1,
+    fontFamily: "LibreBaskerville-Regular",
+    fontSize: 24,
+    color: colors.white,
+    paddingVertical: spacing.sm,
+  },
+  eyeButton: {
+    padding: spacing.xs,
+    marginLeft: spacing.xs,
   },
 })
 

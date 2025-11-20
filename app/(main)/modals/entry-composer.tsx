@@ -31,6 +31,7 @@ import { parseEmbedUrl, extractEmbedUrls, type ParsedEmbed } from "../../../lib/
 import { EmbeddedPlayer } from "../../../components/EmbeddedPlayer"
 import * as Clipboard from "expo-clipboard"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "../../../lib/prompts"
+import * as FileSystem from "expo-file-system/legacy"
 
 type MediaItem = {
   id: string
@@ -81,6 +82,11 @@ export default function EntryComposer() {
   const [showSuccessModal, setShowSuccessModal] = useState(false)
   const [keyboardHeight, setKeyboardHeight] = useState(0)
   const [uploadingMedia, setUploadingMedia] = useState<Record<string, boolean>>({})
+  const [showUploadingModal, setShowUploadingModal] = useState(false)
+  const [showFileSizeModal, setShowFileSizeModal] = useState(false)
+  
+  // File size limit: 2GB = 2 * 1024 * 1024 * 1024 bytes
+  const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024
 
   useEffect(() => {
     loadUserAndGroup()
@@ -283,6 +289,23 @@ export default function EntryComposer() {
     setEmbeddedMedia((prev) => prev.filter((_, i) => i !== index))
   }
 
+  async function checkFileSize(uri: string): Promise<boolean> {
+    try {
+      const fileInfo = await FileSystem.getInfoAsync(uri)
+      if (fileInfo.exists && fileInfo.size !== undefined) {
+        if (fileInfo.size > MAX_FILE_SIZE) {
+          setShowFileSizeModal(true)
+          return false
+        }
+      }
+      return true
+    } catch (error) {
+      console.warn("[entry-composer] Failed to check file size:", error)
+      // If we can't check size, allow it (better than blocking)
+      return true
+    }
+  }
+
   async function pickImages() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
     if (status !== "granted") {
@@ -298,12 +321,23 @@ export default function EntryComposer() {
     })
 
     if (!result.canceled) {
-      const newItems = result.assets.map((asset) => ({
-        id: createMediaId(),
-        uri: asset.uri,
-        type: "photo" as const,
-      }))
-      setMediaItems((prev) => [...prev, ...newItems])
+      // Check file sizes before adding
+      const validAssets = []
+      for (const asset of result.assets) {
+        const isValid = await checkFileSize(asset.uri)
+        if (isValid) {
+          validAssets.push(asset)
+        }
+      }
+      
+      if (validAssets.length > 0) {
+        const newItems = validAssets.map((asset) => ({
+          id: createMediaId(),
+          uri: asset.uri,
+          type: "photo" as const,
+        }))
+        setMediaItems((prev) => [...prev, ...newItems])
+      }
     }
   }
 
@@ -322,6 +356,13 @@ export default function EntryComposer() {
 
     if (!result.canceled) {
       const asset = result.assets[0]
+      
+      // Check file size before adding
+      const isValid = await checkFileSize(asset.uri)
+      if (!isValid) {
+        return // File size modal already shown
+      }
+      
       const mediaId = createMediaId()
       
       // Generate thumbnail for video
@@ -362,6 +403,13 @@ export default function EntryComposer() {
 
     if (!result.canceled) {
       const asset = result.assets[0]
+      
+      // Check file size before adding
+      const isValid = await checkFileSize(asset.uri)
+      if (!isValid) {
+        return // File size modal already shown
+      }
+      
       const isVideo = asset.type === "video"
       const mediaId = createMediaId()
       
@@ -584,15 +632,28 @@ export default function EntryComposer() {
       return
     }
 
+    // Check if any media is still uploading
+    const localMediaItems = mediaItems.filter(item => !item.uri.startsWith("http"))
+    const isUploading = Object.values(uploadingMedia).some(status => status === true)
+    
+    if (isUploading && localMediaItems.length > 0) {
+      setShowUploadingModal(true)
+      return
+    }
+
     setLoading(true)
     try {
       const storageKey = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 
       // Set uploading state for all local media items
-      const localMediaItems = mediaItems.filter(item => !item.uri.startsWith("http"))
       localMediaItems.forEach(item => {
         setUploadingMedia(prev => ({ ...prev, [item.id]: true }))
       })
+      
+      // Show uploading modal if we have media to upload
+      if (localMediaItems.length > 0) {
+        setShowUploadingModal(true)
+      }
 
       const uploadedMedia = await Promise.all(
         mediaItems.map(async (item) => {
@@ -603,9 +664,11 @@ export default function EntryComposer() {
             const remoteUrl = await uploadMedia(currentGroupId, storageKey, item.uri, item.type)
             setUploadingMedia(prev => ({ ...prev, [item.id]: false }))
             return { url: remoteUrl, type: item.type }
-          } catch (error) {
+          } catch (error: any) {
             setUploadingMedia(prev => ({ ...prev, [item.id]: false }))
-            throw error
+            // Log error but don't throw immediately - let other uploads complete
+            console.error(`[entry-composer] Failed to upload ${item.type}:`, error)
+            throw new Error(`Failed to upload ${item.type}: ${error.message || "Unknown error"}`)
           }
         }),
       )
@@ -640,12 +703,16 @@ export default function EntryComposer() {
         queryClient.invalidateQueries({ queryKey: ["historyComments"] }),
       ])
 
-      // Show custom success modal instead of native alert
+      // Hide uploading modal and show success
+      setShowUploadingModal(false)
       setShowSuccessModal(true)
     } catch (error: any) {
       // Clear all uploading states on error
       setUploadingMedia({})
-      Alert.alert("Error", error.message)
+      setShowUploadingModal(false)
+      // Show user-friendly error message
+      const errorMessage = error.message || "Failed to post entry. Please try again."
+      Alert.alert("Error", errorMessage)
     } finally {
       setLoading(false)
       // Clear uploading states after successful upload
@@ -1033,6 +1100,44 @@ export default function EntryComposer() {
                 setShowSuccessModal(false)
                 exitComposer()
               }}
+              style={styles.successButton}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      {/* Uploading Modal */}
+      <Modal
+        visible={showUploadingModal}
+        animationType="fade"
+        transparent
+        onRequestClose={() => {}}
+      >
+        <View style={styles.successBackdrop}>
+          <View style={styles.successContainer}>
+            <ActivityIndicator size="large" color={colors.white} />
+            <Text style={styles.successTitle}>Uploading your media</Text>
+            <Text style={styles.uploadingSubtitle}>Posting soon...</Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* File Size Too Large Modal */}
+      <Modal
+        visible={showFileSizeModal}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setShowFileSizeModal(false)}
+      >
+        <View style={styles.successBackdrop}>
+          <View style={styles.successContainer}>
+            <Text style={styles.successTitle}>File too large</Text>
+            <Text style={styles.uploadingSubtitle}>
+              The file you selected is larger than 2GB. Please choose a smaller file.
+            </Text>
+            <Button
+              title="OK"
+              onPress={() => setShowFileSizeModal(false)}
               style={styles.successButton}
             />
           </View>
@@ -1536,5 +1641,11 @@ const styles = StyleSheet.create({
   },
   successButton: {
     width: "100%",
+  },
+  uploadingSubtitle: {
+    ...typography.body,
+    color: colors.gray[400],
+    textAlign: "center",
+    marginTop: spacing.md,
   },
 })
