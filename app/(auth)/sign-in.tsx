@@ -42,7 +42,14 @@ export default function SignIn() {
           .single()
 
         if (membership) {
-          router.replace("/(main)/home")
+          // Check if user has completed post-auth onboarding (user-specific)
+          const onboardingKey = `has_completed_post_auth_onboarding_${data.user.id}`
+          const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
+          if (!hasCompletedPostAuth) {
+            router.replace("/(onboarding)/welcome-post-auth")
+          } else {
+            router.replace("/(main)/home")
+          }
         } else {
           router.replace("/(onboarding)/create-group/name-type")
         }

@@ -1,6 +1,7 @@
 "use client"
 
 import { View, Text, StyleSheet, ImageBackground, Dimensions } from "react-native"
+import { LinearGradient } from "expo-linear-gradient"
 import { useRouter } from "expo-router"
 import { colors, typography, spacing } from "../../lib/theme"
 import { Button } from "../../components/Button"
@@ -9,6 +10,13 @@ import { OnboardingProgress } from "../../components/OnboardingProgress"
 import { useOnboarding } from "../../components/OnboardingProvider"
 import { supabase } from "../../lib/supabase"
 import AsyncStorage from "@react-native-async-storage/async-storage"
+
+const POST_AUTH_ONBOARDING_KEY_PREFIX = "has_completed_post_auth_onboarding"
+
+// Helper function to get user-specific onboarding key
+function getPostAuthOnboardingKey(userId: string): string {
+  return `${POST_AUTH_ONBOARDING_KEY_PREFIX}_${userId}`
+}
 
 const { width, height } = Dimensions.get("window")
 
@@ -30,7 +38,11 @@ export default function HowItWorks() {
       style={styles.container}
       resizeMode="cover"
     >
-      <View style={styles.overlay} />
+      <LinearGradient
+        colors={["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0.5)", "rgba(0, 0, 0, 0.8)", "rgba(0, 0, 0, 1)"]}
+        locations={[0, 0.4, 0.7, 1]}
+        style={styles.gradientOverlay}
+      />
       <View style={styles.content}>
         <View style={styles.topBar}>
           <OnboardingBack />
@@ -90,6 +102,16 @@ export default function HowItWorks() {
                     } as any)
                     if (!error) {
                       await AsyncStorage.removeItem("pending_group_join")
+                      
+                      // Check if user has completed post-auth onboarding (user-specific)
+                      const onboardingKey = getPostAuthOnboardingKey(session.user.id)
+                      const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
+                      if (!hasCompletedPostAuth) {
+                        // Route to post-auth onboarding screens first
+                        router.replace("/(onboarding)/welcome-post-auth")
+                        return
+                      }
+                      
                       router.replace({
                         pathname: "/(main)/home",
                         params: { focusGroupId: pendingGroupId },
@@ -116,9 +138,8 @@ const styles = StyleSheet.create({
     width,
     height,
   },
-  overlay: {
+  gradientOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
   },
   content: {
     flex: 1,

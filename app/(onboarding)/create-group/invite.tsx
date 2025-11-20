@@ -14,10 +14,19 @@ import {
   ActivityIndicator,
 } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
+import AsyncStorage from "@react-native-async-storage/async-storage"
+import { supabase } from "../../../lib/supabase"
 import * as Contacts from "expo-contacts"
 import { colors, spacing, typography } from "../../../lib/theme"
 import { Button } from "../../../components/Button"
 import { OnboardingBack } from "../../../components/OnboardingBack"
+
+const POST_AUTH_ONBOARDING_KEY_PREFIX = "has_completed_post_auth_onboarding"
+
+// Helper function to get user-specific onboarding key
+function getPostAuthOnboardingKey(userId: string): string {
+  return `${POST_AUTH_ONBOARDING_KEY_PREFIX}_${userId}`
+}
 
 export default function Invite() {
   const router = useRouter()
@@ -45,7 +54,26 @@ export default function Invite() {
     }
   }
 
-  function handleFinish() {
+  async function handleFinish() {
+    // Check if user has completed post-auth onboarding (user-specific)
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) {
+      router.replace("/(main)/home")
+      return
+    }
+
+    const onboardingKey = getPostAuthOnboardingKey(user.id)
+    const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
+    
+    if (!hasCompletedPostAuth) {
+      // Route to post-auth onboarding screens first
+      router.replace("/(onboarding)/welcome-post-auth")
+      return
+    }
+    
+    // User has completed post-auth onboarding, go to home
     if (mode === "add") {
       router.replace({
         pathname: "/(main)/home",

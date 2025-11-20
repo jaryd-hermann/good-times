@@ -1,8 +1,9 @@
 // app/index.tsx
 import { useEffect, useState } from "react";
-import { View, ActivityIndicator, Text, Pressable, Alert, ImageBackground } from "react-native";
+import { View, ActivityIndicator, Text, Pressable, Alert, ImageBackground, StyleSheet } from "react-native";
 import { useRouter, Link } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { typography, colors as themeColors } from "../lib/theme";
 
 // Global error handler for uncaught errors
 if (typeof global !== 'undefined') {
@@ -54,6 +55,7 @@ export default function Index() {
   const router = useRouter();
   const [booting, setBooting] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [loadingDots, setLoadingDots] = useState(".");
 
   useEffect(() => {
     let cancelled = false;
@@ -205,8 +207,17 @@ export default function Index() {
         // Push notifications will be requested on first visit to home.tsx
         console.log("[boot] routing decision...");
         if (membership?.group_id) {
-          console.log("[boot] has group → (main)/home");
-          router.replace("/(main)/home"); // make sure file exists
+          // Check if user has completed post-auth onboarding
+          // Check post-auth onboarding (user-specific)
+          const onboardingKey = `has_completed_post_auth_onboarding_${session.user.id}`
+          const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
+          if (!hasCompletedPostAuth) {
+            console.log("[boot] has group but not completed post-auth onboarding → welcome-post-auth");
+            router.replace("/(onboarding)/welcome-post-auth");
+          } else {
+            console.log("[boot] has group → (main)/home");
+            router.replace("/(main)/home"); // make sure file exists
+          }
         } else {
           console.log("[boot] no group → onboarding/create-group/name-type");
           router.replace("/(onboarding)/create-group/name-type");
@@ -233,6 +244,21 @@ export default function Index() {
     };
   }, [router]);
 
+  // Animate loading dots
+  useEffect(() => {
+    if (!booting) return;
+
+    const interval = setInterval(() => {
+      setLoadingDots((prev) => {
+        if (prev === ".") return "..";
+        if (prev === "..") return "...";
+        return ".";
+      });
+    }, 500); // Change every 500ms
+
+    return () => clearInterval(interval);
+  }, [booting]);
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.black }}>
       {booting ? (
@@ -240,7 +266,11 @@ export default function Index() {
           source={require("../assets/images/welcome-bg.png")}
           style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
           resizeMode="cover"
-        />
+        >
+          <View style={styles.loadingOverlay}>
+            <Text style={styles.loadingText}>Loading Good Times{loadingDots}</Text>
+          </View>
+        </ImageBackground>
       ) : (
         <>
           <Text style={{ color: colors.white, textAlign: "center", paddingHorizontal: 24 }}>
@@ -256,3 +286,15 @@ export default function Index() {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingOverlay: {
+    // No background - text directly over image
+  },
+  loadingText: {
+    ...typography.body,
+    fontSize: 18,
+    color: themeColors.white,
+    textAlign: "center",
+  },
+});

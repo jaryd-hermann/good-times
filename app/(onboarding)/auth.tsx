@@ -13,6 +13,7 @@ import {
   ScrollView,
   TouchableOpacity,
 } from "react-native"
+import { LinearGradient } from "expo-linear-gradient"
 import * as Linking from "expo-linking"
 import * as WebBrowser from "expo-web-browser"
 import { useRouter } from "expo-router"
@@ -25,8 +26,15 @@ import { useOnboarding } from "../../components/OnboardingProvider"
 import { createGroup, createMemorial } from "../../lib/db"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { saveBiometricCredentials, getBiometricPreference } from "../../lib/biometric"
+import type { User } from "../../lib/types"
 
 type OAuthProvider = "google" | "apple"
+const POST_AUTH_ONBOARDING_KEY_PREFIX = "has_completed_post_auth_onboarding"
+
+// Helper function to get user-specific onboarding key
+function getPostAuthOnboardingKey(userId: string): string {
+  return `${POST_AUTH_ONBOARDING_KEY_PREFIX}_${userId}`
+}
 
 export default function OnboardingAuth() {
   const router = useRouter()
@@ -56,8 +64,8 @@ export default function OnboardingAuth() {
           throw new Error("Unable to determine email for profile upsert")
         }
 
-        const { error: profileError } = await supabase
-          .from("users")
+        const { error: profileError } = await (supabase
+          .from("users") as any)
           .upsert(
             {
               id: userId,
@@ -231,11 +239,11 @@ export default function OnboardingAuth() {
             }
             
             // Check if user has profile and group (same logic as handleContinue)
-            const { data: user } = await supabase
-              .from("users")
+            const { data: user } = await (supabase
+              .from("users") as any)
               .select("name, birthday")
               .eq("id", session.user.id)
-              .maybeSingle()
+              .maybeSingle() as { data: Pick<User, "name" | "birthday"> | null }
             
             if (user?.name && user?.birthday) {
               // Existing user - check if they have a group
@@ -246,11 +254,18 @@ export default function OnboardingAuth() {
                 .limit(1)
                 .maybeSingle()
               
-              if (membership) {
-                router.replace("/(main)/home")
+            if (membership) {
+              // Check post-auth onboarding (user-specific)
+              const onboardingKey = getPostAuthOnboardingKey(session.user.id)
+              const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
+              if (!hasCompletedPostAuth) {
+                router.replace("/(onboarding)/welcome-post-auth")
               } else {
-                router.replace("/(onboarding)/create-group/name-type")
+                router.replace("/(main)/home")
               }
+            } else {
+              router.replace("/(onboarding)/create-group/name-type")
+            }
             } else {
               // New user - continue onboarding
               if (data.groupName && data.groupType) {
@@ -325,11 +340,11 @@ export default function OnboardingAuth() {
         const pendingGroupId = await AsyncStorage.getItem("pending_group_join")
         
         // Check if this is an existing user (has profile and possibly group)
-        const { data: user } = await supabase
-          .from("users")
+        const { data: user } = await (supabase
+          .from("users") as any)
           .select("name, birthday")
           .eq("id", userId)
-          .maybeSingle()
+          .maybeSingle() as { data: Pick<User, "name" | "birthday"> | null }
 
         // If user has profile, check if they're in onboarding flow or returning user
         if (user?.name && user?.birthday) {
@@ -342,8 +357,14 @@ export default function OnboardingAuth() {
             .maybeSingle()
 
           if (membership) {
-            // Existing user with group - go to home
-            router.replace("/(main)/home")
+            // Existing user with group - check post-auth onboarding (user-specific)
+            const onboardingKey = getPostAuthOnboardingKey(userId)
+            const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
+            if (!hasCompletedPostAuth) {
+              router.replace("/(onboarding)/welcome-post-auth")
+            } else {
+              router.replace("/(main)/home")
+            }
             return
           } else {
             // Existing user without group - if pending group join, go to how-it-works
@@ -394,8 +415,8 @@ export default function OnboardingAuth() {
             const birthday = data.userBirthday ? data.userBirthday.toISOString().split("T")[0] : null
             const emailFromSession = data.userEmail ?? signUpData.session.user.email
             if (emailFromSession && data.userName) {
-              await supabase
-                .from("users")
+              await (supabase
+                .from("users") as any)
                 .upsert(
                   {
                     id: userId,
@@ -644,11 +665,11 @@ export default function OnboardingAuth() {
       }
       
       // Check if user has profile and group (same logic as handleContinue)
-      const { data: user } = await supabase
-        .from("users")
+      const { data: user } = await (supabase
+        .from("users") as any)
         .select("name, birthday")
         .eq("id", session.user.id)
-        .maybeSingle()
+        .maybeSingle() as { data: Pick<User, "name" | "birthday"> | null }
       
       if (user?.name && user?.birthday) {
         // Existing user - check if they have a group
@@ -660,8 +681,14 @@ export default function OnboardingAuth() {
           .maybeSingle()
         
         if (membership) {
-          // Existing user with group - go to home
-          router.replace("/(main)/home")
+          // Existing user with group - check post-auth onboarding (user-specific)
+          const onboardingKey = getPostAuthOnboardingKey(session.user.id)
+          const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
+          if (!hasCompletedPostAuth) {
+            router.replace("/(onboarding)/welcome-post-auth")
+          } else {
+            router.replace("/(main)/home")
+          }
         } else {
           // Existing user without group
           if (data.groupName && data.groupType) {
@@ -687,11 +714,15 @@ export default function OnboardingAuth() {
 
   return (
     <ImageBackground
-      source={require("../../assets/images/auth-bg.png")}
+      source={require("../../assets/images/auth.png")}
       style={styles.background}
       resizeMode="cover"
     >
-      <View style={styles.overlay} />
+      <LinearGradient
+        colors={["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0.55)", "rgba(0, 0, 0, 0.8)", "rgba(0, 0, 0, 1)"]}
+        locations={[0, 0.4, 0.7, 1]}
+        style={styles.gradientOverlay}
+      />
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.flex}
@@ -789,9 +820,8 @@ const styles = StyleSheet.create({
   background: {
     flex: 1,
   },
-  overlay: {
+  gradientOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.55)",
   },
   flex: {
     flex: 1,

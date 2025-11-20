@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { Alert, Dimensions, ImageBackground, StyleSheet, Text, View } from "react-native"
+import { LinearGradient } from "expo-linear-gradient"
 import { useLocalSearchParams, useRouter } from "expo-router"
 import { colors, spacing, typography } from "../../lib/theme"
 import { Button } from "../../components/Button"
@@ -60,7 +61,11 @@ export default function Memorial() {
       style={styles.container}
       resizeMode="cover"
     >
-      <View style={styles.overlay} />
+      <LinearGradient
+        colors={["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0.5)", "rgba(0, 0, 0, 0.8)", "rgba(0, 0, 0, 1)"]}
+        locations={[0, 0.4, 0.7, 1]}
+        style={styles.gradientOverlay}
+      />
       <View style={styles.content}>
         <View style={styles.topBar}>
           <OnboardingBack />
@@ -103,9 +108,8 @@ const styles = StyleSheet.create({
     width,
     height,
   },
-  overlay: {
+  gradientOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
   },
   content: {
     flex: 1,

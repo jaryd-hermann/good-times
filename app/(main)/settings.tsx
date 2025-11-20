@@ -23,6 +23,7 @@ import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/d
 import { format } from "date-fns"
 import * as FileSystem from "expo-file-system/legacy"
 import { decode } from "base64-arraybuffer"
+import AsyncStorage from "@react-native-async-storage/async-storage"
 import { supabase } from "../../lib/supabase"
 import { getCurrentUser, updateUser, getUserGroups } from "../../lib/db"
 import { colors, spacing, typography } from "../../lib/theme"
@@ -250,9 +251,21 @@ export default function SettingsScreen() {
 
   async function handleSignOut() {
     try {
+      // Get current user ID before signing out
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      
       // Clear biometric credentials on sign out
       const { clearBiometricCredentials } = await import("../../lib/biometric")
       await clearBiometricCredentials()
+      
+      // Clear user-specific onboarding flag
+      if (user) {
+        const onboardingKey = `has_completed_post_auth_onboarding_${user.id}`
+        await AsyncStorage.removeItem(onboardingKey)
+      }
+      
       await supabase.auth.signOut()
       await queryClient.invalidateQueries()
       router.replace("/(onboarding)/welcome-1")
@@ -262,9 +275,7 @@ export default function SettingsScreen() {
   }
 
   function handleReportIssue() {
-    Linking.openURL("mailto:hermannjaryd@gmail.com").catch(() => {
-      Alert.alert("Email unavailable", "Unable to open your email client right now.")
-    })
+    router.push("/(main)/feedback")
   }
 
 

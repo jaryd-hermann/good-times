@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, KeyboardAvoidingView, Platform, Modal } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { colors, spacing, typography } from "../../../lib/theme"
@@ -22,6 +22,15 @@ export default function CreateGroupNameType() {
   const scrollViewRef = useRef<ScrollView>(null)
   const inputRef = useRef<any>(null)
   const insets = useSafeAreaInsets()
+
+  // Auto-focus the input when component mounts
+  useEffect(() => {
+    // Small delay to ensure the component is fully rendered
+    const timer = setTimeout(() => {
+      inputRef.current?.focus()
+    }, 100)
+    return () => clearTimeout(timer)
+  }, [])
 
   function handleContinue() {
     if (!groupName.trim()) {
@@ -80,6 +89,7 @@ export default function CreateGroupNameType() {
             onChangeText={setLocalGroupName}
             placeholder="Hermann family"
             autoCapitalize="words"
+            autoFocus={true}
             placeholderTextColor={colors.gray[500]}
             style={styles.inlineInput}
             onFocus={() => {

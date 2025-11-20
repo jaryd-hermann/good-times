@@ -5,42 +5,41 @@ import { LinearGradient } from "expo-linear-gradient"
 import { useRouter } from "expo-router"
 import { colors, typography, spacing } from "../../lib/theme"
 import { Button } from "../../components/Button"
-import { OnboardingBack } from "../../components/OnboardingBack"
-import { OnboardingProgress } from "../../components/OnboardingProgress"
 
 const { width, height } = Dimensions.get("window")
 
-export default function Welcome3() {
+export default function WelcomePostAuth() {
   const router = useRouter()
+
+  function handleContinue() {
+    router.replace("/(onboarding)/notifications-onboarding")
+  }
 
   return (
     <ImageBackground
-      source={require("../../assets/images/welcome4-bg.png")}
+      source={require("../../assets/images/friends.png")}
       style={styles.container}
       resizeMode="cover"
     >
       <LinearGradient
-        colors={["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0.3)", "rgba(0, 0, 0, 0.8)", "rgba(0, 0, 0, 1)"]}
+        colors={["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0.4)", "rgba(0, 0, 0, 0.8)", "rgba(0, 0, 0, 1)"]}
         locations={[0, 0.4, 0.7, 1]}
         style={styles.gradientOverlay}
       />
       <View style={styles.content}>
-        <View style={styles.topBar}>
-          <OnboardingBack />
-        </View>
         <View style={styles.textContainer}>
+          <Text style={styles.title}>Welcome</Text>
           <Text style={styles.body}>
-            This is for you if you have family and friends you don't always get to see and speak with. If you want to be in touch better.
-      Good Times is the simple, quick, and meaningful way to keep connected with the people you love and want to be close to.
+            Thanks for downloading my app! I made it myself, so if you see any problems or have any ideas...find me in
+            "Settings".
           </Text>
         </View>
 
         <View style={styles.bottomContainer}>
-          <OnboardingProgress total={3} current={2} />
           <View style={styles.buttonContainer}>
             <Button
               title="→"
-              onPress={() => router.push("/(onboarding)/how-it-works")}
+              onPress={handleContinue}
               style={styles.button}
               textStyle={styles.buttonText}
             />
@@ -67,31 +66,30 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xxl * 2,
     paddingBottom: spacing.xxl * 2,
   },
-  topBar: {
-    position: "absolute",
-    top: spacing.xxl,
-    left: spacing.lg,
-    zIndex: 1,
-  },
   textContainer: {
     flex: 1,
     justifyContent: "flex-end",
-    paddingBottom: spacing.xl,
+    paddingBottom: spacing.xxl,
+  },
+  bottomContainer: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "flex-end",
+  },
+  title: {
+    ...typography.h1,
+    fontSize: 40,
+    marginBottom: spacing.lg,
   },
   body: {
     ...typography.body,
     fontSize: 16,
     lineHeight: 24,
     color: colors.white,
-  },
-  bottomContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
+    marginBottom: spacing.md,
   },
   buttonContainer: {
     alignItems: "flex-end",
-    marginLeft: spacing.md,
   },
   button: {
     width: 100,
@@ -101,3 +99,4 @@ const styles = StyleSheet.create({
     fontSize: 32,
   },
 })
+

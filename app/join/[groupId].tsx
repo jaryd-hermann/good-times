@@ -13,6 +13,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context"
 
 const { width, height } = Dimensions.get("window")
 const PENDING_GROUP_KEY = "pending_group_join"
+const POST_AUTH_ONBOARDING_KEY_PREFIX = "has_completed_post_auth_onboarding"
+
+// Helper function to get user-specific onboarding key
+function getPostAuthOnboardingKey(userId: string): string {
+  return `${POST_AUTH_ONBOARDING_KEY_PREFIX}_${userId}`
+}
 
 export default function JoinGroup() {
   const router = useRouter()
@@ -108,7 +114,13 @@ export default function JoinGroup() {
         .maybeSingle()
 
       if (existingMember) {
-        // User is already a member - redirect to home
+        // User is already a member - check post-auth onboarding before redirecting (user-specific)
+        const onboardingKey = getPostAuthOnboardingKey(userId)
+        const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
+        if (!hasCompletedPostAuth) {
+          router.replace("/(onboarding)/welcome-post-auth")
+          return
+        }
         router.replace({
           pathname: "/(main)/home",
           params: { focusGroupId: groupId },
@@ -125,7 +137,13 @@ export default function JoinGroup() {
 
       if (insertError) {
         if (insertError.code === "23505") {
-          // Already a member
+          // Already a member - check post-auth onboarding (user-specific)
+          const onboardingKey = getPostAuthOnboardingKey(userId)
+          const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
+          if (!hasCompletedPostAuth) {
+            router.replace("/(onboarding)/welcome-post-auth")
+            return
+          }
           router.replace({
             pathname: "/(main)/home",
             params: { focusGroupId: groupId },
@@ -135,7 +153,14 @@ export default function JoinGroup() {
         throw insertError
       }
 
-      // Success - redirect to home
+      // Success - check post-auth onboarding before redirecting (user-specific)
+      const onboardingKey = getPostAuthOnboardingKey(userId)
+      const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
+      if (!hasCompletedPostAuth) {
+        router.replace("/(onboarding)/welcome-post-auth")
+        return
+      }
+      
       router.replace({
         pathname: "/(main)/home",
         params: { focusGroupId: groupId },

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef, useEffect } from "react"
 import {
   View,
   Text,
@@ -35,6 +35,16 @@ export default function About() {
   const [photoUri, setPhotoUri] = useState<string | undefined>(data.userPhoto)
   const [loading, setLoading] = useState(false)
   const insets = useSafeAreaInsets()
+  const nameInputRef = useRef<any>(null)
+
+  // Auto-focus the input when component mounts
+  useEffect(() => {
+    // Small delay to ensure the component is fully rendered
+    const timer = setTimeout(() => {
+      nameInputRef.current?.focus()
+    }, 100)
+    return () => clearTimeout(timer)
+  }, [])
 
   async function pickImage() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
@@ -117,10 +127,12 @@ export default function About() {
         <View style={styles.form}>
           <Text style={styles.prompt}>What does everyone call you?</Text>
           <Input
+            ref={nameInputRef}
             value={name}
             onChangeText={setName}
             placeholder="Lucy"
             autoCapitalize="words"
+            autoFocus={true}
             placeholderTextColor={colors.gray[500]}
             style={styles.inlineInput}
           />
