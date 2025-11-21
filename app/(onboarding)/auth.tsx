@@ -103,23 +103,7 @@ export default function OnboardingAuth() {
 
         if (profileError) throw profileError
 
-        // Pass NSFW preference to createGroup to avoid race condition
-        const group = await createGroup(data.groupName, data.groupType, userId, data.enableNSFW ?? false)
-
-        // Set NSFW preference for friends groups (still needed for persistence)
-        if (data.groupType === "friends") {
-          const { updateQuestionCategoryPreference } = await import("../../lib/db")
-          // If NSFW is enabled, set preference to "more", otherwise set to "none" (disabled)
-          const nsfwPreference = data.enableNSFW ? "more" : "none"
-          try {
-            await updateQuestionCategoryPreference(group.id, "Edgy/NSFW", nsfwPreference, userId)
-          } catch (error) {
-            // If category doesn't exist yet, that's okay - it will be set later when prompts are added
-            console.warn("[auth] Failed to set NSFW preference:", error)
-          }
-        }
-
-        // Save all memorials - both from the array and the current single memorial (for backward compatibility)
+        // Check if memorials will be created (before creating group to pass to queue initialization)
         const memorialsToSave: Array<{ name: string; photo?: string }> = []
         
         // Add memorials from the array
@@ -139,6 +123,26 @@ export default function OnboardingAuth() {
             })
           }
         }
+
+        const hasMemorials = memorialsToSave.length > 0
+
+        // Pass NSFW and memorial preferences to createGroup to avoid race condition
+        const group = await createGroup(data.groupName, data.groupType, userId, data.enableNSFW ?? false, hasMemorials)
+
+        // Set NSFW preference for friends groups (still needed for persistence)
+        if (data.groupType === "friends") {
+          const { updateQuestionCategoryPreference } = await import("../../lib/db")
+          // If NSFW is enabled, set preference to "more", otherwise set to "none" (disabled)
+          const nsfwPreference = data.enableNSFW ? "more" : "none"
+          try {
+            await updateQuestionCategoryPreference(group.id, "Edgy/NSFW", nsfwPreference, userId)
+          } catch (error) {
+            // If category doesn't exist yet, that's okay - it will be set later when prompts are added
+            console.warn("[auth] Failed to set NSFW preference:", error)
+          }
+        }
+
+        // Create all memorials (after group is created)
 
         // Create all memorials
         for (const memorial of memorialsToSave) {

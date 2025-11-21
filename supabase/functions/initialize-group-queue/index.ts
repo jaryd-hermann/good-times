@@ -166,7 +166,7 @@ serve(async (req) => {
       )
     }
 
-    const { group_id, group_type, created_by, enable_nsfw } = requestBody
+    const { group_id, group_type, created_by, enable_nsfw, has_memorials } = requestBody
 
     console.log(`[initialize-group-queue] Received parameters:`, {
       group_id,
@@ -192,14 +192,23 @@ serve(async (req) => {
 
     const groupType = groupData.type as "family" | "friends"
 
-    // Check for memorials
-    const { data: memorials } = await supabaseClient
-      .from("memorials")
-      .select("id")
-      .eq("group_id", group_id)
-      .limit(1)
-    
-    const hasMemorials = (memorials?.length || 0) > 0
+    // Check for memorials: use passed parameter first, then check database
+    let hasMemorials = false
+    if (has_memorials !== undefined && has_memorials !== null) {
+      // Use passed parameter (avoids race condition when memorials are created after group)
+      hasMemorials = has_memorials === true || has_memorials === "true"
+      console.log(`[initialize-group-queue] Memorials from parameter: ${has_memorials} → hasMemorials: ${hasMemorials}`)
+    } else {
+      // Fallback: check database (might be set already)
+      const { data: memorials } = await supabaseClient
+        .from("memorials")
+        .select("id")
+        .eq("group_id", group_id)
+        .limit(1)
+      
+      hasMemorials = (memorials?.length || 0) > 0
+      console.log(`[initialize-group-queue] Memorials from database: ${memorials?.length || 0} → hasMemorials: ${hasMemorials}`)
+    }
 
     // Get category preferences (may be empty for new groups)
     const { data: preferences } = await supabaseClient

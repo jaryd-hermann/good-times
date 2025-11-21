@@ -18,22 +18,7 @@ export async function createGroupFromOnboarding(data: OnboardingData) {
     throw new Error("Please add a group name before continuing.")
   }
 
-  // Pass NSFW preference to createGroup to avoid race condition
-  const group = await createGroup(groupName, groupType, user.id, data.enableNSFW ?? false)
-
-  // Set NSFW preference for friends groups (still needed for persistence)
-  if (groupType === "friends") {
-    // If NSFW is enabled, set preference to "more", otherwise set to "none" (disabled)
-    const nsfwPreference = data.enableNSFW ? "more" : "none"
-    try {
-      await updateQuestionCategoryPreference(group.id, "Edgy/NSFW", nsfwPreference, user.id)
-    } catch (error) {
-      // If category doesn't exist yet, that's okay - it will be set later when prompts are added
-      console.warn("[onboarding] Failed to set NSFW preference:", error)
-    }
-  }
-
-  // Save all memorials - both from the array and the current single memorial (for backward compatibility)
+  // Check if memorials will be created (before creating group to pass to queue initialization)
   const memorialsToSave: Array<{ name: string; photo?: string }> = []
   
   // Add memorials from the array
@@ -53,6 +38,25 @@ export async function createGroupFromOnboarding(data: OnboardingData) {
       })
     }
   }
+
+  const hasMemorials = memorialsToSave.length > 0
+
+  // Pass NSFW and memorial preferences to createGroup to avoid race condition
+  const group = await createGroup(groupName, groupType, user.id, data.enableNSFW ?? false, hasMemorials)
+
+  // Set NSFW preference for friends groups (still needed for persistence)
+  if (groupType === "friends") {
+    // If NSFW is enabled, set preference to "more", otherwise set to "none" (disabled)
+    const nsfwPreference = data.enableNSFW ? "more" : "none"
+    try {
+      await updateQuestionCategoryPreference(group.id, "Edgy/NSFW", nsfwPreference, user.id)
+    } catch (error) {
+      // If category doesn't exist yet, that's okay - it will be set later when prompts are added
+      console.warn("[onboarding] Failed to set NSFW preference:", error)
+    }
+  }
+
+  // Create all memorials (after group is created)
 
   // Create all memorials
   for (const memorial of memorialsToSave) {
