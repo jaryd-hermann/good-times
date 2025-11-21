@@ -492,7 +492,10 @@ serve(async (req) => {
 
     // Batch insert all prompts
     if (scheduledPrompts.length > 0) {
-      const { error: insertError } = await supabaseClient
+      console.log(`[initialize-group-queue] Attempting to insert ${scheduledPrompts.length} prompts for group ${group_id}`)
+      console.log(`[initialize-group-queue] Sample prompt data:`, scheduledPrompts.slice(0, 3))
+      
+      const { data: insertData, error: insertError } = await supabaseClient
         .from("daily_prompts")
         .insert(
           scheduledPrompts.map((sp) => ({
@@ -502,12 +505,34 @@ serve(async (req) => {
             user_id: null, // General prompts for all members
           }))
         )
+        .select() // Return inserted rows to verify
 
       if (insertError) {
         console.error(`[initialize-group-queue] Error inserting prompts:`, insertError)
+        console.error(`[initialize-group-queue] Error details:`, JSON.stringify(insertError, null, 2))
         throw insertError
       }
+      
       console.log(`[initialize-group-queue] Successfully inserted ${scheduledPrompts.length} prompts`)
+      console.log(`[initialize-group-queue] Inserted rows count:`, insertData?.length || 0)
+      
+      // Verify inserts by querying back
+      const { data: verifyData, error: verifyError } = await supabaseClient
+        .from("daily_prompts")
+        .select("id, date, prompt_id")
+        .eq("group_id", group_id)
+        .in("date", scheduledPrompts.map(sp => sp.date))
+      
+      if (verifyError) {
+        console.error(`[initialize-group-queue] Error verifying inserts:`, verifyError)
+      } else {
+        console.log(`[initialize-group-queue] Verified ${verifyData?.length || 0} prompts in database for group ${group_id}`)
+        if ((verifyData?.length || 0) !== scheduledPrompts.length) {
+          console.warn(`[initialize-group-queue] WARNING: Expected ${scheduledPrompts.length} prompts, but found ${verifyData?.length || 0} in database!`)
+        }
+      }
+    } else {
+      console.warn(`[initialize-group-queue] No prompts to insert (scheduledPrompts.length = 0)`)
     }
 
     return new Response(
