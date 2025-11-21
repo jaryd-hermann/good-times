@@ -411,15 +411,28 @@ serve(async (req) => {
       }
 
       // Get available prompts (not used in this queue yet)
-      const availablePrompts = shuffledPrompts.filter(
+      let availablePrompts = shuffledPrompts.filter(
         (p) => !usedPromptIds.has(p.id)
       )
 
-      // If we've used all prompts, reset and reuse
+      // If we've used all prompts, reset and reshuffle
       if (availablePrompts.length === 0) {
+        console.log(`[initialize-group-queue] All prompts used, resetting for date ${date}`)
         usedPromptIds.clear()
-        const resetPrompts = seededShuffle(allPrompts, `${seed}-reset-${dateIndex}`)
-        availablePrompts.push(...resetPrompts)
+        // Reshuffle all prompts with a new seed to ensure variety
+        shuffledPrompts = seededShuffle(allPrompts, `${seed}-reset-${dateIndex}`)
+        // Now get available prompts from the reshuffled list
+        availablePrompts = shuffledPrompts.filter(
+          (p) => !usedPromptIds.has(p.id)
+        )
+      }
+
+      // Additional safety check: ensure we don't select a duplicate
+      if (availablePrompts.length === 0) {
+        console.error(`[initialize-group-queue] No available prompts after reset for ${date}`)
+        // Last resort: use all prompts (shouldn't happen, but prevents crash)
+        availablePrompts = [...allPrompts]
+        usedPromptIds.clear()
       }
 
       // Select prompt ensuring variety
@@ -434,6 +447,31 @@ serve(async (req) => {
       if (!selectedPrompt) {
         console.warn(`[initialize-group-queue] No prompt selected for ${date}, skipping`)
         continue
+      }
+
+      // Safety check: ensure this prompt hasn't been used already
+      if (usedPromptIds.has(selectedPrompt.id)) {
+        console.warn(`[initialize-group-queue] Selected prompt ${selectedPrompt.id} was already used, finding alternative`)
+        // Find an alternative prompt that hasn't been used
+        const alternativePrompts = availablePrompts.filter(
+          (p) => p.id !== selectedPrompt.id && !usedPromptIds.has(p.id)
+        )
+        if (alternativePrompts.length > 0) {
+          // Use the first available alternative
+          const alternative = alternativePrompts[0]
+          console.log(`[initialize-group-queue] Using alternative prompt ${alternative.id} instead`)
+          usedPromptIds.add(alternative.id)
+          const currentCount = categoryUsage.get(alternative.category) || 0
+          categoryUsage.set(alternative.category, currentCount + 1)
+          scheduledPrompts.push({
+            date,
+            prompt_id: alternative.id,
+          })
+          continue
+        } else {
+          console.error(`[initialize-group-queue] No alternative prompts available for ${date}`)
+          continue
+        }
       }
 
       // Log selected prompt for debugging
@@ -454,13 +492,27 @@ serve(async (req) => {
       })
     }
 
-    // Log summary of scheduled prompts by category and validate
+    // Log summary of scheduled prompts by category and validate for duplicates
     const categoryCounts = new Map<string, number>()
+    const promptIdCounts = new Map<string, number>() // Track prompt ID usage
     const invalidScheduledPrompts: Array<{ date: string; prompt_id: string; category: string }> = []
+    const duplicatePrompts: Array<{ date: string; prompt_id: string; count: number }> = []
     
     for (const sp of scheduledPrompts) {
       const prompt = allPrompts.find((p) => p.id === sp.prompt_id)
       if (prompt) {
+        // Check for duplicates
+        const promptCount = promptIdCounts.get(sp.prompt_id) || 0
+        promptIdCounts.set(sp.prompt_id, promptCount + 1)
+        if (promptCount > 0) {
+          duplicatePrompts.push({
+            date: sp.date,
+            prompt_id: sp.prompt_id,
+            count: promptCount + 1
+          })
+          console.error(`[initialize-group-queue] DUPLICATE: Prompt ${sp.prompt_id} appears ${promptCount + 1} times!`)
+        }
+        
         // Validate that prompt category is in eligible categories
         if (!eligibleCategories.includes(prompt.category)) {
           invalidScheduledPrompts.push({
@@ -476,6 +528,21 @@ serve(async (req) => {
       } else {
         console.warn(`[initialize-group-queue] Prompt ${sp.prompt_id} not found in allPrompts`)
       }
+    }
+    
+    // Remove duplicates if found
+    if (duplicatePrompts.length > 0) {
+      console.error(`[initialize-group-queue] Found ${duplicatePrompts.length} duplicate prompts!`, duplicatePrompts)
+      // Keep only first occurrence of each prompt
+      const seenPromptIds = new Set<string>()
+      scheduledPrompts = scheduledPrompts.filter((sp) => {
+        if (seenPromptIds.has(sp.prompt_id)) {
+          return false // Skip duplicate
+        }
+        seenPromptIds.add(sp.prompt_id)
+        return true
+      })
+      console.log(`[initialize-group-queue] Removed duplicates, now have ${scheduledPrompts.length} unique prompts`)
     }
     
     console.log(`[initialize-group-queue] Scheduled prompts by category:`, 
