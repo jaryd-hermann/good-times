@@ -143,14 +143,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           )
           
           // Identify user with non-PII properties
-          posthog.identify(userId, {
+          const properties = {
             has_groups: (groupCount || 0) > 0,
             group_count: groupCount || 0,
             account_age_days: accountAgeDays,
+          }
+          posthog.identify(userId, properties)
+          
+          // Capture a test event to verify PostHog is working
+          posthog.capture('user_loaded', {
+            user_id: userId,
+            has_groups: (groupCount || 0) > 0,
           })
           
           if (__DEV__) {
-            console.log("[PostHog] User identified:", userId)
+            console.log("[PostHog] User identified:", userId, properties)
+            console.log("[PostHog] Test event captured: user_loaded")
           }
         } catch (error) {
           console.warn("[AuthProvider] Failed to identify user in PostHog:", error)
