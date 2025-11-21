@@ -203,8 +203,11 @@ serve(async (req) => {
         }
         // Exclude Family for Friends groups
         disabledCategories.add("Family")
-        // Edgy/NSFW is eligible if not disabled
-        if (!disabledCategories.has("Edgy/NSFW")) {
+        // Edgy/NSFW is eligible ONLY if explicitly enabled (not disabled)
+        // For friends groups, NSFW is opt-in (default disabled)
+        const nsfwPref = (preferences || []).find((p) => p.category === "Edgy/NSFW")
+        const nsfwEnabled = nsfwPref ? nsfwPref.preference !== "none" : false // Default to false (opt-in)
+        if (nsfwEnabled && !disabledCategories.has("Edgy/NSFW")) {
           eligibleCategories.push("Edgy/NSFW")
         }
       }
