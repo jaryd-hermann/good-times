@@ -336,18 +336,18 @@ export default function Home() {
     queryKey: ["dailyPrompt", currentGroupId, selectedDate, userId],
     queryFn: () => (currentGroupId ? getDailyPrompt(currentGroupId, selectedDate, userId) : null),
     enabled: !!currentGroupId && !!selectedDate, // Always enabled when group and date are available
-    staleTime: Infinity, // Use cached data for date navigation within same group (instant)
-    gcTime: 5 * 60 * 1000, // Keep cache for 5 minutes for smooth date navigation
-    refetchOnMount: false, // Don't refetch on mount if data is fresh
-    refetchOnWindowFocus: false, // Don't refetch on focus if data is fresh
-    // Only show placeholder data if it's for the same group (smooth date navigation)
+    staleTime: 0, // Always refetch to ensure data matches database (no stale data)
+    gcTime: 2 * 60 * 1000, // Keep cache for 2 minutes for smooth date navigation
+    refetchOnMount: true, // Always refetch on mount to ensure fresh data
+    refetchOnWindowFocus: true, // Refetch on focus to catch any updates
+    // Never show placeholder data - always wait for correct data
     placeholderData: (previousData) => {
-      // If switching groups, never show previous data
-      if (isGroupSwitching) {
-        return undefined
+      // Only allow placeholder if it's for the EXACT same group AND date
+      if (previousData && previousData.group_id === currentGroupId && previousData.date === selectedDate) {
+        return previousData
       }
-      // For date navigation within same group, allow previous data for smooth UX
-      return previousData
+      // Never show data from different group or date
+      return undefined
     },
   })
 
@@ -361,19 +361,12 @@ export default function Home() {
     queryKey: ["entries", currentGroupId, selectedDate],
     queryFn: () => (currentGroupId ? getEntriesForDate(currentGroupId, selectedDate) : []),
     enabled: !!currentGroupId, // Always enabled when group is available
-    staleTime: Infinity, // Use cached data for date navigation within same group (instant)
-    gcTime: 5 * 60 * 1000, // Keep cache for 5 minutes for smooth date navigation
-    refetchOnMount: false, // Don't refetch on mount if data is fresh
-    refetchOnWindowFocus: false, // Don't refetch on focus if data is fresh
-    // Only show placeholder data if it's for the same group (smooth date navigation)
-    placeholderData: (previousData) => {
-      // If switching groups, never show previous data
-      if (isGroupSwitching) {
-        return undefined
-      }
-      // For date navigation within same group, allow previous data for smooth UX
-      return previousData
-    },
+    staleTime: 0, // Always refetch to ensure data matches database
+    gcTime: 2 * 60 * 1000, // Keep cache for 2 minutes for smooth date navigation
+    refetchOnMount: true, // Always refetch on mount to ensure fresh data
+    refetchOnWindowFocus: true, // Refetch on focus to catch any updates
+    // Never show placeholder data from different group/date
+    placeholderData: undefined,
   })
   
   // Only show loading state when actually switching groups, not during normal date navigation
