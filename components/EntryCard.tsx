@@ -27,6 +27,7 @@ interface EntryCardProps {
 export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home" }: EntryCardProps) {
   const router = useRouter()
   const queryClient = useQueryClient()
+  const scrollViewRef = useRef<ScrollView>(null)
 
   function handleEntryPress() {
     const params: Record<string, string> = {
@@ -105,7 +106,11 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
       <View style={styles.filmFrameWrapper}>
         <Image source={require("../assets/images/film-frame.png")} style={styles.filmFrameImage} />
         <FilmFrame style={styles.entryCardInner} contentStyle={styles.entryContent}>
-          <TouchableOpacity onPress={handleEntryPress} activeOpacity={0.9} style={styles.touchableContent}>
+          <TouchableOpacity 
+            onPress={handleEntryPress} 
+            activeOpacity={0.9} 
+            style={styles.touchableContent}
+          >
             <View style={styles.entryHeader}>
               <View style={styles.entryAuthor}>
                 <Avatar uri={entry.user?.avatar_url} name={entry.user?.name || "User"} size={28} />
@@ -178,63 +183,68 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                 ))}
               </View>
             )}
-            <View style={styles.mediaContainer}>
-              {entry.media_urls && Array.isArray(entry.media_urls) && entry.media_urls.length > 0 && (
-                <ScrollView 
-                  horizontal 
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.mediaCarousel}
-                  contentContainerStyle={styles.mediaCarouselContent}
-                  nestedScrollEnabled={true}
-                >
-                  {entry.media_urls.map((url: string, idx: number) => {
-                    const mediaType = entry.media_types && Array.isArray(entry.media_types) 
-                      ? entry.media_types[idx] 
-                      : undefined
-                    
-                    if (mediaType === "audio") {
-                      return (
-                        <View key={`audio-${idx}-${url}`} style={styles.audioThumbnailSquare}>
-                          {entry.user?.avatar_url ? (
-                            <>
-                              <Image 
-                                source={{ uri: entry.user.avatar_url }} 
-                                style={styles.audioThumbnailImage}
-                                resizeMode="cover"
-                              />
-                              <View style={styles.audioThumbnailOverlay} />
-                            </>
-                          ) : null}
-                          <View style={styles.audioThumbnailContent}>
-                            <FontAwesome name="play" size={20} color={colors.white} />
-                            <Text style={styles.audioThumbnailLabel} numberOfLines={2}>
-                              {entry.user?.name || "User"} left a voice message
-                            </Text>
-                          </View>
-                        </View>
-                      )
-                    }
-                    
-                    if (mediaType === "video") {
-                      return (
-                        <VideoThumbnail key={`video-${idx}-${url}`} uri={url} style={styles.videoThumbnailSquare} />
-                      )
-                    }
-                    
-                    // Default to photo
-                    return (
-                      <Image
-                        key={`photo-${idx}-${url}`}
-                        source={{ uri: url }}
-                        style={styles.mediaThumbnail}
-                        resizeMode="cover"
-                      />
-                    )
-                  })}
-                </ScrollView>
-              )}
-            </View>
           </TouchableOpacity>
+          {/* Media container outside TouchableOpacity to allow scrolling */}
+          <View style={styles.mediaContainer}>
+            {entry.media_urls && Array.isArray(entry.media_urls) && entry.media_urls.length > 0 && (
+              <ScrollView 
+                ref={scrollViewRef}
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                style={styles.mediaCarousel}
+                contentContainerStyle={styles.mediaCarouselContent}
+                nestedScrollEnabled={true}
+                scrollEnabled={true}
+                directionalLockEnabled={true}
+                bounces={false}
+              >
+                {entry.media_urls.map((url: string, idx: number) => {
+                  const mediaType = entry.media_types && Array.isArray(entry.media_types) 
+                    ? entry.media_types[idx] 
+                    : undefined
+                  
+                  if (mediaType === "audio") {
+                    return (
+                      <View key={`audio-${idx}-${url}`} style={styles.audioThumbnailSquare}>
+                        {entry.user?.avatar_url ? (
+                          <>
+                            <Image 
+                              source={{ uri: entry.user.avatar_url }} 
+                              style={styles.audioThumbnailImage}
+                              resizeMode="cover"
+                            />
+                            <View style={styles.audioThumbnailOverlay} />
+                          </>
+                        ) : null}
+                        <View style={styles.audioThumbnailContent}>
+                          <FontAwesome name="play" size={20} color={colors.white} />
+                          <Text style={styles.audioThumbnailLabel} numberOfLines={2}>
+                            {entry.user?.name || "User"} left a voice message
+                          </Text>
+                        </View>
+                      </View>
+                    )
+                  }
+                  
+                  if (mediaType === "video") {
+                    return (
+                      <VideoThumbnail key={`video-${idx}-${url}`} uri={url} style={styles.videoThumbnailSquare} />
+                    )
+                  }
+                  
+                  // Default to photo
+                  return (
+                    <Image
+                      key={`photo-${idx}-${url}`}
+                      source={{ uri: url }}
+                      style={styles.mediaThumbnail}
+                      resizeMode="cover"
+                    />
+                  )
+                })}
+              </ScrollView>
+            )}
+          </View>
         </FilmFrame>
       </View>
       {comments && comments.length > 0 && (

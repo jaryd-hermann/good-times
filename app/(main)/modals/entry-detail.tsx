@@ -47,6 +47,7 @@ export default function EntryDetail() {
   const [audioProgress, setAudioProgress] = useState<Record<string, number>>({})
   const [audioDurations, setAudioDurations] = useState<Record<string, number>>({})
   const [audioLoading, setAudioLoading] = useState<Record<string, boolean>>({})
+  const [imageDimensions, setImageDimensions] = useState<Record<number, { width: number; height: number }>>({})
   const insets = useSafeAreaInsets()
 
   useEffect(() => {
@@ -429,7 +430,31 @@ export default function EntryDetail() {
                   {entry.media_urls.map((url, index) => {
                     const mediaType = entry.media_types?.[index]
                     if (mediaType === "photo") {
-                      return <Image key={index} source={{ uri: url }} style={styles.mediaImage} resizeMode="cover" />
+                      const dimensions = imageDimensions[index]
+                      const imageStyle = dimensions
+                        ? {
+                            width: "100%",
+                            height: undefined,
+                            aspectRatio: dimensions.width / dimensions.height,
+                          }
+                        : styles.mediaImage
+                      return (
+                        <Image
+                          key={index}
+                          source={{ uri: url }}
+                          style={imageStyle}
+                          resizeMode="contain"
+                          onLoad={(e) => {
+                            const { width, height } = e.nativeEvent.source
+                            if (width && height) {
+                              setImageDimensions((prev) => ({
+                                ...prev,
+                                [index]: { width, height },
+                              }))
+                            }
+                          }}
+                        />
+                      )
                     }
                     if (mediaType === "video") {
                       return (
@@ -597,7 +622,7 @@ const styles = StyleSheet.create({
   },
   mediaImage: {
     width: "100%",
-    height: 300,
+    height: 300, // Fallback height while loading dimensions
   },
   audioPill: {
     flexDirection: "row",

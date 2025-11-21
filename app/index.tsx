@@ -106,21 +106,37 @@ export default function Index() {
             const authResult = await authenticateWithBiometric("Log in with FaceID");
             if (authResult.success) {
               try {
-                // Use refresh token to get new session
-                const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession({
+                // Use refresh token to get new session with timeout
+                const refreshPromise = supabase.auth.refreshSession({
                   refresh_token: refreshToken,
                 });
+                
+                // Add timeout to prevent infinite hanging
+                const timeoutPromise = new Promise((_, reject) => 
+                  setTimeout(() => reject(new Error("Session refresh timeout")), 10000)
+                );
+                
+                const { data: refreshData, error: refreshError } = await Promise.race([
+                  refreshPromise,
+                  timeoutPromise,
+                ]) as any;
 
-                if (!refreshError && refreshData.session) {
+                if (!refreshError && refreshData?.session) {
                   session = refreshData.session;
                   console.log("[boot] biometric login successful");
                 } else {
                   console.log("[boot] refresh token invalid, clearing credentials");
                   await clearBiometricCredentials();
+                  // If refresh token expired, user needs to log in again
+                  // Don't set session, let it fall through to normal session check
                 }
               } catch (error: any) {
                 console.log("[boot] biometric refresh failed:", error.message);
                 await clearBiometricCredentials();
+                // If it's a timeout or network error, try normal session check as fallback
+                if (error.message?.includes("timeout") || error.message?.includes("network")) {
+                  console.log("[boot] timeout/network error, trying normal session check");
+                }
               }
             } else {
               console.log("[boot] biometric authentication cancelled/failed:", authResult.error);
@@ -131,10 +147,34 @@ export default function Index() {
 
         // If no session from biometric, check normal session
         if (!session) {
-          const { data: { session: normalSession }, error: sessErr } = await supabase.auth.getSession();
-          if (sessErr) throw new Error(`getSession: ${sessErr.message}`);
-          session = normalSession;
-          console.log("[boot] normal session:", !!session);
+          try {
+            // Add timeout to prevent infinite hanging
+            const getSessionPromise = supabase.auth.getSession();
+            const timeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error("getSession timeout")), 10000)
+            );
+            
+            const { data: { session: normalSession }, error: sessErr } = await Promise.race([
+              getSessionPromise,
+              timeoutPromise,
+            ]) as any;
+            
+            if (sessErr) {
+              console.error("[boot] getSession error:", sessErr.message);
+              // If session check fails, clear any stale credentials and go to welcome
+              await clearBiometricCredentials();
+              router.replace("/(onboarding)/welcome-1");
+              return;
+            }
+            session = normalSession;
+            console.log("[boot] normal session:", !!session);
+          } catch (error: any) {
+            console.error("[boot] getSession failed:", error.message);
+            // On timeout or error, clear credentials and redirect to welcome
+            await clearBiometricCredentials();
+            router.replace("/(onboarding)/welcome-1");
+            return;
+          }
         }
 
         if (!session) {
@@ -207,16 +247,28 @@ export default function Index() {
         // Push notifications will be requested on first visit to home.tsx
         console.log("[boot] routing decision...");
         if (membership?.group_id) {
-          // Check if user has completed post-auth onboarding
-          // Check post-auth onboarding (user-specific)
-          const onboardingKey = `has_completed_post_auth_onboarding_${session.user.id}`
-          const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
-          if (!hasCompletedPostAuth) {
-            console.log("[boot] has group but not completed post-auth onboarding → welcome-post-auth");
-            router.replace("/(onboarding)/welcome-post-auth");
+          // Check if this is a NEW user (created within last 10 minutes)
+          // Only show welcome-post-auth to newly registered users, not existing users logging in
+          const userCreatedAt = new Date(session.user.created_at);
+          const now = new Date();
+          const minutesSinceCreation = (now.getTime() - userCreatedAt.getTime()) / (1000 * 60);
+          const isNewUser = minutesSinceCreation < 10; // User created within last 10 minutes
+          
+          if (isNewUser) {
+            // Check if user has completed post-auth onboarding
+            const onboardingKey = `has_completed_post_auth_onboarding_${session.user.id}`
+            const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
+            if (!hasCompletedPostAuth) {
+              console.log("[boot] new user with group but not completed post-auth onboarding → welcome-post-auth");
+              router.replace("/(onboarding)/welcome-post-auth");
+            } else {
+              console.log("[boot] new user with group → (main)/home");
+              router.replace("/(main)/home");
+            }
           } else {
-            console.log("[boot] has group → (main)/home");
-            router.replace("/(main)/home"); // make sure file exists
+            // Existing user - skip welcome-post-auth and go straight to home
+            console.log("[boot] existing user with group → (main)/home");
+            router.replace("/(main)/home");
           }
         } else {
           console.log("[boot] no group → onboarding/create-group/name-type");

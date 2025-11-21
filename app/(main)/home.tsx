@@ -723,7 +723,7 @@ const styles = StyleSheet.create({
   },
   groupModalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
+    backgroundColor: "rgba(0,0,0,0.85)",
     justifyContent: "flex-end",
   },
   groupModalSheet: {

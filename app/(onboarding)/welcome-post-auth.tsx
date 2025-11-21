@@ -1,15 +1,44 @@
 "use client"
 
+import { useEffect } from "react"
 import { View, Text, StyleSheet, ImageBackground, Dimensions } from "react-native"
 import { LinearGradient } from "expo-linear-gradient"
 import { useRouter } from "expo-router"
+import AsyncStorage from "@react-native-async-storage/async-storage"
 import { colors, typography, spacing } from "../../lib/theme"
 import { Button } from "../../components/Button"
+import { supabase } from "../../lib/supabase"
 
 const { width, height } = Dimensions.get("window")
+const POST_AUTH_ONBOARDING_KEY_PREFIX = "has_completed_post_auth_onboarding"
+
+// Helper function to get user-specific onboarding key
+function getPostAuthOnboardingKey(userId: string): string {
+  return `${POST_AUTH_ONBOARDING_KEY_PREFIX}_${userId}`
+}
 
 export default function WelcomePostAuth() {
   const router = useRouter()
+
+  useEffect(() => {
+    // Check if user has already completed post-auth onboarding
+    // If yes, skip directly to home
+    async function checkOnboardingStatus() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user) return
+
+      const onboardingKey = getPostAuthOnboardingKey(user.id)
+      const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
+      
+      if (hasCompletedPostAuth) {
+        // Already completed - skip to home
+        router.replace("/(main)/home")
+      }
+    }
+    checkOnboardingStatus()
+  }, [router])
 
   function handleContinue() {
     router.replace("/(onboarding)/notifications-onboarding")
@@ -31,7 +60,7 @@ export default function WelcomePostAuth() {
           <Text style={styles.title}>Welcome</Text>
           <Text style={styles.body}>
             Thanks for downloading my app! I made it myself, so if you see any problems or have any ideas...find me in
-            "Settings".
+            "Settings". Email, text, or WhatsApp, I'd love to hear your feedback.
           </Text>
         </View>
 

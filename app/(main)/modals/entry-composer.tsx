@@ -15,6 +15,7 @@ import {
   Modal,
   ActivityIndicator,
   Keyboard,
+  AppState,
 } from "react-native"
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
 import * as ImagePicker from "expo-image-picker"
@@ -433,6 +434,33 @@ export default function EntryComposer() {
         return
       }
 
+      // Ensure app is in foreground before activating audio session
+      const appState = AppState.currentState
+      if (appState !== "active") {
+        // Wait for app to become active
+        return new Promise<void>((resolve) => {
+          const subscription = AppState.addEventListener("change", (nextAppState) => {
+            if (nextAppState === "active") {
+              subscription.remove()
+              // Retry after a brief delay to ensure audio session can activate
+              setTimeout(() => {
+                startRecording().then(resolve).catch(() => resolve())
+              }, 300)
+            }
+          })
+          // Also try immediately in case app becomes active quickly
+          setTimeout(() => {
+            if (AppState.currentState === "active") {
+              subscription.remove()
+              startRecording().then(resolve).catch(() => resolve())
+            }
+          }, 100)
+        })
+      }
+
+      // Small delay to ensure app is fully in foreground
+      await new Promise((resolve) => setTimeout(resolve, 100))
+
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
@@ -450,7 +478,15 @@ export default function EntryComposer() {
         }
       }, 300)
     } catch (error: any) {
-      Alert.alert("Error", error.message)
+      // If error is about background state, show helpful message
+      if (error.message?.includes("background")) {
+        Alert.alert(
+          "Please try again",
+          "The app needs to be in the foreground to start recording. Please try again."
+        )
+      } else {
+        Alert.alert("Error", error.message || "Failed to start recording")
+      }
     }
   }
 

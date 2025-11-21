@@ -406,12 +406,24 @@ export default function OnboardingAuth() {
             .maybeSingle()
 
           if (membership) {
-            // Existing user with group - check post-auth onboarding (user-specific)
-            const onboardingKey = getPostAuthOnboardingKey(userId)
-            const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
-            if (!hasCompletedPostAuth) {
-              router.replace("/(onboarding)/welcome-post-auth")
+            // Check if this is a NEW user (created within last 10 minutes)
+            // Only show welcome-post-auth to newly registered users, not existing users logging in
+            const userCreatedAt = new Date(signInData.session.user.created_at)
+            const now = new Date()
+            const minutesSinceCreation = (now.getTime() - userCreatedAt.getTime()) / (1000 * 60)
+            const isNewUser = minutesSinceCreation < 10 // User created within last 10 minutes
+            
+            if (isNewUser) {
+              // Check if user has completed post-auth onboarding
+              const onboardingKey = getPostAuthOnboardingKey(userId)
+              const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
+              if (!hasCompletedPostAuth) {
+                router.replace("/(onboarding)/welcome-post-auth")
+              } else {
+                router.replace("/(main)/home")
+              }
             } else {
+              // Existing user - skip welcome-post-auth and go straight to home
               router.replace("/(main)/home")
             }
             return
@@ -780,12 +792,24 @@ export default function OnboardingAuth() {
           .maybeSingle()
         
         if (membership) {
-          // Existing user with group - check post-auth onboarding (user-specific)
-          const onboardingKey = getPostAuthOnboardingKey(session.user.id)
-          const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
-          if (!hasCompletedPostAuth) {
-            router.replace("/(onboarding)/welcome-post-auth")
+          // Check if this is a NEW user (created within last 10 minutes)
+          // Only show welcome-post-auth to newly registered users, not existing users logging in
+          const userCreatedAt = new Date(session.user.created_at)
+          const now = new Date()
+          const minutesSinceCreation = (now.getTime() - userCreatedAt.getTime()) / (1000 * 60)
+          const isNewUser = minutesSinceCreation < 10 // User created within last 10 minutes
+          
+          if (isNewUser) {
+            // Check if user has completed post-auth onboarding
+            const onboardingKey = getPostAuthOnboardingKey(session.user.id)
+            const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
+            if (!hasCompletedPostAuth) {
+              router.replace("/(onboarding)/welcome-post-auth")
+            } else {
+              router.replace("/(main)/home")
+            }
           } else {
+            // Existing user - skip welcome-post-auth and go straight to home
             router.replace("/(main)/home")
           }
         } else {

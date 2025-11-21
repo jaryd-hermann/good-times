@@ -31,6 +31,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       NSFaceIDUsageDescription: "Good Times uses FaceID to securely log you in quickly.",
       // Export compliance: App only uses standard HTTPS/TLS and Apple's built-in encryption APIs
       ITSAppUsesNonExemptEncryption: false,
+      icon: "./assets/images/icon-new.png"
     },
   },
   android: {

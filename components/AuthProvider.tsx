@@ -49,14 +49,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        loadUser(session.user.id)
-      } else {
+    // Get initial session with timeout
+    const getSessionPromise = supabase.auth.getSession()
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("getSession timeout")), 10000)
+    )
+    
+    Promise.race([getSessionPromise, timeoutPromise])
+      .then((result: any) => {
+        const { data: { session } } = result
+        if (session?.user) {
+          loadUser(session.user.id)
+        } else {
+          setLoading(false)
+        }
+      })
+      .catch((error) => {
+        console.error("[AuthProvider] getSession failed:", error)
         setLoading(false)
-      }
-    })
+      })
 
     // Listen for auth changes
     const {

@@ -149,6 +149,7 @@ export default function History() {
   const [showFilterModal, setShowFilterModal] = useState(false)
   const [selectedCategories, setSelectedCategories] = useState<string[]>([])
   const [selectedMembers, setSelectedMembers] = useState<string[]>([])
+  const [selectedMemorials, setSelectedMemorials] = useState<string[]>([])
   const [currentGroupId, setCurrentGroupId] = useState<string>()
   const [userId, setUserId] = useState<string>()
   const [activePeriod, setActivePeriod] = useState<ActivePeriod | null>(null)
@@ -188,6 +189,7 @@ export default function History() {
       setActivePeriod(null)
       setSelectedCategories([])
       setSelectedMembers([])
+      setSelectedMemorials([])
     }
   }, [focusGroupId, currentGroupId])
 
@@ -349,9 +351,24 @@ export default function History() {
         if (selectedMembers.length > 0 && !selectedMembers.includes(entry.user_id)) {
           return false
         }
+        // Filter by memorial: show entries where prompt has memorial_name variable or contains memorial name
+        if (selectedMemorials.length > 0) {
+          const entryQuestion = entry.prompt?.question || ""
+          // Check if prompt has memorial_name variable (memorial-related prompts)
+          const hasMemorialVariable = entryQuestion.match(/\{.*memorial_name.*\}/i)
+          // Check if question directly contains any selected memorial's name
+          const containsMemorialName = selectedMemorials.some((memorialId) => {
+            const memorial = memorials.find((m) => m.id === memorialId)
+            return memorial && entryQuestion.includes(memorial.name)
+          })
+          // Show entry if it has memorial variable OR contains memorial name
+          if (!hasMemorialVariable && !containsMemorialName) {
+            return false
+          }
+        }
         return true
       }),
-    [entriesWithinPeriod, selectedCategories, selectedMembers],
+    [entriesWithinPeriod, selectedCategories, selectedMembers, selectedMemorials, memorials],
   )
 
   // Fetch comments for all entries to show previews
@@ -648,6 +665,34 @@ export default function History() {
               })}
             </View>
 
+            {/* Memorials filter - only show if group has memorials */}
+            {memorials.length > 0 && (
+              <>
+                <Text style={[styles.modalSection, styles.modalSectionSpacing]}>Memorials</Text>
+                <View style={styles.memorialList}>
+                  {memorials.map((memorial) => {
+                    const isSelected = selectedMemorials.includes(memorial.id)
+                    return (
+                      <TouchableOpacity
+                        key={memorial.id}
+                        style={[styles.memorialRow, isSelected && styles.memorialRowActive]}
+                        onPress={() =>
+                          setSelectedMemorials((prev) =>
+                            prev.includes(memorial.id)
+                              ? prev.filter((id) => id !== memorial.id)
+                              : [...prev, memorial.id],
+                          )
+                        }
+                      >
+                        <Avatar uri={memorial.photo_url} name={memorial.name} size={40} />
+                        <Text style={styles.memorialName}>{memorial.name}</Text>
+                      </TouchableOpacity>
+                    )
+                  })}
+                </View>
+              </>
+            )}
+
             <Text style={[styles.modalSection, styles.modalSectionSpacing]}>Question Categories</Text>
             <View style={styles.selectionGrid}>
               {categories.map((category) => {
@@ -706,19 +751,20 @@ export default function History() {
                 {entries.map((entry: any, entryIndex: number) => {
                   const entryIdList = entries.map((item: any) => item.id)
                   return (
-                    <TouchableOpacity
-                      key={entry.id}
-                      onPress={() =>
-                        handleEntryPress(entry.id, {
-                          entryIds: entryIdList,
-                          index: entryIndex,
-                        })
-                      }
-                    >
-                    <View style={styles.entryWrapper}>
+                    <View key={entry.id} style={styles.entryWrapper}>
                       <View style={styles.filmFrameWrapper}>
                         <Image source={require("../../assets/images/film-frame.png")} style={styles.filmFrameImage} />
                         <FilmFrame style={styles.entryCardInner} contentStyle={styles.entryContent}>
+                          <TouchableOpacity
+                            onPress={() =>
+                              handleEntryPress(entry.id, {
+                                entryIds: entryIdList,
+                                index: entryIndex,
+                              })
+                            }
+                            activeOpacity={0.9}
+                            style={styles.touchableContent}
+                          >
                           <View style={styles.entryHeader}>
                             <View style={styles.entryAuthor}>
                               <Avatar uri={entry.user?.avatar_url} name={entry.user?.name || "User"} size={28} />
@@ -831,61 +877,66 @@ export default function History() {
                               ))}
                             </View>
                           )}
+                          </TouchableOpacity>
+                          {/* Media container outside TouchableOpacity to allow scrolling */}
                           <View style={styles.mediaContainer}>
-                            {entry.media_urls && Array.isArray(entry.media_urls) && entry.media_urls.length > 0 && (
-                              <ScrollView 
-                                horizontal 
-                                showsHorizontalScrollIndicator={false}
-                                style={styles.mediaCarousel}
-                                contentContainerStyle={styles.mediaCarouselContent}
-                                nestedScrollEnabled={true}
-                              >
-                                {entry.media_urls.map((url: string, idx: number) => {
-                                  const mediaType = entry.media_types && Array.isArray(entry.media_types) 
-                                    ? entry.media_types[idx] 
-                                    : undefined
-                                  
-                                  if (mediaType === "audio") {
-                                    return (
-                                      <View key={`audio-${idx}-${url}`} style={styles.audioThumbnailSquare}>
-                                        {entry.user?.avatar_url ? (
-                                          <>
-                                            <Image 
-                                              source={{ uri: entry.user.avatar_url }} 
-                                              style={styles.audioThumbnailImage}
-                                              resizeMode="cover"
-                                            />
-                                            <View style={styles.audioThumbnailOverlay} />
-                                          </>
-                                        ) : null}
-                                        <View style={styles.audioThumbnailContent}>
-                                          <FontAwesome name="play" size={20} color={colors.white} />
-                                          <Text style={styles.audioThumbnailLabel} numberOfLines={2}>
-                                            {entry.user?.name || "User"} left a voice message
-                                          </Text>
-                                        </View>
-                                      </View>
-                                    )
-                                  }
-                                  
-                                  if (mediaType === "video") {
-                                    return (
-                                      <VideoThumbnail key={`video-${idx}-${url}`} uri={url} style={styles.videoThumbnailSquare} />
-                                    )
-                                  }
-                                  
-                                  // Default to photo
-                                  return (
-                                    <Image
-                                      key={`photo-${idx}-${url}`}
-                                      source={{ uri: url }}
-                                      style={styles.mediaThumbnail}
-                                      resizeMode="cover"
-                                    />
-                                  )
-                                })}
-                              </ScrollView>
-                            )}
+                        {entry.media_urls && Array.isArray(entry.media_urls) && entry.media_urls.length > 0 && (
+                          <ScrollView 
+                            horizontal 
+                            showsHorizontalScrollIndicator={false}
+                            style={styles.mediaCarousel}
+                            contentContainerStyle={styles.mediaCarouselContent}
+                            nestedScrollEnabled={true}
+                            scrollEnabled={true}
+                            directionalLockEnabled={true}
+                            bounces={false}
+                          >
+                            {entry.media_urls.map((url: string, idx: number) => {
+                              const mediaType = entry.media_types && Array.isArray(entry.media_types) 
+                                ? entry.media_types[idx] 
+                                : undefined
+                              
+                              if (mediaType === "audio") {
+                                return (
+                                  <View key={`audio-${idx}-${url}`} style={styles.audioThumbnailSquare}>
+                                    {entry.user?.avatar_url ? (
+                                      <>
+                                        <Image 
+                                          source={{ uri: entry.user.avatar_url }} 
+                                          style={styles.audioThumbnailImage}
+                                          resizeMode="cover"
+                                        />
+                                        <View style={styles.audioThumbnailOverlay} />
+                                      </>
+                                    ) : null}
+                                    <View style={styles.audioThumbnailContent}>
+                                      <FontAwesome name="play" size={20} color={colors.white} />
+                                      <Text style={styles.audioThumbnailLabel} numberOfLines={2}>
+                                        {entry.user?.name || "User"} left a voice message
+                                      </Text>
+                                    </View>
+                                  </View>
+                                )
+                              }
+                              
+                              if (mediaType === "video") {
+                                return (
+                                  <VideoThumbnail key={`video-${idx}-${url}`} uri={url} style={styles.videoThumbnailSquare} />
+                                )
+                              }
+                              
+                              // Default to photo
+                              return (
+                                <Image
+                                  key={`photo-${idx}-${url}`}
+                                  source={{ uri: url }}
+                                  style={styles.mediaThumbnail}
+                                  resizeMode="cover"
+                                />
+                              )
+                            })}
+                          </ScrollView>
+                        )}
                           </View>
                         </FilmFrame>
                       </View>
@@ -917,7 +968,6 @@ export default function History() {
                         </TouchableOpacity>
                       )}
                     </View>
-                    </TouchableOpacity>
                   )
                 })}
               </View>
@@ -1060,6 +1110,10 @@ const styles = StyleSheet.create({
   entryCardInner: {
     width: 399,
     height: 485,
+  },
+  touchableContent: {
+    flex: 1,
+    justifyContent: "flex-start",
   },
   entryContent: {
     padding: spacing.lg,
@@ -1384,6 +1438,29 @@ const styles = StyleSheet.create({
     ...typography.bodyMedium,
     color: colors.white,
     textAlign: "center",
+  },
+  memorialList: {
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  memorialRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    backgroundColor: colors.gray[900],
+    borderRadius: 16,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    width: "100%",
+  },
+  memorialRowActive: {
+    borderWidth: 1,
+    borderColor: colors.white,
+  },
+  memorialName: {
+    ...typography.bodyMedium,
+    color: colors.white,
+    fontSize: 16,
   },
   periodBanner: {
     flexDirection: "row",

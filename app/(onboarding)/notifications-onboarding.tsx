@@ -24,10 +24,10 @@ export default function NotificationsOnboarding() {
   const [processing, setProcessing] = useState(false)
 
   useEffect(() => {
-    // Check if notifications are already granted
-    // Only auto-skip if permissions are already granted AND user has completed onboarding
-    // This prevents skipping the screen for new users who should see it
-    async function checkPermission() {
+    // Check if user has already completed post-auth onboarding
+    // If yes, skip directly to home (regardless of permission status)
+    // This prevents showing the screen to users who have already completed onboarding
+    async function checkOnboardingStatus() {
       const {
         data: { user },
       } = await supabase.auth.getUser()
@@ -35,19 +35,25 @@ export default function NotificationsOnboarding() {
 
       const onboardingKey = getPostAuthOnboardingKey(user.id)
       const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
+      
+      if (hasCompletedPostAuth) {
+        // Already completed onboarding - skip to home
+        router.replace("/(main)/home")
+        return
+      }
+
+      // If onboarding not completed, check if notifications are already granted
+      // Only auto-skip if permissions are already granted (user might have granted permissions but not completed onboarding flow)
       const { status } = await Notifications.getPermissionsAsync()
       
-      // Only auto-skip if BOTH conditions are true:
-      // 1. Permissions already granted
-      // 2. User has already completed post-auth onboarding (meaning they've seen this screen before)
-      if (status === "granted" && hasCompletedPostAuth) {
-        // Already granted and onboarding completed - skip this screen
+      if (status === "granted") {
+        // Permissions already granted - auto-complete onboarding
         await completeOnboarding()
       }
       // Otherwise, show the screen so user can interact with it
     }
-    checkPermission()
-  }, [])
+    checkOnboardingStatus()
+  }, [router])
 
   async function completeOnboarding() {
     // Mark onboarding as complete for this specific user
@@ -131,8 +137,8 @@ export default function NotificationsOnboarding() {
       />
       <View style={styles.content}>
         <View style={styles.textContainer}>
-          <Text style={styles.title}>Enable notifications</Text>
-          <Text style={styles.body}>Enable notifications so you don't miss your group's daily question.</Text>
+          <Text style={styles.title}>Notifications?</Text>
+          <Text style={styles.body}>I'll make sure you don't miss your group's daily question and new entries to your history.</Text>
         </View>
 
         <View style={styles.buttonContainer}>

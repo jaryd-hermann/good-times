@@ -1,10 +1,13 @@
 "use client"
 
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Linking } from "react-native"
+import { useState } from "react"
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Linking, Modal } from "react-native"
 import { useRouter } from "expo-router"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { colors, spacing, typography } from "../../lib/theme"
 import { FontAwesome } from "@expo/vector-icons"
+import * as Clipboard from "expo-clipboard"
+import { Button } from "../../components/Button"
 
 const EMAIL = "hermannjaryd@gmail.com"
 const PHONE = "+19143836826"
@@ -12,14 +15,56 @@ const PHONE = "+19143836826"
 export default function Feedback() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
+  const [showEmailModal, setShowEmailModal] = useState(false)
 
   async function handleEmail() {
     try {
-      const url = `mailto:${EMAIL}`
-      // Try to open email - iOS will show picker if multiple email apps installed
-      await Linking.openURL(url)
+      // Check for Gmail app first
+      const gmailUrls = ["googlegmail://co?to=", "gmail://co?to="]
+      let gmailFound = false
+      
+      for (const gmailUrl of gmailUrls) {
+        try {
+          const canOpenGmail = await Linking.canOpenURL(gmailUrl + EMAIL)
+          if (canOpenGmail) {
+            await Linking.openURL(gmailUrl + EMAIL)
+            gmailFound = true
+            return
+          }
+        } catch {
+          // Continue to next URL scheme
+        }
+      }
+      
+      // If Gmail not found, check for Apple Mail
+      if (!gmailFound) {
+        const mailtoUrl = `mailto:${EMAIL}`
+        try {
+          const canOpenMail = await Linking.canOpenURL(mailtoUrl)
+          if (canOpenMail) {
+            await Linking.openURL(mailtoUrl)
+            return
+          }
+        } catch {
+          // Continue to fallback
+        }
+      }
+      
+      // If neither app found, show copy modal
+      setShowEmailModal(true)
     } catch (error: any) {
-      Alert.alert("Error", "Unable to open email. Please try again.")
+      // Fallback to copy modal on any error
+      setShowEmailModal(true)
+    }
+  }
+
+  async function handleCopyEmail() {
+    try {
+      await Clipboard.setStringAsync(EMAIL)
+      Alert.alert("Copied", "Email address copied to clipboard")
+      setShowEmailModal(false)
+    } catch (error: any) {
+      Alert.alert("Error", "Unable to copy email address")
     }
   }
 
@@ -116,6 +161,37 @@ export default function Feedback() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Email Copy Modal */}
+      <Modal
+        visible={showEmailModal}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setShowEmailModal(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Email not available</Text>
+            <Text style={styles.modalSubtitle}>
+              No email app detected. Copy the email address below:
+            </Text>
+            <View style={styles.emailContainer}>
+              <Text style={styles.emailText}>{EMAIL}</Text>
+            </View>
+            <Button
+              title="Copy Email"
+              onPress={handleCopyEmail}
+              style={styles.copyButton}
+            />
+            <TouchableOpacity
+              style={styles.modalCancel}
+              onPress={() => setShowEmailModal(false)}
+            >
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   )
 }
@@ -186,6 +262,55 @@ const styles = StyleSheet.create({
     ...typography.body,
     color: colors.gray[400],
     fontSize: 14,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.9)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.xl,
+  },
+  modalContainer: {
+    width: "100%",
+    maxWidth: 400,
+    backgroundColor: colors.black,
+    borderRadius: 24,
+    padding: spacing.xl,
+    gap: spacing.md,
+  },
+  modalTitle: {
+    ...typography.h2,
+    color: colors.white,
+    fontSize: 24,
+  },
+  modalSubtitle: {
+    ...typography.body,
+    color: colors.gray[400],
+  },
+  emailContainer: {
+    backgroundColor: colors.gray[900],
+    borderRadius: 12,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.gray[700],
+  },
+  emailText: {
+    ...typography.body,
+    color: colors.white,
+    fontSize: 16,
+    textAlign: "center",
+  },
+  copyButton: {
+    width: "100%",
+    marginTop: spacing.sm,
+  },
+  modalCancel: {
+    padding: spacing.sm,
+    alignItems: "center",
+  },
+  modalCancelText: {
+    ...typography.body,
+    color: colors.gray[400],
   },
 })
 
