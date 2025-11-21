@@ -521,22 +521,19 @@ serve(async (req) => {
         // Continue - insert will handle conflicts via upsert if needed
       }
       
-      // Now insert fresh prompts - use upsert to handle any remaining conflicts
+      // Now insert fresh prompts - use insert since we've already deleted conflicts
+      // If delete failed, we'll catch the insert error and handle it
       const { data: insertData, error: insertError } = await supabaseClient
         .from("daily_prompts")
-        .upsert(
+        .insert(
           scheduledPrompts.map((sp) => ({
             group_id,
             prompt_id: sp.prompt_id,
             date: sp.date,
             user_id: null, // General prompts for all members
-          })),
-          {
-            onConflict: 'group_id,date', // Handle UNIQUE constraint
-            ignoreDuplicates: false, // Update existing rows
-          }
+          }))
         )
-        .select() // Return inserted/updated rows to verify
+        .select() // Return inserted rows to verify
 
       if (insertError) {
         console.error(`[initialize-group-queue] Error inserting prompts:`, insertError)
