@@ -64,6 +64,7 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false)
   const insets = useSafeAreaInsets()
   const [groupPickerVisible, setGroupPickerVisible] = useState(false)
+  const [isGroupSwitching, setIsGroupSwitching] = useState(false)
   const scrollY = useRef(new Animated.Value(0)).current
   const headerTranslateY = useRef(new Animated.Value(0)).current
   const contentPaddingTop = useRef(new Animated.Value(0)).current
@@ -211,9 +212,11 @@ export default function Home() {
   useEffect(() => {
     const prevGroupId = prevGroupIdRef.current
     
-    // If group changed, clear ALL cached data for the previous group
+    // If group changed, set loading state and clear ALL cached data
     if (prevGroupId && prevGroupId !== currentGroupId) {
       console.log(`[home] Group changed from ${prevGroupId} to ${currentGroupId}, clearing old group cache`)
+      setIsGroupSwitching(true) // Set loading state immediately
+      
       // Remove all queries for the previous group (all dates)
       queryClient.removeQueries({ 
         queryKey: ["dailyPrompt", prevGroupId],
@@ -263,6 +266,14 @@ export default function Home() {
     // Update ref for next render
     prevGroupIdRef.current = currentGroupId
   }, [currentGroupId, queryClient])
+  
+  // Clear group switching state once data is loaded
+  useEffect(() => {
+    if (isGroupSwitching && !isLoadingGroupData && dailyPrompt !== undefined) {
+      // Data has loaded, clear the switching flag
+      setIsGroupSwitching(false)
+    }
+  }, [isGroupSwitching, isLoadingGroupData, dailyPrompt])
 
   // Check for unseen updates in each group
   const { data: groupUnseenStatus = {} } = useQuery({
@@ -322,23 +333,16 @@ export default function Home() {
     enabled: !!currentGroupId,
   })
 
-  const { data: dailyPrompt } = useQuery({
+  const { data: dailyPrompt, isLoading: isLoadingPrompt, isFetching: isFetchingPrompt } = useQuery({
     queryKey: ["dailyPrompt", currentGroupId, selectedDate, userId],
     queryFn: () => (currentGroupId ? getDailyPrompt(currentGroupId, selectedDate, userId) : null),
-    enabled: !!currentGroupId && !!selectedDate, // Only fetch when both are available
+    enabled: !!currentGroupId && !!selectedDate && !isGroupSwitching, // Disable during group switch
     staleTime: 0, // Always refetch when group changes (prevents showing wrong group's prompts)
     gcTime: 0, // Don't cache across group switches
     refetchOnMount: true, // Always refetch when component mounts to ensure fresh data
     refetchOnWindowFocus: true, // Refetch when screen comes into focus
-    // Prevent showing stale data from other groups
-    placeholderData: (previousData) => {
-      // If previous data exists but group changed, don't show it
-      if (previousData && currentGroupId) {
-        // Return undefined to prevent flash of wrong data
-        return undefined
-      }
-      return previousData
-    },
+    // Never show placeholder data - always wait for fresh data
+    placeholderData: undefined,
   })
 
   const { data: userEntry } = useQuery({
@@ -347,13 +351,17 @@ export default function Home() {
     enabled: !!currentGroupId && !!userId,
   })
 
-  const { data: entries = [] } = useQuery({
+  const { data: entries = [], isLoading: isLoadingEntries, isFetching: isFetchingEntries } = useQuery({
     queryKey: ["entries", currentGroupId, selectedDate],
     queryFn: () => (currentGroupId ? getEntriesForDate(currentGroupId, selectedDate) : []),
-    enabled: !!currentGroupId,
+    enabled: !!currentGroupId && !isGroupSwitching, // Disable during group switch
     staleTime: 0, // Always refetch when group changes
     gcTime: 0, // Don't cache across group switches
+    placeholderData: undefined, // Never show stale data
   })
+  
+  // Determine if we're loading data for the current group
+  const isLoadingGroupData = isLoadingPrompt || isLoadingEntries || isFetchingPrompt || isFetchingEntries || isGroupSwitching
 
   const weekDates = getWeekDates()
   const currentGroup = groups.find((g) => g.id === currentGroupId)
@@ -446,6 +454,9 @@ export default function Home() {
   async function handleSelectGroup(groupId: string) {
     if (groupId !== currentGroupId) {
       const oldGroupId = currentGroupId
+      
+      // Set loading state immediately to prevent flash
+      setIsGroupSwitching(true)
       
       // Clear all cached data for the old group BEFORE switching
       if (oldGroupId) {
@@ -632,18 +643,27 @@ export default function Home() {
         {/* Daily prompt */}
         {!userEntry && (
           <FilmFrame style={styles.promptCard} contentStyle={styles.promptInner}>
-            <Text style={styles.promptQuestion}>
-              {personalizedPromptQuestion || fallbackPrompt?.question || "Share a moment that made you smile today."}
-            </Text>
-            <Text style={styles.promptDescription}>
-              {fallbackPrompt?.description ?? "Tell your group about something meaningful or memorable from your day."}
-            </Text>
-            {promptId && (
-              <Button
-                title="Tell the Group"
-                onPress={handleAnswerPrompt}
-                style={styles.answerButton}
-              />
+            {isLoadingGroupData ? (
+              // Show loading state during group switch
+              <View style={styles.loadingContainer}>
+                <Text style={styles.loadingText}>Loading...</Text>
+              </View>
+            ) : (
+              <>
+                <Text style={styles.promptQuestion}>
+                  {personalizedPromptQuestion || fallbackPrompt?.question || "Share a moment that made you smile today."}
+                </Text>
+                <Text style={styles.promptDescription}>
+                  {fallbackPrompt?.description ?? "Tell your group about something meaningful or memorable from your day."}
+                </Text>
+                {promptId && (
+                  <Button
+                    title="Tell the Group"
+                    onPress={handleAnswerPrompt}
+                    style={styles.answerButton}
+                  />
+                )}
+              </>
             )}
           </FilmFrame>
         )}
@@ -843,6 +863,16 @@ const styles = StyleSheet.create({
     ...typography.body,
     color: colors.gray[400],
     marginBottom: spacing.md,
+  },
+  loadingContainer: {
+    padding: spacing.lg,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 100,
+  },
+  loadingText: {
+    ...typography.body,
+    color: colors.gray[400],
   },
   answerButton: {
     marginTop: spacing.md,
