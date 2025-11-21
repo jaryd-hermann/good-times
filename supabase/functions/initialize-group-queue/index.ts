@@ -232,25 +232,58 @@ serve(async (req) => {
       )
     }
 
-    // Check if queue already exists (idempotency check)
+    // Check if queue already exists and verify prompts match group type
     const today = new Date().toISOString().split("T")[0]
     const { data: existingPrompts } = await supabaseClient
       .from("daily_prompts")
-      .select("id")
+      .select("id, prompt_id, prompt:prompts(category)")
       .eq("group_id", group_id)
       .gte("date", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0])
-      .limit(1)
+      .is("user_id", null) // Only check general prompts
 
+    // Check if existing prompts have incorrect categories for this group type
+    let needsRegeneration = false
     if (existingPrompts && existingPrompts.length > 0) {
-      // Queue already initialized, skip
-      return new Response(
-        JSON.stringify({ 
-          success: true, 
-          message: "Queue already initialized",
-          prompts_scheduled: 0 
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      )
+      for (const ep of existingPrompts) {
+        const prompt = ep.prompt as any
+        if (!prompt) continue
+        
+        // Check if prompt category doesn't match group type
+        if (groupType === "friends" && prompt.category === "Family") {
+          needsRegeneration = true
+          break
+        } else if (groupType === "family" && prompt.category === "Friends") {
+          needsRegeneration = true
+          break
+        }
+        
+        // Check if prompt category is not in eligible categories
+        if (!eligibleCategories.includes(prompt.category)) {
+          needsRegeneration = true
+          break
+        }
+      }
+      
+      // If prompts are correct, skip initialization
+      if (!needsRegeneration) {
+        return new Response(
+          JSON.stringify({ 
+            success: true, 
+            message: "Queue already initialized with correct categories",
+            prompts_scheduled: 0 
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        )
+      }
+      
+      // Delete incorrect prompts before regenerating
+      console.log(`[initialize-group-queue] Deleting incorrect prompts for group ${group_id}`)
+      await supabaseClient
+        .from("daily_prompts")
+        .delete()
+        .eq("group_id", group_id)
+        .gte("date", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0])
+        .is("user_id", null) // Only delete general prompts, keep birthday prompts
     }
 
     // Generate dates: 7 days past + today + 7 days future (15 days total)

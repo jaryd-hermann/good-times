@@ -66,7 +66,8 @@ export async function createGroup(name: string, type: "family" | "friends", user
   // Initialize question queue for the new group (non-blocking)
   // If this fails, group creation still succeeds (graceful degradation)
   try {
-    const { error: queueError } = await supabase.functions.invoke("initialize-group-queue", {
+    console.log(`[createGroup] Initializing queue for group ${group.id} (type: ${type})`)
+    const { data, error: queueError } = await supabase.functions.invoke("initialize-group-queue", {
       body: {
         group_id: group.id,
         group_type: type,
@@ -75,11 +76,13 @@ export async function createGroup(name: string, type: "family" | "friends", user
     })
 
     if (queueError) {
-      console.warn("[createGroup] Failed to initialize queue:", queueError)
+      console.error("[createGroup] Failed to initialize queue:", queueError)
       // Don't throw - group creation succeeded, queue can be initialized later
+    } else {
+      console.log(`[createGroup] Queue initialization result:`, data)
     }
   } catch (error) {
-    console.warn("[createGroup] Error calling initialize-group-queue:", error)
+    console.error("[createGroup] Error calling initialize-group-queue:", error)
     // Don't throw - group creation succeeded
   }
 
