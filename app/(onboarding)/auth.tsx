@@ -103,9 +103,10 @@ export default function OnboardingAuth() {
 
         if (profileError) throw profileError
 
-        const group = await createGroup(data.groupName, data.groupType, userId)
+        // Pass NSFW preference to createGroup to avoid race condition
+        const group = await createGroup(data.groupName, data.groupType, userId, data.enableNSFW ?? false)
 
-        // Set NSFW preference for friends groups
+        // Set NSFW preference for friends groups (still needed for persistence)
         if (data.groupType === "friends") {
           const { updateQuestionCategoryPreference } = await import("../../lib/db")
           // If NSFW is enabled, set preference to "more", otherwise set to "none" (disabled)

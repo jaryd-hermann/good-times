@@ -48,7 +48,12 @@ export async function getGroupMembers(groupId: string): Promise<(GroupMember & {
   return data || []
 }
 
-export async function createGroup(name: string, type: "family" | "friends", userId: string): Promise<Group> {
+export async function createGroup(
+  name: string, 
+  type: "family" | "friends", 
+  userId: string,
+  enableNSFW?: boolean // Optional: pass NSFW preference to avoid race condition
+): Promise<Group> {
   const { data: group, error: groupError } = await supabase
     .from("groups")
     .insert({ name, type, created_by: userId })
@@ -66,12 +71,13 @@ export async function createGroup(name: string, type: "family" | "friends", user
   // Initialize question queue for the new group (non-blocking)
   // If this fails, group creation still succeeds (graceful degradation)
   try {
-    console.log(`[createGroup] Initializing queue for group ${group.id} (type: ${type})`)
+    console.log(`[createGroup] Initializing queue for group ${group.id} (type: ${type}, NSFW: ${enableNSFW ?? false})`)
     const { data, error: queueError } = await supabase.functions.invoke("initialize-group-queue", {
       body: {
         group_id: group.id,
         group_type: type,
         created_by: userId,
+        enable_nsfw: enableNSFW ?? false, // Pass NSFW preference to avoid race condition
       },
     })
 

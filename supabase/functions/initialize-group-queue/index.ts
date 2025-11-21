@@ -155,7 +155,7 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
     )
 
-    const { group_id, group_type, created_by } = await req.json()
+    const { group_id, group_type, created_by, enable_nsfw } = await req.json()
 
     if (!group_id || !group_type) {
       throw new Error("group_id and group_type are required")
@@ -193,13 +193,28 @@ serve(async (req) => {
       (preferences || []).filter((p) => p.preference === "none").map((p) => p.category)
     )
 
+    // Check NSFW preference: use passed parameter first, then check preferences, then default to false
+    // For friends groups, NSFW is opt-in (default false), for family groups it's always disabled
+    let hasNSFW = false
+    if (groupType === "friends") {
+      if (enable_nsfw !== undefined) {
+        // Use passed parameter (avoids race condition)
+        hasNSFW = enable_nsfw === true
+      } else {
+        // Fallback: check preferences (might be set already)
+        const nsfwPref = (preferences || []).find((p) => p.category === "Edgy/NSFW")
+        hasNSFW = nsfwPref ? nsfwPref.preference !== "none" : false // Default to false if not set
+      }
+    }
+    // For family groups, NSFW is always disabled
+
     // Get category weights
     const categoryWeights = getCategoryWeights(preferences || [])
 
     // Determine eligible categories
     const eligibleCategories = getEligibleCategories(
       groupType,
-      !disabledCategories.has("Edgy/NSFW"), // hasNSFW = not disabled
+      hasNSFW,
       hasMemorials,
       disabledCategories
     )
@@ -215,6 +230,7 @@ serve(async (req) => {
     }
 
     // Get all prompts from eligible categories (excluding birthday prompts)
+    console.log(`[initialize-group-queue] Fetching prompts for categories:`, eligibleCategories)
     const { data: allPrompts, error: promptsError } = await supabaseClient
       .from("prompts")
       .select("*")
@@ -226,11 +242,21 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ 
           success: false, 
-          error: "No prompts available for eligible categories" 
+          error: "No prompts available for eligible categories",
+          eligible_categories: eligibleCategories
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
       )
     }
+
+    // Verify all prompts are in eligible categories (safety check)
+    const invalidPrompts = allPrompts.filter((p) => !eligibleCategories.includes(p.category))
+    if (invalidPrompts.length > 0) {
+      console.warn(`[initialize-group-queue] Found ${invalidPrompts.length} prompts with invalid categories:`, invalidPrompts.map(p => ({ id: p.id, category: p.category })))
+    }
+    
+    console.log(`[initialize-group-queue] Found ${allPrompts.length} prompts across categories:`, 
+      Array.from(new Set(allPrompts.map(p => p.category))))
 
     // Check if queue already exists and verify prompts match group type
     const today = new Date().toISOString().split("T")[0]

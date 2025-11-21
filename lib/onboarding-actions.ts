@@ -18,9 +18,10 @@ export async function createGroupFromOnboarding(data: OnboardingData) {
     throw new Error("Please add a group name before continuing.")
   }
 
-  const group = await createGroup(groupName, groupType, user.id)
+  // Pass NSFW preference to createGroup to avoid race condition
+  const group = await createGroup(groupName, groupType, user.id, data.enableNSFW ?? false)
 
-  // Set NSFW preference for friends groups
+  // Set NSFW preference for friends groups (still needed for persistence)
   if (groupType === "friends") {
     // If NSFW is enabled, set preference to "more", otherwise set to "none" (disabled)
     const nsfwPreference = data.enableNSFW ? "more" : "none"
