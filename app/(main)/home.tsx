@@ -248,24 +248,25 @@ export default function Home() {
         exact: false 
       })
       
-      // Re-enable queries after clearing cache (use setTimeout to ensure state update)
+      // Invalidate and refetch after clearing cache
+      queryClient.invalidateQueries({ 
+        queryKey: ["dailyPrompt", currentGroupId],
+        exact: false 
+      })
+      queryClient.invalidateQueries({ 
+        queryKey: ["entries", currentGroupId],
+        exact: false 
+      })
+      // Force refetch immediately
+      queryClient.refetchQueries({ 
+        queryKey: ["dailyPrompt", currentGroupId],
+        exact: false 
+      })
+      
+      // Clear switching state after a brief delay to allow queries to start
       setTimeout(() => {
         setIsGroupSwitching(false)
-        // Then invalidate to trigger refetch
-        queryClient.invalidateQueries({ 
-          queryKey: ["dailyPrompt", currentGroupId],
-          exact: false 
-        })
-        queryClient.invalidateQueries({ 
-          queryKey: ["entries", currentGroupId],
-          exact: false 
-        })
-        // Force refetch immediately
-        queryClient.refetchQueries({ 
-          queryKey: ["dailyPrompt", currentGroupId],
-          exact: false 
-        })
-      }, 50) // Small delay to ensure cache is cleared
+      }, 100) // Small delay to ensure cache is cleared and queries start
     }
     
     // Update ref for next render
@@ -333,15 +334,13 @@ export default function Home() {
   const { data: dailyPrompt, isLoading: isLoadingPrompt, isFetching: isFetchingPrompt } = useQuery({
     queryKey: ["dailyPrompt", currentGroupId, selectedDate, userId],
     queryFn: () => (currentGroupId ? getDailyPrompt(currentGroupId, selectedDate, userId) : null),
-    enabled: !!currentGroupId && !!selectedDate && !isGroupSwitching, // Disable during group switch
+    enabled: !!currentGroupId && !!selectedDate, // Always enabled when group and date are available
     staleTime: 0, // Always refetch when group changes (prevents showing wrong group's prompts)
     gcTime: 0, // Don't cache across group switches
     refetchOnMount: true, // Always refetch when component mounts to ensure fresh data
     refetchOnWindowFocus: true, // Refetch when screen comes into focus
     // Never show placeholder data - always wait for fresh data
     placeholderData: undefined,
-    // Keep previous data while loading to prevent flash, but only if it's for the same group
-    keepPreviousData: false, // Don't keep previous data - we want clean slate
   })
 
   const { data: userEntry } = useQuery({
@@ -353,14 +352,15 @@ export default function Home() {
   const { data: entries = [], isLoading: isLoadingEntries, isFetching: isFetchingEntries } = useQuery({
     queryKey: ["entries", currentGroupId, selectedDate],
     queryFn: () => (currentGroupId ? getEntriesForDate(currentGroupId, selectedDate) : []),
-    enabled: !!currentGroupId && !isGroupSwitching, // Disable during group switch
+    enabled: !!currentGroupId, // Always enabled when group is available
     staleTime: 0, // Always refetch when group changes
     gcTime: 0, // Don't cache across group switches
     placeholderData: undefined, // Never show stale data
   })
   
   // Determine if we're loading data for the current group
-  const isLoadingGroupData = isLoadingPrompt || isLoadingEntries || isFetchingPrompt || isFetchingEntries || isGroupSwitching
+  // Show loading if switching groups OR if queries are fetching
+  const isLoadingGroupData = isGroupSwitching || isLoadingPrompt || isLoadingEntries || isFetchingPrompt || isFetchingEntries
 
   const weekDates = getWeekDates()
   const currentGroup = groups.find((g) => g.id === currentGroupId)
