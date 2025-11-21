@@ -134,11 +134,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function loadUser(userId: string) {
     try {
-      const { data } = await supabase.from("users").select("*").eq("id", userId).single()
+      console.log('[AuthProvider] Loading user:', userId)
+      const { data, error } = await supabase.from("users").select("*").eq("id", userId).single()
+      
+      if (error) {
+        console.error('[AuthProvider] Error loading user:', error)
+      }
+      
+      console.log('[AuthProvider] User data loaded:', data ? 'success' : 'null', error ? `error: ${error.message}` : '')
+      
       setUser(data)
       
       // Identify user in PostHog after successful load
-      if (posthog && data) {
+      // Even if data is null, we can still identify the user with just the userId
+      if (posthog) {
+        if (data) {
         try {
           console.log('[PostHog] Attempting to identify user:', userId)
           
@@ -187,6 +197,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch (error) {
           console.error("[AuthProvider] Failed to identify user in PostHog:", error)
           // Don't block user loading if PostHog fails
+        }
+        } else {
+          // User data not loaded yet, but still identify with minimal info
+          console.log('[PostHog] Identifying user without profile data:', userId)
+          try {
+            posthog.identify(userId, {
+              profile_loaded: false,
+            })
+            posthog.capture('user_loaded', {
+              user_id: userId,
+              profile_loaded: false,
+            })
+            console.log('[PostHog] User identified without profile data')
+          } catch (error) {
+            console.error("[AuthProvider] Failed to identify user in PostHog (no profile):", error)
+          }
         }
       } else {
         console.warn('[PostHog] Cannot identify user - posthog:', !!posthog, 'data:', !!data)
