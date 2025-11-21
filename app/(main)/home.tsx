@@ -166,13 +166,57 @@ export default function Home() {
     queryKey: ["groups", userId],
     queryFn: () => (userId ? getUserGroups(userId) : []),
     enabled: !!userId,
+    staleTime: 0, // Always refetch groups to detect new groups
   })
+
+  // When groups list changes (new group added), invalidate prompts for all groups
+  useEffect(() => {
+    if (groups.length > 0 && currentGroupId) {
+      // Check if current group is in the list (might be a new group)
+      const currentGroup = groups.find((g) => g.id === currentGroupId)
+      if (currentGroup) {
+        // Invalidate prompts for current group to ensure fresh data
+        queryClient.invalidateQueries({ 
+          queryKey: ["dailyPrompt", currentGroupId],
+          exact: false 
+        })
+        queryClient.invalidateQueries({ 
+          queryKey: ["entries", currentGroupId],
+          exact: false 
+        })
+      }
+    }
+  }, [groups.length, currentGroupId, queryClient])
 
   useEffect(() => {
     if (focusGroupId && focusGroupId !== currentGroupId && groups.some((group) => group.id === focusGroupId)) {
       setCurrentGroupId(focusGroupId)
+      // Invalidate queries when switching to focused group
+      queryClient.invalidateQueries({ 
+        queryKey: ["dailyPrompt", focusGroupId],
+        exact: false 
+      })
+      queryClient.invalidateQueries({ 
+        queryKey: ["entries", focusGroupId],
+        exact: false 
+      })
     }
-  }, [focusGroupId, groups, currentGroupId])
+  }, [focusGroupId, groups, currentGroupId, queryClient])
+
+  // Invalidate queries when currentGroupId changes (e.g., after creating new group)
+  useEffect(() => {
+    if (currentGroupId) {
+      // Invalidate all prompts and entries for this group to ensure fresh data
+      queryClient.invalidateQueries({ 
+        queryKey: ["dailyPrompt", currentGroupId],
+        exact: false 
+      })
+      queryClient.invalidateQueries({ 
+        queryKey: ["entries", currentGroupId],
+        exact: false 
+      })
+    }
+  }, [currentGroupId, queryClient])
 
   // Check for unseen updates in each group
   const { data: groupUnseenStatus = {} } = useQuery({
@@ -236,6 +280,8 @@ export default function Home() {
     queryKey: ["dailyPrompt", currentGroupId, selectedDate, userId],
     queryFn: () => (currentGroupId ? getDailyPrompt(currentGroupId, selectedDate, userId) : null),
     enabled: !!currentGroupId,
+    staleTime: 0, // Always refetch when group changes (prevents showing wrong group's prompts)
+    gcTime: 0, // Don't cache across group switches
   })
 
   const { data: userEntry } = useQuery({
@@ -248,6 +294,8 @@ export default function Home() {
     queryKey: ["entries", currentGroupId, selectedDate],
     queryFn: () => (currentGroupId ? getEntriesForDate(currentGroupId, selectedDate) : []),
     enabled: !!currentGroupId,
+    staleTime: 0, // Always refetch when group changes
+    gcTime: 0, // Don't cache across group switches
   })
 
   const weekDates = getWeekDates()
@@ -343,6 +391,15 @@ export default function Home() {
       await AsyncStorage.setItem("current_group_id", groupId)
       // Mark group as visited
       await AsyncStorage.setItem(`group_visited_${groupId}`, new Date().toISOString())
+      // Invalidate all queries for the new group to ensure fresh data
+      queryClient.invalidateQueries({ 
+        queryKey: ["dailyPrompt", groupId],
+        exact: false 
+      })
+      queryClient.invalidateQueries({ 
+        queryKey: ["entries", groupId],
+        exact: false 
+      })
     }
     setGroupPickerVisible(false)
   }
