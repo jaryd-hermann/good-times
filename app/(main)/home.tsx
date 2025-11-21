@@ -204,8 +204,32 @@ export default function Home() {
     }
   }, [focusGroupId, groups, currentGroupId, queryClient])
 
+  // Track previous group ID to clear its cache when switching
+  const prevGroupIdRef = useRef<string | undefined>(undefined)
+
   // Invalidate queries when currentGroupId changes (e.g., after creating new group)
   useEffect(() => {
+    const prevGroupId = prevGroupIdRef.current
+    
+    // If group changed, clear ALL cached data for the previous group
+    if (prevGroupId && prevGroupId !== currentGroupId) {
+      console.log(`[home] Group changed from ${prevGroupId} to ${currentGroupId}, clearing old group cache`)
+      // Remove all queries for the previous group (all dates)
+      queryClient.removeQueries({ 
+        queryKey: ["dailyPrompt", prevGroupId],
+        exact: false 
+      })
+      queryClient.removeQueries({ 
+        queryKey: ["entries", prevGroupId],
+        exact: false 
+      })
+      queryClient.removeQueries({ 
+        queryKey: ["userEntry", prevGroupId],
+        exact: false 
+      })
+    }
+    
+    // Now handle the current group
     if (currentGroupId) {
       // Aggressively clear and invalidate all prompts and entries for this group
       queryClient.removeQueries({ 
@@ -214,6 +238,10 @@ export default function Home() {
       })
       queryClient.removeQueries({ 
         queryKey: ["entries", currentGroupId],
+        exact: false 
+      })
+      queryClient.removeQueries({ 
+        queryKey: ["userEntry", currentGroupId],
         exact: false 
       })
       // Then invalidate to trigger refetch
@@ -231,6 +259,9 @@ export default function Home() {
         exact: false 
       })
     }
+    
+    // Update ref for next render
+    prevGroupIdRef.current = currentGroupId
   }, [currentGroupId, queryClient])
 
   // Check for unseen updates in each group
@@ -405,19 +436,50 @@ export default function Home() {
 
   async function handleSelectGroup(groupId: string) {
     if (groupId !== currentGroupId) {
+      const oldGroupId = currentGroupId
+      
+      // Clear all cached data for the old group BEFORE switching
+      if (oldGroupId) {
+        queryClient.removeQueries({ 
+          queryKey: ["dailyPrompt", oldGroupId],
+          exact: false 
+        })
+        queryClient.removeQueries({ 
+          queryKey: ["entries", oldGroupId],
+          exact: false 
+        })
+        queryClient.removeQueries({ 
+          queryKey: ["userEntry", oldGroupId],
+          exact: false 
+        })
+      }
+      
+      // Switch to new group
       setCurrentGroupId(groupId)
-      setSelectedDate(getTodayDate())
+      setSelectedDate(getTodayDate()) // Reset to today when switching groups
+      
       // Persist current group ID to prevent loss on navigation
       await AsyncStorage.setItem("current_group_id", groupId)
       // Mark group as visited
       await AsyncStorage.setItem(`group_visited_${groupId}`, new Date().toISOString())
-      // Invalidate all queries for the new group to ensure fresh data
-      queryClient.invalidateQueries({ 
+      
+      // Clear and invalidate all queries for the new group to ensure fresh data
+      queryClient.removeQueries({ 
         queryKey: ["dailyPrompt", groupId],
         exact: false 
       })
-      queryClient.invalidateQueries({ 
+      queryClient.removeQueries({ 
         queryKey: ["entries", groupId],
+        exact: false 
+      })
+      queryClient.removeQueries({ 
+        queryKey: ["userEntry", groupId],
+        exact: false 
+      })
+      
+      // Force immediate refetch
+      queryClient.refetchQueries({ 
+        queryKey: ["dailyPrompt", groupId],
         exact: false 
       })
     }

@@ -135,7 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function loadUser(userId: string) {
     try {
       console.log('[AuthProvider] Loading user:', userId)
-      const { data, error } = await supabase.from("users").select("*").eq("id", userId).single()
+      const { data, error } = await supabase.from("users").select("*").eq("id", userId).maybeSingle()
       
       if (error) {
         console.error('[AuthProvider] Error loading user:', error)
