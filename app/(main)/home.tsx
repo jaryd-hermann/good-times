@@ -208,11 +208,11 @@ export default function Home() {
   // Track previous group ID to clear its cache when switching
   const prevGroupIdRef = useRef<string | undefined>(undefined)
 
-  // Invalidate queries when currentGroupId changes (e.g., after creating new group)
+  // Invalidate queries ONLY when currentGroupId changes (group switch), not on date changes
   useEffect(() => {
     const prevGroupId = prevGroupIdRef.current
     
-    // If group changed, set loading state and clear ALL cached data
+    // Only do this if group actually changed (not on initial mount or date changes)
     if (prevGroupId && prevGroupId !== currentGroupId) {
       console.log(`[home] Group changed from ${prevGroupId} to ${currentGroupId}, clearing old group cache`)
       setIsGroupSwitching(true) // Set loading state immediately
@@ -230,48 +230,49 @@ export default function Home() {
         queryKey: ["userEntry", prevGroupId],
         exact: false 
       })
-    }
-    
-    // Now handle the current group
-    if (currentGroupId) {
-      // Aggressively clear and invalidate all prompts and entries for this group
-      queryClient.removeQueries({ 
-        queryKey: ["dailyPrompt", currentGroupId],
-        exact: false 
-      })
-      queryClient.removeQueries({ 
-        queryKey: ["entries", currentGroupId],
-        exact: false 
-      })
-      queryClient.removeQueries({ 
-        queryKey: ["userEntry", currentGroupId],
-        exact: false 
-      })
       
-      // Invalidate and refetch after clearing cache
-      queryClient.invalidateQueries({ 
-        queryKey: ["dailyPrompt", currentGroupId],
-        exact: false 
-      })
-      queryClient.invalidateQueries({ 
-        queryKey: ["entries", currentGroupId],
-        exact: false 
-      })
-      // Force refetch immediately
-      queryClient.refetchQueries({ 
-        queryKey: ["dailyPrompt", currentGroupId],
-        exact: false 
-      })
-      
-      // Clear switching state after a brief delay to allow queries to start
-      setTimeout(() => {
-        setIsGroupSwitching(false)
-      }, 100) // Small delay to ensure cache is cleared and queries start
+      // Clear cache for new group to ensure fresh data
+      if (currentGroupId) {
+        queryClient.removeQueries({ 
+          queryKey: ["dailyPrompt", currentGroupId],
+          exact: false 
+        })
+        queryClient.removeQueries({ 
+          queryKey: ["entries", currentGroupId],
+          exact: false 
+        })
+        queryClient.removeQueries({ 
+          queryKey: ["userEntry", currentGroupId],
+          exact: false 
+        })
+        
+        // Invalidate and refetch for new group
+        queryClient.invalidateQueries({ 
+          queryKey: ["dailyPrompt", currentGroupId],
+          exact: false 
+        })
+        queryClient.invalidateQueries({ 
+          queryKey: ["entries", currentGroupId],
+          exact: false 
+        })
+        
+        // Force refetch immediately
+        queryClient.refetchQueries({ 
+          queryKey: ["dailyPrompt", currentGroupId],
+          exact: false 
+        })
+        
+        // Clear switching state once data starts loading
+        // Use a small delay to ensure queries have started
+        setTimeout(() => {
+          setIsGroupSwitching(false)
+        }, 150)
+      }
     }
     
     // Update ref for next render
     prevGroupIdRef.current = currentGroupId
-  }, [currentGroupId, queryClient])
+  }, [currentGroupId, queryClient]) // Only depend on currentGroupId, not selectedDate
 
   // Check for unseen updates in each group
   const { data: groupUnseenStatus = {} } = useQuery({
