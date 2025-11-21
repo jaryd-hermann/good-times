@@ -335,12 +335,19 @@ export default function Home() {
     queryKey: ["dailyPrompt", currentGroupId, selectedDate, userId],
     queryFn: () => (currentGroupId ? getDailyPrompt(currentGroupId, selectedDate, userId) : null),
     enabled: !!currentGroupId && !!selectedDate, // Always enabled when group and date are available
-    staleTime: 0, // Always refetch when group changes (prevents showing wrong group's prompts)
-    gcTime: 0, // Don't cache across group switches
-    refetchOnMount: true, // Always refetch when component mounts to ensure fresh data
-    refetchOnWindowFocus: true, // Refetch when screen comes into focus
-    // Never show placeholder data - always wait for fresh data
-    placeholderData: undefined,
+    staleTime: Infinity, // Use cached data for date navigation within same group (instant)
+    gcTime: 5 * 60 * 1000, // Keep cache for 5 minutes for smooth date navigation
+    refetchOnMount: false, // Don't refetch on mount if data is fresh
+    refetchOnWindowFocus: false, // Don't refetch on focus if data is fresh
+    // Only show placeholder data if it's for the same group (smooth date navigation)
+    placeholderData: (previousData) => {
+      // If switching groups, never show previous data
+      if (isGroupSwitching) {
+        return undefined
+      }
+      // For date navigation within same group, allow previous data for smooth UX
+      return previousData
+    },
   })
 
   const { data: userEntry } = useQuery({
@@ -353,14 +360,23 @@ export default function Home() {
     queryKey: ["entries", currentGroupId, selectedDate],
     queryFn: () => (currentGroupId ? getEntriesForDate(currentGroupId, selectedDate) : []),
     enabled: !!currentGroupId, // Always enabled when group is available
-    staleTime: 0, // Always refetch when group changes
-    gcTime: 0, // Don't cache across group switches
-    placeholderData: undefined, // Never show stale data
+    staleTime: Infinity, // Use cached data for date navigation within same group (instant)
+    gcTime: 5 * 60 * 1000, // Keep cache for 5 minutes for smooth date navigation
+    refetchOnMount: false, // Don't refetch on mount if data is fresh
+    refetchOnWindowFocus: false, // Don't refetch on focus if data is fresh
+    // Only show placeholder data if it's for the same group (smooth date navigation)
+    placeholderData: (previousData) => {
+      // If switching groups, never show previous data
+      if (isGroupSwitching) {
+        return undefined
+      }
+      // For date navigation within same group, allow previous data for smooth UX
+      return previousData
+    },
   })
   
-  // Determine if we're loading data for the current group
-  // Show loading if switching groups OR if queries are fetching
-  const isLoadingGroupData = isGroupSwitching || isLoadingPrompt || isLoadingEntries || isFetchingPrompt || isFetchingEntries
+  // Only show loading state when actually switching groups, not during normal date navigation
+  const isLoadingGroupData = isGroupSwitching
 
   const weekDates = getWeekDates()
   const currentGroup = groups.find((g) => g.id === currentGroupId)
