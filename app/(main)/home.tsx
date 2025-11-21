@@ -206,13 +206,27 @@ export default function Home() {
   // Invalidate queries when currentGroupId changes (e.g., after creating new group)
   useEffect(() => {
     if (currentGroupId) {
-      // Invalidate all prompts and entries for this group to ensure fresh data
+      // Aggressively clear and invalidate all prompts and entries for this group
+      queryClient.removeQueries({ 
+        queryKey: ["dailyPrompt", currentGroupId],
+        exact: false 
+      })
+      queryClient.removeQueries({ 
+        queryKey: ["entries", currentGroupId],
+        exact: false 
+      })
+      // Then invalidate to trigger refetch
       queryClient.invalidateQueries({ 
         queryKey: ["dailyPrompt", currentGroupId],
         exact: false 
       })
       queryClient.invalidateQueries({ 
         queryKey: ["entries", currentGroupId],
+        exact: false 
+      })
+      // Force refetch immediately
+      queryClient.refetchQueries({ 
+        queryKey: ["dailyPrompt", currentGroupId],
         exact: false 
       })
     }
@@ -352,7 +366,10 @@ export default function Home() {
 
   async function handleRefresh() {
     setRefreshing(true)
+    // Aggressively clear all caches and refetch
+    queryClient.removeQueries()
     await queryClient.invalidateQueries()
+    await queryClient.refetchQueries()
     setRefreshing(false)
   }
 
