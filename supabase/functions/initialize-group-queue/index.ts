@@ -401,6 +401,13 @@ serve(async (req) => {
         continue
       }
 
+      // Log selected prompt for debugging
+      console.log(`[initialize-group-queue] Selected prompt for ${date}:`, {
+        id: selectedPrompt.id,
+        category: selectedPrompt.category,
+        question: selectedPrompt.question?.substring(0, 50) + "..."
+      })
+
       // Track usage
       usedPromptIds.add(selectedPrompt.id)
       const currentCount = categoryUsage.get(selectedPrompt.category) || 0
@@ -411,6 +418,20 @@ serve(async (req) => {
         prompt_id: selectedPrompt.id,
       })
     }
+
+    // Log summary of scheduled prompts by category
+    const categoryCounts = new Map<string, number>()
+    for (const sp of scheduledPrompts) {
+      const prompt = allPrompts.find((p) => p.id === sp.prompt_id)
+      if (prompt) {
+        const count = categoryCounts.get(prompt.category) || 0
+        categoryCounts.set(prompt.category, count + 1)
+      } else {
+        console.warn(`[initialize-group-queue] Prompt ${sp.prompt_id} not found in allPrompts`)
+      }
+    }
+    console.log(`[initialize-group-queue] Scheduled prompts by category:`, 
+      Object.fromEntries(categoryCounts))
 
     // Batch insert all prompts
     if (scheduledPrompts.length > 0) {
@@ -425,7 +446,11 @@ serve(async (req) => {
           }))
         )
 
-      if (insertError) throw insertError
+      if (insertError) {
+        console.error(`[initialize-group-queue] Error inserting prompts:`, insertError)
+        throw insertError
+      }
+      console.log(`[initialize-group-queue] Successfully inserted ${scheduledPrompts.length} prompts`)
     }
 
     return new Response(
@@ -434,6 +459,7 @@ serve(async (req) => {
         prompts_scheduled: scheduledPrompts.length,
         dates: scheduledPrompts.map((sp) => sp.date),
         eligible_categories: eligibleCategories,
+        category_counts: Object.fromEntries(categoryCounts),
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     )
