@@ -365,17 +365,18 @@ serve(async (req) => {
       
       // Delete incorrect prompts before regenerating
       console.log(`[initialize-group-queue] Deleting incorrect prompts for group ${group_id}`)
-      const { error: deleteError } = await supabaseClient
+      const { data: deletedData, error: deleteError } = await supabaseClient
         .from("daily_prompts")
         .delete()
         .eq("group_id", group_id)
         .gte("date", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0])
         .is("user_id", null) // Only delete general prompts, keep birthday prompts
+        .select() // Return deleted rows to verify
       
       if (deleteError) {
         console.error(`[initialize-group-queue] Error deleting prompts:`, deleteError)
       } else {
-        console.log(`[initialize-group-queue] Successfully deleted incorrect prompts`)
+        console.log(`[initialize-group-queue] Successfully deleted ${deletedData?.length || 0} prompts`)
       }
     } else {
       console.log(`[initialize-group-queue] No existing prompts found, proceeding with fresh initialization`)
@@ -490,31 +491,38 @@ serve(async (req) => {
       console.log(`[initialize-group-queue] Filtered to ${scheduledPrompts.length} valid prompts`)
     }
 
-    // Batch insert all prompts
+    // Batch insert all prompts using upsert to handle UNIQUE constraint
     if (scheduledPrompts.length > 0) {
       console.log(`[initialize-group-queue] Attempting to insert ${scheduledPrompts.length} prompts for group ${group_id}`)
       console.log(`[initialize-group-queue] Sample prompt data:`, scheduledPrompts.slice(0, 3))
       
+      // Use upsert with onConflict to handle UNIQUE(group_id, date) constraint
       const { data: insertData, error: insertError } = await supabaseClient
         .from("daily_prompts")
-        .insert(
+        .upsert(
           scheduledPrompts.map((sp) => ({
             group_id,
             prompt_id: sp.prompt_id,
             date: sp.date,
             user_id: null, // General prompts for all members
-          }))
+          })),
+          {
+            onConflict: 'group_id,date', // Handle UNIQUE constraint
+            ignoreDuplicates: false, // Update existing rows
+          }
         )
-        .select() // Return inserted rows to verify
+        .select() // Return inserted/updated rows to verify
 
       if (insertError) {
         console.error(`[initialize-group-queue] Error inserting prompts:`, insertError)
+        console.error(`[initialize-group-queue] Error code:`, insertError.code)
+        console.error(`[initialize-group-queue] Error message:`, insertError.message)
         console.error(`[initialize-group-queue] Error details:`, JSON.stringify(insertError, null, 2))
         throw insertError
       }
       
-      console.log(`[initialize-group-queue] Successfully inserted ${scheduledPrompts.length} prompts`)
-      console.log(`[initialize-group-queue] Inserted rows count:`, insertData?.length || 0)
+      console.log(`[initialize-group-queue] Successfully inserted/updated ${scheduledPrompts.length} prompts`)
+      console.log(`[initialize-group-queue] Inserted/updated rows count:`, insertData?.length || 0)
       
       // Verify inserts by querying back
       const { data: verifyData, error: verifyError } = await supabaseClient
@@ -522,6 +530,7 @@ serve(async (req) => {
         .select("id, date, prompt_id")
         .eq("group_id", group_id)
         .in("date", scheduledPrompts.map(sp => sp.date))
+        .is("user_id", null) // Only check general prompts
       
       if (verifyError) {
         console.error(`[initialize-group-queue] Error verifying inserts:`, verifyError)
@@ -529,6 +538,11 @@ serve(async (req) => {
         console.log(`[initialize-group-queue] Verified ${verifyData?.length || 0} prompts in database for group ${group_id}`)
         if ((verifyData?.length || 0) !== scheduledPrompts.length) {
           console.warn(`[initialize-group-queue] WARNING: Expected ${scheduledPrompts.length} prompts, but found ${verifyData?.length || 0} in database!`)
+          console.warn(`[initialize-group-queue] Missing dates:`, 
+            scheduledPrompts
+              .map(sp => sp.date)
+              .filter(date => !verifyData?.some(v => v.date === date))
+          )
         }
       }
     } else {
