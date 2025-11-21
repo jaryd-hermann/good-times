@@ -419,19 +419,42 @@ serve(async (req) => {
       })
     }
 
-    // Log summary of scheduled prompts by category
+    // Log summary of scheduled prompts by category and validate
     const categoryCounts = new Map<string, number>()
+    const invalidPrompts: Array<{ date: string; prompt_id: string; category: string }> = []
+    
     for (const sp of scheduledPrompts) {
       const prompt = allPrompts.find((p) => p.id === sp.prompt_id)
       if (prompt) {
+        // Validate that prompt category is in eligible categories
+        if (!eligibleCategories.includes(prompt.category)) {
+          invalidPrompts.push({
+            date: sp.date,
+            prompt_id: sp.prompt_id,
+            category: prompt.category
+          })
+          console.error(`[initialize-group-queue] INVALID: Prompt ${sp.prompt_id} has category "${prompt.category}" which is not in eligible categories!`)
+        }
+        
         const count = categoryCounts.get(prompt.category) || 0
         categoryCounts.set(prompt.category, count + 1)
       } else {
         console.warn(`[initialize-group-queue] Prompt ${sp.prompt_id} not found in allPrompts`)
       }
     }
+    
     console.log(`[initialize-group-queue] Scheduled prompts by category:`, 
       Object.fromEntries(categoryCounts))
+    
+    if (invalidPrompts.length > 0) {
+      console.error(`[initialize-group-queue] Found ${invalidPrompts.length} invalid prompts!`, invalidPrompts)
+      // Remove invalid prompts before insertion
+      scheduledPrompts = scheduledPrompts.filter((sp) => {
+        const prompt = allPrompts.find((p) => p.id === sp.prompt_id)
+        return prompt && eligibleCategories.includes(prompt.category)
+      })
+      console.log(`[initialize-group-queue] Filtered to ${scheduledPrompts.length} valid prompts`)
+    }
 
     // Batch insert all prompts
     if (scheduledPrompts.length > 0) {
