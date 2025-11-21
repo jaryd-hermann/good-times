@@ -296,35 +296,49 @@ serve(async (req) => {
     // This prevents any pre-existing prompts from interfering
     console.log(`[initialize-group-queue] Checking for existing prompts for group ${group_id}`)
     const today = new Date().toISOString().split("T")[0]
-    const { data: existingPrompts } = await supabaseClient
+    
+    // First, check if prompts exist (without join to avoid potential issues)
+    const { data: existingPromptIds, error: checkError } = await supabaseClient
       .from("daily_prompts")
-      .select("id, prompt_id, prompt:prompts(category)")
+      .select("prompt_id")
       .eq("group_id", group_id)
       .gte("date", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0])
       .is("user_id", null) // Only check general prompts
+      .limit(1)
     
-    console.log(`[initialize-group-queue] Found ${existingPrompts?.length || 0} existing prompts`)
-
-    // Check if existing prompts have incorrect categories for this group type
+    if (checkError) {
+      console.error(`[initialize-group-queue] Error checking existing prompts:`, checkError)
+      // Continue anyway - better to regenerate than fail completely
+    }
+    
+    console.log(`[initialize-group-queue] Found ${existingPromptIds?.length || 0} existing prompts`)
+    
+    // If prompts exist, fetch their categories to validate
     let needsRegeneration = false
-    if (existingPrompts && existingPrompts.length > 0) {
-      for (const ep of existingPrompts) {
-        const prompt = ep.prompt as any
-        if (!prompt) continue
-        
-        // Check if prompt category doesn't match group type
-        if (groupType === "friends" && prompt.category === "Family") {
-          needsRegeneration = true
-          break
-        } else if (groupType === "family" && prompt.category === "Friends") {
-          needsRegeneration = true
-          break
-        }
-        
-        // Check if prompt category is not in eligible categories
-        if (!eligibleCategories.includes(prompt.category)) {
-          needsRegeneration = true
-          break
+    if (existingPromptIds && existingPromptIds.length > 0) {
+      // Get the actual prompt categories
+      const promptIds = existingPromptIds.map((ep: any) => ep.prompt_id)
+      const { data: promptCategories } = await supabaseClient
+        .from("prompts")
+        .select("id, category")
+        .in("id", promptIds)
+      
+      if (promptCategories) {
+        for (const prompt of promptCategories) {
+          // Check if prompt category doesn't match group type
+          if (groupType === "friends" && prompt.category === "Family") {
+            needsRegeneration = true
+            break
+          } else if (groupType === "family" && prompt.category === "Friends") {
+            needsRegeneration = true
+            break
+          }
+          
+          // Check if prompt category is not in eligible categories
+          if (!eligibleCategories.includes(prompt.category)) {
+            needsRegeneration = true
+            break
+          }
         }
       }
       
@@ -341,7 +355,7 @@ serve(async (req) => {
       }
       
       // Delete incorrect prompts before regenerating
-      console.log(`[initialize-group-queue] Deleting ${existingPrompts.length} incorrect prompts for group ${group_id}`)
+      console.log(`[initialize-group-queue] Deleting incorrect prompts for group ${group_id}`)
       const { error: deleteError } = await supabaseClient
         .from("daily_prompts")
         .delete()
