@@ -85,7 +85,21 @@ export async function createGroup(
       console.error("[createGroup] Failed to initialize queue:", queueError)
       // Try to get error details from the response
       if (queueError.context) {
-        console.error("[createGroup] Error context:", queueError.context)
+        const context = queueError.context as any
+        console.error("[createGroup] Error context:", context)
+        
+        // Try to read the response body if available
+        try {
+          if (context._bodyBlob && !context.bodyUsed) {
+            const text = await context._bodyBlob.text()
+            console.error("[createGroup] Error response body:", text)
+          } else if (context._bodyInit) {
+            const text = await context._bodyInit.text()
+            console.error("[createGroup] Error response body:", text)
+          }
+        } catch (e) {
+          console.error("[createGroup] Could not read error response body:", e)
+        }
       }
       if (queueError.message) {
         console.error("[createGroup] Error message:", queueError.message)
