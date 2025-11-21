@@ -13,6 +13,7 @@ import { ErrorBoundary } from "../components/ErrorBoundary"
 import * as Linking from "expo-linking"
 import * as Notifications from "expo-notifications"
 import { router } from "expo-router"
+import { PostHogProvider } from "posthog-react-native"
 // Import supabase with error handling
 let supabase: any
 try {
@@ -206,15 +207,39 @@ export default function RootLayout() {
     return null // Keep splash screen visible while fonts load
   }
 
+  // PostHog configuration
+  const posthogApiKey = process.env.EXPO_PUBLIC_POSTHOG_API_KEY || ''
+  const posthogHost = process.env.EXPO_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com'
+  const isPostHogConfigured = posthogApiKey && posthogApiKey.startsWith('phc_')
+
+  // Always render PostHogProvider to satisfy React hooks rules
+  // When not configured, PostHogProvider may not initialize properly, but usePostHog will return null
+  // ErrorBoundary will catch any initialization errors
   return (
     <ErrorBoundary>
-      <SafeAreaProvider>
-        <AuthProvider>
-          <QueryClientProvider client={queryClient}>
-            <Stack screenOptions={{ headerShown: false }} />
-          </QueryClientProvider>
-        </AuthProvider>
-      </SafeAreaProvider>
+      <PostHogProvider
+        apiKey={isPostHogConfigured ? posthogApiKey : 'phc_dummy_key_for_unconfigured'}
+        options={{
+          host: posthogHost,
+          // Privacy-first settings - only enable when configured
+          captureApplicationLifecycleEvents: isPostHogConfigured,
+          captureDeepLinks: isPostHogConfigured,
+          captureScreens: isPostHogConfigured,
+          captureScreenViews: isPostHogConfigured,
+          sessionReplay: false, // Disabled for privacy
+          anonymizeIP: true,
+          enableFeatureFlags: false, // Disabled initially
+          debug: __DEV__ && isPostHogConfigured,
+        }}
+      >
+        <SafeAreaProvider>
+          <AuthProvider>
+            <QueryClientProvider client={queryClient}>
+              <Stack screenOptions={{ headerShown: false }} />
+            </QueryClientProvider>
+          </AuthProvider>
+        </SafeAreaProvider>
+      </PostHogProvider>
     </ErrorBoundary>
   )
 }
