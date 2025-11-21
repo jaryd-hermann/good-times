@@ -157,6 +157,14 @@ serve(async (req) => {
 
     const { group_id, group_type, created_by, enable_nsfw } = await req.json()
 
+    console.log(`[initialize-group-queue] Received parameters:`, {
+      group_id,
+      group_type,
+      enable_nsfw,
+      enable_nsfw_type: typeof enable_nsfw,
+      enable_nsfw_value: enable_nsfw
+    })
+
     if (!group_id || !group_type) {
       throw new Error("group_id and group_type are required")
     }
@@ -197,16 +205,23 @@ serve(async (req) => {
     // For friends groups, NSFW is opt-in (default false), for family groups it's always disabled
     let hasNSFW = false
     if (groupType === "friends") {
-      if (enable_nsfw !== undefined) {
+      if (enable_nsfw !== undefined && enable_nsfw !== null) {
         // Use passed parameter (avoids race condition)
-        hasNSFW = enable_nsfw === true
+        // Handle both boolean true/false and string "true"/"false"
+        hasNSFW = enable_nsfw === true || enable_nsfw === "true"
+        console.log(`[initialize-group-queue] NSFW from parameter: ${enable_nsfw} → hasNSFW: ${hasNSFW}`)
       } else {
         // Fallback: check preferences (might be set already)
         const nsfwPref = (preferences || []).find((p) => p.category === "Edgy/NSFW")
         hasNSFW = nsfwPref ? nsfwPref.preference !== "none" : false // Default to false if not set
+        console.log(`[initialize-group-queue] NSFW from preferences:`, nsfwPref, `→ hasNSFW: ${hasNSFW}`)
       }
+    } else {
+      console.log(`[initialize-group-queue] Group type is ${groupType}, NSFW always disabled`)
     }
     // For family groups, NSFW is always disabled
+    
+    console.log(`[initialize-group-queue] Final hasNSFW value: ${hasNSFW}`)
 
     // Get category weights
     const categoryWeights = getCategoryWeights(preferences || [])
@@ -218,6 +233,14 @@ serve(async (req) => {
       hasMemorials,
       disabledCategories
     )
+    
+    console.log(`[initialize-group-queue] Eligible categories determined:`, {
+      groupType,
+      hasNSFW,
+      hasMemorials,
+      disabledCategories: Array.from(disabledCategories),
+      eligibleCategories
+    })
 
     if (eligibleCategories.length === 0) {
       return new Response(
@@ -258,7 +281,9 @@ serve(async (req) => {
     console.log(`[initialize-group-queue] Found ${allPrompts.length} prompts across categories:`, 
       Array.from(new Set(allPrompts.map(p => p.category))))
 
-    // Check if queue already exists and verify prompts match group type
+    // For NEW groups, delete ALL existing prompts to ensure clean initialization
+    // This prevents any pre-existing prompts from interfering
+    console.log(`[initialize-group-queue] Checking for existing prompts for group ${group_id}`)
     const today = new Date().toISOString().split("T")[0]
     const { data: existingPrompts } = await supabaseClient
       .from("daily_prompts")
@@ -266,6 +291,8 @@ serve(async (req) => {
       .eq("group_id", group_id)
       .gte("date", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0])
       .is("user_id", null) // Only check general prompts
+    
+    console.log(`[initialize-group-queue] Found ${existingPrompts?.length || 0} existing prompts`)
 
     // Check if existing prompts have incorrect categories for this group type
     let needsRegeneration = false
@@ -303,13 +330,21 @@ serve(async (req) => {
       }
       
       // Delete incorrect prompts before regenerating
-      console.log(`[initialize-group-queue] Deleting incorrect prompts for group ${group_id}`)
-      await supabaseClient
+      console.log(`[initialize-group-queue] Deleting ${existingPrompts.length} incorrect prompts for group ${group_id}`)
+      const { error: deleteError } = await supabaseClient
         .from("daily_prompts")
         .delete()
         .eq("group_id", group_id)
         .gte("date", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0])
         .is("user_id", null) // Only delete general prompts, keep birthday prompts
+      
+      if (deleteError) {
+        console.error(`[initialize-group-queue] Error deleting prompts:`, deleteError)
+      } else {
+        console.log(`[initialize-group-queue] Successfully deleted incorrect prompts`)
+      }
+    } else {
+      console.log(`[initialize-group-queue] No existing prompts found, proceeding with fresh initialization`)
     }
 
     // Generate dates: 7 days past + today + 7 days future (15 days total)
