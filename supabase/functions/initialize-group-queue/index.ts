@@ -364,7 +364,7 @@ serve(async (req) => {
 
     // Track category usage for variety
     const categoryUsage = new Map<string, number>() // category -> count in current 7-day window
-    const scheduledPrompts: Array<{ date: string; prompt_id: string }> = []
+    let scheduledPrompts: Array<{ date: string; prompt_id: string }> = [] // Use let to allow filtering
     const usedPromptIds = new Set<string>()
 
     // Generate queue for each date
@@ -488,9 +488,16 @@ serve(async (req) => {
     )
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
+    const errorStack = error instanceof Error ? error.stack : undefined
     console.error("[initialize-group-queue] Fatal error:", errorMessage)
+    console.error("[initialize-group-queue] Error stack:", errorStack)
+    console.error("[initialize-group-queue] Full error object:", JSON.stringify(error, Object.getOwnPropertyNames(error)))
     return new Response(
-      JSON.stringify({ error: errorMessage }),
+      JSON.stringify({ 
+        success: false,
+        error: errorMessage,
+        details: errorStack ? errorStack.substring(0, 500) : undefined
+      }),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 500,

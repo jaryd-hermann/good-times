@@ -83,12 +83,25 @@ export async function createGroup(
 
     if (queueError) {
       console.error("[createGroup] Failed to initialize queue:", queueError)
+      // Try to get error details from the response
+      if (queueError.context) {
+        console.error("[createGroup] Error context:", queueError.context)
+      }
+      if (queueError.message) {
+        console.error("[createGroup] Error message:", queueError.message)
+      }
       // Don't throw - group creation succeeded, queue can be initialized later
     } else {
       console.log(`[createGroup] Queue initialization result:`, data)
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error("[createGroup] Error calling initialize-group-queue:", error)
+    if (error.message) {
+      console.error("[createGroup] Error message:", error.message)
+    }
+    if (error.context) {
+      console.error("[createGroup] Error context:", error.context)
+    }
     // Don't throw - group creation succeeded
   }
 
