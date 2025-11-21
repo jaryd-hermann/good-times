@@ -282,6 +282,8 @@ export default function Home() {
     enabled: !!currentGroupId,
     staleTime: 0, // Always refetch when group changes (prevents showing wrong group's prompts)
     gcTime: 0, // Don't cache across group switches
+    refetchOnMount: true, // Always refetch when component mounts to ensure fresh data
+    refetchOnWindowFocus: true, // Refetch when screen comes into focus
   })
 
   const { data: userEntry } = useQuery({

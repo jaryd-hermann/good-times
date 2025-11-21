@@ -60,7 +60,10 @@ export default function Invite() {
       data: { user },
     } = await supabase.auth.getUser()
     if (!user) {
-      router.replace("/(main)/home")
+      router.replace({
+        pathname: "/(main)/home",
+        params: { focusGroupId: groupId },
+      })
       return
     }
 
