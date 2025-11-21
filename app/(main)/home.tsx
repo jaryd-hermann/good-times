@@ -247,33 +247,30 @@ export default function Home() {
         queryKey: ["userEntry", currentGroupId],
         exact: false 
       })
-      // Then invalidate to trigger refetch
-      queryClient.invalidateQueries({ 
-        queryKey: ["dailyPrompt", currentGroupId],
-        exact: false 
-      })
-      queryClient.invalidateQueries({ 
-        queryKey: ["entries", currentGroupId],
-        exact: false 
-      })
-      // Force refetch immediately
-      queryClient.refetchQueries({ 
-        queryKey: ["dailyPrompt", currentGroupId],
-        exact: false 
-      })
+      
+      // Re-enable queries after clearing cache (use setTimeout to ensure state update)
+      setTimeout(() => {
+        setIsGroupSwitching(false)
+        // Then invalidate to trigger refetch
+        queryClient.invalidateQueries({ 
+          queryKey: ["dailyPrompt", currentGroupId],
+          exact: false 
+        })
+        queryClient.invalidateQueries({ 
+          queryKey: ["entries", currentGroupId],
+          exact: false 
+        })
+        // Force refetch immediately
+        queryClient.refetchQueries({ 
+          queryKey: ["dailyPrompt", currentGroupId],
+          exact: false 
+        })
+      }, 50) // Small delay to ensure cache is cleared
     }
     
     // Update ref for next render
     prevGroupIdRef.current = currentGroupId
   }, [currentGroupId, queryClient])
-  
-  // Clear group switching state once data is loaded
-  useEffect(() => {
-    if (isGroupSwitching && !isLoadingGroupData && dailyPrompt !== undefined) {
-      // Data has loaded, clear the switching flag
-      setIsGroupSwitching(false)
-    }
-  }, [isGroupSwitching, isLoadingGroupData, dailyPrompt])
 
   // Check for unseen updates in each group
   const { data: groupUnseenStatus = {} } = useQuery({
@@ -343,6 +340,8 @@ export default function Home() {
     refetchOnWindowFocus: true, // Refetch when screen comes into focus
     // Never show placeholder data - always wait for fresh data
     placeholderData: undefined,
+    // Keep previous data while loading to prevent flash, but only if it's for the same group
+    keepPreviousData: false, // Don't keep previous data - we want clean slate
   })
 
   const { data: userEntry } = useQuery({
