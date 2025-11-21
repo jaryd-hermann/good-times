@@ -496,22 +496,36 @@ serve(async (req) => {
       console.log(`[initialize-group-queue] Attempting to insert ${scheduledPrompts.length} prompts for group ${group_id}`)
       console.log(`[initialize-group-queue] Sample prompt data:`, scheduledPrompts.slice(0, 3))
       
-      // Use upsert with onConflict to handle UNIQUE(group_id, date) constraint
+      // Delete existing prompts first to ensure clean insert (handles UNIQUE constraint)
+      // The UNIQUE index is on (group_id, date, COALESCE(user_id, '00000000-0000-0000-0000-000000000000'))
+      // Since we're inserting with user_id: null, we need to delete first to avoid conflicts
+      const datesToInsert = scheduledPrompts.map(sp => sp.date)
+      const { error: deleteExistingError } = await supabaseClient
+        .from("daily_prompts")
+        .delete()
+        .eq("group_id", group_id)
+        .in("date", datesToInsert)
+        .is("user_id", null) // Only delete general prompts
+      
+      if (deleteExistingError) {
+        console.error(`[initialize-group-queue] Error deleting existing prompts:`, deleteExistingError)
+        // Continue anyway - upsert will handle conflicts
+      } else {
+        console.log(`[initialize-group-queue] Deleted existing prompts for dates:`, datesToInsert)
+      }
+      
+      // Now insert fresh prompts (no conflicts since we deleted them)
       const { data: insertData, error: insertError } = await supabaseClient
         .from("daily_prompts")
-        .upsert(
+        .insert(
           scheduledPrompts.map((sp) => ({
             group_id,
             prompt_id: sp.prompt_id,
             date: sp.date,
             user_id: null, // General prompts for all members
-          })),
-          {
-            onConflict: 'group_id,date,user_id', // Handle UNIQUE constraint (from migration 008)
-            ignoreDuplicates: false, // Update existing rows
-          }
+          }))
         )
-        .select() // Return inserted/updated rows to verify
+        .select() // Return inserted rows to verify
 
       if (insertError) {
         console.error(`[initialize-group-queue] Error inserting prompts:`, insertError)
