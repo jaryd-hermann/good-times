@@ -178,16 +178,41 @@ serve(async (req) => {
         (preferences || []).filter((p) => p.preference === "none").map((p) => p.category)
       )
 
-      // Get group type to filter prompts by group type
+      // Determine eligible categories (same logic as initialize-group-queue)
+      const eligibleCategories: string[] = []
+      
+      // Always eligible categories
+      if (!disabledCategories.has("Fun")) {
+        eligibleCategories.push("Fun")
+      }
+      if (!disabledCategories.has("A Bit Deeper")) {
+        eligibleCategories.push("A Bit Deeper")
+      }
+      
+      // Group type specific
       if (groupData?.type === "family") {
+        if (!disabledCategories.has("Family")) {
+          eligibleCategories.push("Family")
+        }
+        // Exclude Friends and Edgy/NSFW for Family groups
+        disabledCategories.add("Friends")
         disabledCategories.add("Edgy/NSFW")
-        disabledCategories.add("Friends") // Exclude Friends category for Family groups
       } else if (groupData?.type === "friends") {
-        disabledCategories.add("Family") // Exclude Family category for Friends groups
+        if (!disabledCategories.has("Friends")) {
+          eligibleCategories.push("Friends")
+        }
+        // Exclude Family for Friends groups
+        disabledCategories.add("Family")
+        // Edgy/NSFW is eligible if not disabled
+        if (!disabledCategories.has("Edgy/NSFW")) {
+          eligibleCategories.push("Edgy/NSFW")
+        }
       }
 
-      // Filter out "Remembering" category if no memorials
-      if (!hasMemorials) {
+      // Conditional categories
+      if (hasMemorials && !disabledCategories.has("Remembering")) {
+        eligibleCategories.push("Remembering")
+      } else {
         disabledCategories.add("Remembering")
       }
 
@@ -230,27 +255,22 @@ serve(async (req) => {
         // Get all prompts, excluding used ones and birthday prompts
         let availablePrompts: any[] = []
 
-        if (usedPromptIds.length > 0) {
-          const { data: allPromptsData } = await supabaseClient
-            .from("prompts")
-            .select("*")
-            .is("birthday_type", null) // Exclude birthday prompts
+        // Get prompts from eligible categories only
+        const { data: allPromptsData } = await supabaseClient
+          .from("prompts")
+          .select("*")
+          .in("category", eligibleCategories.length > 0 ? eligibleCategories : ["Fun", "A Bit Deeper"]) // Fallback if no eligible
+          .is("birthday_type", null) // Exclude birthday prompts
 
-          availablePrompts = (allPromptsData || []).filter((p) => !usedPromptIds.includes(p.id))
-        } else {
-          const { data: allPromptsData } = await supabaseClient
-            .from("prompts")
-            .select("*")
-            .is("birthday_type", null) // Exclude birthday prompts
-
-          availablePrompts = allPromptsData || []
-        }
+        // Filter out used prompts
+        availablePrompts = (allPromptsData || []).filter((p) => !usedPromptIds.includes(p.id))
 
         if (!availablePrompts || availablePrompts.length === 0) {
-          // If all prompts have been used, reset and use all prompts again
+          // If all prompts have been used, reset and use all eligible prompts again
           const { data: allPromptsRaw } = await supabaseClient
             .from("prompts")
             .select("*")
+            .in("category", eligibleCategories.length > 0 ? eligibleCategories : ["Fun", "A Bit Deeper"])
             .is("birthday_type", null)
 
           if (!allPromptsRaw || allPromptsRaw.length === 0) {
@@ -258,10 +278,7 @@ serve(async (req) => {
             continue
           }
 
-          // Filter out disabled categories
-          const allPrompts = disabledCategories.size > 0
-            ? allPromptsRaw.filter((p) => !disabledCategories.has(p.category))
-            : allPromptsRaw
+          const allPrompts = allPromptsRaw
 
           if (allPrompts.length === 0) {
             results.push({ group_id: group.id, status: "no_prompts_available" })
@@ -288,10 +305,8 @@ serve(async (req) => {
           const dayIndex = getDayIndex(today, group.id)
           selectedPrompt = selectionPool[dayIndex % selectionPool.length]
         } else {
-          // Filter out disabled categories from available prompts
-          const filteredPrompts = disabledCategories.size > 0
-            ? availablePrompts.filter((p) => !disabledCategories.has(p.category))
-            : availablePrompts
+          // availablePrompts already filtered by eligible categories
+          const filteredPrompts = availablePrompts
 
           if (filteredPrompts.length === 0) {
             results.push({ group_id: group.id, status: "no_prompts_available" })
@@ -302,13 +317,13 @@ serve(async (req) => {
           const weightedPrompts: Array<{ prompt: any; weight: number }> = filteredPrompts.map((prompt) => {
             const pref = (preferences || []).find((p) => p.category === prompt.category)
             const weight = pref?.weight ?? 1.0
-            return { prompt, weight }
+            return { prompt, weight: Math.max(0, weight) } // Ensure non-negative
           })
 
           // Create selection pool with weighted prompts
           const selectionPool: any[] = []
           weightedPrompts.forEach(({ prompt, weight }) => {
-            const count = Math.ceil(weight)
+            const count = Math.max(1, Math.ceil(weight * 10)) // Scale weight similar to initialize function
             for (let i = 0; i < count; i++) {
               selectionPool.push(prompt)
             }

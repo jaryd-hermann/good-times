@@ -19,41 +19,68 @@ export default function Feedback() {
 
   async function handleEmail() {
     try {
-      // Check for Gmail app first
-      const gmailUrls = ["googlegmail://co?to=", "gmail://co?to="]
-      let gmailFound = false
+      // Try Gmail app first (iOS and Android)
+      // Format: googlegmail://co?to=email@example.com
+      const gmailUrl = `googlegmail://co?to=${encodeURIComponent(EMAIL)}`
       
-      for (const gmailUrl of gmailUrls) {
+      try {
+        // Check if Gmail can be opened
+        const canOpenGmail = await Linking.canOpenURL(gmailUrl)
+        if (canOpenGmail) {
+          await Linking.openURL(gmailUrl)
+          return
+        }
+      } catch (gmailError) {
+        // Gmail check failed, try opening directly anyway (canOpenURL can be unreliable)
         try {
-          const canOpenGmail = await Linking.canOpenURL(gmailUrl + EMAIL)
-          if (canOpenGmail) {
-            await Linking.openURL(gmailUrl + EMAIL)
-            gmailFound = true
-            return
-          }
-        } catch {
-          // Continue to next URL scheme
+          await Linking.openURL(gmailUrl)
+          return
+        } catch (openError) {
+          // Gmail not available, continue to next option
         }
       }
       
-      // If Gmail not found, check for Apple Mail
-      if (!gmailFound) {
-        const mailtoUrl = `mailto:${EMAIL}`
+      // Try alternative Gmail scheme (Android)
+      const gmailAltUrl = `gmail://co?to=${encodeURIComponent(EMAIL)}`
+      try {
+        const canOpenGmailAlt = await Linking.canOpenURL(gmailAltUrl)
+        if (canOpenGmailAlt) {
+          await Linking.openURL(gmailAltUrl)
+          return
+        }
+      } catch (gmailAltError) {
+        // Try opening directly
         try {
-          const canOpenMail = await Linking.canOpenURL(mailtoUrl)
-          if (canOpenMail) {
-            await Linking.openURL(mailtoUrl)
-            return
-          }
-        } catch {
-          // Continue to fallback
+          await Linking.openURL(gmailAltUrl)
+          return
+        } catch (openError) {
+          // Not available
         }
       }
       
-      // If neither app found, show copy modal
+      // Try standard mailto: (works for Apple Mail and other email apps)
+      const mailtoUrl = `mailto:${EMAIL}`
+      try {
+        const canOpenMail = await Linking.canOpenURL(mailtoUrl)
+        if (canOpenMail) {
+          await Linking.openURL(mailtoUrl)
+          return
+        }
+      } catch (mailError) {
+        // Try opening directly
+        try {
+          await Linking.openURL(mailtoUrl)
+          return
+        } catch (openError) {
+          // Mail app not available
+        }
+      }
+      
+      // If no email app found, show copy modal
       setShowEmailModal(true)
     } catch (error: any) {
       // Fallback to copy modal on any error
+      console.warn("[Feedback] Error opening email:", error)
       setShowEmailModal(true)
     }
   }

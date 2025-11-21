@@ -124,7 +124,7 @@
 ### Latest Commits (Most Recent First)
 1. **Date picker visibility fix**: Changed modal background to black (matches settings.tsx pattern)
 2. **Keyboard behavior fix**: Added ScrollView wrapper to auth screen, adjusted KeyboardAvoidingView
-3. **App icon update**: Changed to `icon-new.png`
+3. **App icon update**: Changed to `icon-ios.png`
 4. **useRef import fix**: Added missing import in auth.tsx
 5. **EAS build fixes**: Added `NPM_CONFIG_LEGACY_PEER_DEPS` for npm ci compatibility
 
@@ -298,7 +298,7 @@ git status
 ### `app.config.ts`
 - **Version**: `1.1.0`
 - **Build Number**: `5` (increment for each TestFlight submission)
-- **Icon**: `./assets/images/icon-new.png`
+- **Icon**: `./assets/images/icon-ios.png`
 - **Scheme**: `goodtimes://` (for deep links)
 - **New Architecture**: `false`
 - **iOS Deployment Target**: `15.1` (set in `ios/Podfile.properties.json`)

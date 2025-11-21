@@ -6,7 +6,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   slug: "good-times",
   version: "1.2.0", // User-facing version (e.g., "1.1.0", "1.2.0")
   orientation: "portrait",
-  icon: "./assets/images/icon-new.png",
+  icon: "./assets/images/icon-ios.png",
   scheme: "goodtimes",
   userInterfaceStyle: "dark",
   // Disable New Architecture - causing crashes during native module registration
@@ -31,7 +31,16 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       NSFaceIDUsageDescription: "Good Times uses FaceID to securely log you in quickly.",
       // Export compliance: App only uses standard HTTPS/TLS and Apple's built-in encryption APIs
       ITSAppUsesNonExemptEncryption: false,
-      icon: "./assets/images/icon-new.png"
+      icon: "./assets/images/icon-ios.png",
+      // Allow querying for Gmail and other email apps
+      LSApplicationQueriesSchemes: [
+        "googlegmail",
+        "gmail",
+        "mailto",
+        "ms-outlook",
+        "ymail",
+        "readdle-spark",
+      ],
     },
   },
   android: {

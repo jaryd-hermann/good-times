@@ -63,6 +63,26 @@ export async function createGroup(name: string, type: "family" | "friends", user
 
   if (memberError) throw memberError
 
+  // Initialize question queue for the new group (non-blocking)
+  // If this fails, group creation still succeeds (graceful degradation)
+  try {
+    const { error: queueError } = await supabase.functions.invoke("initialize-group-queue", {
+      body: {
+        group_id: group.id,
+        group_type: type,
+        created_by: userId,
+      },
+    })
+
+    if (queueError) {
+      console.warn("[createGroup] Failed to initialize queue:", queueError)
+      // Don't throw - group creation succeeded, queue can be initialized later
+    }
+  } catch (error) {
+    console.warn("[createGroup] Error calling initialize-group-queue:", error)
+    // Don't throw - group creation succeeded
+  }
+
   return group
 }
 
@@ -1028,6 +1048,25 @@ export async function updateQuestionCategoryPreference(
     .single()
 
   if (error) throw error
+
+  // Update queue to honor new preferences (non-blocking)
+  // If this fails, preference update still succeeds (graceful degradation)
+  try {
+    const { error: queueError } = await supabase.functions.invoke("update-group-queue", {
+      body: {
+        group_id: groupId,
+      },
+    })
+
+    if (queueError) {
+      console.warn("[updateQuestionCategoryPreference] Failed to update queue:", queueError)
+      // Don't throw - preference update succeeded, queue can be updated later
+    }
+  } catch (error) {
+    console.warn("[updateQuestionCategoryPreference] Error calling update-group-queue:", error)
+    // Don't throw - preference update succeeded
+  }
+
   return data
 }
 
