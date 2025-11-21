@@ -155,7 +155,18 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
     )
 
-    const { group_id, group_type, created_by, enable_nsfw } = await req.json()
+    let requestBody
+    try {
+      requestBody = await req.json()
+    } catch (jsonError) {
+      console.error("[initialize-group-queue] Failed to parse request body:", jsonError)
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid request body" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
+      )
+    }
+
+    const { group_id, group_type, created_by, enable_nsfw } = requestBody
 
     console.log(`[initialize-group-queue] Received parameters:`, {
       group_id,
@@ -489,14 +500,31 @@ serve(async (req) => {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
     const errorStack = error instanceof Error ? error.stack : undefined
+    
+    // Safely serialize error details
+    let errorDetails: any = {}
+    try {
+      if (error instanceof Error) {
+        errorDetails = {
+          name: error.name,
+          message: error.message,
+          stack: errorStack?.substring(0, 500)
+        }
+      } else {
+        errorDetails = { message: String(error) }
+      }
+    } catch (serializeError) {
+      errorDetails = { message: "Error serialization failed" }
+    }
+    
     console.error("[initialize-group-queue] Fatal error:", errorMessage)
-    console.error("[initialize-group-queue] Error stack:", errorStack)
-    console.error("[initialize-group-queue] Full error object:", JSON.stringify(error, Object.getOwnPropertyNames(error)))
+    console.error("[initialize-group-queue] Error details:", errorDetails)
+    
     return new Response(
       JSON.stringify({ 
         success: false,
         error: errorMessage,
-        details: errorStack ? errorStack.substring(0, 500) : undefined
+        ...errorDetails
       }),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
