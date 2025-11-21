@@ -42,15 +42,10 @@ export default function NotificationsOnboarding() {
         return
       }
 
-      // If onboarding not completed, check if notifications are already granted
-      // Only auto-skip if permissions are already granted (user might have granted permissions but not completed onboarding flow)
-      const { status } = await Notifications.getPermissionsAsync()
-      
-      if (status === "granted") {
-        // Permissions already granted - auto-complete onboarding
-        await completeOnboarding()
-      }
-      // Otherwise, show the screen so user can interact with it
+      // For new users, always show the notifications screen
+      // Don't auto-complete even if permissions are already granted
+      // This ensures users see the screen and understand what they're enabling
+      // The screen will remain visible and user can interact with it
     }
     checkOnboardingStatus()
   }, [router])
