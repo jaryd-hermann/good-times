@@ -55,6 +55,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Get PostHog instance (PostHogProvider is always rendered in _layout.tsx)
   // posthog will be null/undefined if PostHog is not configured or initialization failed
   const posthog = usePostHog()
+  
+  // Debug PostHog instance
+  useEffect(() => {
+    if (__DEV__) {
+      console.log('[PostHog] usePostHog hook returned:', posthog ? 'valid instance' : 'null/undefined')
+      if (posthog) {
+        console.log('[PostHog] PostHog instance methods:', Object.keys(posthog))
+      }
+    }
+  }, [posthog])
 
   useEffect(() => {
     // Get initial session with timeout
@@ -130,6 +140,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Identify user in PostHog after successful load
       if (posthog && data) {
         try {
+          console.log('[PostHog] Attempting to identify user:', userId)
+          
           // Get group count for analytics (non-PII)
           const { count: groupCount } = await supabase
             .from("group_members")
@@ -148,22 +160,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             group_count: groupCount || 0,
             account_age_days: accountAgeDays,
           }
+          
+          console.log('[PostHog] Calling identify with:', { userId, properties })
           posthog.identify(userId, properties)
+          console.log('[PostHog] Identify called successfully')
           
           // Capture a test event to verify PostHog is working
+          console.log('[PostHog] Calling capture for user_loaded event')
           posthog.capture('user_loaded', {
             user_id: userId,
             has_groups: (groupCount || 0) > 0,
           })
+          console.log('[PostHog] Capture called successfully')
+          
+          // Try to flush events immediately
+          if (posthog.flush) {
+            console.log('[PostHog] Flushing events...')
+            posthog.flush()
+            console.log('[PostHog] Flush called')
+          }
           
           if (__DEV__) {
             console.log("[PostHog] User identified:", userId, properties)
             console.log("[PostHog] Test event captured: user_loaded")
           }
         } catch (error) {
-          console.warn("[AuthProvider] Failed to identify user in PostHog:", error)
+          console.error("[AuthProvider] Failed to identify user in PostHog:", error)
           // Don't block user loading if PostHog fails
         }
+      } else {
+        console.warn('[PostHog] Cannot identify user - posthog:', !!posthog, 'data:', !!data)
       }
     } catch (error) {
       console.error("[v0] Error loading user:", error)
