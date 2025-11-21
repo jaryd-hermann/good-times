@@ -325,11 +325,20 @@ export default function Home() {
   const { data: dailyPrompt } = useQuery({
     queryKey: ["dailyPrompt", currentGroupId, selectedDate, userId],
     queryFn: () => (currentGroupId ? getDailyPrompt(currentGroupId, selectedDate, userId) : null),
-    enabled: !!currentGroupId,
+    enabled: !!currentGroupId && !!selectedDate, // Only fetch when both are available
     staleTime: 0, // Always refetch when group changes (prevents showing wrong group's prompts)
     gcTime: 0, // Don't cache across group switches
     refetchOnMount: true, // Always refetch when component mounts to ensure fresh data
     refetchOnWindowFocus: true, // Refetch when screen comes into focus
+    // Prevent showing stale data from other groups
+    placeholderData: (previousData) => {
+      // If previous data exists but group changed, don't show it
+      if (previousData && currentGroupId) {
+        // Return undefined to prevent flash of wrong data
+        return undefined
+      }
+      return previousData
+    },
   })
 
   const { data: userEntry } = useQuery({
