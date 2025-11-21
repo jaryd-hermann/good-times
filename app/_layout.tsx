@@ -212,6 +212,14 @@ export default function RootLayout() {
   const posthogHost = process.env.EXPO_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com'
   const isPostHogConfigured = posthogApiKey && posthogApiKey.startsWith('phc_')
 
+  if (__DEV__ && isPostHogConfigured) {
+    console.log('[PostHog] Configuration:', {
+      apiKey: posthogApiKey.substring(0, 10) + '...',
+      host: posthogHost,
+      configured: isPostHogConfigured
+    })
+  }
+
   // Always render PostHogProvider to satisfy React hooks rules
   // When not configured, PostHogProvider may not initialize properly, but usePostHog will return null
   // ErrorBoundary will catch any initialization errors
@@ -221,15 +229,17 @@ export default function RootLayout() {
         apiKey={isPostHogConfigured ? posthogApiKey : 'phc_dummy_key_for_unconfigured'}
         options={{
           host: posthogHost,
-          // Privacy-first settings - only enable when configured
+          // Privacy-first settings - always enable when configured (autocapture may not work in simulator)
           captureApplicationLifecycleEvents: isPostHogConfigured,
           captureDeepLinks: isPostHogConfigured,
-          captureScreens: isPostHogConfigured,
-          captureScreenViews: isPostHogConfigured,
+          captureScreens: isPostHogConfigured, // Autocapture screen views
+          captureScreenViews: isPostHogConfigured, // Additional screen view tracking
           sessionReplay: false, // Disabled for privacy
           anonymizeIP: true,
           enableFeatureFlags: false, // Disabled initially
-          debug: __DEV__ && isPostHogConfigured,
+          debug: __DEV__ && isPostHogConfigured, // Enable debug logging in dev
+          flushAt: 1, // Send events immediately (good for testing)
+          flushInterval: 0, // Don't batch events
         }}
       >
         <SafeAreaProvider>

@@ -17,6 +17,7 @@ import {
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback } from "react"
+import { usePostHog } from "posthog-react-native"
 import { supabase } from "../../lib/supabase"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import {
