@@ -507,7 +507,7 @@ serve(async (req) => {
             user_id: null, // General prompts for all members
           })),
           {
-            onConflict: 'group_id,date', // Handle UNIQUE constraint
+            onConflict: 'group_id,date,user_id', // Handle UNIQUE constraint (from migration 008)
             ignoreDuplicates: false, // Update existing rows
           }
         )
