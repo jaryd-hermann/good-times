@@ -424,8 +424,22 @@ export default function Home() {
 
   async function handleRefresh() {
     setRefreshing(true)
-    // Aggressively clear all caches and refetch
-    queryClient.removeQueries()
+    // Aggressively clear all caches and refetch for current group
+    if (currentGroupId) {
+      // Clear all queries for current group to ensure fresh data
+      queryClient.removeQueries({ 
+        queryKey: ["dailyPrompt", currentGroupId],
+        exact: false 
+      })
+      queryClient.removeQueries({ 
+        queryKey: ["entries", currentGroupId],
+        exact: false 
+      })
+      queryClient.removeQueries({ 
+        queryKey: ["userEntry", currentGroupId],
+        exact: false 
+      })
+    }
     await queryClient.invalidateQueries()
     await queryClient.refetchQueries()
     setRefreshing(false)
