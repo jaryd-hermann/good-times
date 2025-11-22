@@ -315,7 +315,7 @@ export default function Index() {
     <View style={{ flex: 1, backgroundColor: colors.black }}>
       {booting ? (
         <ImageBackground
-          source={require("../assets/images/welcome-bg.png")}
+          source={require("../assets/images/welcome-home.png")}
           style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
           resizeMode="cover"
         >

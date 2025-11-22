@@ -2,6 +2,7 @@ import type { ExpoConfig, ConfigContext } from "expo/config";
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
+  owner: "jarydhermann",
   name: "Good Times",
   slug: "good-times",
   version: "1.2.0", // User-facing version (e.g., "1.1.0", "1.2.0")

@@ -30,7 +30,7 @@ export default function About() {
   const router = useRouter()
   const { data, setUserName, setUserBirthday, setUserPhoto } = useOnboarding()
   const [name, setName] = useState(data.userName || "")
-  const [birthday, setBirthday] = useState(data.userBirthday || new Date())
+  const [birthday, setBirthday] = useState(data.userBirthday || new Date(1969, 2, 15))
   const [showDatePicker, setShowDatePicker] = useState(false)
   const [photoUri, setPhotoUri] = useState<string | undefined>(data.userPhoto)
   const [loading, setLoading] = useState(false)

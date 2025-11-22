@@ -199,7 +199,7 @@ export default function JoinGroup() {
   }
 
   return (
-    <ImageBackground source={require("../../assets/images/welcome-bg.png")} style={styles.container} resizeMode="cover">
+    <ImageBackground source={require("../../assets/images/welcome-home.png")} style={styles.container} resizeMode="cover">
       <View style={styles.overlay} />
       <ScrollView
         contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.xl }]}
