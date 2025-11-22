@@ -1,10 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Linking, Modal, Image, ScrollView } from "react-native"
 import { useRouter } from "expo-router"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
-import { colors, spacing, typography } from "../../lib/theme"
+import { spacing, typography } from "../../lib/theme"
+import { useTheme } from "../../lib/theme-context"
 import { FontAwesome } from "@expo/vector-icons"
 import * as Clipboard from "expo-clipboard"
 import { Button } from "../../components/Button"
@@ -15,6 +16,7 @@ const PHONE = "+19143836826"
 export default function Feedback() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
+  const { colors } = useTheme()
   const [showEmailModal, setShowEmailModal] = useState(false)
 
   async function handleEmail() {
@@ -141,6 +143,146 @@ export default function Feedback() {
     }
   }
 
+  // Create dynamic styles based on theme
+  const styles = useMemo(() => StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.black,
+    },
+    header: {
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.md,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    closeButton: {
+      padding: spacing.sm,
+    },
+    closeText: {
+      ...typography.h2,
+      color: colors.white,
+    },
+    title: {
+      ...typography.h1,
+      color: colors.white,
+      fontSize: 32,
+    },
+    scrollView: {
+      flex: 1,
+    },
+    content: {
+      padding: spacing.lg,
+      paddingBottom: spacing.xl * 2, // Extra padding at bottom to ensure image is fully visible
+    },
+    subtitle: {
+      ...typography.body,
+      color: colors.gray[400],
+      fontSize: 16,
+      marginBottom: spacing.xl,
+    },
+    optionsContainer: {
+      gap: spacing.md,
+    },
+    option: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: colors.gray[900],
+      borderRadius: 16,
+      padding: spacing.lg,
+      gap: spacing.md,
+    },
+    optionIcon: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      backgroundColor: colors.gray[800],
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    optionContent: {
+      flex: 1,
+    },
+    optionTitle: {
+      ...typography.bodyBold,
+      color: colors.white,
+      fontSize: 18,
+      marginBottom: spacing.xs,
+    },
+    optionSubtitle: {
+      ...typography.body,
+      color: colors.gray[400],
+      fontSize: 14,
+    },
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.9)",
+      justifyContent: "center",
+      alignItems: "center",
+      padding: spacing.xl,
+    },
+    modalContainer: {
+      width: "100%",
+      maxWidth: 400,
+      backgroundColor: colors.black,
+      borderRadius: 24,
+      padding: spacing.xl,
+      gap: spacing.md,
+    },
+    modalTitle: {
+      ...typography.h2,
+      color: colors.white,
+      fontSize: 24,
+    },
+    modalSubtitle: {
+      ...typography.body,
+      color: colors.gray[400],
+    },
+    emailContainer: {
+      backgroundColor: colors.gray[900],
+      borderRadius: 12,
+      padding: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.gray[700],
+    },
+    emailText: {
+      ...typography.body,
+      color: colors.white,
+      fontSize: 16,
+      textAlign: "center",
+    },
+    copyButton: {
+      width: "100%",
+      marginTop: spacing.sm,
+    },
+    modalCancel: {
+      padding: spacing.sm,
+      alignItems: "center",
+    },
+    modalCancelText: {
+      ...typography.body,
+      color: colors.gray[400],
+    },
+    personalSection: {
+      marginTop: spacing.xl,
+      alignItems: "center",
+      gap: spacing.md,
+    },
+    personalText: {
+      ...typography.body,
+      color: colors.gray[400],
+      fontSize: 14,
+      lineHeight: 20,
+      textAlign: "center",
+    },
+    emilyImage: {
+      width: "100%",
+      maxWidth: 300,
+      height: 300,
+      borderRadius: 16,
+    },
+  }), [colors])
+
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.xl }]}>
       <View style={styles.header}>
@@ -237,143 +379,4 @@ export default function Feedback() {
     </View>
   )
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.black,
-  },
-  header: {
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  closeButton: {
-    padding: spacing.sm,
-  },
-  closeText: {
-    ...typography.h2,
-    color: colors.white,
-  },
-  title: {
-    ...typography.h1,
-    color: colors.white,
-    fontSize: 32,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  content: {
-    padding: spacing.lg,
-    paddingBottom: spacing.xl * 2, // Extra padding at bottom to ensure image is fully visible
-  },
-  subtitle: {
-    ...typography.body,
-    color: colors.gray[400],
-    fontSize: 16,
-    marginBottom: spacing.xl,
-  },
-  optionsContainer: {
-    gap: spacing.md,
-  },
-  option: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: colors.gray[900],
-    borderRadius: 16,
-    padding: spacing.lg,
-    gap: spacing.md,
-  },
-  optionIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colors.gray[800],
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  optionContent: {
-    flex: 1,
-  },
-  optionTitle: {
-    ...typography.bodyBold,
-    color: colors.white,
-    fontSize: 18,
-    marginBottom: spacing.xs,
-  },
-  optionSubtitle: {
-    ...typography.body,
-    color: colors.gray[400],
-    fontSize: 14,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.9)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: spacing.xl,
-  },
-  modalContainer: {
-    width: "100%",
-    maxWidth: 400,
-    backgroundColor: colors.black,
-    borderRadius: 24,
-    padding: spacing.xl,
-    gap: spacing.md,
-  },
-  modalTitle: {
-    ...typography.h2,
-    color: colors.white,
-    fontSize: 24,
-  },
-  modalSubtitle: {
-    ...typography.body,
-    color: colors.gray[400],
-  },
-  emailContainer: {
-    backgroundColor: colors.gray[900],
-    borderRadius: 12,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.gray[700],
-  },
-  emailText: {
-    ...typography.body,
-    color: colors.white,
-    fontSize: 16,
-    textAlign: "center",
-  },
-  copyButton: {
-    width: "100%",
-    marginTop: spacing.sm,
-  },
-  modalCancel: {
-    padding: spacing.sm,
-    alignItems: "center",
-  },
-  modalCancelText: {
-    ...typography.body,
-    color: colors.gray[400],
-  },
-  personalSection: {
-    marginTop: spacing.xl,
-    alignItems: "center",
-    gap: spacing.md,
-  },
-  personalText: {
-    ...typography.body,
-    color: colors.gray[400],
-    fontSize: 14,
-    lineHeight: 20,
-    textAlign: "center",
-  },
-  emilyImage: {
-    width: "100%",
-    maxWidth: 300,
-    height: 300,
-    borderRadius: 16,
-  },
-})
 

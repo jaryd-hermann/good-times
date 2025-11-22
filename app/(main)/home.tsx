@@ -30,7 +30,8 @@ import {
   getAllPrompts,
 } from "../../lib/db"
 import { getTodayDate, getWeekDates } from "../../lib/utils"
-import { colors, typography, spacing } from "../../lib/theme"
+import { typography, spacing } from "../../lib/theme"
+import { useTheme } from "../../lib/theme-context"
 import { Avatar } from "../../components/Avatar"
 import { Button } from "../../components/Button"
 import { EntryCard } from "../../components/EntryCard"
@@ -56,6 +57,7 @@ export default function Home() {
   const params = useLocalSearchParams()
   const focusGroupId = params.focusGroupId as string | undefined
   const queryClient = useQueryClient()
+  const { colors, isDark } = useTheme()
   const [selectedDate, setSelectedDate] = useState(getTodayDate())
   const [currentGroupId, setCurrentGroupId] = useState<string>()
   const [userId, setUserId] = useState<string>()
@@ -623,6 +625,267 @@ export default function Home() {
     },
   })
 
+  // Create dynamic styles based on theme
+  const styles = useMemo(() => StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.black,
+    },
+    header: {
+      paddingTop: spacing.sm,
+      paddingHorizontal: spacing.md,
+      paddingBottom: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: isDark ? colors.gray[800] : "#000000",
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      backgroundColor: colors.black,
+      zIndex: 10,
+    },
+    headerTop: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: spacing.md,
+    },
+    groupSelector: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+    },
+    groupName: {
+      ...typography.h2,
+      fontSize: 22,
+      color: colors.white,
+    },
+    chevron: {
+      ...typography.body,
+      fontSize: 12,
+      color: isDark ? "#ffffff" : "#000000",
+    },
+    membersScroll: {
+      marginBottom: spacing.md,
+    },
+    memberAvatar: {
+      marginRight: spacing.sm,
+    },
+    addMemberButton: {
+      marginRight: spacing.sm,
+    },
+    addMemberCircle: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: colors.gray[700],
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 2,
+      borderColor: colors.gray[600],
+    },
+    addMemberText: {
+      ...typography.h2,
+      fontSize: 20,
+      color: colors.white,
+    },
+    dayScroller: {
+      marginTop: spacing.sm,
+      paddingVertical: spacing.sm,
+    },
+    dayButton: {
+      paddingVertical: spacing.xs,
+      paddingHorizontal: spacing.sm,
+      marginRight: spacing.xs,
+      alignItems: "center",
+      minWidth: 48,
+    },
+    dayButtonSelected: {
+      borderWidth: 2,
+      borderRadius: 4,
+      borderColor: colors.white,
+    },
+    dayText: {
+      ...typography.caption,
+      fontSize: 12,
+      marginBottom: spacing.xs,
+      color: colors.white,
+    },
+    dayTextSelected: {
+      color: colors.white,
+    },
+    dayNum: {
+      ...typography.bodyBold,
+      fontSize: 16,
+      color: colors.white,
+    },
+    dayNumSelected: {
+      color: colors.white,
+    },
+    dayCheck: {
+      width: 4,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.accent,
+      marginTop: spacing.xs,
+    },
+    content: {
+      flex: 1,
+      // No marginTop - header will overlay content when visible
+    },
+    contentContainer: {
+      paddingTop: spacing.md,
+      paddingBottom: spacing.xxl * 4, // Increased bottom padding for scrolling
+    },
+    promptCardWrapper: {
+      marginBottom: spacing.md, // Reduced from spacing.lg
+      width: "100%",
+    },
+    promptDivider: {
+      width: "100%",
+      height: 1,
+      backgroundColor: isDark ? "#3D3D3D" : "#E5E5E5", // Lighter divider in light mode
+    },
+    promptCard: {
+      backgroundColor: colors.black,
+      padding: spacing.lg,
+    },
+    promptQuestion: {
+      ...typography.h3,
+      fontSize: 22,
+      marginBottom: spacing.sm,
+      color: colors.white,
+    },
+    promptDescription: {
+      ...typography.body,
+      color: colors.gray[400],
+      marginBottom: spacing.md,
+    },
+    loadingContainer: {
+      padding: spacing.lg,
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 100,
+    },
+    loadingText: {
+      ...typography.body,
+      color: colors.gray[400],
+    },
+    answerButton: {
+      marginTop: spacing.md,
+    },
+    lockedMessage: {
+      padding: spacing.xl,
+      alignItems: "center",
+      gap: spacing.xs,
+    },
+    lockedText: {
+      ...typography.body,
+      textAlign: "center",
+      color: colors.gray[500],
+    },
+    entriesContainer: {
+      gap: spacing.lg,
+      marginTop: -spacing.md, // Negative margin to reduce space from divider above
+    },
+    postingStatusContainer: {
+      paddingVertical: spacing.lg,
+      paddingHorizontal: spacing.lg,
+      alignItems: "center",
+    },
+    postingStatusText: {
+      ...typography.body,
+      color: colors.gray[400],
+      textAlign: "center",
+    },
+    notice: {
+      marginBottom: spacing.md,
+      paddingHorizontal: spacing.md,
+    },
+    noticeText: {
+      ...typography.body,
+      color: colors.gray[300],
+    },
+    groupModalBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.85)",
+      justifyContent: "flex-end",
+    },
+    groupModalSheet: {
+      backgroundColor: colors.black,
+      padding: spacing.lg,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      gap: spacing.md,
+      maxHeight: "70%",
+    },
+    groupModalTitle: {
+      ...typography.h2,
+      color: colors.white,
+      fontSize: 24,
+    },
+    groupList: {
+      gap: spacing.sm,
+    },
+    groupRowContainer: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+    },
+    groupRowFlex: {
+      flex: 1,
+    },
+    groupRow: {
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.sm,
+      borderRadius: 12,
+      backgroundColor: colors.gray[900],
+      flex: 1,
+    },
+    groupRowActive: {
+      borderWidth: 1,
+      borderColor: colors.white,
+    },
+    groupRowContent: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      flex: 1,
+    },
+    groupSettingsButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.gray[900],
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    groupRowText: {
+      ...typography.bodyBold,
+      color: colors.white,
+      fontSize: 18,
+      flex: 1,
+    },
+    unseenDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: colors.accent,
+      marginLeft: spacing.sm,
+    },
+    createGroupButton: {
+      paddingVertical: spacing.md,
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: colors.gray[700],
+      borderRadius: 12,
+    },
+    createGroupText: {
+      ...typography.bodyBold,
+      color: colors.white,
+    },
+  }), [colors, isDark])
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -818,258 +1081,3 @@ export default function Home() {
     </View>
   )
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.black,
-  },
-  header: {
-    paddingTop: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.gray[800],
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: colors.black,
-    zIndex: 10,
-  },
-  headerTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: spacing.md,
-  },
-  groupSelector: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-  },
-  groupName: {
-    ...typography.h2,
-    fontSize: 22,
-  },
-  chevron: {
-    ...typography.body,
-    fontSize: 12,
-  },
-  membersScroll: {
-    marginBottom: spacing.md,
-  },
-  memberAvatar: {
-    marginRight: spacing.sm,
-  },
-  addMemberButton: {
-    marginRight: spacing.sm,
-  },
-  addMemberCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.gray[700],
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 2,
-    borderColor: colors.gray[600],
-  },
-  addMemberText: {
-    ...typography.h2,
-    fontSize: 20,
-    color: colors.white,
-  },
-  dayScroller: {
-    marginTop: spacing.sm,
-    paddingVertical: spacing.sm,
-  },
-  dayButton: {
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    marginRight: spacing.xs,
-    alignItems: "center",
-    minWidth: 48,
-  },
-  dayButtonSelected: {
-    borderWidth: 2,
-    borderRadius: 4,
-    borderColor: colors.white,
-  },
-  dayText: {
-    ...typography.caption,
-    fontSize: 12,
-    marginBottom: spacing.xs,
-  },
-  dayTextSelected: {
-    color: colors.white,
-  },
-  dayNum: {
-    ...typography.bodyBold,
-    fontSize: 16,
-  },
-  dayNumSelected: {
-    color: colors.white,
-  },
-  dayCheck: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.accent,
-    marginTop: spacing.xs,
-  },
-  content: {
-    flex: 1,
-    // No marginTop - header will overlay content when visible
-  },
-  contentContainer: {
-    paddingTop: spacing.md,
-    paddingBottom: spacing.xxl * 4, // Increased bottom padding for scrolling
-  },
-  promptCardWrapper: {
-    marginBottom: spacing.md, // Reduced from spacing.lg
-    width: "100%",
-  },
-  promptDivider: {
-    width: "100%",
-    height: 1,
-    backgroundColor: "#3D3D3D",
-  },
-  promptCard: {
-    backgroundColor: colors.black,
-    padding: spacing.lg,
-  },
-  promptQuestion: {
-    ...typography.h3,
-    fontSize: 22,
-    marginBottom: spacing.sm,
-  },
-  promptDescription: {
-    ...typography.body,
-    color: colors.gray[400],
-    marginBottom: spacing.md,
-  },
-  loadingContainer: {
-    padding: spacing.lg,
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 100,
-  },
-  loadingText: {
-    ...typography.body,
-    color: colors.gray[400],
-  },
-  answerButton: {
-    marginTop: spacing.md,
-  },
-  lockedMessage: {
-    padding: spacing.xl,
-    alignItems: "center",
-    gap: spacing.xs,
-  },
-  lockedText: {
-    ...typography.body,
-    textAlign: "center",
-    color: colors.gray[500],
-  },
-  entriesContainer: {
-    gap: spacing.lg,
-    marginTop: -spacing.md, // Negative margin to reduce space from divider above
-  },
-  postingStatusContainer: {
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.lg,
-    alignItems: "center",
-  },
-  postingStatusText: {
-    ...typography.body,
-    color: colors.gray[400],
-    textAlign: "center",
-  },
-  notice: {
-    marginBottom: spacing.md,
-    paddingHorizontal: spacing.md,
-  },
-  noticeText: {
-    ...typography.body,
-    color: colors.gray[300],
-  },
-  groupModalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.85)",
-    justifyContent: "flex-end",
-  },
-  groupModalSheet: {
-    backgroundColor: colors.black,
-    padding: spacing.lg,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    gap: spacing.md,
-    maxHeight: "70%",
-  },
-  groupModalTitle: {
-    ...typography.h2,
-    color: colors.white,
-    fontSize: 24,
-  },
-  groupList: {
-    gap: spacing.sm,
-  },
-  groupRowContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-  },
-  groupRowFlex: {
-    flex: 1,
-  },
-  groupRow: {
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.sm,
-    borderRadius: 12,
-    backgroundColor: colors.gray[900],
-    flex: 1,
-  },
-  groupRowActive: {
-    borderWidth: 1,
-    borderColor: colors.white,
-  },
-  groupRowContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    flex: 1,
-  },
-  groupSettingsButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.gray[900],
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  groupRowText: {
-    ...typography.bodyBold,
-    color: colors.white,
-    fontSize: 18,
-    flex: 1,
-  },
-  unseenDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.accent,
-    marginLeft: spacing.sm,
-  },
-  createGroupButton: {
-    paddingVertical: spacing.md,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: colors.gray[700],
-    borderRadius: 12,
-  },
-  createGroupText: {
-    ...typography.bodyBold,
-    color: colors.white,
-  },
-})

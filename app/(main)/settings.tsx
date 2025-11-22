@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import {
   View,
   Text,
@@ -26,7 +26,8 @@ import { decode } from "base64-arraybuffer"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { supabase } from "../../lib/supabase"
 import { getCurrentUser, updateUser, getUserGroups } from "../../lib/db"
-import { colors, spacing, typography } from "../../lib/theme"
+import { spacing, typography } from "../../lib/theme"
+import { useTheme } from "../../lib/theme-context"
 import { Button } from "../../components/Button"
 import {
   isBiometricAvailable,
@@ -41,6 +42,7 @@ export default function SettingsScreen() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const insets = useSafeAreaInsets()
+  const { colors, theme, setTheme, isDark } = useTheme()
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [birthday, setBirthday] = useState<Date | undefined>()
@@ -305,6 +307,173 @@ export default function SettingsScreen() {
     )
   }
 
+  // Create dynamic styles based on theme
+  const styles = useMemo(() => StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.black,
+    },
+    header: {
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.md,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    closeButton: {
+      padding: spacing.sm,
+    },
+    closeText: {
+      ...typography.h2,
+      color: colors.white,
+    },
+    title: {
+      ...typography.h1,
+      color: colors.white,
+      fontSize: 32,
+    },
+    content: {
+      padding: spacing.lg,
+      paddingBottom: spacing.xxl,
+      gap: spacing.lg,
+    },
+    fieldGroup: {
+      gap: spacing.xs,
+    },
+    fieldLabel: {
+      ...typography.bodyMedium,
+      color: colors.gray[400],
+    },
+    inlineField: {
+      borderBottomWidth: 1,
+      borderColor: colors.gray[700],
+      paddingVertical: spacing.sm,
+    },
+    inlineFieldText: {
+      ...typography.body,
+      color: colors.white,
+      fontSize: 18,
+    },
+    profileSection: {
+      alignItems: "center",
+      gap: spacing.sm,
+    },
+    avatarButton: {
+      width: 72,
+      height: 72,
+      borderRadius: 36,
+      overflow: "hidden",
+      borderWidth: 2,
+      borderColor: colors.gray[700],
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    avatarImage: {
+      width: "100%",
+      height: "100%",
+    },
+    avatarPlaceholder: {
+      flex: 1,
+      backgroundColor: colors.gray[800],
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    avatarPlaceholderText: {
+      ...typography.bodyMedium,
+      color: colors.gray[400],
+    },
+    avatarHint: {
+      ...typography.caption,
+      color: colors.gray[500],
+    },
+    inlineFieldGroup: {
+      gap: spacing.xs,
+    },
+    inlineInput: {
+      ...typography.body,
+      color: colors.white,
+      borderBottomWidth: 1,
+      borderColor: colors.gray[700],
+      paddingVertical: spacing.sm,
+    },
+    sectionCard: {
+      backgroundColor: colors.gray[900],
+      borderRadius: 16,
+      padding: spacing.lg,
+      gap: spacing.md,
+    },
+    sectionRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: spacing.md,
+    },
+    sectionRowText: {
+      flex: 1,
+    },
+    sectionTitle: {
+      ...typography.bodyBold,
+      color: colors.white,
+      fontSize: 16,
+    },
+    sectionSubtitle: {
+      ...typography.body,
+      color: colors.gray[400],
+      fontSize: 14,
+    },
+    actions: {
+      gap: spacing.md,
+    },
+    reportButton: {
+      borderWidth: 1,
+      borderColor: colors.white,
+      backgroundColor: "transparent",
+    },
+    reportButtonText: {
+      color: colors.white,
+    },
+    logoutLink: {
+      alignSelf: "center",
+      paddingVertical: spacing.xs,
+    },
+    logoutText: {
+      ...typography.bodyMedium,
+      color: colors.gray[300],
+    },
+    wordmark: {
+      width: 120,
+      height: 40,
+      marginTop: spacing.md,
+      alignSelf: "center",
+      opacity: 0.6,
+    },
+    memorialText: {
+      ...typography.caption,
+      color: isDark ? colors.gray[600] : "#000000",
+      textAlign: "center",
+      marginTop: spacing.md,
+      fontSize: 11,
+      fontStyle: "italic",
+    },
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.6)",
+      justifyContent: "flex-end",
+    },
+    modalSheet: {
+      backgroundColor: colors.black,
+      padding: spacing.lg,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      gap: spacing.lg,
+    },
+    iosPicker: {
+      width: "100%",
+    },
+    modalButton: {
+      width: "100%",
+    },
+  }), [colors, isDark])
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.md }]}>
@@ -414,6 +583,17 @@ export default function SettingsScreen() {
               <Switch value={biometricEnabled} onValueChange={handleBiometricToggle} trackColor={{ true: colors.accent }} />
             </View>
           )}
+          <View style={styles.sectionRow}>
+            <View style={styles.sectionRowText}>
+              <Text style={styles.sectionTitle}>Theme</Text>
+              <Text style={styles.sectionSubtitle}>{theme === "dark" ? "Dark mode" : "Light mode"}</Text>
+            </View>
+            <Switch 
+              value={theme === "light"} 
+              onValueChange={(value) => setTheme(value ? "light" : "dark")} 
+              trackColor={{ true: colors.accent }} 
+            />
+          </View>
         </View>
 
 
@@ -448,170 +628,3 @@ export default function SettingsScreen() {
     </View>
   )
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.black,
-  },
-  header: {
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  closeButton: {
-    padding: spacing.sm,
-  },
-  closeText: {
-    ...typography.h2,
-    color: colors.white,
-  },
-  title: {
-    ...typography.h1,
-    color: colors.white,
-    fontSize: 32,
-  },
-  content: {
-    padding: spacing.lg,
-    paddingBottom: spacing.xxl,
-    gap: spacing.lg,
-  },
-  fieldGroup: {
-    gap: spacing.xs,
-  },
-  fieldLabel: {
-    ...typography.bodyMedium,
-    color: colors.gray[400],
-  },
-  inlineField: {
-    borderBottomWidth: 1,
-    borderColor: colors.gray[700],
-    paddingVertical: spacing.sm,
-  },
-  inlineFieldText: {
-    ...typography.body,
-    color: colors.white,
-    fontSize: 18,
-  },
-  profileSection: {
-    alignItems: "center",
-    gap: spacing.sm,
-  },
-  avatarButton: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    overflow: "hidden",
-    borderWidth: 2,
-    borderColor: colors.gray[700],
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  avatarImage: {
-    width: "100%",
-    height: "100%",
-  },
-  avatarPlaceholder: {
-    flex: 1,
-    backgroundColor: colors.gray[800],
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  avatarPlaceholderText: {
-    ...typography.bodyMedium,
-    color: colors.gray[400],
-  },
-  avatarHint: {
-    ...typography.caption,
-    color: colors.gray[500],
-  },
-  inlineFieldGroup: {
-    gap: spacing.xs,
-  },
-  inlineInput: {
-    ...typography.body,
-    color: colors.white,
-    borderBottomWidth: 1,
-    borderColor: colors.gray[700],
-    paddingVertical: spacing.sm,
-  },
-  sectionCard: {
-    backgroundColor: colors.gray[900],
-    borderRadius: 16,
-    padding: spacing.lg,
-    gap: spacing.md,
-  },
-  sectionRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: spacing.md,
-  },
-  sectionRowText: {
-    flex: 1,
-  },
-  sectionTitle: {
-    ...typography.bodyBold,
-    color: colors.white,
-    fontSize: 16,
-  },
-  sectionSubtitle: {
-    ...typography.body,
-    color: colors.gray[400],
-    fontSize: 14,
-  },
-  actions: {
-    gap: spacing.md,
-  },
-  reportButton: {
-    borderWidth: 1,
-    borderColor: colors.white,
-    backgroundColor: "transparent",
-  },
-  reportButtonText: {
-    color: colors.white,
-  },
-  logoutLink: {
-    alignSelf: "center",
-    paddingVertical: spacing.xs,
-  },
-  logoutText: {
-    ...typography.bodyMedium,
-    color: colors.gray[300],
-  },
-  wordmark: {
-    width: 120,
-    height: 40,
-    marginTop: spacing.md,
-    alignSelf: "center",
-    opacity: 0.6,
-  },
-  memorialText: {
-    ...typography.caption,
-    color: colors.gray[600],
-    textAlign: "center",
-    marginTop: spacing.md,
-    fontSize: 11,
-    fontStyle: "italic",
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "flex-end",
-  },
-  modalSheet: {
-    backgroundColor: colors.black,
-    padding: spacing.lg,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    gap: spacing.lg,
-  },
-  iosPicker: {
-    width: "100%",
-  },
-  modalButton: {
-    width: "100%",
-  },
-})

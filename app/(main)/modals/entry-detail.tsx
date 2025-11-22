@@ -6,7 +6,8 @@ import { useRouter, useLocalSearchParams } from "expo-router"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { supabase } from "../../../lib/supabase"
 import { getEntryById, getReactions, getComments, toggleReaction, createComment, getAllEntriesForGroup, getMemorials, getGroupMembers } from "../../../lib/db"
-import { colors, typography, spacing } from "../../../lib/theme"
+import { typography, spacing } from "../../../lib/theme"
+import { useTheme } from "../../../lib/theme-context"
 import { Avatar } from "../../../components/Avatar"
 import { formatTime } from "../../../lib/utils"
 import { Video, Audio, ResizeMode } from "expo-av"
@@ -21,6 +22,7 @@ export default function EntryDetail() {
   const router = useRouter()
   const params = useLocalSearchParams()
   const queryClient = useQueryClient()
+  const { colors } = useTheme()
   const entryId = params.entryId as string
   const rawEntryIds = params.entryIds as string | undefined
   const entryIds = useMemo(() => {
@@ -324,6 +326,235 @@ export default function EntryDetail() {
     }
   }
 
+  // Create dynamic styles based on theme
+  const styles = useMemo(() => StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.black,
+    },
+    containerInner: {
+      flex: 1,
+    },
+    header: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      padding: spacing.md,
+      paddingTop: spacing.xxl * 2,
+    },
+    navAction: {
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs,
+    },
+    navActionDisabled: {
+      opacity: 0.4,
+    },
+    navActionDisabledText: {
+      color: colors.gray[500],
+    },
+    backButton: {
+      ...typography.bodyBold,
+      color: colors.white,
+    },
+    content: {
+      flex: 1,
+    },
+    contentContainer: {
+      padding: spacing.lg,
+      paddingBottom: spacing.xxl * 2,
+    },
+    entryHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      marginBottom: spacing.lg,
+    },
+    headerText: {
+      marginLeft: spacing.md,
+      flex: 1,
+    },
+    userName: {
+      ...typography.bodyBold,
+      fontSize: 14,
+      color: colors.white,
+    },
+    time: {
+      ...typography.caption,
+      fontSize: 12,
+      color: colors.gray[400],
+    },
+    question: {
+      ...typography.h2,
+      fontSize: 20,
+      marginBottom: spacing.md,
+      color: colors.white,
+    },
+    text: {
+      ...typography.body,
+      fontSize: 16,
+      lineHeight: 24,
+      marginBottom: spacing.md,
+      color: colors.gray[300],
+    },
+    mediaContainer: {
+      gap: spacing.xl, // Increased by 150% (from spacing.sm to spacing.xl)
+      marginTop: spacing.xs,
+      marginBottom: spacing.md,
+    },
+    mediaImage: {
+      width: "100%",
+      height: 300, // Fallback height while loading dimensions
+    },
+    audioPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.md,
+      padding: spacing.md,
+      backgroundColor: colors.gray[900],
+      borderRadius: 16,
+    },
+    audioPillActive: {
+      borderWidth: 1,
+      borderColor: colors.accent,
+    },
+    audioIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.gray[800],
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    audioInfo: {
+      flex: 1,
+      gap: spacing.xs,
+    },
+    audioLabel: {
+      ...typography.bodyMedium,
+      color: colors.white,
+    },
+    audioProgressTrack: {
+      width: "100%",
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.gray[800],
+      overflow: "hidden",
+    },
+    audioProgressFill: {
+      height: "100%",
+      backgroundColor: colors.accent,
+    },
+    audioTime: {
+      ...typography.caption,
+      color: colors.gray[400],
+    },
+    videoPlayer: {
+      width: "100%",
+      height: 280,
+      backgroundColor: colors.gray[900],
+    },
+    reactionsSection: {
+      flexDirection: "row",
+      gap: spacing.md,
+      paddingVertical: spacing.lg,
+      borderTopWidth: 1,
+      borderBottomWidth: 1,
+      borderColor: colors.gray[800],
+    },
+    reactionButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+      borderRadius: 20,
+      backgroundColor: colors.gray[800],
+    },
+    reactionButtonActive: {
+      backgroundColor: colors.accent,
+    },
+    reactionIcon: {
+      fontSize: 20,
+      color: colors.white,
+    },
+    reactionIconActive: {
+      color: colors.white,
+    },
+    reactionCount: {
+      ...typography.bodyBold,
+      fontSize: 14,
+      color: colors.white,
+    },
+    commentsSection: {
+      marginTop: spacing.lg,
+    },
+    commentsTitle: {
+      ...typography.h3,
+      fontSize: 18,
+      marginBottom: spacing.md,
+      color: colors.white,
+    },
+    comment: {
+      flexDirection: "row",
+      marginBottom: spacing.md,
+    },
+    commentContent: {
+      marginLeft: spacing.sm,
+      flex: 1,
+    },
+    commentUser: {
+      ...typography.bodyBold,
+      fontSize: 14,
+      marginBottom: spacing.xs,
+      color: colors.white,
+    },
+    commentText: {
+      ...typography.body,
+      fontSize: 14,
+      lineHeight: 20,
+      color: colors.gray[300],
+    },
+    fixedCommentInput: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: spacing.sm,
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.md,
+      paddingBottom: spacing.md,
+      backgroundColor: colors.black,
+      borderTopWidth: 1,
+      borderTopColor: colors.gray[800],
+    },
+    addComment: {
+      marginTop: spacing.md,
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: spacing.sm,
+    },
+    commentInput: {
+      flex: 1,
+      ...typography.body,
+      color: colors.white,
+      paddingVertical: 0,
+      minHeight: 40,
+    },
+    sendButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.accent,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    sendButtonDisabled: {
+      backgroundColor: colors.gray[700],
+    },
+    embeddedMediaContainer: {
+      marginTop: spacing.md,
+      marginBottom: spacing.md,
+      gap: spacing.sm,
+    },
+  }), [colors])
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -550,222 +781,3 @@ function formatMillis(ms: number) {
   const seconds = totalSeconds % 60
   return `${minutes}:${seconds.toString().padStart(2, "0")}`
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.black,
-  },
-  containerInner: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: spacing.md,
-    paddingTop: spacing.xxl * 2,
-  },
-  navAction: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-  },
-  navActionDisabled: {
-    opacity: 0.4,
-  },
-  navActionDisabledText: {
-    color: colors.gray[500],
-  },
-  backButton: {
-    ...typography.bodyBold,
-    color: colors.white,
-  },
-  content: {
-    flex: 1,
-  },
-  contentContainer: {
-    padding: spacing.lg,
-    paddingBottom: spacing.xxl * 2,
-  },
-  entryHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: spacing.lg,
-  },
-  headerText: {
-    marginLeft: spacing.md,
-    flex: 1,
-  },
-  userName: {
-    ...typography.bodyBold,
-    fontSize: 14,
-  },
-  time: {
-    ...typography.caption,
-    fontSize: 12,
-  },
-  question: {
-    ...typography.h2,
-    fontSize: 20,
-    marginBottom: spacing.md,
-  },
-  text: {
-    ...typography.body,
-    fontSize: 16,
-    lineHeight: 24,
-    marginBottom: spacing.md,
-  },
-  mediaContainer: {
-    gap: spacing.xl, // Increased by 150% (from spacing.sm to spacing.xl)
-    marginTop: spacing.xs,
-    marginBottom: spacing.md,
-  },
-  mediaImage: {
-    width: "100%",
-    height: 300, // Fallback height while loading dimensions
-  },
-  audioPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    padding: spacing.md,
-    backgroundColor: colors.gray[900],
-    borderRadius: 16,
-  },
-  audioPillActive: {
-    borderWidth: 1,
-    borderColor: colors.accent,
-  },
-  audioIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.gray[800],
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  audioInfo: {
-    flex: 1,
-    gap: spacing.xs,
-  },
-  audioLabel: {
-    ...typography.bodyMedium,
-    color: colors.white,
-  },
-  audioProgressTrack: {
-    width: "100%",
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.gray[800],
-    overflow: "hidden",
-  },
-  audioProgressFill: {
-    height: "100%",
-    backgroundColor: colors.accent,
-  },
-  audioTime: {
-    ...typography.caption,
-    color: colors.gray[400],
-  },
-  videoPlayer: {
-    width: "100%",
-    height: 280,
-    backgroundColor: colors.gray[900],
-  },
-  reactionsSection: {
-    flexDirection: "row",
-    gap: spacing.md,
-    paddingVertical: spacing.lg,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: colors.gray[800],
-  },
-  reactionButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: 20,
-    backgroundColor: colors.gray[800],
-  },
-  reactionButtonActive: {
-    backgroundColor: colors.accent,
-  },
-  reactionIcon: {
-    fontSize: 20,
-  },
-  reactionIconActive: {
-    color: colors.accent,
-  },
-  reactionCount: {
-    ...typography.bodyBold,
-    fontSize: 14,
-  },
-  commentsSection: {
-    marginTop: spacing.lg,
-  },
-  commentsTitle: {
-    ...typography.h3,
-    fontSize: 18,
-    marginBottom: spacing.md,
-  },
-  comment: {
-    flexDirection: "row",
-    marginBottom: spacing.md,
-  },
-  commentContent: {
-    marginLeft: spacing.sm,
-    flex: 1,
-  },
-  commentUser: {
-    ...typography.bodyBold,
-    fontSize: 14,
-    marginBottom: spacing.xs,
-  },
-  commentText: {
-    ...typography.body,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  fixedCommentInput: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.md,
-    backgroundColor: colors.black,
-    borderTopWidth: 1,
-    borderTopColor: colors.gray[800],
-  },
-  addComment: {
-    marginTop: spacing.md,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: spacing.sm,
-  },
-  commentInput: {
-    flex: 1,
-    ...typography.body,
-    color: colors.white,
-    paddingVertical: 0,
-    minHeight: 40,
-  },
-  sendButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.accent,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  sendButtonDisabled: {
-    backgroundColor: colors.gray[700],
-  },
-  embeddedMediaContainer: {
-    marginTop: spacing.md,
-    marginBottom: spacing.md,
-    gap: spacing.sm,
-  },
-})

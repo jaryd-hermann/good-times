@@ -5,7 +5,8 @@ import { View, Text, StyleSheet, Image, TouchableOpacity, ActivityIndicator, Dim
 import { useRouter } from "expo-router"
 import { Audio, Video, ResizeMode } from "expo-av"
 import type { Entry } from "../lib/types"
-import { colors, typography, spacing } from "../lib/theme"
+import { typography, spacing } from "../lib/theme"
+import { useTheme } from "../lib/theme-context"
 import { Avatar } from "./Avatar"
 import { FontAwesome } from "@expo/vector-icons"
 import { supabase } from "../lib/supabase"
@@ -24,6 +25,7 @@ interface EntryCardProps {
 
 export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home" }: EntryCardProps) {
   const router = useRouter()
+  const { colors, isDark } = useTheme()
   const audioRefs = useRef<Record<string, Audio.Sound>>({})
   const [activeAudioId, setActiveAudioId] = useState<string | null>(null)
   const [audioProgress, setAudioProgress] = useState<Record<string, number>>({})
@@ -223,6 +225,231 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     const seconds = totalSeconds % 60
     return `${minutes}:${seconds.toString().padStart(2, "0")}`
   }
+
+  // Create dynamic styles based on theme
+  const styles = useMemo(() => StyleSheet.create({
+    entryWrapper: {
+      width: "100%",
+      marginBottom: spacing.md,
+      paddingHorizontal: 0,
+    },
+    entryCard: {
+      backgroundColor: colors.black,
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.lg,
+      paddingBottom: spacing.md,
+      borderRadius: 0,
+    },
+    entryHeader: {
+      flexDirection: "row",
+      justifyContent: "flex-start",
+      alignItems: "center",
+      marginBottom: spacing.sm,
+    },
+    entryAuthor: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      flexShrink: 1,
+    },
+    userName: {
+      ...typography.bodyBold,
+      fontSize: 14,
+      color: colors.white,
+    },
+    question: {
+      ...typography.h3,
+      fontSize: 16,
+      marginBottom: spacing.md,
+      color: colors.white,
+    },
+    textContainer: {
+      position: "relative",
+      marginBottom: spacing.md,
+    },
+    entryText: {
+      ...typography.body,
+      fontSize: 16,
+      lineHeight: 24,
+      color: colors.gray[300],
+    },
+    textFadeOverlay: {
+      position: "absolute",
+      bottom: 0,
+      left: 0,
+      right: 0,
+      height: 48, // 2 lines fade (2 * 24px line height)
+      zIndex: 2,
+    },
+    fadeLine1: {
+      position: "absolute",
+      bottom: 0,
+      left: 0,
+      right: 0,
+      height: 24,
+      backgroundColor: colors.black,
+      opacity: 0.85,
+    },
+    fadeLine2: {
+      position: "absolute",
+      bottom: 24,
+      left: 0,
+      right: 0,
+      height: 24,
+      backgroundColor: colors.black,
+      opacity: 0.6,
+    },
+    voiceMemoContainer: {
+      marginBottom: spacing.md,
+      gap: spacing.sm,
+    },
+    voiceMemoPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.md,
+      padding: spacing.md,
+      backgroundColor: colors.gray[900],
+      borderRadius: 16,
+    },
+    voiceMemoIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.gray[800],
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    voiceMemoInfo: {
+      flex: 1,
+      gap: spacing.xs,
+    },
+    voiceMemoLabel: {
+      ...typography.bodyMedium,
+      color: colors.white,
+    },
+    voiceMemoProgressTrack: {
+      width: "100%",
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.gray[800],
+      overflow: "hidden",
+    },
+    voiceMemoProgressFill: {
+      height: "100%",
+      backgroundColor: colors.accent,
+    },
+    voiceMemoTime: {
+      ...typography.caption,
+      color: colors.gray[400],
+    },
+    mediaWrapper: {
+      width: SCREEN_WIDTH,
+      marginLeft: -spacing.lg,
+      marginRight: -spacing.lg,
+      marginBottom: spacing.md,
+      alignSelf: "stretch",
+      paddingLeft: 0,
+      paddingRight: 0,
+    },
+    mediaImage: {
+      width: "100%",
+      height: 300, // Fallback height while loading dimensions
+      backgroundColor: colors.gray[900],
+    },
+    videoContainer: {
+      width: "100%",
+      minHeight: 200,
+      backgroundColor: colors.gray[900],
+      justifyContent: "center",
+      alignItems: "center",
+      position: "relative",
+      overflow: "hidden",
+      alignSelf: "stretch",
+    },
+    videoOverlay: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      justifyContent: "center",
+      alignItems: "center",
+      backgroundColor: "rgba(0, 0, 0, 0.3)",
+      zIndex: 1,
+    },
+    ctaButton: {
+      backgroundColor: colors.white,
+      borderRadius: 8,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+    },
+    ctaText: {
+      ...typography.bodyBold,
+      color: colors.black,
+      fontSize: 14,
+    },
+    actionsRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginTop: spacing.sm,
+    },
+    actionsLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.lg,
+    },
+    actionButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+    },
+    iconOutline: {
+      // Outline icon - white stroke, transparent fill
+    },
+    iconSolid: {
+      // Solid icon - white fill
+    },
+    actionCount: {
+      ...typography.bodyMedium,
+      fontSize: 14,
+      color: colors.white,
+    },
+    commentsContainer: {
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.xs,
+      gap: spacing.xs,
+    },
+    commentPreviewItem: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      alignItems: "center",
+      gap: spacing.xs,
+    },
+    commentPreviewUser: {
+      ...typography.bodyMedium,
+      fontSize: 14,
+      color: colors.gray[300],
+    },
+    commentPreviewText: {
+      ...typography.body,
+      fontSize: 14,
+      color: colors.gray[400],
+      flex: 1,
+    },
+    commentPreviewMore: {
+      ...typography.caption,
+      fontSize: 13,
+      color: colors.gray[500],
+      marginTop: spacing.xs,
+    },
+    separator: {
+      width: "100%",
+      height: 1,
+      backgroundColor: isDark ? "#3D3D3D" : "#E5E5E5", // Lighter separator in light mode
+      marginTop: spacing.md,
+    },
+  }), [colors, isDark])
 
   return (
     <View style={styles.entryWrapper}>
@@ -435,17 +662,42 @@ function VideoThumbnail({
   index,
   dimensions,
   onLoad 
-}: { 
+}: {
   uri: string
   index: number
   dimensions?: { width: number; height: number }
   onLoad: (dimensions: { width: number; height: number }) => void
 }) {
   const videoRef = useRef<Video>(null)
+  const { colors } = useTheme()
+  
+  const videoStyles = useMemo(() => StyleSheet.create({
+    videoContainer: {
+      width: "100%",
+      minHeight: 200,
+      backgroundColor: colors.gray[900],
+      justifyContent: "center",
+      alignItems: "center",
+      position: "relative",
+      overflow: "hidden",
+      alignSelf: "stretch",
+    },
+    videoOverlay: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      justifyContent: "center",
+      alignItems: "center",
+      backgroundColor: "rgba(0, 0, 0, 0.3)",
+      zIndex: 1,
+    },
+  }), [colors])
 
   return (
     <View style={[
-      styles.videoContainer,
+      videoStyles.videoContainer,
       dimensions && {
         width: "100%",
         height: undefined,
@@ -477,233 +729,9 @@ function VideoThumbnail({
           }
         }}
       />
-      <View style={styles.videoOverlay}>
+      <View style={videoStyles.videoOverlay}>
         <FontAwesome name="play-circle" size={32} color={colors.white} />
       </View>
     </View>
   )
 }
-
-const styles = StyleSheet.create({
-  entryWrapper: {
-    width: "100%",
-    marginBottom: spacing.md,
-    paddingHorizontal: 0,
-  },
-  entryCard: {
-    backgroundColor: colors.black,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.md,
-    borderRadius: 0,
-  },
-  entryHeader: {
-    flexDirection: "row",
-    justifyContent: "flex-start",
-    alignItems: "center",
-    marginBottom: spacing.sm,
-  },
-  entryAuthor: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    flexShrink: 1,
-  },
-  userName: {
-    ...typography.bodyBold,
-    fontSize: 14,
-    color: colors.white,
-  },
-  question: {
-    ...typography.h3,
-    fontSize: 16,
-    marginBottom: spacing.md,
-    color: colors.white,
-  },
-  textContainer: {
-    position: "relative",
-    marginBottom: spacing.md,
-  },
-  entryText: {
-    ...typography.body,
-    fontSize: 16,
-    lineHeight: 24,
-    color: colors.gray[300],
-  },
-  textFadeOverlay: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 48, // 2 lines fade (2 * 24px line height)
-    zIndex: 2,
-  },
-  fadeLine1: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 24,
-    backgroundColor: colors.black,
-    opacity: 0.85,
-  },
-  fadeLine2: {
-    position: "absolute",
-    bottom: 24,
-    left: 0,
-    right: 0,
-    height: 24,
-    backgroundColor: colors.black,
-    opacity: 0.6,
-  },
-  voiceMemoContainer: {
-    marginBottom: spacing.md,
-    gap: spacing.sm,
-  },
-  voiceMemoPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    padding: spacing.md,
-    backgroundColor: colors.gray[900],
-    borderRadius: 16,
-  },
-  voiceMemoIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.gray[800],
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  voiceMemoInfo: {
-    flex: 1,
-    gap: spacing.xs,
-  },
-  voiceMemoLabel: {
-    ...typography.bodyMedium,
-    color: colors.white,
-  },
-  voiceMemoProgressTrack: {
-    width: "100%",
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.gray[800],
-    overflow: "hidden",
-  },
-  voiceMemoProgressFill: {
-    height: "100%",
-    backgroundColor: colors.accent,
-  },
-  voiceMemoTime: {
-    ...typography.caption,
-    color: colors.gray[400],
-  },
-  mediaWrapper: {
-    width: SCREEN_WIDTH,
-    marginLeft: -spacing.lg,
-    marginRight: -spacing.lg,
-    marginBottom: spacing.md,
-    alignSelf: "stretch",
-    paddingLeft: 0,
-    paddingRight: 0,
-  },
-  mediaImage: {
-    width: "100%",
-    height: 300, // Fallback height while loading dimensions
-    backgroundColor: colors.gray[900],
-  },
-  videoContainer: {
-    width: "100%",
-    minHeight: 200,
-    backgroundColor: colors.gray[900],
-    justifyContent: "center",
-    alignItems: "center",
-    position: "relative",
-    overflow: "hidden",
-    alignSelf: "stretch",
-  },
-  videoOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.3)",
-    zIndex: 1,
-  },
-  ctaButton: {
-    backgroundColor: colors.white,
-    borderRadius: 8,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-  },
-  ctaText: {
-    ...typography.bodyBold,
-    color: colors.black,
-    fontSize: 14,
-  },
-  actionsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: spacing.sm,
-  },
-  actionsLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.lg,
-  },
-  actionButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-  },
-  iconOutline: {
-    // Outline icon - white stroke, transparent fill
-  },
-  iconSolid: {
-    // Solid icon - white fill
-  },
-  actionCount: {
-    ...typography.bodyMedium,
-    fontSize: 14,
-    color: colors.white,
-  },
-  commentsContainer: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xs,
-    gap: spacing.xs,
-  },
-  commentPreviewItem: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: spacing.xs,
-  },
-  commentPreviewUser: {
-    ...typography.bodyMedium,
-    fontSize: 14,
-    color: colors.gray[300],
-  },
-  commentPreviewText: {
-    ...typography.body,
-    fontSize: 14,
-    color: colors.gray[400],
-    flex: 1,
-  },
-  commentPreviewMore: {
-    ...typography.caption,
-    fontSize: 13,
-    color: colors.gray[500],
-    marginTop: spacing.xs,
-  },
-  separator: {
-    width: "100%",
-    height: 1,
-    backgroundColor: "#3D3D3D",
-    marginTop: spacing.md,
-  },
-})

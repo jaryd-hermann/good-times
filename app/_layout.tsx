@@ -15,6 +15,7 @@ import * as Notifications from "expo-notifications"
 import { router } from "expo-router"
 import { PostHogProvider } from "posthog-react-native"
 import { TabBarProvider } from "../lib/tab-bar-context"
+import { ThemeProvider } from "../lib/theme-context"
 // Import supabase with error handling
 let supabase: any
 try {
@@ -245,11 +246,13 @@ export default function RootLayout() {
       >
         <SafeAreaProvider>
           <AuthProvider>
-            <QueryClientProvider client={queryClient}>
-              <TabBarProvider>
-                <Stack screenOptions={{ headerShown: false }} />
-              </TabBarProvider>
-            </QueryClientProvider>
+            <ThemeProvider>
+              <QueryClientProvider client={queryClient}>
+                <TabBarProvider>
+                  <Stack screenOptions={{ headerShown: false }} />
+                </TabBarProvider>
+              </QueryClientProvider>
+            </ThemeProvider>
           </AuthProvider>
         </SafeAreaProvider>
       </PostHogProvider>

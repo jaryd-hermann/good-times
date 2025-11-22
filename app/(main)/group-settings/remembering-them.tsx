@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput, Modal } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -10,7 +10,8 @@ import * as FileSystem from "expo-file-system/legacy"
 import { decode } from "base64-arraybuffer"
 import { supabase } from "../../../lib/supabase"
 import { getMemorials, createMemorial, deleteMemorial, updateMemorial, isGroupAdmin } from "../../../lib/db"
-import { colors, spacing, typography } from "../../../lib/theme"
+import { spacing, typography } from "../../../lib/theme"
+import { useTheme } from "../../../lib/theme-context"
 import { FontAwesome } from "@expo/vector-icons"
 import { Avatar } from "../../../components/Avatar"
 import { Button } from "../../../components/Button"
@@ -18,6 +19,7 @@ import { Button } from "../../../components/Button"
 export default function RememberingThemSettings() {
   const router = useRouter()
   const params = useLocalSearchParams()
+  const { colors } = useTheme()
   const groupId = params.groupId as string
   const insets = useSafeAreaInsets()
   const queryClient = useQueryClient()
@@ -205,6 +207,156 @@ export default function RememberingThemSettings() {
     )
   }
 
+  // Create dynamic styles based on theme (must be before conditional return)
+  const styles = useMemo(() => StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.black,
+    },
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: spacing.md,
+      paddingBottom: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.gray[800],
+    },
+    closeButton: {
+      padding: spacing.sm,
+    },
+    closeText: {
+      ...typography.h2,
+      color: colors.white,
+    },
+    title: {
+      ...typography.h1,
+      fontSize: 28,
+      color: colors.white,
+    },
+    content: {
+      flex: 1,
+    },
+    contentContainer: {
+      padding: spacing.md,
+      gap: spacing.md,
+    },
+    description: {
+      ...typography.body,
+      color: colors.gray[400],
+      marginBottom: spacing.sm,
+    },
+    loadingText: {
+      ...typography.body,
+      color: colors.gray[400],
+      textAlign: "center",
+      padding: spacing.xl,
+    },
+    emptyState: {
+      alignItems: "center",
+      padding: spacing.xxl,
+      gap: spacing.md,
+    },
+    emptyText: {
+      ...typography.bodyBold,
+      fontSize: 18,
+      color: colors.gray[400],
+    },
+    emptySubtext: {
+      ...typography.body,
+      color: colors.gray[500],
+      textAlign: "center",
+    },
+    memorialsList: {
+      gap: spacing.sm,
+    },
+    memorialCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: colors.gray[900],
+      borderRadius: 16,
+      padding: spacing.md,
+      gap: spacing.md,
+    },
+    memorialInfo: {
+      flex: 1,
+    },
+    memorialName: {
+      ...typography.bodyBold,
+      fontSize: 16,
+      color: colors.white,
+    },
+    deleteButton: {
+      padding: spacing.sm,
+    },
+    addButton: {
+      marginTop: spacing.md,
+    },
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.6)",
+      justifyContent: "center",
+      alignItems: "center",
+      padding: spacing.lg,
+    },
+    modalContent: {
+      backgroundColor: colors.black,
+      borderRadius: 24,
+      padding: spacing.lg,
+      width: "100%",
+      maxWidth: 400,
+      gap: spacing.md,
+    },
+    modalTitle: {
+      ...typography.h2,
+      fontSize: 24,
+      color: colors.white,
+    },
+    modalSubtitle: {
+      ...typography.body,
+      color: colors.gray[400],
+    },
+    input: {
+      ...typography.body,
+      color: colors.white,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.gray[700],
+      paddingVertical: spacing.sm,
+      fontSize: 18,
+    },
+    modalButtons: {
+      flexDirection: "row",
+      gap: spacing.md,
+      marginTop: spacing.sm,
+    },
+    modalButton: {
+      flex: 1,
+    },
+    photoSection: {
+      marginTop: spacing.md,
+    },
+    photoLabel: {
+      ...typography.body,
+      color: colors.gray[400],
+      marginBottom: spacing.sm,
+    },
+    photoButton: {
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+      backgroundColor: colors.gray[800],
+      borderRadius: 8,
+      alignSelf: "flex-start",
+    },
+    photoButtonText: {
+      ...typography.bodyMedium,
+      color: colors.white,
+    },
+    photoPreviewContainer: {
+      marginTop: spacing.md,
+      alignItems: "flex-start",
+    },
+  }), [colors])
+
   if (!isAdmin) {
     return null
   }
@@ -325,150 +477,4 @@ export default function RememberingThemSettings() {
     </View>
   )
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.black,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.gray[800],
-  },
-  closeButton: {
-    padding: spacing.sm,
-  },
-  closeText: {
-    ...typography.h2,
-    color: colors.white,
-  },
-  title: {
-    ...typography.h1,
-    fontSize: 28,
-  },
-  content: {
-    flex: 1,
-  },
-  contentContainer: {
-    padding: spacing.md,
-    gap: spacing.md,
-  },
-  description: {
-    ...typography.body,
-    color: colors.gray[400],
-    marginBottom: spacing.sm,
-  },
-  loadingText: {
-    ...typography.body,
-    color: colors.gray[400],
-    textAlign: "center",
-    padding: spacing.xl,
-  },
-  emptyState: {
-    alignItems: "center",
-    padding: spacing.xxl,
-    gap: spacing.md,
-  },
-  emptyText: {
-    ...typography.bodyBold,
-    fontSize: 18,
-    color: colors.gray[400],
-  },
-  emptySubtext: {
-    ...typography.body,
-    color: colors.gray[500],
-    textAlign: "center",
-  },
-  memorialsList: {
-    gap: spacing.sm,
-  },
-  memorialCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: colors.gray[900],
-    borderRadius: 16,
-    padding: spacing.md,
-    gap: spacing.md,
-  },
-  memorialInfo: {
-    flex: 1,
-  },
-  memorialName: {
-    ...typography.bodyBold,
-    fontSize: 16,
-  },
-  deleteButton: {
-    padding: spacing.sm,
-  },
-  addButton: {
-    marginTop: spacing.md,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: spacing.lg,
-  },
-  modalContent: {
-    backgroundColor: colors.black,
-    borderRadius: 24,
-    padding: spacing.lg,
-    width: "100%",
-    maxWidth: 400,
-    gap: spacing.md,
-  },
-  modalTitle: {
-    ...typography.h2,
-    fontSize: 24,
-  },
-  modalSubtitle: {
-    ...typography.body,
-    color: colors.gray[400],
-  },
-  input: {
-    ...typography.body,
-    color: colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.gray[700],
-    paddingVertical: spacing.sm,
-    fontSize: 18,
-  },
-  modalButtons: {
-    flexDirection: "row",
-    gap: spacing.md,
-    marginTop: spacing.sm,
-  },
-  modalButton: {
-    flex: 1,
-  },
-  photoSection: {
-    marginTop: spacing.md,
-  },
-  photoLabel: {
-    ...typography.body,
-    color: colors.gray[400],
-    marginBottom: spacing.sm,
-  },
-  photoButton: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    backgroundColor: colors.gray[800],
-    borderRadius: 8,
-    alignSelf: "flex-start",
-  },
-  photoButtonText: {
-    ...typography.bodyMedium,
-    color: colors.white,
-  },
-  photoPreviewContainer: {
-    marginTop: spacing.md,
-    alignItems: "flex-start",
-  },
-})
 

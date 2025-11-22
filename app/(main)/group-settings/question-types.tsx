@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -14,7 +14,8 @@ import {
   isGroupAdmin,
   getGroup,
 } from "../../../lib/db"
-import { colors, spacing, typography } from "../../../lib/theme"
+import { spacing, typography } from "../../../lib/theme"
+import { useTheme } from "../../../lib/theme-context"
 import { FontAwesome } from "@expo/vector-icons"
 
 type Preference = "more" | "less" | "none" | null
@@ -22,6 +23,7 @@ type Preference = "more" | "less" | "none" | null
 export default function QuestionTypesSettings() {
   const router = useRouter()
   const params = useLocalSearchParams()
+  const { colors } = useTheme()
   const groupId = params.groupId as string
   const insets = useSafeAreaInsets()
   const queryClient = useQueryClient()
@@ -129,6 +131,89 @@ export default function QuestionTypesSettings() {
     "A Bit Deeper": "Thought-provoking questions for deeper conversations",
   }
 
+  // Create dynamic styles based on theme (must be before conditional return)
+  const styles = useMemo(() => StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.black,
+    },
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: spacing.md,
+      paddingBottom: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.gray[800],
+    },
+    closeButton: {
+      padding: spacing.sm,
+    },
+    closeText: {
+      ...typography.h2,
+      color: colors.white,
+    },
+    title: {
+      ...typography.h1,
+      fontSize: 28,
+      color: colors.white,
+    },
+    content: {
+      flex: 1,
+    },
+    contentContainer: {
+      padding: spacing.md,
+      gap: spacing.md,
+    },
+    description: {
+      ...typography.body,
+      color: colors.gray[400],
+      marginBottom: spacing.sm,
+    },
+    categoryCard: {
+      backgroundColor: colors.gray[900],
+      borderRadius: 16,
+      padding: spacing.md,
+      gap: spacing.sm,
+    },
+    categoryTitle: {
+      ...typography.bodyBold,
+      fontSize: 16,
+      color: colors.white,
+    },
+    categoryDescription: {
+      ...typography.caption,
+      color: colors.gray[400],
+      fontSize: 13,
+      marginBottom: spacing.xs,
+    },
+    preferenceButtons: {
+      flexDirection: "row",
+      gap: spacing.sm,
+    },
+    preferenceButton: {
+      flex: 1,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+      borderRadius: 8,
+      backgroundColor: colors.gray[800],
+      alignItems: "center",
+    },
+    preferenceButtonActive: {
+      backgroundColor: colors.accent,
+    },
+    preferenceButtonDisabled: {
+      opacity: 0.5,
+    },
+    preferenceButtonText: {
+      ...typography.bodyMedium,
+      color: colors.gray[300],
+    },
+    preferenceButtonTextActive: {
+      color: colors.white,
+    },
+  }), [colors])
+
   if (!isAdmin) {
     return null
   }
@@ -228,84 +313,4 @@ export default function QuestionTypesSettings() {
     </View>
   )
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.black,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.gray[800],
-  },
-  closeButton: {
-    padding: spacing.sm,
-  },
-  closeText: {
-    ...typography.h2,
-    color: colors.white,
-  },
-  title: {
-    ...typography.h1,
-    fontSize: 28,
-  },
-  content: {
-    flex: 1,
-  },
-  contentContainer: {
-    padding: spacing.md,
-    gap: spacing.md,
-  },
-  description: {
-    ...typography.body,
-    color: colors.gray[400],
-    marginBottom: spacing.sm,
-  },
-  categoryCard: {
-    backgroundColor: colors.gray[900],
-    borderRadius: 16,
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
-  categoryTitle: {
-    ...typography.bodyBold,
-    fontSize: 16,
-  },
-  categoryDescription: {
-    ...typography.caption,
-    color: colors.gray[400],
-    fontSize: 13,
-    marginBottom: spacing.xs,
-  },
-  preferenceButtons: {
-    flexDirection: "row",
-    gap: spacing.sm,
-  },
-  preferenceButton: {
-    flex: 1,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: 8,
-    backgroundColor: colors.gray[800],
-    alignItems: "center",
-  },
-  preferenceButtonActive: {
-    backgroundColor: colors.accent,
-  },
-  preferenceButtonDisabled: {
-    opacity: 0.5,
-  },
-  preferenceButtonText: {
-    ...typography.bodyMedium,
-    color: colors.gray[300],
-  },
-  preferenceButtonTextActive: {
-    color: colors.white,
-  },
-})
 

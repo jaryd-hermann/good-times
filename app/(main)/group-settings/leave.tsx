@@ -1,19 +1,21 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { supabase } from "../../../lib/supabase"
 import { leaveGroup } from "../../../lib/db"
-import { colors, spacing, typography } from "../../../lib/theme"
+import { spacing, typography } from "../../../lib/theme"
+import { useTheme } from "../../../lib/theme-context"
 import { FontAwesome } from "@expo/vector-icons"
 import { Button } from "../../../components/Button"
 
 export default function LeaveGroupSettings() {
   const router = useRouter()
   const params = useLocalSearchParams()
+  const { colors } = useTheme()
   const groupId = params.groupId as string
   const insets = useSafeAreaInsets()
   const queryClient = useQueryClient()
@@ -73,6 +75,65 @@ export default function LeaveGroupSettings() {
     )
   }
 
+  // Create dynamic styles based on theme
+  const styles = useMemo(() => StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.black,
+    },
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: spacing.md,
+      paddingBottom: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.gray[800],
+    },
+    closeButton: {
+      padding: spacing.sm,
+    },
+    closeText: {
+      ...typography.h2,
+      color: colors.white,
+    },
+    title: {
+      ...typography.h1,
+      fontSize: 28,
+      color: colors.white,
+    },
+    content: {
+      flex: 1,
+      padding: spacing.lg,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.lg,
+    },
+    warningContainer: {
+      width: 96,
+      height: 96,
+      borderRadius: 48,
+      backgroundColor: colors.gray[900],
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    heading: {
+      ...typography.h2,
+      fontSize: 24,
+      textAlign: "center",
+      color: colors.white,
+    },
+    description: {
+      ...typography.body,
+      color: colors.gray[400],
+      textAlign: "center",
+      lineHeight: 22,
+    },
+    leaveButton: {
+      marginTop: spacing.md,
+    },
+  }), [colors])
+
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.xl }]}>
       <View style={styles.header}>
@@ -111,61 +172,4 @@ export default function LeaveGroupSettings() {
     </View>
   )
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.black,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.gray[800],
-  },
-  closeButton: {
-    padding: spacing.sm,
-  },
-  closeText: {
-    ...typography.h2,
-    color: colors.white,
-  },
-  title: {
-    ...typography.h1,
-    fontSize: 28,
-  },
-  content: {
-    flex: 1,
-    padding: spacing.lg,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.lg,
-  },
-  warningContainer: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: colors.gray[900],
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  heading: {
-    ...typography.h2,
-    fontSize: 24,
-    textAlign: "center",
-  },
-  description: {
-    ...typography.body,
-    color: colors.gray[400],
-    textAlign: "center",
-    lineHeight: 22,
-  },
-  leaveButton: {
-    marginTop: spacing.md,
-    backgroundColor: colors.accent,
-  },
-})
 

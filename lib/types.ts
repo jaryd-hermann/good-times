@@ -4,6 +4,7 @@ export interface User {
   name: string
   birthday: string
   avatar_url?: string
+  theme_preference?: "dark" | "light"
   created_at: string
 }
 

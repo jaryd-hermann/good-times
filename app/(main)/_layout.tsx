@@ -1,9 +1,10 @@
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs"
 import { Tabs } from "expo-router"
-import { colors, spacing } from "../../lib/theme"
+import { spacing } from "../../lib/theme"
+import { useTheme } from "../../lib/theme-context"
 import { View, StyleSheet, TouchableOpacity, Text, Animated } from "react-native"
 import { FontAwesome } from "@expo/vector-icons"
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useMemo } from "react"
 import { useTabBar } from "../../lib/tab-bar-context"
 
 function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
@@ -11,6 +12,7 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
   const previousIndexRef = useRef(state.index)
   const animatedValuesRef = useRef<Record<string, Animated.Value>>({})
   const { opacity: tabBarOpacity } = useTabBar()
+  const { colors, isDark } = useTheme()
 
   const visibleRoutes = state.routes.filter((route) => route.name === "home" || route.name === "history")
 
@@ -56,6 +58,62 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
       }
     }
   }, [state.index, state.routes])
+
+  // Create dynamic styles based on theme
+  const styles = useMemo(() => StyleSheet.create({
+    tabWrapper: {
+      position: "absolute",
+      bottom: 24,
+      left: 0,
+      right: 0,
+      alignItems: "center",
+    },
+    tabContainer: {
+      flexDirection: "row",
+      backgroundColor: isDark ? "#282626" : "#ffffff",
+      borderRadius: 38,
+      width: 194,
+      height: 66,
+      paddingHorizontal: spacing.xs,
+      paddingVertical: spacing.xs,
+      borderWidth: 0.1,
+      borderColor: colors.white,
+      alignItems: "center",
+      justifyContent: "center",
+      shadowColor: "#000",
+      shadowOpacity: 0.15,
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 6 },
+      elevation: 8,
+    },
+    tabButton: {
+      flex: 1,
+      height: "100%",
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    navItem: {
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.xs,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs,
+      borderRadius: 38,
+      height: "100%",
+      width: "100%",
+    },
+    navLabel: {
+      color: isDark ? "#848282" : colors.gray[500],
+      fontFamily: "Roboto-Medium",
+      fontSize: 12,
+    },
+    navLabelActive: {
+      color: colors.white,
+    },
+    navItemActive: {
+      backgroundColor: isDark ? "#8A8484" : colors.gray[800],
+    },
+  }), [colors, isDark])
 
   // Early return AFTER all hooks
   if (
@@ -112,7 +170,7 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
                 <FontAwesome
                   name={route.name === "home" ? "home" : "book"}
                   size={20}
-                  color={isFocused ? colors.white : "#848282"}
+                  color={isFocused ? colors.white : (isDark ? "#848282" : colors.gray[500])}
                 />
               </Animated.View>
               <Text style={[styles.navLabel, isFocused && styles.navLabelActive]}>{label}</Text>
@@ -158,58 +216,3 @@ export default function MainLayout() {
     </Tabs>
   )
 }
-
-const styles = StyleSheet.create({
-  tabWrapper: {
-    position: "absolute",
-    bottom: 24,
-    left: 0,
-    right: 0,
-    alignItems: "center",
-  },
-  tabContainer: {
-    flexDirection: "row",
-    backgroundColor: "#282626",
-    borderRadius: 38,
-    width: 194,
-    height: 66,
-    paddingHorizontal: spacing.xs,
-    paddingVertical: spacing.xs,
-    borderWidth: 0.1,
-    borderColor: colors.white,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
-  },
-  tabButton: {
-    flex: 1,
-    height: "100%",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  navItem: {
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: 38,
-    height: "100%",
-    width: "100%",
-  },
-  navLabel: {
-    color: "#848282",
-    fontFamily: "Roboto-Medium",
-    fontSize: 12,
-  },
-  navLabelActive: {
-    color: colors.white,
-  },
-  navItemActive: {
-    backgroundColor: "#8A8484",
-  },
-})

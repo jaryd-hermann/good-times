@@ -1,19 +1,21 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { View, Text, StyleSheet, TextInput, Alert, TouchableOpacity } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { supabase } from "../../../lib/supabase"
 import { updateGroupName, isGroupAdmin } from "../../../lib/db"
-import { colors, spacing, typography } from "../../../lib/theme"
+import { spacing, typography } from "../../../lib/theme"
+import { useTheme } from "../../../lib/theme-context"
 import { FontAwesome } from "@expo/vector-icons"
 import { Button } from "../../../components/Button"
 
 export default function GroupNameSettings() {
   const router = useRouter()
   const params = useLocalSearchParams()
+  const { colors } = useTheme()
   const groupId = params.groupId as string
   const insets = useSafeAreaInsets()
   const queryClient = useQueryClient()
@@ -85,6 +87,64 @@ export default function GroupNameSettings() {
     }
   }
 
+  // Create dynamic styles based on theme (must be before conditional return)
+  const styles = useMemo(() => StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.black,
+    },
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: spacing.md,
+      paddingBottom: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.gray[800],
+    },
+    closeButton: {
+      padding: spacing.sm,
+    },
+    closeText: {
+      ...typography.h2,
+      color: colors.white,
+    },
+    title: {
+      ...typography.h1,
+      fontSize: 28,
+      color: colors.white,
+    },
+    content: {
+      flex: 1,
+      padding: spacing.lg,
+      gap: spacing.md,
+    },
+    label: {
+      ...typography.bodyBold,
+      fontSize: 14,
+      color: colors.gray[400],
+      marginBottom: spacing.xs,
+    },
+    input: {
+      ...typography.body,
+      fontSize: 18,
+      color: colors.white,
+      backgroundColor: colors.gray[900],
+      borderRadius: 12,
+      padding: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.gray[800],
+    },
+    hint: {
+      ...typography.caption,
+      color: colors.gray[500],
+      fontSize: 12,
+    },
+    saveButton: {
+      marginTop: spacing.lg,
+    },
+  }), [colors])
+
   if (!isAdmin) {
     return null
   }
@@ -129,60 +189,4 @@ export default function GroupNameSettings() {
     </View>
   )
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.black,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.gray[800],
-  },
-  closeButton: {
-    padding: spacing.sm,
-  },
-  closeText: {
-    ...typography.h2,
-    color: colors.white,
-  },
-  title: {
-    ...typography.h1,
-    fontSize: 28,
-  },
-  content: {
-    flex: 1,
-    padding: spacing.lg,
-    gap: spacing.md,
-  },
-  label: {
-    ...typography.bodyBold,
-    fontSize: 14,
-    color: colors.gray[400],
-    marginBottom: spacing.xs,
-  },
-  input: {
-    ...typography.body,
-    fontSize: 18,
-    color: colors.white,
-    backgroundColor: colors.gray[900],
-    borderRadius: 12,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.gray[800],
-  },
-  hint: {
-    ...typography.caption,
-    color: colors.gray[500],
-    fontSize: 12,
-  },
-  saveButton: {
-    marginTop: spacing.lg,
-  },
-})
 

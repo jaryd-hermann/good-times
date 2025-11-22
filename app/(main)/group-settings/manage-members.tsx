@@ -1,19 +1,21 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { supabase } from "../../../lib/supabase"
 import { getGroupMembers, removeGroupMember, isGroupAdmin } from "../../../lib/db"
-import { colors, spacing, typography } from "../../../lib/theme"
+import { spacing, typography } from "../../../lib/theme"
+import { useTheme } from "../../../lib/theme-context"
 import { Avatar } from "../../../components/Avatar"
 import { FontAwesome } from "@expo/vector-icons"
 
 export default function ManageMembersSettings() {
   const router = useRouter()
   const params = useLocalSearchParams()
+  const { colors } = useTheme()
   const groupId = params.groupId as string
   const insets = useSafeAreaInsets()
   const queryClient = useQueryClient()
@@ -78,6 +80,105 @@ export default function ManageMembersSettings() {
     )
   }
 
+  // Create dynamic styles based on theme (must be before conditional return)
+  const styles = useMemo(() => StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.black,
+    },
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: spacing.md,
+      paddingBottom: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.gray[800],
+    },
+    closeButton: {
+      padding: spacing.sm,
+    },
+    closeText: {
+      ...typography.h2,
+      color: colors.white,
+    },
+    title: {
+      ...typography.h1,
+      fontSize: 28,
+      color: colors.white,
+    },
+    content: {
+      flex: 1,
+    },
+    contentContainer: {
+      padding: spacing.md,
+      gap: spacing.md,
+    },
+    description: {
+      ...typography.body,
+      color: colors.gray[400],
+      marginBottom: spacing.sm,
+    },
+    memberCard: {
+      backgroundColor: colors.gray[900],
+      borderRadius: 16,
+      padding: spacing.md,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    memberInfo: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.md,
+      flex: 1,
+    },
+    memberText: {
+      flex: 1,
+      gap: spacing.xs,
+    },
+    memberNameRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+    },
+    memberName: {
+      ...typography.bodyBold,
+      fontSize: 16,
+      color: colors.white,
+    },
+    adminBadge: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: spacing.xs,
+      paddingVertical: 2,
+      backgroundColor: colors.gray[800],
+      borderRadius: 4,
+    },
+    adminText: {
+      ...typography.caption,
+      color: colors.accent,
+      fontSize: 10,
+    },
+    memberEmail: {
+      ...typography.caption,
+      color: colors.gray[400],
+      fontSize: 12,
+    },
+    removeButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: colors.gray[800],
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    removeButtonDisabled: {
+      opacity: 0.5,
+    },
+  }), [colors])
+
   if (!isAdmin) {
     return null
   }
@@ -139,100 +240,4 @@ export default function ManageMembersSettings() {
     </View>
   )
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.black,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.gray[800],
-  },
-  closeButton: {
-    padding: spacing.sm,
-  },
-  closeText: {
-    ...typography.h2,
-    color: colors.white,
-  },
-  title: {
-    ...typography.h1,
-    fontSize: 28,
-  },
-  content: {
-    flex: 1,
-  },
-  contentContainer: {
-    padding: spacing.md,
-    gap: spacing.md,
-  },
-  description: {
-    ...typography.body,
-    color: colors.gray[400],
-    marginBottom: spacing.sm,
-  },
-  memberCard: {
-    backgroundColor: colors.gray[900],
-    borderRadius: 16,
-    padding: spacing.md,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  memberInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    flex: 1,
-  },
-  memberText: {
-    flex: 1,
-    gap: spacing.xs,
-  },
-  memberNameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-  },
-  memberName: {
-    ...typography.bodyBold,
-    fontSize: 16,
-  },
-  adminBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: spacing.xs,
-    paddingVertical: 2,
-    backgroundColor: colors.gray[800],
-    borderRadius: 4,
-  },
-  adminText: {
-    ...typography.caption,
-    color: colors.accent,
-    fontSize: 10,
-  },
-  memberEmail: {
-    ...typography.caption,
-    color: colors.gray[400],
-    fontSize: 12,
-  },
-  removeButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.gray[800],
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  removeButtonDisabled: {
-    opacity: 0.5,
-  },
-})
 

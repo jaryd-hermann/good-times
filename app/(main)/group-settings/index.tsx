@@ -1,18 +1,20 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { useQuery } from "@tanstack/react-query"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { supabase } from "../../../lib/supabase"
 import { isGroupAdmin } from "../../../lib/db"
-import { colors, spacing, typography } from "../../../lib/theme"
+import { spacing, typography } from "../../../lib/theme"
+import { useTheme } from "../../../lib/theme-context"
 import { FontAwesome } from "@expo/vector-icons"
 
 export default function GroupSettingsIndex() {
   const router = useRouter()
   const params = useLocalSearchParams()
+  const { colors } = useTheme()
   const groupId = params.groupId as string
   const insets = useSafeAreaInsets()
   const [userId, setUserId] = useState<string>()
@@ -86,6 +88,86 @@ export default function GroupSettingsIndex() {
     })
   }
 
+  // Create dynamic styles based on theme
+  const styles = useMemo(() => StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.black,
+    },
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: spacing.md,
+      paddingBottom: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.gray[800],
+    },
+    closeButton: {
+      padding: spacing.sm,
+    },
+    closeText: {
+      ...typography.h2,
+      color: colors.white,
+    },
+    title: {
+      ...typography.h1,
+      fontSize: 28,
+      color: colors.white,
+    },
+    adminBadge: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      backgroundColor: colors.gray[900],
+    },
+    adminText: {
+      ...typography.caption,
+      color: colors.accent,
+      fontSize: 12,
+    },
+    content: {
+      flex: 1,
+    },
+    contentContainer: {
+      padding: spacing.md,
+    },
+    optionCard: {
+      backgroundColor: colors.gray[900],
+      borderRadius: 16,
+      overflow: "hidden",
+      marginBottom: spacing.sm,
+    },
+    optionContent: {
+      flexDirection: "row",
+      alignItems: "center",
+      padding: spacing.md,
+    },
+    optionIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.gray[800],
+      justifyContent: "center",
+      alignItems: "center",
+      marginRight: spacing.md,
+    },
+    optionText: {
+      flex: 1,
+    },
+    optionTitle: {
+      ...typography.bodyBold,
+      fontSize: 16,
+      color: colors.white,
+    },
+    optionSubtitle: {
+      ...typography.caption,
+      color: colors.gray[400],
+      fontSize: 13,
+    },
+  }), [colors])
+
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.xl }]}>
       <View style={styles.header}>
@@ -97,7 +179,7 @@ export default function GroupSettingsIndex() {
 
       {isAdmin && (
         <View style={styles.adminBadge}>
-          <FontAwesome name="shield" size={14} color={colors.accent} />
+          <FontAwesome name="shield" size={14} color={colors.accent} style={{ marginRight: spacing.xs }} />
           <Text style={styles.adminText}>Admin</Text>
         </View>
       )}
@@ -124,7 +206,7 @@ export default function GroupSettingsIndex() {
                   <Text style={styles.optionTitle}>{option.title}</Text>
                   <Text style={styles.optionSubtitle}>{option.subtitle}</Text>
                 </View>
-                <FontAwesome name="chevron-right" size={16} color={colors.gray[500]} />
+                <FontAwesome name="chevron-right" size={16} color={colors.gray[500]} style={{ marginLeft: spacing.md }} />
               </View>
             </TouchableOpacity>
           )
@@ -133,83 +215,4 @@ export default function GroupSettingsIndex() {
     </View>
   )
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.black,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.gray[800],
-  },
-  closeButton: {
-    padding: spacing.sm,
-  },
-  closeText: {
-    ...typography.h2,
-    color: colors.white,
-  },
-  title: {
-    ...typography.h1,
-    fontSize: 28,
-  },
-  adminBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.gray[900],
-  },
-  adminText: {
-    ...typography.caption,
-    color: colors.accent,
-    fontSize: 12,
-  },
-  content: {
-    flex: 1,
-  },
-  contentContainer: {
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
-  optionCard: {
-    backgroundColor: colors.gray[900],
-    borderRadius: 16,
-    overflow: "hidden",
-  },
-  optionContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: spacing.md,
-    gap: spacing.md,
-  },
-  optionIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.gray[800],
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  optionText: {
-    flex: 1,
-    gap: spacing.xs,
-  },
-  optionTitle: {
-    ...typography.bodyBold,
-    fontSize: 16,
-  },
-  optionSubtitle: {
-    ...typography.caption,
-    color: colors.gray[400],
-    fontSize: 13,
-  },
-})
 

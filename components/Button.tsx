@@ -1,5 +1,6 @@
 import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, type ViewStyle, type TextStyle } from "react-native"
-import { colors, typography, spacing } from "../lib/theme"
+import { typography, spacing } from "../lib/theme"
+import { useTheme } from "../lib/theme-context"
 
 interface ButtonProps {
   title: string
@@ -12,13 +13,38 @@ interface ButtonProps {
 }
 
 export function Button({ title, onPress, variant = "primary", disabled, loading, style, textStyle }: ButtonProps) {
+  const { colors } = useTheme()
+  
+  const dynamicStyles = StyleSheet.create({
+    primary: {
+      backgroundColor: colors.accent,
+    },
+    secondary: {
+      backgroundColor: colors.white,
+    },
+    ghost: {
+      backgroundColor: "transparent",
+      borderWidth: 1,
+      borderColor: colors.white,
+    },
+    primaryText: {
+      color: "#ffffff", // Always white for red CTAs, regardless of theme
+    },
+    secondaryText: {
+      color: colors.black,
+    },
+    ghostText: {
+      color: colors.white,
+    },
+  })
+
   return (
     <TouchableOpacity
       style={[
         styles.button,
-        variant === "primary" && styles.primary,
-        variant === "secondary" && styles.secondary,
-        variant === "ghost" && styles.ghost,
+        variant === "primary" && dynamicStyles.primary,
+        variant === "secondary" && dynamicStyles.secondary,
+        variant === "ghost" && dynamicStyles.ghost,
         disabled && styles.disabled,
         style,
       ]}
@@ -27,14 +53,14 @@ export function Button({ title, onPress, variant = "primary", disabled, loading,
       activeOpacity={0.7}
     >
       {loading ? (
-        <ActivityIndicator color={variant === "primary" ? colors.white : colors.accent} />
+        <ActivityIndicator color={variant === "primary" ? "#ffffff" : colors.accent} />
       ) : (
         <Text
           style={[
             styles.text,
-            variant === "primary" && styles.primaryText,
-            variant === "secondary" && styles.secondaryText,
-            variant === "ghost" && styles.ghostText,
+            variant === "primary" && dynamicStyles.primaryText,
+            variant === "secondary" && dynamicStyles.secondaryText,
+            variant === "ghost" && dynamicStyles.ghostText,
             textStyle,
           ]}
         >
@@ -54,31 +80,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     minHeight: 56,
   },
-  primary: {
-    backgroundColor: colors.accent,
-  },
-  secondary: {
-    backgroundColor: colors.white,
-  },
-  ghost: {
-    backgroundColor: "transparent",
-    borderWidth: 1,
-    borderColor: colors.white,
-  },
   disabled: {
     opacity: 0.5,
   },
   text: {
     ...typography.bodyBold,
     fontSize: 18,
-  },
-  primaryText: {
-    color: colors.white,
-  },
-  secondaryText: {
-    color: colors.black,
-  },
-  ghostText: {
-    color: colors.white,
   },
 })
