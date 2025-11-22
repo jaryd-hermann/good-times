@@ -30,8 +30,7 @@ export default function Welcome3() {
         </View>
         <View style={styles.textContainer}>
           <Text style={styles.body}>
-            This is for you if you have family and friends you don't always get to see and speak with. If you want to be in touch better.
-      Good Times is the simple, quick, and meaningful way to keep connected with the people you love and want to be close to.
+          This is for you if you want a meaningful and easy way to keep connected and get closer to your people, with <Text style={styles.boldText}>just one question a day</Text>. 
           </Text>
         </View>
 
@@ -83,6 +82,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
     color: colors.white,
+  },
+  boldText: {
+    fontWeight: "bold",
   },
   bottomContainer: {
     flexDirection: "row",

@@ -31,7 +31,10 @@ export default function Welcome2() {
         <View style={styles.textContainer}>
           <Text style={styles.title}>I'm Jaryd</Text>
           <Text style={styles.body}>
-          I made Good Times because I love that feeling of flipping through a photo album, telling stories at the table, and watching old family videos. 
+          I made Good Times to stay close to my favorite people. Most of them live far away. 
+          </Text>
+          <Text style={styles.body}>
+            <Text style={styles.boldText}>Keeping in touch isn't always easy...</Text>
           </Text>
         </View>
 
@@ -94,6 +97,9 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     color: colors.white,
     marginBottom: spacing.md,
+  },
+  boldText: {
+    fontWeight: "bold",
   },
   buttonContainer: {
     alignItems: "flex-end",

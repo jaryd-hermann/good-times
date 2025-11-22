@@ -130,10 +130,10 @@ export default function About() {
             ref={nameInputRef}
             value={name}
             onChangeText={setName}
-            placeholder="Lucy"
+            placeholder="Your name"
             autoCapitalize="words"
             autoFocus={true}
-            placeholderTextColor={colors.gray[500]}
+            placeholderTextColor={colors.gray[400]}
             style={styles.inlineInput}
           />
 

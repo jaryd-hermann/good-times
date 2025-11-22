@@ -78,19 +78,19 @@ export default function CreateGroupNameType() {
         }}
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Give your group a name</Text>
+          <Text style={styles.title}>Create Your Group</Text>
         </View>
 
         <View style={styles.form}>
-          <Text style={styles.prompt}>What should we call this group?</Text>
+          <Text style={styles.prompt}>What should we call you guys?</Text>
           <Input
             ref={inputRef}
             value={groupName}
             onChangeText={setLocalGroupName}
-            placeholder="Hermann family"
+            placeholder="Group name"
             autoCapitalize="words"
             autoFocus={true}
-            placeholderTextColor={colors.gray[500]}
+            placeholderTextColor={colors.gray[400]}
             style={styles.inlineInput}
             onFocus={() => {
               // Scroll up when keyboard opens

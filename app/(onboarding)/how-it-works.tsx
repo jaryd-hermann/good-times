@@ -21,11 +21,11 @@ function getPostAuthOnboardingKey(userId: string): string {
 const { width, height } = Dimensions.get("window")
 
 const STEPS = [
-  "Every day, your group gets a new question. Something simple, meaningful, or fun.",
-  "Answer with text, photos, video, or voice notes. It takes just a minute or two.",
-  "Enjoy everyones answers. Get closer and connect without the pressure.",
-  "Build your group's story. A living history of your lives together.",
-  "Flip through your history to relive memories and feel closer even when you're far apart.",
+  "Every day, you get one short question.",
+  "Answer in just a minute or two.",
+  "Enjoy what everyone said.",
+  "It all gets connected in your History.",
+  "Flip through your timeine to relive memories and feel closer even when you're far apart.",
 ]
 
 export default function HowItWorks() {

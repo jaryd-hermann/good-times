@@ -73,11 +73,10 @@ export default function Memorial() {
         <View style={styles.textContainer}>
           <Text style={styles.title}>Remembering them...</Text>
           <Text style={styles.body}>
-            My siblings and I lost our mom last year. Moments where we're together and share stories, memories, and
-           photos of her are everything.
+            My siblings and I lost our mom last year. Sharing memories of her are everything to me, so I've created a space for that here.
           </Text>
           <Text style={styles.body}>
-            I hope you haven't, but if your group has lost someone, do you want to add this to your story book?
+            If your group has lost someone, we can send you specific questions occassionally. Would you like to add them here?
           </Text>
         </View>
 

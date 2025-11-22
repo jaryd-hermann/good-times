@@ -76,7 +76,7 @@ export default function Welcome1() {
         <View style={styles.textContainer}>
           <Text style={styles.title}>Good Times</Text>
           <Text style={styles.subtitle}>
-            Just you and your favorite people keeping connected, enjoying the good times, making a shared story.
+            The friends and family group journaling app.
           </Text>
         </View>
 

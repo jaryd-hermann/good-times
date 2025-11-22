@@ -63,8 +63,8 @@ export default function MemorialInput() {
         <Input
           value={name}
           onChangeText={setName}
-          placeholder="Amelia"
-          placeholderTextColor={colors.gray[500]}
+          placeholder="Their name"
+          placeholderTextColor={colors.gray[400]}
           style={styles.inlineInput}
         />
 
