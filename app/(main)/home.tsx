@@ -32,7 +32,6 @@ import {
 import { getTodayDate, getWeekDates } from "../../lib/utils"
 import { colors, typography, spacing } from "../../lib/theme"
 import { Avatar } from "../../components/Avatar"
-import { FilmFrame } from "../../components/FilmFrame"
 import { Button } from "../../components/Button"
 import { EntryCard } from "../../components/EntryCard"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
@@ -40,6 +39,7 @@ import { FontAwesome } from "@expo/vector-icons"
 import { registerForPushNotifications, savePushToken } from "../../lib/notifications"
 import { getMemorials } from "../../lib/db"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "../../lib/prompts"
+import { useTabBar } from "../../lib/tab-bar-context"
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 
@@ -69,6 +69,7 @@ export default function Home() {
   const headerTranslateY = useRef(new Animated.Value(0)).current
   const contentPaddingTop = useRef(new Animated.Value(0)).current
   const lastScrollY = useRef(0)
+  const { opacity: tabBarOpacity } = useTabBar()
 
   useEffect(() => {
     loadUser()
@@ -330,25 +331,47 @@ export default function Home() {
     queryKey: ["members", currentGroupId],
     queryFn: () => (currentGroupId ? getGroupMembers(currentGroupId) : []),
     enabled: !!currentGroupId,
+    staleTime: 0, // Always refetch to ensure avatars are up to date
+    refetchOnMount: true, // Refetch when component mounts
+    refetchOnWindowFocus: true, // Refetch when screen comes into focus
   })
+
+  // Preload prompts for all week dates when group changes to prevent glitching
+  useEffect(() => {
+    if (currentGroupId && userId) {
+      const weekDatesForPrefetch = getWeekDates()
+      // Preload prompts for all dates in the week
+      weekDatesForPrefetch.forEach((day) => {
+        queryClient.prefetchQuery({
+          queryKey: ["dailyPrompt", currentGroupId, day.date, userId],
+          queryFn: () => getDailyPrompt(currentGroupId, day.date, userId),
+          staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+        })
+      })
+    }
+  }, [currentGroupId, userId, queryClient])
+
+  // Preload prompt for selected date when it changes to prevent glitching
+  useEffect(() => {
+    if (currentGroupId && userId && selectedDate) {
+      queryClient.prefetchQuery({
+        queryKey: ["dailyPrompt", currentGroupId, selectedDate, userId],
+        queryFn: () => getDailyPrompt(currentGroupId, selectedDate, userId),
+        staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+      })
+    }
+  }, [selectedDate, currentGroupId, userId, queryClient])
 
   const { data: dailyPrompt, isLoading: isLoadingPrompt, isFetching: isFetchingPrompt } = useQuery({
     queryKey: ["dailyPrompt", currentGroupId, selectedDate, userId],
     queryFn: () => (currentGroupId ? getDailyPrompt(currentGroupId, selectedDate, userId) : null),
     enabled: !!currentGroupId && !!selectedDate, // Always enabled when group and date are available
-    staleTime: 0, // Always refetch to ensure data matches database (no stale data)
-    gcTime: 2 * 60 * 1000, // Keep cache for 2 minutes for smooth date navigation
-    refetchOnMount: true, // Always refetch on mount to ensure fresh data
-    refetchOnWindowFocus: true, // Refetch on focus to catch any updates
-    // Never show placeholder data - always wait for correct data
-    placeholderData: (previousData) => {
-      // Only allow placeholder if it's for the EXACT same group AND date
-      if (previousData && previousData.group_id === currentGroupId && previousData.date === selectedDate) {
-        return previousData
-      }
-      // Never show data from different group or date
-      return undefined
-    },
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes to prevent glitching during date navigation
+    gcTime: 10 * 60 * 1000, // Keep cache for 10 minutes for smooth date navigation
+    refetchOnMount: false, // Don't refetch on mount if data is cached (prevents flash)
+    refetchOnWindowFocus: false, // Don't refetch on focus (prevents flash)
+    // Don't use placeholder data from different dates - this causes glitching
+    placeholderData: undefined,
   })
 
   const { data: userEntry } = useQuery({
@@ -446,13 +469,14 @@ export default function Home() {
   }
 
   async function handleShareInvite() {
-    if (!currentGroupId) return
+    if (!currentGroupId || !userName) return
     try {
       const inviteLink = `goodtimes://join/${currentGroupId}`
-      // Set message to URL so copy action copies just the URL
+      const inviteMessage = `I've created a group for us on this new app, Good Times. Join ${userName} here: ${inviteLink}`
       await Share.share({
         url: inviteLink,
-        message: inviteLink,
+        message: inviteMessage,
+        title: "Good Times Invite",
       })
     } catch (error: any) {
       Alert.alert("Error", error.message)
@@ -558,7 +582,7 @@ export default function Home() {
       lastScrollY.current = currentScrollY
 
       if (scrollDiff > 5 && currentScrollY > 50) {
-        // Scrolling down - hide header and reduce padding
+        // Scrolling down - hide header and reduce padding, fade tab bar
         Animated.parallel([
           Animated.timing(headerTranslateY, {
             toValue: -(headerHeight + 100), // Hide entire header including day scroller
@@ -570,9 +594,14 @@ export default function Home() {
             duration: 300,
             useNativeDriver: false,
           }),
+          Animated.timing(tabBarOpacity, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }),
         ]).start()
       } else if (scrollDiff < -5) {
-        // Scrolling up - show header and restore padding
+        // Scrolling up - show header and restore padding, show tab bar
         Animated.parallel([
           Animated.timing(headerTranslateY, {
             toValue: 0,
@@ -583,6 +612,11 @@ export default function Home() {
             toValue: headerHeight,
             duration: 300,
             useNativeDriver: false,
+          }),
+          Animated.timing(tabBarOpacity, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: true,
           }),
         ]).start()
       }
@@ -665,30 +699,34 @@ export default function Home() {
         )}
         {/* Daily prompt */}
         {!userEntry && (
-          <FilmFrame style={styles.promptCard} contentStyle={styles.promptInner}>
-            {isLoadingGroupData ? (
-              // Show loading state during group switch
-              <View style={styles.loadingContainer}>
-                <Text style={styles.loadingText}>Loading...</Text>
-              </View>
-            ) : (
-              <>
-                <Text style={styles.promptQuestion}>
-                  {personalizedPromptQuestion || fallbackPrompt?.question || "Share a moment that made you smile today."}
-                </Text>
-                <Text style={styles.promptDescription}>
-                  {fallbackPrompt?.description ?? "Tell your group about something meaningful or memorable from your day."}
-                </Text>
-                {promptId && (
-                  <Button
-                    title="Tell the Group"
-                    onPress={handleAnswerPrompt}
-                    style={styles.answerButton}
-                  />
-                )}
-              </>
-            )}
-          </FilmFrame>
+          <View style={styles.promptCardWrapper}>
+            <View style={styles.promptDivider} />
+            <View style={styles.promptCard}>
+              {isLoadingGroupData ? (
+                // Show loading state during group switch
+                <View style={styles.loadingContainer}>
+                  <Text style={styles.loadingText}>Loading...</Text>
+                </View>
+              ) : (
+                <>
+                  <Text style={styles.promptQuestion}>
+                    {personalizedPromptQuestion || fallbackPrompt?.question || "Share a moment that made you smile today."}
+                  </Text>
+                  <Text style={styles.promptDescription}>
+                    {fallbackPrompt?.description ?? "Tell your group about something meaningful or memorable from your day."}
+                  </Text>
+                  {promptId && (
+                    <Button
+                      title="Tell the Group"
+                      onPress={handleAnswerPrompt}
+                      style={styles.answerButton}
+                    />
+                  )}
+                </>
+              )}
+            </View>
+            <View style={styles.promptDivider} />
+          </View>
         )}
 
         {/* Entries feed */}
@@ -708,6 +746,28 @@ export default function Home() {
                 returnTo="/(main)/home"
               />
             ))}
+            {/* Show message if all members posted or if some haven't */}
+            {(() => {
+              const entriesForDate = entries.filter(e => e.date === selectedDate)
+              const uniqueUserIds = new Set(entriesForDate.map(e => e.user_id))
+              const allMembersPosted = members.length > 0 && uniqueUserIds.size === members.length
+              const someMembersPosted = uniqueUserIds.size > 0 && uniqueUserIds.size < members.length
+              
+              if (allMembersPosted) {
+                return (
+                  <View style={styles.postingStatusContainer}>
+                    <Text style={styles.postingStatusText}>Everyone in the group posted today.</Text>
+                  </View>
+                )
+              } else if (someMembersPosted) {
+                return (
+                  <View style={styles.postingStatusContainer}>
+                    <Text style={styles.postingStatusText}>Come back later to see what the others said</Text>
+                  </View>
+                )
+              }
+              return null
+            })()}
           </View>
         ) : null}
       </Animated.ScrollView>
@@ -864,18 +924,20 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     paddingTop: spacing.md,
-    paddingBottom: spacing.xxl,
+    paddingBottom: spacing.xxl * 4, // Increased bottom padding for scrolling
+  },
+  promptCardWrapper: {
+    marginBottom: spacing.md, // Reduced from spacing.lg
+    width: "100%",
+  },
+  promptDivider: {
+    width: "100%",
+    height: 1,
+    backgroundColor: "#3D3D3D",
   },
   promptCard: {
-    marginBottom: spacing.lg,
-    width: 399,
-    alignSelf: "center",
-    backgroundColor: "#0C0E1A",
-  },
-  promptInner: {
-    margin: spacing.md,
+    backgroundColor: colors.black,
     padding: spacing.lg,
-    backgroundColor: "#0C0E1A",
   },
   promptQuestion: {
     ...typography.h3,
@@ -913,6 +975,16 @@ const styles = StyleSheet.create({
   entriesContainer: {
     gap: spacing.lg,
     marginTop: -spacing.md, // Negative margin to reduce space from divider above
+  },
+  postingStatusContainer: {
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    alignItems: "center",
+  },
+  postingStatusText: {
+    ...typography.body,
+    color: colors.gray[400],
+    textAlign: "center",
   },
   notice: {
     marginBottom: spacing.md,

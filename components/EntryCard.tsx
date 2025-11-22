@@ -1,21 +1,19 @@
 "use client"
 
 import { useEffect, useState, useRef, useMemo } from "react"
-import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView } from "react-native"
+import { View, Text, StyleSheet, Image, TouchableOpacity, ActivityIndicator, Dimensions } from "react-native"
 import { useRouter } from "expo-router"
 import { Audio, Video, ResizeMode } from "expo-av"
-import { parseISO, format } from "date-fns"
 import type { Entry } from "../lib/types"
 import { colors, typography, spacing } from "../lib/theme"
 import { Avatar } from "./Avatar"
-import { FilmFrame } from "./FilmFrame"
 import { FontAwesome } from "@expo/vector-icons"
 import { supabase } from "../lib/supabase"
-import { getComments, getMemorials } from "../lib/db"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { EmbeddedPlayer } from "./EmbeddedPlayer"
-import type { EmbeddedMedia } from "../lib/types"
-import { personalizeMemorialPrompt, replaceDynamicVariables } from "../lib/prompts"
+import { getComments, getMemorials, getReactions } from "../lib/db"
+import { useQuery } from "@tanstack/react-query"
+import { personalizeMemorialPrompt } from "../lib/prompts"
+
+const { width: SCREEN_WIDTH } = Dimensions.get("window")
 
 interface EntryCardProps {
   entry: Entry
@@ -26,10 +24,39 @@ interface EntryCardProps {
 
 export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home" }: EntryCardProps) {
   const router = useRouter()
-  const queryClient = useQueryClient()
-  const scrollViewRef = useRef<ScrollView>(null)
+  const audioRefs = useRef<Record<string, Audio.Sound>>({})
+  const [activeAudioId, setActiveAudioId] = useState<string | null>(null)
+  const [audioProgress, setAudioProgress] = useState<Record<string, number>>({})
+  const [audioDurations, setAudioDurations] = useState<Record<string, number>>({})
+  const [audioLoading, setAudioLoading] = useState<Record<string, boolean>>({})
+  const [imageDimensions, setImageDimensions] = useState<Record<number, { width: number; height: number }>>({})
+  const [videoDimensions, setVideoDimensions] = useState<Record<number, { width: number; height: number }>>({})
+  const [userId, setUserId] = useState<string>()
 
-  function handleEntryPress() {
+  useEffect(() => {
+    async function loadUser() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (user) {
+        setUserId(user.id)
+      }
+    }
+    loadUser()
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      const sounds = Object.values(audioRefs.current)
+      sounds.forEach((sound) => {
+        sound.unloadAsync().catch(() => {
+          /* noop */
+        })
+      })
+    }
+  }, [])
+
+  function handleEntryPress(scrollToComments = false) {
     const params: Record<string, string> = {
       entryId: entry.id,
       returnTo,
@@ -38,33 +65,51 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
       params.entryIds = JSON.stringify(entryIds)
       params.index = String(index)
     }
+    if (scrollToComments) {
+      params.scrollToComments = "true"
+    }
     router.push({
       pathname: "/(main)/modals/entry-detail",
       params,
     })
   }
 
-  // Calculate max lines based on media gallery and song badge presence
-  const hasMediaGallery = entry.media_urls && entry.media_urls.length > 0
-  const hasSongBadge = entry.embedded_media && entry.embedded_media.length > 0
-  
-  let maxLines: number
-  if (hasMediaGallery) {
-    maxLines = 7 // With media gallery: 7 lines max
-  } else {
-    maxLines = 15 // Without media gallery: 15 lines max
-  }
-  
-  // Reduce by 2 lines if song badge exists (in either case)
-  if (hasSongBadge) {
-    maxLines -= 2
-  }
-  
-  // Only show fade if text is long enough to potentially exceed the line limit
-  // Rough estimate: ~50 characters per line (conservative estimate)
+  // Calculate if text exceeds 14 lines (for fade overlay)
+  const MAX_TEXT_LINES = 14
   const estimatedCharsPerLine = 50
-  const minCharsForFade = maxLines * estimatedCharsPerLine
+  const minCharsForFade = MAX_TEXT_LINES * estimatedCharsPerLine
   const shouldShowFade = entry.text_content && entry.text_content.length >= minCharsForFade
+
+  // Determine if we should show CTA button
+  const hasMultipleMedia = entry.media_urls && entry.media_urls.length > 1
+  const hasTextCropped = shouldShowFade
+  const shouldShowCTA = hasMultipleMedia || hasTextCropped
+
+  // Separate media types
+  const audioMedia = useMemo(() => {
+    if (!entry.media_urls || !entry.media_types) return []
+    return entry.media_urls
+      .map((url, idx) => ({
+        url,
+        type: entry.media_types?.[idx],
+        index: idx,
+      }))
+      .filter((item) => item.type === "audio")
+  }, [entry.media_urls, entry.media_types])
+
+  const photoVideoMedia = useMemo(() => {
+    if (!entry.media_urls || !entry.media_types) return []
+    return entry.media_urls
+      .map((url, idx) => ({
+        url,
+        type: entry.media_types?.[idx],
+        index: idx,
+      }))
+      .filter((item) => item.type === "photo" || item.type === "video")
+  }, [entry.media_urls, entry.media_types])
+
+  // Get first photo/video for display
+  const firstPhotoVideo = photoVideoMedia[0]
 
   // Fetch memorials for personalizing prompt questions
   const { data: memorials = [] } = useQuery({
@@ -77,17 +122,23 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   const personalizedQuestion = useMemo(() => {
     if (!entry.prompt?.question) return entry.prompt?.question
     let question = entry.prompt.question
-    
+
     // Check for memorial_name placeholder
     if (question.match(/\{.*memorial_name.*\}/i) && memorials.length > 0) {
-      // Use first memorial (or could cycle based on date)
       question = personalizeMemorialPrompt(question, memorials[0].name)
     }
-    
+
     return question
   }, [entry.prompt?.question, memorials])
 
-  // Fetch comments for this entry (with user relation like history.tsx)
+  // Fetch reactions
+  const { data: reactions = [] } = useQuery({
+    queryKey: ["reactions", entry.id],
+    queryFn: () => getReactions(entry.id),
+    enabled: !!entry.id,
+  })
+
+  // Fetch comments
   const { data: comments = [] } = useQuery({
     queryKey: ["comments", entry.id],
     queryFn: async () => {
@@ -101,160 +152,263 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     enabled: !!entry.id,
   })
 
+  const hasLiked = reactions.some((r) => r.user_id === userId)
+  const reactionCount = reactions.length
+
+  async function handleToggleAudio(audioId: string, uri: string) {
+    try {
+      setAudioLoading((prev) => ({ ...prev, [audioId]: true }))
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      })
+
+      if (activeAudioId && activeAudioId !== audioId) {
+        const previous = audioRefs.current[activeAudioId]
+        if (previous) {
+          try {
+            await previous.stopAsync()
+            await previous.setPositionAsync(0)
+          } catch {
+            // ignore
+          }
+        }
+        setActiveAudioId(null)
+      }
+
+      let sound = audioRefs.current[audioId]
+      if (!sound) {
+        const { sound: newSound } = await Audio.Sound.createAsync(
+          { uri },
+          { shouldPlay: false },
+          (status) => {
+            if (!status.isLoaded) return
+            if (status.durationMillis) {
+              setAudioDurations((prev) => ({ ...prev, [audioId]: status.durationMillis! }))
+            }
+            if (status.positionMillis !== undefined) {
+              setAudioProgress((prev) => ({ ...prev, [audioId]: status.positionMillis! }))
+            }
+            if (status.didJustFinish) {
+              setActiveAudioId((current) => (current === audioId ? null : current))
+              setAudioProgress((prev) => ({ ...prev, [audioId]: status.durationMillis ?? 0 }))
+            }
+          },
+        )
+        audioRefs.current[audioId] = newSound
+        sound = newSound
+      }
+
+      const status = await sound.getStatusAsync()
+      if (status.isLoaded && status.isPlaying) {
+        await sound.pauseAsync()
+        setActiveAudioId(null)
+      } else {
+        if (status.isLoaded && status.positionMillis && status.durationMillis && status.positionMillis >= status.durationMillis) {
+          await sound.setPositionAsync(0)
+        }
+        await sound.playAsync()
+        setActiveAudioId(audioId)
+      }
+    } catch (error: any) {
+      console.error("Audio error:", error)
+    } finally {
+      setAudioLoading((prev) => ({ ...prev, [audioId]: false }))
+    }
+  }
+
+  function formatMillis(ms: number) {
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000))
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+    return `${minutes}:${seconds.toString().padStart(2, "0")}`
+  }
+
   return (
     <View style={styles.entryWrapper}>
-      <View style={styles.filmFrameWrapper}>
-        <Image source={require("../assets/images/film-frame.png")} style={styles.filmFrameImage} />
-        <FilmFrame style={styles.entryCardInner} contentStyle={styles.entryContent}>
-          <TouchableOpacity 
-            onPress={handleEntryPress} 
-            activeOpacity={0.9} 
-            style={styles.touchableContent}
-          >
-            <View style={styles.entryHeader}>
-              <View style={styles.entryAuthor}>
-                <Avatar uri={entry.user?.avatar_url} name={entry.user?.name || "User"} size={28} />
-                <Text style={styles.userName}>{entry.user?.name}</Text>
+      {/* Entry Card */}
+      <TouchableOpacity
+        onPress={() => handleEntryPress()}
+        activeOpacity={0.9}
+        style={styles.entryCard}
+      >
+        {/* Header */}
+        <View style={styles.entryHeader}>
+          <View style={styles.entryAuthor}>
+            <Avatar uri={entry.user?.avatar_url} name={entry.user?.name || "User"} size={28} />
+            <Text style={styles.userName}>{entry.user?.name}</Text>
+          </View>
+        </View>
+
+        {/* Question */}
+        <Text style={styles.question}>{personalizedQuestion || entry.prompt?.question}</Text>
+
+        {/* Text Content */}
+        {entry.text_content && (
+          <View style={styles.textContainer}>
+            <Text style={styles.entryText} numberOfLines={MAX_TEXT_LINES}>
+              {entry.text_content}
+            </Text>
+            {/* Fade overlay for last 2 lines (only when exceeding 14 lines) */}
+            {shouldShowFade && (
+              <View style={styles.textFadeOverlay} pointerEvents="none">
+                <View style={styles.fadeLine1} />
+                <View style={styles.fadeLine2} />
               </View>
-              <Text style={styles.time}>{format(parseISO(entry.created_at), "h:mm a")}</Text>
-            </View>
-            <Text style={styles.question}>{personalizedQuestion || entry.prompt?.question}</Text>
-            {/* Song shared badge */}
-            {entry.embedded_media && entry.embedded_media.length > 0 && (
-              <View style={styles.songBadge}>
-                <FontAwesome name="play" size={12} color={colors.white} />
-                <Text style={styles.songBadgeText}>
-                  {entry.user?.name || "User"} shared a song with you
-                </Text>
-              </View>
-            )}
-            {entry.text_content && (
-              <View style={[
-                styles.textContainer,
-                hasMediaGallery && styles.textContainerWithMedia,
-                !hasMediaGallery && styles.textContainerNoMedia
-              ]}>
-                <Text 
-                  style={styles.entryText}
-                  numberOfLines={maxLines}
-                >
-                  {entry.text_content}
-                </Text>
-                {/* Embedded media inline with text - moved inside text container */}
-                {entry.embedded_media && entry.embedded_media.length > 0 && (
-                  <View style={styles.embeddedMediaContainer}>
-                    {entry.embedded_media.map((embed: EmbeddedMedia, index: number) => (
-                      <EmbeddedPlayer
-                        key={`${embed.platform}-${embed.embedId}-${index}`}
-                        embed={{
-                          platform: embed.platform,
-                          url: embed.url,
-                          embedId: embed.embedId,
-                          embedType: embed.embedType,
-                          embedUrl: embed.embedUrl,
-                        }}
-                      />
-                    ))}
-                  </View>
-                )}
-                {/* Fade overlay for last 2 lines */}
-                {shouldShowFade && (
-                  <View style={styles.textFadeOverlay} pointerEvents="none">
-                    <View style={styles.fadeLine1} />
-                    <View style={styles.fadeLine2} />
-                  </View>
-                )}
-              </View>
-            )}
-            {/* Embedded media only if no text content */}
-            {!entry.text_content && entry.embedded_media && entry.embedded_media.length > 0 && (
-              <View style={styles.embeddedMediaContainer}>
-                {entry.embedded_media.map((embed: EmbeddedMedia, index: number) => (
-                  <EmbeddedPlayer
-                    key={`${embed.platform}-${embed.embedId}-${index}`}
-                    embed={{
-                      platform: embed.platform,
-                      url: embed.url,
-                      embedId: embed.embedId,
-                      embedType: embed.embedType,
-                      embedUrl: embed.embedUrl,
-                    }}
-                  />
-                ))}
-              </View>
-            )}
-          </TouchableOpacity>
-          {/* Media container outside TouchableOpacity to allow scrolling */}
-          <View style={styles.mediaContainer}>
-            {entry.media_urls && Array.isArray(entry.media_urls) && entry.media_urls.length > 0 && (
-              <ScrollView 
-                ref={scrollViewRef}
-                horizontal 
-                showsHorizontalScrollIndicator={false}
-                style={styles.mediaCarousel}
-                contentContainerStyle={styles.mediaCarouselContent}
-                nestedScrollEnabled={true}
-                scrollEnabled={true}
-                directionalLockEnabled={true}
-                bounces={false}
-              >
-                {entry.media_urls.map((url: string, idx: number) => {
-                  const mediaType = entry.media_types && Array.isArray(entry.media_types) 
-                    ? entry.media_types[idx] 
-                    : undefined
-                  
-                  if (mediaType === "audio") {
-                    return (
-                      <View key={`audio-${idx}-${url}`} style={styles.audioThumbnailSquare}>
-                        {entry.user?.avatar_url ? (
-                          <>
-                            <Image 
-                              source={{ uri: entry.user.avatar_url }} 
-                              style={styles.audioThumbnailImage}
-                              resizeMode="cover"
-                            />
-                            <View style={styles.audioThumbnailOverlay} />
-                          </>
-                        ) : null}
-                        <View style={styles.audioThumbnailContent}>
-                          <FontAwesome name="play" size={20} color={colors.white} />
-                          <Text style={styles.audioThumbnailLabel} numberOfLines={2}>
-                            {entry.user?.name || "User"} left a voice message
-                          </Text>
-                        </View>
-                      </View>
-                    )
-                  }
-                  
-                  if (mediaType === "video") {
-                    return (
-                      <VideoThumbnail key={`video-${idx}-${url}`} uri={url} style={styles.videoThumbnailSquare} />
-                    )
-                  }
-                  
-                  // Default to photo
-                  return (
-                    <Image
-                      key={`photo-${idx}-${url}`}
-                      source={{ uri: url }}
-                      style={styles.mediaThumbnail}
-                      resizeMode="cover"
-                    />
-                  )
-                })}
-              </ScrollView>
             )}
           </View>
-        </FilmFrame>
-      </View>
-      {comments && comments.length > 0 && (
-        <TouchableOpacity 
-          style={styles.commentPreview}
-          onPress={() => {
-            handleEntryPress()
-          }}
-        >
-          {comments.slice(0, 2).map((comment) => (
+        )}
+
+        {/* Voice Memos (after text, before embedded media) */}
+        {audioMedia.length > 0 && (
+          <View style={styles.voiceMemoContainer}>
+            {audioMedia.map((audio, idx) => {
+              const audioId = `${entry.id}-audio-${audio.index}`
+              const duration = audioDurations[audioId] ?? 0
+              const position = audioProgress[audioId] ?? 0
+              const progressRatio = duration > 0 ? Math.min(position / duration, 1) : 0
+              return (
+                <TouchableOpacity
+                  key={audioId}
+                  style={styles.voiceMemoPill}
+                  onPress={(e) => {
+                    e.stopPropagation()
+                    handleToggleAudio(audioId, audio.url)
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <View style={styles.voiceMemoIcon}>
+                    {audioLoading[audioId] ? (
+                      <ActivityIndicator size="small" color={colors.white} />
+                    ) : (
+                      <FontAwesome
+                        name={activeAudioId === audioId ? "pause" : "play"}
+                        size={16}
+                        color={colors.white}
+                      />
+                    )}
+                  </View>
+                  <View style={styles.voiceMemoInfo}>
+                    <Text style={styles.voiceMemoLabel}>
+                      Listen to what {entry.user?.name || "they"} said
+                    </Text>
+                    <View style={styles.voiceMemoProgressTrack}>
+                      <View style={[styles.voiceMemoProgressFill, { width: `${Math.max(progressRatio, 0.02) * 100}%` }]} />
+                    </View>
+                    <Text style={styles.voiceMemoTime}>
+                      {formatMillis(position)} / {duration ? formatMillis(duration) : "--:--"}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              )
+            })}
+          </View>
+        )}
+
+
+        {/* First Photo/Video (full width, respect aspect ratio) */}
+        {firstPhotoVideo && (
+          <TouchableOpacity
+            onPress={(e) => {
+              e.stopPropagation()
+              handleEntryPress()
+            }}
+            activeOpacity={0.9}
+            style={styles.mediaWrapper}
+          >
+            {firstPhotoVideo.type === "photo" ? (
+              <Image
+                source={{ uri: firstPhotoVideo.url }}
+                style={imageDimensions[firstPhotoVideo.index] ? {
+                  width: "100%",
+                  height: undefined,
+                  aspectRatio: imageDimensions[firstPhotoVideo.index].width / imageDimensions[firstPhotoVideo.index].height,
+                  backgroundColor: colors.gray[900],
+                } : styles.mediaImage}
+                resizeMode="contain"
+                onLoad={(e) => {
+                  const { width, height } = e.nativeEvent.source
+                  if (width && height) {
+                    setImageDimensions((prev) => ({
+                      ...prev,
+                      [firstPhotoVideo.index]: { width, height },
+                    }))
+                  }
+                }}
+              />
+            ) : (
+              <VideoThumbnail 
+                uri={firstPhotoVideo.url} 
+                index={firstPhotoVideo.index}
+                dimensions={videoDimensions[firstPhotoVideo.index]}
+                onLoad={(dimensions) => {
+                  setVideoDimensions((prev) => ({
+                    ...prev,
+                    [firstPhotoVideo.index]: dimensions,
+                  }))
+                }}
+              />
+            )}
+          </TouchableOpacity>
+        )}
+
+        {/* Heart, Comment Icons, and CTA Button */}
+        <View style={styles.actionsRow}>
+          <View style={styles.actionsLeft}>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={(e) => {
+                e.stopPropagation()
+                handleEntryPress()
+              }}
+              activeOpacity={0.7}
+            >
+              <FontAwesome 
+                name={hasLiked ? "heart" : "heart-o"} 
+                size={20} 
+                color={hasLiked ? colors.white : colors.white}
+                style={hasLiked ? styles.iconSolid : styles.iconOutline}
+              />
+              {reactionCount > 0 && <Text style={styles.actionCount}>{reactionCount}</Text>}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={(e) => {
+                e.stopPropagation()
+                handleEntryPress(true) // Scroll to comments
+              }}
+              activeOpacity={0.7}
+            >
+              <FontAwesome 
+                name={comments.length > 0 ? "comment" : "comment-o"} 
+                size={20} 
+                color={colors.white}
+                style={comments.length > 0 ? styles.iconSolid : styles.iconOutline}
+              />
+              {comments.length > 0 && <Text style={styles.actionCount}>{comments.length}</Text>}
+            </TouchableOpacity>
+          </View>
+          {shouldShowCTA && (
+            <TouchableOpacity
+              style={styles.ctaButton}
+              onPress={(e) => {
+                e.stopPropagation()
+                handleEntryPress()
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.ctaText}>
+                See everything {entry.user?.name || "they"} shared →
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </TouchableOpacity>
+
+      {/* Comments Preview */}
+      {comments.length > 0 && (
+        <View style={styles.commentsContainer}>
+          {comments.slice(0, 2).map((comment: any) => (
             <View key={comment.id} style={styles.commentPreviewItem}>
               <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={20} />
               <Text style={styles.commentPreviewUser}>{comment.user?.name}: </Text>
@@ -264,91 +418,111 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
             </View>
           ))}
           {comments.length > 2 && (
-            <Text style={styles.commentPreviewMore}>
-              +{comments.length - 2} more
-            </Text>
+            <Text style={styles.commentPreviewMore}>+{comments.length - 2} more</Text>
           )}
-        </TouchableOpacity>
+        </View>
       )}
+
+      {/* Separator */}
+      <View style={styles.separator} />
+    </View>
+  )
+}
+
+// Component to render video thumbnail
+function VideoThumbnail({ 
+  uri, 
+  index,
+  dimensions,
+  onLoad 
+}: { 
+  uri: string
+  index: number
+  dimensions?: { width: number; height: number }
+  onLoad: (dimensions: { width: number; height: number }) => void
+}) {
+  const videoRef = useRef<Video>(null)
+
+  return (
+    <View style={[
+      styles.videoContainer,
+      dimensions && {
+        width: "100%",
+        height: undefined,
+        aspectRatio: dimensions.width / dimensions.height,
+        minHeight: undefined,
+      },
+    ]}>
+      <Video
+        ref={videoRef}
+        source={{ uri }}
+        style={dimensions ? {
+          width: "100%",
+          height: undefined,
+          aspectRatio: dimensions.width / dimensions.height,
+        } : StyleSheet.absoluteFill}
+        resizeMode={ResizeMode.CONTAIN}
+        shouldPlay={false}
+        isMuted={true}
+        isLooping={false}
+        useNativeControls={false}
+        onLoad={(status) => {
+          // Note: expo-av doesn't provide video dimensions in onLoad
+          // We'll use a workaround: load the video and let it determine its size
+          // For now, use a default aspect ratio that will be adjusted when video loads
+          if (!dimensions && status.isLoaded) {
+            // Default to 16:9 (common landscape ratio)
+            // The video will render with its natural aspect ratio via resizeMode="contain"
+            onLoad({ width: 16, height: 9 })
+          }
+        }}
+      />
+      <View style={styles.videoOverlay}>
+        <FontAwesome name="play-circle" size={32} color={colors.white} />
+      </View>
     </View>
   )
 }
 
 const styles = StyleSheet.create({
   entryWrapper: {
-    marginBottom: spacing.lg,
     width: "100%",
+    marginBottom: spacing.md,
+    paddingHorizontal: 0,
   },
-  filmFrameWrapper: {
-    position: "relative",
-    alignItems: "center",
-    justifyContent: "center",
-    width: "100%",
-    marginBottom: spacing.lg,
-  },
-  filmFrameImage: {
-    position: "absolute",
-    width: "133%", // Reduced by 2% from 135%
-    height: 501,
-    resizeMode: "contain",
-    zIndex: 1,
-    pointerEvents: "none",
-  },
-  entryCardInner: {
-    width: 399,
-    height: 485,
-  },
-  entryContent: {
-    padding: spacing.lg,
-    paddingBottom: 0, // Remove bottom padding so media touches bottom
-    gap: spacing.sm,
-    backgroundColor: "#0C0E1A",
-    flex: 1,
-    justifyContent: "flex-start", // Changed from "space-between" to allow absolute positioning
-    position: "relative", // Enable absolute positioning for children
-  },
-  touchableContent: {
-    flex: 1,
-    justifyContent: "flex-start", // Changed to flex-start so question stays at top
+  entryCard: {
+    backgroundColor: colors.black,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.md,
+    borderRadius: 0,
   },
   entryHeader: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: "flex-start",
     alignItems: "center",
     marginBottom: spacing.sm,
   },
   entryAuthor: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.xs,
+    gap: spacing.sm,
     flexShrink: 1,
   },
   userName: {
     ...typography.bodyBold,
     fontSize: 14,
-  },
-  time: {
-    ...typography.caption,
-    fontSize: 12,
+    color: colors.white,
   },
   question: {
     ...typography.h3,
     fontSize: 16,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.md,
+    color: colors.white,
   },
   textContainer: {
     position: "relative",
-    marginBottom: spacing.xl,
-    paddingBottom: spacing.lg,
-    zIndex: 1,
-  },
-  textContainerWithMedia: {
-    marginBottom: 0, // Remove margin - media will be absolutely positioned
-    paddingBottom: 0, // No padding - text ends before media
-  },
-  textContainerNoMedia: {
-    flex: 1, // Allow text to fill available space when no media
-    paddingBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   entryText: {
     ...typography.body,
@@ -362,15 +536,15 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 48, // 2 lines fade (2 * 24px line height)
-    zIndex: 2, // Above text
+    zIndex: 2,
   },
   fadeLine1: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    height: 24, // Line 7 (or 15) - more opacity
-    backgroundColor: "#0C0E1A",
+    height: 24,
+    backgroundColor: colors.black,
     opacity: 0.85,
   },
   fadeLine2: {
@@ -378,129 +552,129 @@ const styles = StyleSheet.create({
     bottom: 24,
     left: 0,
     right: 0,
-    height: 24, // Line 6 (or 14) - less opacity
-    backgroundColor: "#0C0E1A",
+    height: 24,
+    backgroundColor: colors.black,
     opacity: 0.6,
   },
-  mediaContainer: {
-    position: "absolute", // Absolutely position at bottom
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 158, // Fixed height matching thumbnail height
-    marginLeft: -spacing.lg, // Negative margin to align with entryContent padding
-    marginRight: -spacing.lg,
-    zIndex: 10, // Ensure it's above text
+  voiceMemoContainer: {
+    marginBottom: spacing.md,
+    gap: spacing.sm,
   },
-  mediaCarousel: {
-    width: "100%",
-  },
-  mediaCarouselContent: {
+  voiceMemoPill: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 2, // Very little gap between items
-    paddingLeft: spacing.lg, // Start at left edge of entryContent
-    paddingBottom: 0, // No bottom padding - touch bottom of container
-  },
-  mediaThumbnail: {
-    width: 158, // Square thumbnail
-    height: 158, // Square thumbnail - same as width
+    alignItems: "center",
+    gap: spacing.md,
+    padding: spacing.md,
     backgroundColor: colors.gray[900],
-    marginRight: 0,
-    marginLeft: 0,
-    flexShrink: 0, // Prevent shrinking in ScrollView
-    overflow: "hidden", // Ensure images are cropped to square
+    borderRadius: 16,
   },
-  videoThumbnailSquare: {
-    width: 158, // Square thumbnail - same as other media
-    height: 158, // Square thumbnail - same as width
+  voiceMemoIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: colors.gray[800],
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 0,
-    marginLeft: 0,
-    flexShrink: 0, // Prevent shrinking in ScrollView
-    position: "relative",
+  },
+  voiceMemoInfo: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  voiceMemoLabel: {
+    ...typography.bodyMedium,
+    color: colors.white,
+  },
+  voiceMemoProgressTrack: {
+    width: "100%",
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.gray[800],
     overflow: "hidden",
   },
-  videoThumbnailOverlay: {
-    position: "absolute",
-    width: "100%",
+  voiceMemoProgressFill: {
     height: "100%",
+    backgroundColor: colors.accent,
+  },
+  voiceMemoTime: {
+    ...typography.caption,
+    color: colors.gray[400],
+  },
+  mediaWrapper: {
+    width: SCREEN_WIDTH,
+    marginLeft: -spacing.lg,
+    marginRight: -spacing.lg,
+    marginBottom: spacing.md,
+    alignSelf: "stretch",
+    paddingLeft: 0,
+    paddingRight: 0,
+  },
+  mediaImage: {
+    width: "100%",
+    height: 300, // Fallback height while loading dimensions
+    backgroundColor: colors.gray[900],
+  },
+  videoContainer: {
+    width: "100%",
+    minHeight: 200,
+    backgroundColor: colors.gray[900],
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative",
+    overflow: "hidden",
+    alignSelf: "stretch",
+  },
+  videoOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "rgba(0, 0, 0, 0.3)",
-  },
-  audioThumbnailSquare: {
-    width: 158, // Square thumbnail - same as other media
-    height: 158, // Square thumbnail - same as width
-    backgroundColor: colors.gray[800],
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 0,
-    marginLeft: 0,
-    flexShrink: 0, // Prevent shrinking in ScrollView
-    position: "relative",
-    overflow: "hidden",
-  },
-  audioThumbnailImage: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    width: "100%",
-    height: "100%",
-  },
-  audioThumbnailOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-  },
-  audioThumbnailContent: {
-    position: "relative",
     zIndex: 1,
+  },
+  ctaButton: {
+    backgroundColor: colors.white,
+    borderRadius: 8,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  ctaText: {
+    ...typography.bodyBold,
+    color: colors.black,
+    fontSize: 14,
+  },
+  actionsRow: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: spacing.xs,
-    gap: spacing.xs,
-  },
-  audioThumbnailLabel: {
-    ...typography.caption,
-    color: colors.white,
-    fontSize: 10,
-    textAlign: "center",
-  },
-  embeddedMediaContainer: {
+    justifyContent: "space-between",
     marginTop: spacing.sm,
-    marginBottom: 0, // Remove bottom margin to prevent gap
-    gap: spacing.xs,
   },
-  songBadge: {
+  actionsLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.lg,
+  },
+  actionButton: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.xs,
-    backgroundColor: colors.black,
-    borderWidth: 1,
-    borderColor: colors.white,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    borderRadius: 16,
-    alignSelf: "flex-start",
-    marginBottom: spacing.sm,
   },
-  songBadgeText: {
-    ...typography.caption,
+  iconOutline: {
+    // Outline icon - white stroke, transparent fill
+  },
+  iconSolid: {
+    // Solid icon - white fill
+  },
+  actionCount: {
+    ...typography.bodyMedium,
+    fontSize: 14,
     color: colors.white,
-    fontSize: 11,
   },
-  commentPreview: {
-    marginTop: spacing.xs,
+  commentsContainer: {
+    paddingHorizontal: spacing.lg,
     paddingTop: spacing.xs,
-    paddingHorizontal: spacing.md,
     gap: spacing.xs,
   },
   commentPreviewItem: {
@@ -526,27 +700,10 @@ const styles = StyleSheet.create({
     color: colors.gray[500],
     marginTop: spacing.xs,
   },
+  separator: {
+    width: "100%",
+    height: 1,
+    backgroundColor: "#3D3D3D",
+    marginTop: spacing.md,
+  },
 })
-
-// Component to render video thumbnail
-function VideoThumbnail({ uri, style }: { uri: string; style?: any }) {
-  const videoRef = useRef<Video>(null)
-
-  return (
-    <View style={[styles.videoThumbnailSquare, style]}>
-      <Video
-        ref={videoRef}
-        source={{ uri }}
-        style={StyleSheet.absoluteFill}
-        resizeMode={ResizeMode.COVER}
-        shouldPlay={false}
-        isMuted={true}
-        isLooping={false}
-        useNativeControls={false}
-      />
-      <View style={styles.videoThumbnailOverlay}>
-        <FontAwesome name="play-circle" size={24} color={colors.white} />
-      </View>
-    </View>
-  )
-}

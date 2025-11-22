@@ -64,7 +64,6 @@ export default function EntryComposer() {
   const [audioLoading, setAudioLoading] = useState<Record<string, boolean>>({})
   const audioRefs = useRef<Record<string, Audio.Sound>>({})
   const [userId, setUserId] = useState<string>()
-  const [showMediaOptions, setShowMediaOptions] = useState(false)
   const [voiceModalVisible, setVoiceModalVisible] = useState(false)
   const [voiceDuration, setVoiceDuration] = useState(0)
   const [voiceUri, setVoiceUri] = useState<string | undefined>()
@@ -329,7 +328,7 @@ export default function EntryComposer() {
     }
   }
 
-  async function pickImages() {
+  async function openGallery() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
     if (status !== "granted") {
       Alert.alert("Permission needed", "Please grant photo library access")
@@ -337,7 +336,7 @@ export default function EntryComposer() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ImagePicker.MediaTypeOptions.All, // Both photos and videos
       allowsMultipleSelection: true,
       allowsEditing: false,
       quality: 0.8,
@@ -354,62 +353,40 @@ export default function EntryComposer() {
       }
       
       if (validAssets.length > 0) {
-        const newItems = validAssets.map((asset) => ({
-          id: createMediaId(),
-          uri: asset.uri,
-          type: "photo" as const,
-        }))
+        const newItems = validAssets.map((asset) => {
+          const isVideo = asset.type === "video"
+          return {
+            id: createMediaId(),
+            uri: asset.uri,
+            type: (isVideo ? "video" : "photo") as "photo" | "video",
+            thumbnailUri: isVideo ? asset.uri : undefined, // Will generate thumbnail for video
+          }
+        })
         setMediaItems((prev) => [...prev, ...newItems])
       }
     }
   }
 
-  async function takeVideo() {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
-    if (status !== "granted") {
-      Alert.alert("Permission needed", "Please grant photo library access")
-      return
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-      allowsEditing: false,
-      quality: 0.8,
-    })
-
-    if (!result.canceled) {
-      const asset = result.assets[0]
-      
-      // Check file size before adding
-      const isValid = await checkFileSize(asset.uri)
-      if (!isValid) {
-        return // File size modal already shown
-      }
-      
-      const mediaId = createMediaId()
-      
-      // Generate thumbnail for video
-      let thumbnailUri: string | undefined
-      try {
-        // Use Video component to get thumbnail
-        const videoRef = { current: null as Video | null }
-        // We'll generate thumbnail in the render using a hidden Video component
-        // For now, store the video URI and generate thumbnail on render
-        thumbnailUri = asset.uri // Will be replaced with actual thumbnail
-      } catch (error) {
-        console.warn("[entry-composer] Failed to generate video thumbnail:", error)
-      }
-      
-      setMediaItems((prev) => [
-        ...prev,
+  async function handleGalleryAction() {
+    Alert.alert(
+      "Add Media",
+      "Choose how you'd like to add photos or videos",
+      [
         {
-          id: mediaId,
-          uri: asset.uri,
-          type: "video",
-          thumbnailUri,
+          text: "Take Photo/Video",
+          onPress: openCamera,
         },
-      ])
-    }
+        {
+          text: "Choose from Gallery",
+          onPress: openGallery,
+        },
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+      ],
+      { cancelable: true }
+    )
   }
 
   async function openCamera() {
@@ -690,6 +667,12 @@ export default function EntryComposer() {
         
         // Filter prompts that require memorials but group has none
         if (p.dynamic_variables?.includes("memorial_name") && !hasMemorials) return false
+        
+        // Exclude Birthday category questions
+        if (p.birthday_type) return false
+        
+        // Exclude questions with {member_name} dynamic variables
+        if (p.dynamic_variables?.includes("member_name")) return false
         
         return true
       })
@@ -1015,54 +998,12 @@ export default function EntryComposer() {
       <View style={[styles.toolbar, { bottom: keyboardHeight }]}>
         <View style={styles.toolbarButtons}>
           <View style={styles.toolCluster}>
-            <View style={styles.toolButtonWrapper}>
-              <TouchableOpacity
-                style={[styles.toolButton, styles.addButton]}
-                onPress={() => setShowMediaOptions((prev) => !prev)}
-              >
-                <Text style={styles.addButtonText}>+</Text>
-              </TouchableOpacity>
-              {showMediaOptions && (
-                <View style={styles.mediaMenu}>
-                  <TouchableOpacity
-                    style={styles.mediaMenuItem}
-                    onPress={() => {
-                      takeVideo()
-                      setShowMediaOptions(false)
-                    }}
-                  >
-                    <Text style={styles.mediaMenuText}>Video</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.mediaMenuItem}
-                    onPress={() => {
-                      pickImages()
-                      setShowMediaOptions(false)
-                    }}
-                  >
-                    <Text style={styles.mediaMenuText}>Photos</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.mediaMenuItem}
-                    onPress={() => {
-                      openCamera()
-                      setShowMediaOptions(false)
-                    }}
-                  >
-                    <Text style={styles.mediaMenuText}>Open Camera</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.mediaMenuItem}
-                    onPress={() => {
-                      startRecording()
-                      setShowMediaOptions(false)
-                    }}
-                  >
-                    <Text style={styles.mediaMenuText}>Voice Memo</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
+            <TouchableOpacity style={styles.iconButton} onPress={handleGalleryAction}>
+              <FontAwesome name="image" size={18} color={colors.white} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.iconButton} onPress={startRecording}>
+              <FontAwesome name="microphone" size={18} color={colors.white} />
+            </TouchableOpacity>
             <TouchableOpacity style={styles.iconButton} onPress={shufflePrompt}>
               <FontAwesome name="random" size={18} color={colors.white} />
             </TouchableOpacity>
@@ -1561,52 +1502,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
-  },
-  toolButtonWrapper: {
-    position: "relative",
-  },
-  toolButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colors.gray[800],
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  addButton: {
-    backgroundColor: colors.white,
-  },
-  addButtonText: {
-    fontSize: 26,
-    color: colors.black,
-    fontFamily: "Roboto-Bold",
-  },
-  toolButtonText: {
-    fontSize: 24,
-  },
-  mediaMenu: {
-    position: "absolute",
-    bottom: 56,
-    left: 0,
-    backgroundColor: colors.gray[900],
-    borderRadius: 16,
-    paddingVertical: spacing.xs,
-    width: 140,
-    borderWidth: 1,
-    borderColor: colors.gray[700],
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
-  },
-  mediaMenuItem: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-  },
-  mediaMenuText: {
-    ...typography.body,
-    color: colors.white,
   },
   iconButton: {
     width: 48,

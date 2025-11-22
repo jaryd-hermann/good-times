@@ -17,9 +17,11 @@ import { useRouter, useLocalSearchParams } from "expo-router"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { supabase } from "../../../lib/supabase"
 import * as Contacts from "expo-contacts"
+import * as Clipboard from "expo-clipboard"
 import { colors, spacing, typography } from "../../../lib/theme"
 import { Button } from "../../../components/Button"
 import { OnboardingBack } from "../../../components/OnboardingBack"
+import { getCurrentUser } from "../../../lib/db"
 
 const POST_AUTH_ONBOARDING_KEY_PREFIX = "has_completed_post_auth_onboarding"
 
@@ -42,11 +44,16 @@ export default function Invite() {
 
   async function handleShare() {
     try {
+      // Get current user's name for the invite message
+      const currentUser = await getCurrentUser()
+      const userName = currentUser?.name || "me"
+      
       const inviteLink = `goodtimes://join/${groupId}`
-      // Only provide url so native copy action copies just the URL
+      const inviteMessage = `I've created a group for us on this new app, Good Times. Join ${userName} here: ${inviteLink}`
+      
       await Share.share({
         url: inviteLink,
-        message: inviteLink, // Set message to URL so copy action gets just the URL
+        message: inviteMessage,
         title: "Good Times Invite",
       })
     } catch (error: any) {
@@ -135,7 +142,13 @@ export default function Invite() {
   }
 
   async function handleSendInvites() {
+    // Get current user's name for the invite message
+    const currentUser = await getCurrentUser()
+    const userName = currentUser?.name || "me"
+    
     const inviteLink = `goodtimes://join/${groupId}`
+    const inviteMessage = `I've created a group for us on this new app, Good Times. Join ${userName} here: ${inviteLink}`
+    
     const selected = contacts.filter((contact) => selectedContacts.includes(contact.id))
     if (selected.length === 0) {
       Alert.alert("Select contacts", "Choose at least one contact to invite.")
@@ -151,12 +164,28 @@ export default function Invite() {
 
     try {
       await Share.share({
-        message: `Join my Good Times group! ${inviteLink}\n\nInviting: ${inviteList}`,
+        message: `${inviteMessage}\n\nInviting: ${inviteList}`,
         url: inviteLink,
         title: "Good Times Invite",
       })
       setContactsModalVisible(false)
       setSelectedContacts([])
+    } catch (error: any) {
+      Alert.alert("Error", error.message)
+    }
+  }
+  
+  async function handleCopyToClipboard() {
+    // Get current user's name for the invite message
+    const currentUser = await getCurrentUser()
+    const userName = currentUser?.name || "me"
+    
+    const inviteLink = `goodtimes://join/${groupId}`
+    const inviteMessage = `I've created a group for us on this new app, Good Times. Join ${userName} here: ${inviteLink}`
+    
+    try {
+      await Clipboard.setStringAsync(inviteMessage)
+      Alert.alert("Copied!", "Invite link copied to clipboard")
     } catch (error: any) {
       Alert.alert("Error", error.message)
     }
@@ -178,6 +207,13 @@ export default function Invite() {
           onPress={handleShare}
           style={[styles.shareButton, styles.sharePrimary]}
           textStyle={styles.sharePrimaryText}
+        />
+        <Button
+          title="Copy to clipboard"
+          onPress={handleCopyToClipboard}
+          variant="ghost"
+          style={styles.contactsButton}
+          textStyle={styles.contactsButtonText}
         />
         <Button
           title="Add from contacts"

@@ -232,6 +232,8 @@ serve(async (req) => {
 
       if (queuedItem && queuedItem.prompt) {
         const queuedPrompt = queuedItem.prompt as any
+        const memberCount = members?.length || 0
+        
         // Filter out "Remembering" category if no memorials
         if (queuedPrompt.category === "Remembering" && !hasMemorials) {
           // Skip this queued prompt, continue to selection logic
@@ -239,6 +241,13 @@ serve(async (req) => {
           // Skip Friends category prompts for Family groups
         } else if (groupData?.type === "friends" && queuedPrompt.category === "Family") {
           // Skip Family category prompts for Friends groups
+        } else if (queuedPrompt.dynamic_variables && Array.isArray(queuedPrompt.dynamic_variables) && queuedPrompt.dynamic_variables.includes("member_name")) {
+          // Skip {member_name} questions unless group has 3+ members
+          if (memberCount < 3) {
+            // Skip this queued prompt, continue to selection logic
+          } else {
+            selectedPrompt = queuedPrompt
+          }
         } else {
           selectedPrompt = queuedPrompt
         }
@@ -265,23 +274,45 @@ serve(async (req) => {
           .in("category", eligibleCategories.length > 0 ? eligibleCategories : ["Fun", "A Bit Deeper"]) // Fallback if no eligible
           .is("birthday_type", null) // Exclude birthday prompts
 
-        // Filter out used prompts
-        availablePrompts = (allPromptsData || []).filter((p) => !usedPromptIds.includes(p.id))
+        // Filter out used prompts and prompts with {member_name} unless group has 3+ members
+        const memberCount = members?.length || 0
+        availablePrompts = (allPromptsData || []).filter((p) => {
+          // Exclude used prompts
+          if (usedPromptIds.includes(p.id)) return false
+          
+          // Exclude prompts with {member_name} dynamic variables unless group has 3+ members
+          if (p.dynamic_variables && Array.isArray(p.dynamic_variables) && p.dynamic_variables.includes("member_name")) {
+            // Only allow {member_name} questions if group has at least 3 members
+            // (need at least 2 other members besides the current user)
+            if (memberCount < 3) return false
+          }
+          
+          return true
+        })
 
         if (!availablePrompts || availablePrompts.length === 0) {
           // If all prompts have been used, reset and use all eligible prompts again
+          const memberCount = members?.length || 0
           const { data: allPromptsRaw } = await supabaseClient
             .from("prompts")
             .select("*")
             .in("category", eligibleCategories.length > 0 ? eligibleCategories : ["Fun", "A Bit Deeper"])
             .is("birthday_type", null)
+          
+          // Filter out prompts with {member_name} unless group has 3+ members
+          const filteredPromptsRaw = (allPromptsRaw || []).filter((p: any) => {
+            if (p.dynamic_variables && Array.isArray(p.dynamic_variables) && p.dynamic_variables.includes("member_name")) {
+              return memberCount >= 3
+            }
+            return true
+          })
 
-          if (!allPromptsRaw || allPromptsRaw.length === 0) {
+          if (!filteredPromptsRaw || filteredPromptsRaw.length === 0) {
             results.push({ group_id: group.id, status: "no_prompts_available" })
             continue
           }
 
-          const allPrompts = allPromptsRaw
+          const allPrompts = filteredPromptsRaw
 
           if (allPrompts.length === 0) {
             results.push({ group_id: group.id, status: "no_prompts_available" })

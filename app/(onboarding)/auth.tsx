@@ -43,6 +43,7 @@ export default function OnboardingAuth() {
   const { data, clear, setUserEmail } = useOnboarding()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
   const [continueLoading, setContinueLoading] = useState(false)
   const [oauthLoading, setOauthLoading] = useState<OAuthProvider | null>(null)
   const oauthProcessingRef = useRef(false) // Prevent duplicate processing
@@ -52,7 +53,26 @@ export default function OnboardingAuth() {
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false)
   const [emailFocused, setEmailFocused] = useState(false)
   const [passwordFocused, setPasswordFocused] = useState(false)
+  const [confirmPasswordFocused, setConfirmPasswordFocused] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [isRegistrationFlow, setIsRegistrationFlow] = useState(false)
+
+  // Check if user is in registration flow (onboarding or invite/join)
+  useEffect(() => {
+    async function checkRegistrationFlow() {
+      // Check if user has onboarding data (came from About screen)
+      const hasOnboardingData = !!(data.userName && data.userBirthday)
+      
+      // Check if user is joining a group via invite link
+      const pendingGroupId = await AsyncStorage.getItem("pending_group_join")
+      const isJoiningGroup = !!pendingGroupId
+      
+      // Show confirm password only if in registration flow
+      setIsRegistrationFlow(hasOnboardingData || isJoiningGroup)
+    }
+    checkRegistrationFlow()
+  }, [data.userName, data.userBirthday])
 
   // Keyboard visibility listener
   useEffect(() => {
@@ -661,6 +681,12 @@ export default function OnboardingAuth() {
       }
 
       if (signInError && signInError.message?.toLowerCase().includes("invalid login")) {
+        // Validate passwords match before sign-up (only if in registration flow)
+        if (isRegistrationFlow && password !== confirmPassword) {
+          Alert.alert("Passwords don't match", "Please make sure both passwords are the same.")
+          return
+        }
+        
         const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
           email: email.trim(),
           password,
@@ -1510,7 +1536,18 @@ export default function OnboardingAuth() {
                       autoCapitalize="none"
                       style={styles.passwordInput}
                       onFocus={() => setPasswordFocused(true)}
-                      onBlur={() => setPasswordFocused(false)}
+                      onBlur={() => {
+                        // Keep password focused if confirm password is focused
+                        // This prevents the confirm password field from disappearing
+                        if (!confirmPasswordFocused) {
+                          // Small delay to check if confirm password will be focused
+                          setTimeout(() => {
+                            if (!confirmPasswordFocused) {
+                              setPasswordFocused(false)
+                            }
+                          }, 150)
+                        }
+                      }}
                     />
                     <TouchableOpacity
                       onPress={() => setShowPassword(!showPassword)}
@@ -1525,6 +1562,40 @@ export default function OnboardingAuth() {
                     </TouchableOpacity>
                   </View>
                 </View>
+
+                {passwordFocused && isRegistrationFlow && (
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.fieldLabel}>Confirm Password</Text>
+                    <View style={styles.passwordContainer}>
+                      <TextInput
+                        value={confirmPassword}
+                        onChangeText={setConfirmPassword}
+                        placeholder="••••••••"
+                        placeholderTextColor="rgba(255,255,255,0.6)"
+                        secureTextEntry={!showConfirmPassword}
+                        autoCapitalize="none"
+                        style={styles.passwordInput}
+                        onFocus={() => {
+                          setConfirmPasswordFocused(true)
+                          // Keep password focused to prevent confirm password from disappearing
+                          setPasswordFocused(true)
+                        }}
+                        onBlur={() => setConfirmPasswordFocused(false)}
+                      />
+                      <TouchableOpacity
+                        onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                        style={styles.eyeButton}
+                        activeOpacity={0.7}
+                      >
+                        <FontAwesome
+                          name={showConfirmPassword ? "eye-slash" : "eye"}
+                          size={20}
+                          color="rgba(255,255,255,0.6)"
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
               </View>
 
               <Button
@@ -1534,7 +1605,8 @@ export default function OnboardingAuth() {
                 style={styles.primaryButton}
               />
 
-              <View style={styles.divider}>
+              {/* OAuth buttons temporarily disabled - commented out until OAuth is fixed */}
+              {/* <View style={styles.divider}>
                 <View style={styles.dividerLine} />
                 <Text style={styles.dividerText}>or continue with</Text>
                 <View style={styles.dividerLine} />
@@ -1555,7 +1627,7 @@ export default function OnboardingAuth() {
                   variant="ghost"
                   style={styles.socialButton}
                 />
-              </View>
+              </View> */}
             </View>
           </View>
         </ScrollView>

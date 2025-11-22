@@ -4,11 +4,13 @@ import { colors, spacing } from "../../lib/theme"
 import { View, StyleSheet, TouchableOpacity, Text, Animated } from "react-native"
 import { FontAwesome } from "@expo/vector-icons"
 import { useEffect, useRef } from "react"
+import { useTabBar } from "../../lib/tab-bar-context"
 
 function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
   const currentRoute = state.routes[state.index]
   const previousIndexRef = useRef(state.index)
   const animatedValuesRef = useRef<Record<string, Animated.Value>>({})
+  const { opacity: tabBarOpacity } = useTabBar()
 
   const visibleRoutes = state.routes.filter((route) => route.name === "home" || route.name === "history")
 
@@ -66,7 +68,7 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
   }
 
   return (
-    <View style={styles.tabWrapper}>
+    <Animated.View style={[styles.tabWrapper, { opacity: tabBarOpacity }]}>
       <View style={styles.tabContainer}>
       {visibleRoutes.map((route) => {
         const isFocused = state.index === state.routes.indexOf(route)
@@ -119,7 +121,7 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
         )
       })}
       </View>
-    </View>
+    </Animated.View>
   )
 }
 

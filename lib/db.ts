@@ -293,8 +293,17 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
           }
         } else {
           // For general prompts with member_name, cycle through all group members
+          // CRITICAL: Exclude the current user from member_name selection
           const members = await getGroupMembers(groupId)
-          if (members.length > 0) {
+          
+          // Get current user ID to exclude them
+          const { data: { user: currentUser } } = await supabase.auth.getUser()
+          const currentUserId = currentUser?.id
+          
+          // Filter out current user from available members
+          const otherMembers = members.filter((m) => m.user_id !== currentUserId)
+          
+          if (otherMembers.length > 0) {
             // Get recently used member names for this prompt
             const { data: recentUsage } = await supabase
               .from("prompt_name_usage")
@@ -303,18 +312,18 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
               .eq("prompt_id", prompt.id)
               .eq("variable_type", "member_name")
               .order("date_used", { ascending: false })
-              .limit(members.length)
+              .limit(otherMembers.length)
 
             const usedNames = new Set(recentUsage?.map((u) => u.name_used) || [])
             
-            // Find unused members first (filter by name)
-            const unusedMembers = members.filter((m) => {
+            // Find unused members first (filter by name, excluding current user)
+            const unusedMembers = otherMembers.filter((m) => {
               const memberName = m.user?.name || "Unknown"
               return !usedNames.has(memberName)
             })
             
-            // If all have been used, reset and start fresh
-            const availableMembers = unusedMembers.length > 0 ? unusedMembers : members
+            // If all have been used, reset and start fresh (still excluding current user)
+            const availableMembers = unusedMembers.length > 0 ? unusedMembers : otherMembers
             
             // Select next member (cycle through)
             const dayIndex = getDayIndex(date, groupId)
@@ -412,6 +421,11 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
 
     if (queuedItem && queuedItem.prompt) {
       const queuedPrompt = queuedItem.prompt as Prompt
+      
+      // Get member count to filter {member_name} questions
+      const members = await getGroupMembers(groupId)
+      const memberCount = members.length
+      
       // Filter out "Remembering" category if no memorials
       if (queuedPrompt.category === "Remembering" && !hasMemorials) {
         // Skip this queued prompt if it's Remembering and group has no memorials
@@ -420,6 +434,19 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
         // Skip Friends category prompts for Family groups
       } else if (group?.type === "friends" && queuedPrompt.category === "Family") {
         // Skip Family category prompts for Friends groups
+      } else if (queuedPrompt.dynamic_variables && Array.isArray(queuedPrompt.dynamic_variables) && queuedPrompt.dynamic_variables.includes("member_name")) {
+        // Skip {member_name} questions unless group has 3+ members
+        if (memberCount < 3) {
+          // Skip this queued prompt, continue to Step 2
+        } else {
+          selectedPrompt = queuedPrompt
+          // Remove from queue after selection
+          await supabase
+            .from("group_prompt_queue")
+            .delete()
+            .eq("group_id", groupId)
+            .eq("prompt_id", queuedItem.prompt_id)
+        }
       } else {
         selectedPrompt = queuedPrompt
         // Remove from queue after selection
@@ -457,8 +484,12 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
       if (!hasMemorials) {
         disabledCategories.add("Remembering")
       }
+      
+      // Get member count to filter {member_name} questions
+      const members = await getGroupMembers(groupId)
+      const memberCount = members.length
 
-      // Get all prompts, excluding used ones
+      // Get all prompts, excluding used ones and {member_name} questions if < 3 members
       let availablePrompts: Prompt[] = []
       
       if (usedPromptIds.length > 0) {
@@ -468,7 +499,17 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
           .select("*")
         
         if (promptsError) throw promptsError
-        availablePrompts = (allPromptsData || []).filter((p) => !usedPromptIds.includes(p.id))
+        availablePrompts = (allPromptsData || []).filter((p) => {
+          // Exclude used prompts
+          if (usedPromptIds.includes(p.id)) return false
+          
+          // Exclude {member_name} questions unless group has 3+ members
+          if (p.dynamic_variables && Array.isArray(p.dynamic_variables) && p.dynamic_variables.includes("member_name")) {
+            if (memberCount < 3) return false
+          }
+          
+          return true
+        })
       } else {
         // No used prompts yet, get all
         const { data: allPromptsData, error: promptsError } = await supabase
@@ -476,7 +517,14 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
           .select("*")
         
         if (promptsError) throw promptsError
-        availablePrompts = allPromptsData || []
+        
+        // Filter out {member_name} questions unless group has 3+ members
+        availablePrompts = (allPromptsData || []).filter((p) => {
+          if (p.dynamic_variables && Array.isArray(p.dynamic_variables) && p.dynamic_variables.includes("member_name")) {
+            return memberCount >= 3
+          }
+          return true
+        })
       }
 
       if (!availablePrompts || availablePrompts.length === 0) {
