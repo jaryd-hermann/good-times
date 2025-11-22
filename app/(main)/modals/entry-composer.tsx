@@ -22,7 +22,7 @@ import * as ImagePicker from "expo-image-picker"
 import { Audio, Video, ResizeMode } from "expo-av"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { supabase } from "../../../lib/supabase"
-import { createEntry, getAllPrompts, getMemorials, getGroupMembers } from "../../../lib/db"
+import { createEntry, getAllPrompts, getMemorials, getGroupMembers, getGroup } from "../../../lib/db"
 import type { Prompt } from "../../../lib/types"
 import { uploadMedia } from "../../../lib/storage"
 import { colors, typography, spacing } from "../../../lib/theme"
@@ -71,6 +71,7 @@ export default function EntryComposer() {
   const [isPlayingVoice, setIsPlayingVoice] = useState(false)
   const [availablePrompts, setAvailablePrompts] = useState<Prompt[]>([])
   const [activePrompt, setActivePrompt] = useState<Prompt | undefined>()
+  const originalPromptIdRef = useRef<string | undefined>(promptId) // Store original promptId
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const soundRef = useRef<Audio.Sound | null>(null)
   const queryClient = useQueryClient()
@@ -162,9 +163,22 @@ export default function EntryComposer() {
 
   useEffect(() => {
     if (prompt?.id) {
-      setActivePrompt(prompt as Prompt)
+      // Only set active prompt if it matches the original promptId
+      // This ensures that when user reopens composer, they see the original prompt
+      if (prompt.id === originalPromptIdRef.current) {
+        setActivePrompt(prompt as Prompt)
+      }
     }
   }, [prompt])
+  
+  // Reset to original prompt when component unmounts (user closes without posting)
+  useEffect(() => {
+    return () => {
+      // On unmount, reset to original prompt
+      // This ensures that shuffled prompts don't persist if user closes without posting
+      originalPromptIdRef.current = promptId
+    }
+  }, [promptId])
 
   // Fetch memorials and members for variable replacement
   const { data: memorials = [] } = useQuery({
@@ -204,6 +218,9 @@ export default function EntryComposer() {
 
   // Reset form when promptId or date changes (new question)
   useEffect(() => {
+    // Store original promptId when component mounts or promptId changes
+    originalPromptIdRef.current = promptId
+    
     setText("")
     setMediaItems([])
     setVoiceUri(undefined)
@@ -226,7 +243,12 @@ export default function EntryComposer() {
     setAudioProgress({})
     setAudioDurations({})
     setAudioLoading({})
-  }, [promptId, date])
+    
+    // Reset to original prompt when promptId changes (user reopened composer)
+    if (promptId && promptId === originalPromptIdRef.current && prompt?.id) {
+      setActivePrompt(prompt as Prompt)
+    }
+  }, [promptId, date, prompt])
 
   // Keyboard listener removed to prevent push animation
 
@@ -635,12 +657,59 @@ export default function EntryComposer() {
     }
   }
 
-  function shufflePrompt() {
-    if (availablePrompts.length === 0) return
-    const others = availablePrompts.filter((p) => p.id !== activePrompt?.id)
-    if (others.length === 0) return
-    const next = others[Math.floor(Math.random() * others.length)]
-    setActivePrompt(next)
+  async function shufflePrompt() {
+    if (availablePrompts.length === 0 || !currentGroupId) return
+    
+    try {
+      // Get group info to check NSFW preference and type
+      const group = await getGroup(currentGroupId)
+      if (!group) return
+      
+      // Get group NSFW preference (may not be in TypeScript type, but exists in DB)
+      const groupWithNSFW = group as any
+      const enableNSFW = groupWithNSFW?.enable_nsfw === true
+      
+      // Get memorials to filter "Remembering" category
+      const groupMemorials = await getMemorials(currentGroupId)
+      const hasMemorials = groupMemorials.length > 0
+      
+      // Filter prompts based on group settings
+      const validPrompts = availablePrompts.filter((p) => {
+        // Exclude current prompt
+        if (p.id === activePrompt?.id) return false
+        
+        // Filter out NSFW if group doesn't allow it
+        if (!enableNSFW && p.category === "Edgy/NSFW") return false
+        
+        // Filter out "Remembering" category if no memorials
+        if (p.category === "Remembering" && !hasMemorials) return false
+        
+        // Filter by group type
+        if (group.type === "family" && p.category === "Friends") return false
+        if (group.type === "friends" && p.category === "Family") return false
+        
+        // Filter prompts that require memorials but group has none
+        if (p.dynamic_variables?.includes("memorial_name") && !hasMemorials) return false
+        
+        return true
+      })
+      
+      if (validPrompts.length === 0) {
+        // No valid prompts to shuffle to, keep current one
+        return
+      }
+      
+      const next = validPrompts[Math.floor(Math.random() * validPrompts.length)]
+      setActivePrompt(next)
+    } catch (error) {
+      console.error("[entry-composer] Error shuffling prompt:", error)
+      // Fallback to simple shuffle if filtering fails
+      const others = availablePrompts.filter((p) => p.id !== activePrompt?.id)
+      if (others.length > 0) {
+        const next = others[Math.floor(Math.random() * others.length)]
+        setActivePrompt(next)
+      }
+    }
   }
 
   const handleRemoveMedia = useCallback((id: string) => {
@@ -648,6 +717,12 @@ export default function EntryComposer() {
   }, [])
 
   function exitComposer() {
+    // Reset to original prompt when closing (if user didn't post)
+    // This ensures that if user shuffles but doesn't answer, they see original prompt next time
+    if (originalPromptIdRef.current && prompt?.id === originalPromptIdRef.current) {
+      setActivePrompt(prompt as Prompt)
+    }
+    
     if (returnTo) {
       router.replace(returnTo)
     } else if (router.canGoBack()) {

@@ -145,13 +145,14 @@ export default function Index() {
           }
         }
 
-        // If no session from biometric, check normal session
+        // If no session from biometric, check normal session with timeout protection
         if (!session) {
           try {
-            // Add timeout to prevent infinite hanging
+            console.log("[boot] Checking normal session with timeout protection...")
+            // Use shorter timeout (5 seconds) since AuthProvider handles initial session via onAuthStateChange
             const getSessionPromise = supabase.auth.getSession();
             const timeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error("getSession timeout")), 10000)
+              setTimeout(() => reject(new Error("getSession timeout")), 5000)
             );
             
             const { data: { session: normalSession }, error: sessErr } = await Promise.race([
@@ -171,6 +172,7 @@ export default function Index() {
           } catch (error: any) {
             console.error("[boot] getSession failed:", error.message);
             // On timeout or error, clear credentials and redirect to welcome
+            // Note: AuthProvider will handle session loading via onAuthStateChange, so this is just for boot routing
             await clearBiometricCredentials();
             router.replace("/(onboarding)/welcome-1");
             return;
@@ -221,7 +223,20 @@ export default function Index() {
         console.log("[boot] user:", user);
 
         if (!user?.name || !user?.birthday) {
-          console.log("[boot] missing name/birthday → onboarding/welcome-1");
+          console.log("[boot] ⚠️ Session exists but no user profile - this is an orphaned session");
+          console.log("[boot] Clearing orphaned session and redirecting to welcome-1");
+          
+          // Clear the orphaned session - user can't use the app without a profile
+          // This happens when OAuth sign-up fails partway through
+          try {
+            await supabase.auth.signOut();
+            await clearBiometricCredentials();
+            console.log("[boot] ✅ Orphaned session cleared");
+          } catch (signOutError) {
+            console.warn("[boot] Failed to clear orphaned session:", signOutError);
+            // Continue anyway - will redirect to welcome-1
+          }
+          
           router.replace("/(onboarding)/welcome-1");
           return;
         }

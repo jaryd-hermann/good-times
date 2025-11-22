@@ -7,10 +7,20 @@ export async function signOut() {
 }
 
 export async function getCurrentSession() {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-  return session
+  try {
+    // Add timeout protection to prevent hanging
+    const getSessionPromise = supabase.auth.getSession()
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("getSession timeout")), 5000)
+    )
+    
+    const result: any = await Promise.race([getSessionPromise, timeoutPromise])
+    return result?.data?.session || null
+  } catch (error: any) {
+    console.error("[auth] getCurrentSession failed:", error.message)
+    // Return null on timeout/error - let caller handle it
+    return null
+  }
 }
 
 export async function refreshSession() {

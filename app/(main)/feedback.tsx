@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Linking, Modal } from "react-native"
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Linking, Modal, Image, ScrollView } from "react-native"
 import { useRouter } from "expo-router"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { colors, spacing, typography } from "../../lib/theme"
@@ -150,13 +150,17 @@ export default function Feedback() {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.content}>
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
         <Text style={styles.subtitle}>You can reach me (Jaryd) a few ways</Text>
 
         <View style={styles.optionsContainer}>
           <TouchableOpacity style={styles.option} onPress={handleEmail}>
             <View style={styles.optionIcon}>
-              <FontAwesome name="envelope" size={24} color={colors.accent} />
+              <FontAwesome name="envelope" size={24} color={colors.white} />
             </View>
             <View style={styles.optionContent}>
               <Text style={styles.optionTitle}>Email</Text>
@@ -167,7 +171,7 @@ export default function Feedback() {
 
           <TouchableOpacity style={styles.option} onPress={handleMessage}>
             <View style={styles.optionIcon}>
-              <FontAwesome name="comment" size={24} color={colors.accent} />
+              <FontAwesome name="comment" size={24} color={colors.white} />
             </View>
             <View style={styles.optionContent}>
               <Text style={styles.optionTitle}>Message</Text>
@@ -178,7 +182,7 @@ export default function Feedback() {
 
           <TouchableOpacity style={styles.option} onPress={handleWhatsApp}>
             <View style={styles.optionIcon}>
-              <FontAwesome name="whatsapp" size={24} color={colors.accent} />
+              <FontAwesome name="whatsapp" size={24} color={colors.white} />
             </View>
             <View style={styles.optionContent}>
               <Text style={styles.optionTitle}>WhatsApp</Text>
@@ -187,7 +191,18 @@ export default function Feedback() {
             <FontAwesome name="chevron-right" size={16} color={colors.gray[400]} />
           </TouchableOpacity>
         </View>
-      </View>
+
+        <View style={styles.personalSection}>
+          <Text style={styles.personalText}>
+            I'm Jaryd, I live in NYC with my wife Julia and 2 cats. I have 5 siblings (this is Emily). I love playing padel, learning guitar, writing my newsletter, and building things (like this app). Thanks for reaching out to help me make this better, I appreciate it
+          </Text>
+          <Image 
+            source={require("../../assets/images/emily.png")} 
+            style={styles.emilyImage}
+            resizeMode="contain"
+          />
+        </View>
+      </ScrollView>
 
       {/* Email Copy Modal */}
       <Modal
@@ -247,9 +262,12 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 32,
   },
-  content: {
+  scrollView: {
     flex: 1,
+  },
+  content: {
     padding: spacing.lg,
+    paddingBottom: spacing.xl * 2, // Extra padding at bottom to ensure image is fully visible
   },
   subtitle: {
     ...typography.body,
@@ -338,6 +356,24 @@ const styles = StyleSheet.create({
   modalCancelText: {
     ...typography.body,
     color: colors.gray[400],
+  },
+  personalSection: {
+    marginTop: spacing.xl,
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  personalText: {
+    ...typography.body,
+    color: colors.gray[400],
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
+  },
+  emilyImage: {
+    width: "100%",
+    maxWidth: 300,
+    height: 300,
+    borderRadius: 16,
   },
 })
 

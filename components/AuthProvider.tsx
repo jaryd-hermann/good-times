@@ -67,30 +67,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [posthog])
 
   useEffect(() => {
-    // Get initial session with timeout
-    const getSessionPromise = supabase.auth.getSession()
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error("getSession timeout")), 10000)
-    )
-    
-    Promise.race([getSessionPromise, timeoutPromise])
-      .then((result: any) => {
-        const { data: { session } } = result
-        if (session?.user) {
-          loadUser(session.user.id)
-        } else {
-          setLoading(false)
-        }
-      })
-      .catch((error) => {
-        console.error("[AuthProvider] getSession failed:", error)
-        setLoading(false)
-      })
+    let sessionInitialized = false
+    let initialSessionTimeout: NodeJS.Timeout | null = null
 
-    // Listen for auth changes
+    // Listen for auth changes - this fires immediately with current session
+    // This is the PRIMARY way to get session state (non-blocking, event-driven)
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event: string, session: any) => {
+      console.log(`[AuthProvider] onAuthStateChange: event=${event}, hasSession=${!!session}`)
+      
+      // Mark that we've received initial session state
+      if (!sessionInitialized) {
+        sessionInitialized = true
+        if (initialSessionTimeout) {
+          clearTimeout(initialSessionTimeout)
+          initialSessionTimeout = null
+        }
+      }
+
       if (session?.user) {
         await loadUser(session.user.id)
         // Save biometric credentials if enabled
@@ -127,10 +122,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     })
 
+    // Fallback: If onAuthStateChange doesn't fire within 2 seconds, try getSession with timeout
+    // This handles edge cases where onAuthStateChange might not fire immediately
+    initialSessionTimeout = setTimeout(async () => {
+      if (!sessionInitialized) {
+        console.log("[AuthProvider] onAuthStateChange didn't fire, falling back to getSession()")
+        try {
+          const getSessionPromise = supabase.auth.getSession()
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("getSession timeout")), 5000)
+          )
+          
+          const result: any = await Promise.race([getSessionPromise, timeoutPromise])
+          const { data: { session } } = result
+          
+          if (session?.user) {
+            await loadUser(session.user.id)
+          } else {
+            setLoading(false)
+          }
+          sessionInitialized = true
+        } catch (error) {
+          console.error("[AuthProvider] Fallback getSession failed:", error)
+          setLoading(false)
+          sessionInitialized = true
+        }
+      }
+    }, 2000) // Wait 2 seconds for onAuthStateChange to fire
+
     return () => {
       subscription.unsubscribe()
+      if (initialSessionTimeout) {
+        clearTimeout(initialSessionTimeout)
+      }
     }
-  }, [])
+  }, [posthog])
 
   async function loadUser(userId: string) {
     try {

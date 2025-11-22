@@ -35,6 +35,7 @@ import {
   saveBiometricPreference,
   authenticateWithBiometric,
 } from "../../lib/biometric"
+import { clearAllAuthState } from "../../lib/dev-auth-reset"
 
 export default function SettingsScreen() {
   const router = useRouter()
@@ -278,6 +279,32 @@ export default function SettingsScreen() {
     router.push("/(main)/feedback")
   }
 
+  async function handleDevReset() {
+    Alert.alert(
+      "🧹 Clear All Auth State",
+      "This will clear all authentication data, sessions, and onboarding flags. The app will need to be restarted.\n\nThis is for testing only.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Clear & Restart",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await clearAllAuthState()
+              Alert.alert(
+                "✅ Cleared",
+                "All auth state cleared. Please restart the app manually.",
+                [{ text: "OK" }]
+              )
+            } catch (error: any) {
+              Alert.alert("Error", error.message || "Failed to clear auth state")
+            }
+          },
+        },
+      ]
+    )
+  }
+
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.md }]}>
@@ -403,6 +430,13 @@ export default function SettingsScreen() {
           <TouchableOpacity onPress={handleSignOut} style={styles.logoutLink}>
             <Text style={styles.logoutText}>Log out</Text>
           </TouchableOpacity>
+          {__DEV__ && (
+            <TouchableOpacity onPress={handleDevReset} style={[styles.logoutLink, { marginTop: spacing.md }]}>
+              <Text style={[styles.logoutText, { color: colors.accent, fontSize: 12 }]}>
+                🧹 DEV: Clear All Auth State
+              </Text>
+            </TouchableOpacity>
+          )}
           <Text style={styles.memorialText}>Made in memory of our mom, Amelia. We do remember all the good times.</Text>
           <Image 
             source={require("../../assets/images/wordmark.png")} 
