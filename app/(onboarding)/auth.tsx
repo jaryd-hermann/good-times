@@ -105,12 +105,12 @@ export default function OnboardingAuth() {
 
         // Check if memorials will be created (before creating group to pass to queue initialization)
         const memorialsToSave: Array<{ name: string; photo?: string }> = []
-        
+
         // Add memorials from the array
         if (data.memorials && data.memorials.length > 0) {
           memorialsToSave.push(...data.memorials)
         }
-        
+
         // Add current memorial if it exists and isn't already in the array
         if (data.memorialName && data.memorialName.trim().length > 0) {
           const isDuplicate = data.memorials?.some(
@@ -193,13 +193,13 @@ export default function OnboardingAuth() {
     const handleURL = async (event: { url: string }) => {
       const { url } = event
       console.log("[OAuth] Received redirect URL:", url)
-      
+
       // Filter out non-OAuth URLs (like expo development client URLs)
       if (url.includes("expo-development-client") || url.includes("192.168")) {
         console.log("[OAuth] Ignoring non-OAuth URL")
         return
       }
-      
+
       // Check if this is an OAuth callback
       if (url.includes("#access_token=") || url.includes("?code=") || url.includes("access_token=") || url.includes("error=")) {
         // Prevent duplicate processing
@@ -207,26 +207,26 @@ export default function OnboardingAuth() {
           console.log("[OAuth] Already processing OAuth, ignoring duplicate URL")
           return
         }
-        
+
         console.log("[OAuth] OAuth callback detected, processing...")
         oauthProcessingRef.current = true
         setOauthLoading(null) // Stop loading spinner
-        
+
         // Clear any timeout that was set
         if (oauthTimeoutRef.current) {
           clearTimeout(oauthTimeoutRef.current)
           oauthTimeoutRef.current = null
         }
-        
+
         // Check for errors in the URL
         if (url.includes("error=")) {
           const errorMatch = url.match(/error=([^&]+)/)
           const errorDescMatch = url.match(/error_description=([^&#]+)/)
           const error = errorMatch ? decodeURIComponent(errorMatch[1]) : "Unknown error"
           const errorDesc = errorDescMatch ? decodeURIComponent(errorDescMatch[1]) : ""
-          
+
           console.error("[OAuth] Error in callback:", error, errorDesc)
-          
+
           // Provide helpful error messages for common issues
           let userMessage = errorDesc || error
           if (error === "server_error" && errorDesc.includes("Unable to exchange external code")) {
@@ -234,13 +234,13 @@ export default function OnboardingAuth() {
           } else if (error === "access_denied") {
             userMessage = "Sign-in was cancelled. Please try again."
           }
-          
+
           oauthProcessingRef.current = false
           setOauthLoading(null)
           Alert.alert("Sign-in Failed", userMessage)
           return
         }
-        
+
         // Extract tokens from URL and set session directly
         // Note: Supabase may auto-process the URL, but we'll set it explicitly for reliability
         const hashMatch = url.match(/#(.+)/)
@@ -248,15 +248,15 @@ export default function OnboardingAuth() {
           const hashParams = new URLSearchParams(hashMatch[1])
           const accessToken = hashParams.get("access_token")
           const refreshToken = hashParams.get("refresh_token")
-          
+
           if (accessToken && refreshToken) {
             console.log("[OAuth] Found tokens in URL - starting parallel setSession and polling")
-            
+
             // Strategy: Start setSession in background (non-blocking) and poll getSession() immediately
             // This prevents hanging - if setSession hangs, polling will still work
             let setSessionCompleted = false
             let setSessionResult: any = null
-            
+
             // Start setSession in background (fire and forget, but track result)
             supabase.auth.setSession({
               access_token: accessToken,
@@ -270,17 +270,17 @@ export default function OnboardingAuth() {
               setSessionResult = { error }
               console.warn("[OAuth] setSession failed in background:", error)
             })
-            
+
             // Start polling immediately (don't wait for setSession)
             let attempts = 0
             const maxAttempts = 20 // 10 seconds total
-            
+
             const pollSession = async (): Promise<void> => {
               attempts++
               console.log(`[OAuth] Polling for session (attempt ${attempts}/${maxAttempts})...`)
-              
+
               const { data: { session }, error } = await supabase.auth.getSession()
-              
+
               if (error) {
                 console.error("[OAuth] getSession error:", error)
                 if (attempts >= maxAttempts) {
@@ -289,14 +289,14 @@ export default function OnboardingAuth() {
                 setTimeout(pollSession, 500)
                 return
               }
-              
+
               if (session?.user) {
                 console.log("[OAuth] Session found via polling!")
                 oauthProcessingRef.current = false
                 await handleOAuthSuccess(session)
                 return
               }
-              
+
               // Check if setSession completed while we were polling
               if (setSessionCompleted && setSessionResult) {
                 if (setSessionResult?.data?.session?.user) {
@@ -308,7 +308,7 @@ export default function OnboardingAuth() {
                   console.warn("[OAuth] setSession returned error:", setSessionResult.error)
                 }
               }
-              
+
               // Continue polling if no session yet
               if (attempts < maxAttempts) {
                 setTimeout(pollSession, 500)
@@ -316,7 +316,7 @@ export default function OnboardingAuth() {
                 throw new Error("No session found after polling")
               }
             }
-            
+
             // Start polling immediately
             try {
               await pollSession()
@@ -346,7 +346,7 @@ export default function OnboardingAuth() {
 
     // Listen for deep links
     const subscription = Linking.addEventListener("url", handleURL)
-    
+
     // Check if app was opened via deep link
     Linking.getInitialURL().then((url) => {
       if (url) {
@@ -392,7 +392,7 @@ export default function OnboardingAuth() {
 
         // Check for pending group join first
         const pendingGroupId = await AsyncStorage.getItem("pending_group_join")
-        
+
         // Check if this is an existing user (has profile and possibly group)
         const { data: user } = await (supabase
           .from("users") as any)
@@ -417,7 +417,7 @@ export default function OnboardingAuth() {
             const now = new Date()
             const minutesSinceCreation = (now.getTime() - userCreatedAt.getTime()) / (1000 * 60)
             const isNewUser = minutesSinceCreation < 10 // User created within last 10 minutes
-            
+
             if (isNewUser) {
               // Check if user has completed post-auth onboarding
               const onboardingKey = getPostAuthOnboardingKey(userId)
@@ -524,11 +524,11 @@ export default function OnboardingAuth() {
       console.log(`[OAuth] Already processing OAuth, ignoring duplicate request`)
       return
     }
-    
+
     console.log(`[OAuth] Starting ${provider} sign-in...`)
     setOauthLoading(provider)
     oauthProcessingRef.current = true // Set BEFORE opening browser to prevent Linking handler from processing
-    
+
     // Set a timeout to stop the spinner if redirect doesn't happen
     if (oauthTimeoutRef.current) {
       clearTimeout(oauthTimeoutRef.current)
@@ -544,23 +544,23 @@ export default function OnboardingAuth() {
         [{ text: "OK" }]
       )
     }, 60000) // 60 second timeout
-    
+
     try {
       // Get OAuth URL from Supabase with skipBrowserRedirect: true
       // This returns the URL without opening a browser automatically
       const redirectTo = "goodtimes://"
       console.log(`[OAuth] Getting OAuth URL with redirect: ${redirectTo}`)
-      
+
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider,
-        options: { 
+        options: {
           redirectTo,
           skipBrowserRedirect: true, // Important: we'll open browser manually
         },
       })
-      
+
       console.log(`[OAuth] Supabase response:`, { data, error })
-      
+
       if (error) {
         if (oauthTimeoutRef.current) {
           clearTimeout(oauthTimeoutRef.current)
@@ -571,7 +571,7 @@ export default function OnboardingAuth() {
         Alert.alert("Error", error.message || `Failed to start ${provider} sign-in. Please try again.`)
         return
       }
-      
+
       if (!data?.url) {
         if (oauthTimeoutRef.current) {
           clearTimeout(oauthTimeoutRef.current)
@@ -582,29 +582,29 @@ export default function OnboardingAuth() {
         Alert.alert("Error", `Failed to get ${provider} sign-in URL. Please try again.`)
         return
       }
-      
+
       console.log(`[OAuth] Opening browser with URL: ${data.url}`)
-      
+
       // Open the OAuth URL in a browser/webview
       // WebBrowser will handle the redirect back to the app automatically
       const result = await WebBrowser.openAuthSessionAsync(
         data.url,
         redirectTo
       )
-      
+
       console.log(`[OAuth] Browser session result:`, result)
-      
+
       // Clear timeout since we got a response
       if (oauthTimeoutRef.current) {
         clearTimeout(oauthTimeoutRef.current)
         oauthTimeoutRef.current = null
       }
-      
+
       if (result.type === "success" && result.url) {
         // Parse the URL to extract tokens
         const url = result.url
         console.log(`[OAuth] Success! Parsing URL: ${url}`)
-        
+
         // Check for errors first
         if (url.includes("error=")) {
           const errorMatch = url.match(/error=([^&#]+)/)
@@ -612,7 +612,7 @@ export default function OnboardingAuth() {
           const error = errorMatch ? decodeURIComponent(errorMatch[1]) : "Unknown error"
           const errorDesc = errorDescMatch ? decodeURIComponent(errorDescMatch[1]) : ""
           console.error(`[OAuth] Error in redirect URL:`, error, errorDesc)
-          
+
           // Provide helpful error messages
           let userMessage = errorDesc || error
           if (error === "server_error" && errorDesc.includes("Unable to exchange external code")) {
@@ -620,12 +620,12 @@ export default function OnboardingAuth() {
           } else if (error === "access_denied") {
             userMessage = "Sign-in was cancelled. Please try again."
           }
-          
+
           setOauthLoading(null)
           Alert.alert("Sign-in Failed", userMessage)
           return
         }
-        
+
         // Extract hash fragment (Supabase sends tokens in hash for OAuth)
         const hashMatch = url.match(/#(.+)/)
         if (hashMatch) {
@@ -633,15 +633,15 @@ export default function OnboardingAuth() {
           const accessToken = hashParams.get("access_token")
           const refreshToken = hashParams.get("refresh_token")
           const expiresIn = hashParams.get("expires_in")
-          
+
           if (accessToken && refreshToken) {
             console.log(`[OAuth] Found tokens in hash, starting parallel setSession and polling...`)
-            
+
             // Strategy: Start setSession in background and poll immediately
             // This prevents hanging - polling will find session even if setSession hangs
             let setSessionCompleted = false
             let setSessionResult: any = null
-            
+
             // Start setSession in background (non-blocking)
             supabase.auth.setSession({
               access_token: accessToken,
@@ -655,17 +655,17 @@ export default function OnboardingAuth() {
               setSessionResult = { error }
               console.warn(`[OAuth] setSession failed in background:`, error)
             })
-            
+
             // Start polling immediately (don't wait for setSession)
             let attempts = 0
             const maxAttempts = 20 // 10 seconds total
-            
+
             const pollSession = async (): Promise<void> => {
               attempts++
               console.log(`[OAuth] Polling for session (attempt ${attempts}/${maxAttempts})...`)
-              
+
               const { data: { session }, error } = await supabase.auth.getSession()
-              
+
               if (error) {
                 console.error(`[OAuth] getSession error:`, error)
                 if (attempts >= maxAttempts) {
@@ -674,14 +674,14 @@ export default function OnboardingAuth() {
                 setTimeout(pollSession, 500)
                 return
               }
-              
+
               if (session?.user) {
                 console.log(`[OAuth] Session found via polling!`)
                 oauthProcessingRef.current = false
                 await handleOAuthSuccess(session)
                 return
               }
-              
+
               // Check if setSession completed while we were polling
               if (setSessionCompleted && setSessionResult) {
                 if (setSessionResult?.data?.session?.user) {
@@ -693,7 +693,7 @@ export default function OnboardingAuth() {
                   console.warn(`[OAuth] setSession returned error:`, setSessionResult.error)
                 }
               }
-              
+
               // Continue polling if no session yet
               if (attempts < maxAttempts) {
                 setTimeout(pollSession, 500)
@@ -701,7 +701,7 @@ export default function OnboardingAuth() {
                 throw new Error("No session found after polling")
               }
             }
-            
+
             // Start polling immediately
             try {
               await pollSession()
@@ -744,7 +744,7 @@ export default function OnboardingAuth() {
       console.error(`[OAuth] Failed:`, error)
       oauthProcessingRef.current = false
       setOauthLoading(null)
-      
+
       // Extract error message safely
       let errorMessage = `Failed to sign in with ${provider}. Please try again.`
       if (error && typeof error === 'object') {
@@ -761,15 +761,17 @@ export default function OnboardingAuth() {
       } else if (typeof error === 'string') {
         errorMessage = error
       }
-      
+
       Alert.alert("Error", errorMessage)
     }
   }
 
   async function handleOAuthSuccess(session: any) {
     try {
+      // Clear spinner and reset processing ref immediately
+      oauthProcessingRef.current = false
       setOauthLoading(null)
-      
+
       // Save biometric credentials if enabled
       const biometricEnabled = await getBiometricPreference()
       if (biometricEnabled && session.refresh_token) {
@@ -779,14 +781,14 @@ export default function OnboardingAuth() {
           console.warn("[OAuth] failed to save biometric credentials:", error)
         }
       }
-      
+
       // Check if user has profile and group (same logic as handleContinue)
       const { data: user } = await (supabase
         .from("users") as any)
         .select("name, birthday")
         .eq("id", session.user.id)
         .maybeSingle() as { data: Pick<User, "name" | "birthday"> | null }
-      
+
       if (user?.name && user?.birthday) {
         // Existing user - check if they have a group
         const { data: membership } = await supabase
@@ -795,7 +797,7 @@ export default function OnboardingAuth() {
           .eq("user_id", session.user.id)
           .limit(1)
           .maybeSingle()
-        
+
         if (membership) {
           // Check if this is a NEW user (created within last 10 minutes)
           // Only show welcome-post-auth to newly registered users, not existing users logging in
@@ -803,7 +805,7 @@ export default function OnboardingAuth() {
           const now = new Date()
           const minutesSinceCreation = (now.getTime() - userCreatedAt.getTime()) / (1000 * 60)
           const isNewUser = minutesSinceCreation < 10 // User created within last 10 minutes
-          
+
           if (isNewUser) {
             // Check if user has completed post-auth onboarding
             const onboardingKey = getPostAuthOnboardingKey(session.user.id)
@@ -835,6 +837,7 @@ export default function OnboardingAuth() {
       }
     } catch (error: any) {
       console.error("[OAuth] Error handling success:", error)
+      oauthProcessingRef.current = false
       setOauthLoading(null)
       Alert.alert("Error", error.message || "Failed to complete sign-in. Please try again.")
     }
@@ -861,7 +864,7 @@ export default function OnboardingAuth() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-            <View
+          <View
             style={[
               styles.container,
               { paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.xl },
@@ -880,88 +883,88 @@ export default function OnboardingAuth() {
             )}
 
             <View style={styles.content}>
-            <Text style={styles.title}>Sign in</Text>
+              <Text style={styles.title}>Sign in</Text>
 
-            <View style={styles.fieldsContainer}>
-              {(emailFocused || passwordFocused) && (
-                <View style={styles.formBackground} />
-              )}
+              <View style={styles.fieldsContainer}>
+                {(emailFocused || passwordFocused) && (
+                  <View style={styles.formBackground} />
+                )}
 
-              <View style={styles.fieldGroup}>
-                <Text style={styles.fieldLabel}>Email</Text>
-                <TextInput
-                  value={email}
-                  onChangeText={setEmail}
-                  placeholder="you@email.com"
-                  placeholderTextColor="rgba(255,255,255,0.6)"
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoComplete="email"
-                  style={styles.fieldInput}
-                  onFocus={() => setEmailFocused(true)}
-                  onBlur={() => setEmailFocused(false)}
-                />
-              </View>
-
-              <View style={styles.fieldGroup}>
-                <Text style={styles.fieldLabel}>Password</Text>
-                <View style={styles.passwordContainer}>
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.fieldLabel}>Email</Text>
                   <TextInput
-                    value={password}
-                    onChangeText={setPassword}
-                    placeholder="••••••••"
+                    value={email}
+                    onChangeText={setEmail}
+                    placeholder="you@email.com"
                     placeholderTextColor="rgba(255,255,255,0.6)"
-                    secureTextEntry={!showPassword}
+                    keyboardType="email-address"
                     autoCapitalize="none"
-                    style={styles.passwordInput}
-                    onFocus={() => setPasswordFocused(true)}
-                    onBlur={() => setPasswordFocused(false)}
+                    autoComplete="email"
+                    style={styles.fieldInput}
+                    onFocus={() => setEmailFocused(true)}
+                    onBlur={() => setEmailFocused(false)}
                   />
-                  <TouchableOpacity
-                    onPress={() => setShowPassword(!showPassword)}
-                    style={styles.eyeButton}
-                    activeOpacity={0.7}
-                  >
-                    <FontAwesome
-                      name={showPassword ? "eye-slash" : "eye"}
-                      size={20}
-                      color="rgba(255,255,255,0.6)"
+                </View>
+
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.fieldLabel}>Password</Text>
+                  <View style={styles.passwordContainer}>
+                    <TextInput
+                      value={password}
+                      onChangeText={setPassword}
+                      placeholder="••••••••"
+                      placeholderTextColor="rgba(255,255,255,0.6)"
+                      secureTextEntry={!showPassword}
+                      autoCapitalize="none"
+                      style={styles.passwordInput}
+                      onFocus={() => setPasswordFocused(true)}
+                      onBlur={() => setPasswordFocused(false)}
                     />
-                  </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => setShowPassword(!showPassword)}
+                      style={styles.eyeButton}
+                      activeOpacity={0.7}
+                    >
+                      <FontAwesome
+                        name={showPassword ? "eye-slash" : "eye"}
+                        size={20}
+                        color="rgba(255,255,255,0.6)"
+                      />
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
-            </View>
 
-            <Button
-              title="Continue →"
-              onPress={handleContinue}
-              loading={continueLoading || persisting}
-              style={styles.primaryButton}
-            />
-
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or continue with</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            <View style={styles.socialRow}>
               <Button
-                title="Google"
-                onPress={() => handleOAuthSignIn("google")}
-                loading={oauthLoading === "google" || persisting}
-                variant="ghost"
-                style={styles.socialButton}
+                title="Continue →"
+                onPress={handleContinue}
+                loading={continueLoading || persisting}
+                style={styles.primaryButton}
               />
-              <Button
-                title="Apple"
-                onPress={() => handleOAuthSignIn("apple")}
-                loading={oauthLoading === "apple" || persisting}
-                variant="ghost"
-                style={styles.socialButton}
-              />
+
+              <View style={styles.divider}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>or continue with</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              <View style={styles.socialRow}>
+                <Button
+                  title="Google"
+                  onPress={() => handleOAuthSignIn("google")}
+                  loading={oauthLoading === "google" || persisting}
+                  variant="ghost"
+                  style={styles.socialButton}
+                />
+                <Button
+                  title="Apple"
+                  onPress={() => handleOAuthSignIn("apple")}
+                  loading={oauthLoading === "apple" || persisting}
+                  variant="ghost"
+                  style={styles.socialButton}
+                />
+              </View>
             </View>
-          </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
