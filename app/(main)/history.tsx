@@ -684,8 +684,8 @@ export default function History() {
       marginBottom: spacing.xl,
     },
     dateHeader: {
-      ...typography.h3,
-      fontSize: 18,
+      ...typography.h2,
+      fontSize: 22,
       marginBottom: spacing.xl,
       marginHorizontal: spacing.lg,
       color: colors.gray[300],

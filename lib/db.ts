@@ -925,6 +925,83 @@ export async function createEntry(entry: {
   return data
 }
 
+export async function updateEntry(
+  entryId: string,
+  userId: string, // For validation
+  updates: {
+    text_content?: string
+    media_urls?: string[]
+    media_types?: ("photo" | "video" | "audio")[]
+    embedded_media?: any[] // JSONB array
+  }
+): Promise<Entry> {
+  // First, verify the entry exists and belongs to the user
+  const { data: existingEntry, error: fetchError } = await supabase
+    .from("entries")
+    .select("*, user:users(*), prompt:prompts(*)")
+    .eq("id", entryId)
+    .eq("user_id", userId)
+    .single()
+
+  if (fetchError || !existingEntry) {
+    throw new Error("Entry not found or you don't have permission to edit it")
+  }
+
+  // Update the entry
+  const { data, error } = await supabase
+    .from("entries")
+    .update(updates)
+    .eq("id", entryId)
+    .eq("user_id", userId) // Double-check ownership
+    .select("*, user:users(*), prompt:prompts(*)")
+    .single()
+
+  if (error) throw error
+
+  // Update songs in user_songs and group_songs if embedded_media changed
+  if (updates.embedded_media && updates.embedded_media.length > 0) {
+    const songPromises = updates.embedded_media.map(async (embed) => {
+      // Upsert to user_songs
+      await supabase
+        .from("user_songs")
+        .upsert(
+          {
+            user_id: userId,
+            platform: embed.platform,
+            url: embed.url,
+            embed_id: embed.embedId,
+            embed_type: embed.embedType,
+          },
+          { onConflict: "user_id,platform,embed_id" }
+        )
+        .select()
+
+      // Upsert to group_songs
+      await supabase
+        .from("group_songs")
+        .upsert(
+          {
+            group_id: existingEntry.group_id,
+            user_id: userId,
+            platform: embed.platform,
+            url: embed.url,
+            embed_id: embed.embedId,
+            embed_type: embed.embedType,
+          },
+          { onConflict: "group_id,platform,embed_id" }
+        )
+        .select()
+    })
+
+    // Don't await - fire and forget for performance
+    Promise.all(songPromises).catch((err) => {
+      console.warn("[updateEntry] Failed to store songs:", err)
+    })
+  }
+
+  return data
+}
+
 // History query functions
 export async function getEntriesByDateRange(groupId: string, startDate: string, endDate: string): Promise<Entry[]> {
   const { data, error } = await supabase

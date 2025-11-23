@@ -738,7 +738,7 @@ export default function Home() {
       paddingBottom: spacing.xxl * 4, // Increased bottom padding for scrolling
     },
     promptCardWrapper: {
-      marginBottom: spacing.md, // Reduced from spacing.lg
+      marginBottom: 0, // No margin - entries start immediately after
       width: "100%",
     },
     promptDivider: {
@@ -786,7 +786,7 @@ export default function Home() {
     },
     entriesContainer: {
       gap: spacing.lg,
-      marginTop: -spacing.md, // Negative margin to reduce space from divider above
+      marginTop: -spacing.xl, // Large negative margin to pull entries right up to divider
     },
     postingStatusContainer: {
       paddingVertical: spacing.lg,

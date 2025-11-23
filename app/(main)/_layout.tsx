@@ -6,6 +6,7 @@ import { View, StyleSheet, TouchableOpacity, Text, Animated } from "react-native
 import { FontAwesome } from "@expo/vector-icons"
 import { useEffect, useRef, useMemo } from "react"
 import { useTabBar } from "../../lib/tab-bar-context"
+import { usePathname } from "expo-router"
 
 function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
   const currentRoute = state.routes[state.index]
@@ -13,6 +14,7 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
   const animatedValuesRef = useRef<Record<string, Animated.Value>>({})
   const { opacity: tabBarOpacity } = useTabBar()
   const { colors, isDark } = useTheme()
+  const pathname = usePathname()
 
   const visibleRoutes = state.routes.filter((route) => route.name === "home" || route.name === "history")
 
@@ -116,7 +118,10 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
   }), [colors, isDark])
 
   // Early return AFTER all hooks
+  // Hide tab bar on profile screen or other modal/settings screens
+  const isProfileScreen = pathname?.includes("/settings/profile")
   if (
+    isProfileScreen ||
     currentRoute.name.startsWith("modals/") ||
     currentRoute.name === "settings" ||
     currentRoute.name.startsWith("group-settings") ||

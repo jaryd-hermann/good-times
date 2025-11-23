@@ -9,7 +9,7 @@ import { getEntryById, getReactions, getComments, toggleReaction, createComment,
 import { typography, spacing } from "../../../lib/theme"
 import { useTheme } from "../../../lib/theme-context"
 import { Avatar } from "../../../components/Avatar"
-import { formatTime } from "../../../lib/utils"
+import { formatTime, getTodayDate } from "../../../lib/utils"
 import { Video, Audio, ResizeMode } from "expo-av"
 import { getCurrentUser } from "../../../lib/db"
 import { FontAwesome } from "@expo/vector-icons"
@@ -372,10 +372,22 @@ export default function EntryDetail() {
       marginLeft: spacing.md,
       flex: 1,
     },
+    headerTextRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: spacing.xs,
+    },
     userName: {
       ...typography.bodyBold,
       fontSize: 14,
       color: colors.white,
+    },
+    editLink: {
+      ...typography.bodyMedium,
+      fontSize: 14,
+      color: colors.accent,
+      textDecorationLine: "underline",
     },
     time: {
       ...typography.caption,
@@ -471,13 +483,6 @@ export default function EntryDetail() {
     },
     reactionButtonActive: {
       backgroundColor: colors.accent,
-    },
-    reactionIcon: {
-      fontSize: 20,
-      color: colors.white,
-    },
-    reactionIconActive: {
-      color: colors.white,
     },
     reactionCount: {
       ...typography.bodyBold,
@@ -586,7 +591,28 @@ export default function EntryDetail() {
               <View style={styles.entryHeader}>
                 <Avatar uri={entry.user?.avatar_url} name={entry.user?.name || "User"} size={48} />
                 <View style={styles.headerText}>
-                  <Text style={styles.userName}>{entry.user?.name}</Text>
+                  <View style={styles.headerTextRow}>
+                    <Text style={styles.userName}>{entry.user?.name}</Text>
+                    {userId === entry.user_id && entry.date === getTodayDate() && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          router.push({
+                            pathname: "/(main)/modals/entry-composer",
+                            params: {
+                              entryId: entry.id,
+                              editMode: "true",
+                              promptId: entry.prompt_id,
+                              date: entry.date,
+                              groupId: entry.group_id,
+                              returnTo: returnTo || `/(main)/modals/entry-detail?entryId=${entryId}${returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : ""}`,
+                            },
+                          })
+                        }}
+                      >
+                        <Text style={styles.editLink}>Edit</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
                   <Text style={styles.time}>{formatTime(entry.created_at)}</Text>
                 </View>
               </View>
@@ -709,7 +735,11 @@ export default function EntryDetail() {
                   style={[styles.reactionButton, hasLiked && styles.reactionButtonActive]}
                   onPress={handleToggleReaction}
                 >
-                  <Text style={[styles.reactionIcon, hasLiked && styles.reactionIconActive]}>{hasLiked ? "❤️" : "🤍"}</Text>
+                  <FontAwesome
+                    name={hasLiked ? "heart" : "heart-o"}
+                    size={20}
+                    color={colors.white}
+                  />
                   <Text style={styles.reactionCount}>{reactions.length}</Text>
                 </TouchableOpacity>
               </View>

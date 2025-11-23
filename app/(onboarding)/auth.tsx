@@ -7,7 +7,6 @@ import {
   StyleSheet,
   Alert,
   TextInput,
-  ImageBackground,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -15,7 +14,6 @@ import {
   Keyboard,
 } from "react-native"
 import { FontAwesome } from "@expo/vector-icons"
-import { LinearGradient } from "expo-linear-gradient"
 import * as Linking from "expo-linking"
 import * as WebBrowser from "expo-web-browser"
 import { useRouter } from "expo-router"
@@ -1462,16 +1460,7 @@ export default function OnboardingAuth() {
   }
 
   return (
-    <ImageBackground
-      source={require("../../assets/images/auth.png")}
-      style={styles.background}
-      resizeMode="cover"
-    >
-      <LinearGradient
-        colors={["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0.55)", "rgba(0, 0, 0, 0.8)", "rgba(0, 0, 0, 1)"]}
-        locations={[0, 0.4, 0.7, 1]}
-        style={styles.gradientOverlay}
-      />
+    <View style={styles.background}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.flex}
@@ -1501,7 +1490,7 @@ export default function OnboardingAuth() {
             )}
 
             <View style={styles.content}>
-              <Text style={styles.title}>Sign in</Text>
+              <Text style={styles.title}>{isRegistrationFlow ? "Create Account" : "Sign In"}</Text>
 
               <View style={styles.fieldsContainer}>
                 {(emailFocused || passwordFocused) && (
@@ -1632,16 +1621,14 @@ export default function OnboardingAuth() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </ImageBackground>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
   background: {
     flex: 1,
-  },
-  gradientOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.black,
   },
   flex: {
     flex: 1,

@@ -22,7 +22,7 @@ import * as ImagePicker from "expo-image-picker"
 import { Audio, Video, ResizeMode } from "expo-av"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { supabase } from "../../../lib/supabase"
-import { createEntry, getAllPrompts, getMemorials, getGroupMembers, getGroup } from "../../../lib/db"
+import { createEntry, updateEntry, getAllPrompts, getMemorials, getGroupMembers, getGroup, getEntryById } from "../../../lib/db"
 import type { Prompt } from "../../../lib/types"
 import { uploadMedia } from "../../../lib/storage"
 import { typography, spacing } from "../../../lib/theme"
@@ -54,6 +54,8 @@ export default function EntryComposer() {
   const date = params.date as string
   const returnTo = (params.returnTo as string) || undefined
   const groupIdParam = params.groupId as string | undefined
+  const entryId = params.entryId as string | undefined
+  const editMode = params.editMode === "true"
 
   const [text, setText] = useState("")
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([])
@@ -154,6 +156,13 @@ export default function EntryComposer() {
     enabled: !!promptId,
   })
 
+  // Load existing entry when in edit mode
+  const { data: existingEntry } = useQuery({
+    queryKey: ["entry", entryId],
+    queryFn: () => (entryId ? getEntryById(entryId) : null),
+    enabled: editMode && !!entryId,
+  })
+
   useEffect(() => {
     async function loadPrompts() {
       const prompts = await getAllPrompts()
@@ -217,8 +226,58 @@ export default function EntryComposer() {
     return question
   }, [activePrompt?.question, memorials, members])
 
-  // Reset form when promptId or date changes (new question)
+  // Load existing entry data when in edit mode
   useEffect(() => {
+    if (editMode && existingEntry && existingEntry.id) {
+      // Pre-fill text
+      setText(existingEntry.text_content || "")
+      
+      // Pre-fill media items (existing URLs)
+      if (existingEntry.media_urls && existingEntry.media_urls.length > 0) {
+        const existingMediaItems: MediaItem[] = existingEntry.media_urls.map((url, index) => {
+          const mediaType = existingEntry.media_types?.[index] || "photo"
+          return {
+            id: `existing-${index}-${Date.now()}`,
+            uri: url,
+            type: mediaType as "photo" | "video" | "audio",
+          }
+        })
+        setMediaItems(existingMediaItems)
+        
+        // Load audio durations for existing audio items
+        existingMediaItems.forEach((item) => {
+          if (item.type === "audio") {
+            Audio.Sound.createAsync({ uri: item.uri })
+              .then(({ sound }) => {
+                sound.getStatusAsync().then((status) => {
+                  if (status.isLoaded && status.durationMillis) {
+                    setAudioDurations((prev) => ({ ...prev, [item.id]: status.durationMillis! }))
+                  }
+                  sound.unloadAsync().catch(() => {})
+                })
+              })
+              .catch(() => {})
+          }
+        })
+      }
+      
+      // Pre-fill embedded media
+      if (existingEntry.embedded_media && existingEntry.embedded_media.length > 0) {
+        setEmbeddedMedia(existingEntry.embedded_media as ParsedEmbed[])
+      }
+      
+      // Set the prompt (cannot be changed in edit mode)
+      if (existingEntry.prompt && existingEntry.prompt_id) {
+        setActivePrompt(existingEntry.prompt as Prompt)
+        originalPromptIdRef.current = existingEntry.prompt_id
+      }
+    }
+  }, [editMode, existingEntry])
+
+  // Reset form when promptId or date changes (new question) - but not in edit mode
+  useEffect(() => {
+    if (editMode) return // Don't reset form in edit mode
+    
     // Store original promptId when component mounts or promptId changes
     originalPromptIdRef.current = promptId
     
@@ -249,7 +308,7 @@ export default function EntryComposer() {
     if (promptId && promptId === originalPromptIdRef.current && prompt?.id) {
       setActivePrompt(prompt as Prompt)
     }
-  }, [promptId, date, prompt])
+  }, [promptId, date, prompt, editMode])
 
   // Keyboard listener removed to prevent push animation
 
@@ -704,7 +763,7 @@ export default function EntryComposer() {
   function exitComposer() {
     // Reset to original prompt when closing (if user didn't post)
     // This ensures that if user shuffles but doesn't answer, they see original prompt next time
-    if (originalPromptIdRef.current && prompt?.id === originalPromptIdRef.current) {
+    if (originalPromptIdRef.current && prompt && prompt.id === originalPromptIdRef.current) {
       setActivePrompt(prompt as Prompt)
     }
     
@@ -728,6 +787,34 @@ export default function EntryComposer() {
       return
     }
 
+    // Show confirmation dialog for edits
+    if (editMode && entryId) {
+      Alert.alert(
+        "Save changes?",
+        "Are you sure you want to update this entry?",
+        [
+          {
+            text: "Cancel",
+            style: "cancel",
+          },
+          {
+            text: "Save",
+            onPress: () => performPost(),
+          },
+        ]
+      )
+      return
+    }
+
+    // For new entries, proceed directly
+    performPost()
+  }
+
+  async function performPost() {
+    if (!currentGroupId || !userId || !activePrompt?.id) {
+      return
+    }
+
     // Check if any media is still uploading
     const localMediaItems = mediaItems.filter(item => !item.uri.startsWith("http"))
     const isUploading = Object.values(uploadingMedia).some(status => status === true)
@@ -739,7 +826,7 @@ export default function EntryComposer() {
 
     setLoading(true)
     try {
-      const storageKey = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+      const storageKey = editMode && entryId ? entryId : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 
       // Set uploading state for all local media items
       localMediaItems.forEach(item => {
@@ -751,11 +838,14 @@ export default function EntryComposer() {
         setShowUploadingModal(true)
       }
 
+      // Upload only new media (local files), keep existing URLs
       const uploadedMedia = await Promise.all(
         mediaItems.map(async (item) => {
           if (item.uri.startsWith("http")) {
+            // Existing URL, keep as-is
             return { url: item.uri, type: item.type }
           }
+          // New local file, upload it
           try {
             const remoteUrl = await uploadMedia(currentGroupId, storageKey, item.uri, item.type)
             setUploadingMedia(prev => ({ ...prev, [item.id]: false }))
@@ -778,26 +868,50 @@ export default function EntryComposer() {
         embedUrl: embed.embedUrl,
       }))
 
-      await createEntry({
-        group_id: currentGroupId,
-        user_id: userId,
-        prompt_id: activePrompt.id,
-        date,
-        text_content: text.trim() || undefined,
-        media_urls: uploadedMedia.map((item) => item.url),
-        media_types: uploadedMedia.map((item) => item.type),
-        embedded_media: embeddedMediaForStorage.length > 0 ? embeddedMediaForStorage : undefined,
-      })
+      if (editMode && entryId) {
+        // Update existing entry
+        await updateEntry(
+          entryId,
+          userId,
+          {
+            text_content: text.trim() || undefined,
+            media_urls: uploadedMedia.map((item) => item.url),
+            media_types: uploadedMedia.map((item) => item.type),
+            embedded_media: embeddedMediaForStorage.length > 0 ? embeddedMediaForStorage : undefined,
+          }
+        )
 
-      // Invalidate queries scoped to the specific group to prevent cross-group contamination
-      // Use prefix matching to invalidate all related queries
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["entries", currentGroupId], exact: false }),
-        queryClient.invalidateQueries({ queryKey: ["userEntry", currentGroupId], exact: false }),
-        queryClient.invalidateQueries({ queryKey: ["historyEntries", currentGroupId], exact: false }),
-        queryClient.invalidateQueries({ queryKey: ["dailyPrompt", currentGroupId], exact: false }),
-        queryClient.invalidateQueries({ queryKey: ["historyComments"] }),
-      ])
+        // Invalidate queries for the updated entry
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["entry", entryId] }),
+          queryClient.invalidateQueries({ queryKey: ["entries", currentGroupId], exact: false }),
+          queryClient.invalidateQueries({ queryKey: ["userEntry", currentGroupId], exact: false }),
+          queryClient.invalidateQueries({ queryKey: ["historyEntries", currentGroupId], exact: false }),
+          queryClient.invalidateQueries({ queryKey: ["historyComments"] }),
+        ])
+      } else {
+        // Create new entry
+        await createEntry({
+          group_id: currentGroupId,
+          user_id: userId,
+          prompt_id: activePrompt.id,
+          date,
+          text_content: text.trim() || undefined,
+          media_urls: uploadedMedia.map((item) => item.url),
+          media_types: uploadedMedia.map((item) => item.type),
+          embedded_media: embeddedMediaForStorage.length > 0 ? embeddedMediaForStorage : undefined,
+        })
+
+        // Invalidate queries scoped to the specific group to prevent cross-group contamination
+        // Use prefix matching to invalidate all related queries
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["entries", currentGroupId], exact: false }),
+          queryClient.invalidateQueries({ queryKey: ["userEntry", currentGroupId], exact: false }),
+          queryClient.invalidateQueries({ queryKey: ["historyEntries", currentGroupId], exact: false }),
+          queryClient.invalidateQueries({ queryKey: ["dailyPrompt", currentGroupId], exact: false }),
+          queryClient.invalidateQueries({ queryKey: ["historyComments"] }),
+        ])
+      }
 
       // Hide uploading modal and show success
       setShowUploadingModal(false)
@@ -807,7 +921,7 @@ export default function EntryComposer() {
       setUploadingMedia({})
       setShowUploadingModal(false)
       // Show user-friendly error message
-      const errorMessage = error.message || "Failed to post entry. Please try again."
+      const errorMessage = error.message || (editMode ? "Failed to update entry. Please try again." : "Failed to post entry. Please try again.")
       Alert.alert("Error", errorMessage)
     } finally {
       setLoading(false)
@@ -1105,6 +1219,9 @@ export default function EntryComposer() {
       backgroundColor: isDark ? colors.gray[800] : colors.black,
       justifyContent: "center",
       alignItems: "center",
+    },
+    iconButtonDisabled: {
+      opacity: 0.5,
     },
     closeButtonIcon: {
       marginLeft: spacing.sm,
@@ -1410,8 +1527,12 @@ export default function EntryComposer() {
             <TouchableOpacity style={styles.iconButton} onPress={startRecording}>
               <FontAwesome name="microphone" size={18} color={colors.white} />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.iconButton} onPress={shufflePrompt}>
-              <FontAwesome name="random" size={18} color={colors.white} />
+            <TouchableOpacity 
+              style={[styles.iconButton, editMode && styles.iconButtonDisabled]} 
+              onPress={shufflePrompt}
+              disabled={editMode}
+            >
+              <FontAwesome name="random" size={18} color={editMode ? colors.gray[600] : colors.white} />
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.iconButton}

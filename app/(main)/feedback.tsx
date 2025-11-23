@@ -173,7 +173,7 @@ export default function Feedback() {
     },
     content: {
       padding: spacing.lg,
-      paddingBottom: spacing.xl * 2, // Extra padding at bottom to ensure image is fully visible
+      paddingBottom: 0, // No bottom padding - image will touch bottom
     },
     subtitle: {
       ...typography.body,
@@ -267,6 +267,7 @@ export default function Feedback() {
       marginTop: spacing.xl,
       alignItems: "center",
       gap: spacing.md,
+      marginHorizontal: -spacing.lg, // Negative margin to extend to edges
     },
     personalText: {
       ...typography.body,
@@ -274,12 +275,12 @@ export default function Feedback() {
       fontSize: 14,
       lineHeight: 20,
       textAlign: "center",
+      paddingHorizontal: spacing.lg, // Add padding back for text
     },
     emilyImage: {
       width: "100%",
-      maxWidth: 300,
       height: 300,
-      borderRadius: 16,
+      resizeMode: "cover",
     },
   }), [colors])
 
@@ -341,7 +342,7 @@ export default function Feedback() {
           <Image 
             source={require("../../assets/images/emily.png")} 
             style={styles.emilyImage}
-            resizeMode="contain"
+            resizeMode="cover"
           />
         </View>
       </ScrollView>
