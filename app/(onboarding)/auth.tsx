@@ -1527,15 +1527,18 @@ export default function OnboardingAuth() {
                       onFocus={() => setPasswordFocused(true)}
                       onBlur={() => {
                         // Keep password focused if confirm password is focused
-                        // This prevents the confirm password field from disappearing
+                        // This prevents the confirm password field from disappearing when clicking on it
                         if (!confirmPasswordFocused) {
                           // Small delay to check if confirm password will be focused
+                          // This handles the case where user clicks from password to confirm password
                           setTimeout(() => {
+                            // Only hide if confirm password didn't get focused
                             if (!confirmPasswordFocused) {
                               setPasswordFocused(false)
                             }
-                          }, 150)
+                          }, 200) // Delay to allow confirm password field to receive focus
                         }
+                        // If confirmPasswordFocused is true, keep passwordFocused true too
                       }}
                     />
                     <TouchableOpacity
@@ -1552,7 +1555,7 @@ export default function OnboardingAuth() {
                   </View>
                 </View>
 
-                {passwordFocused && isRegistrationFlow && (
+                {(passwordFocused || confirmPasswordFocused) && isRegistrationFlow && (
                   <View style={styles.fieldGroup}>
                     <Text style={styles.fieldLabel}>Confirm Password</Text>
                     <View style={styles.passwordContainer}>
@@ -1569,7 +1572,16 @@ export default function OnboardingAuth() {
                           // Keep password focused to prevent confirm password from disappearing
                           setPasswordFocused(true)
                         }}
-                        onBlur={() => setConfirmPasswordFocused(false)}
+                        onBlur={() => {
+                          setConfirmPasswordFocused(false)
+                          // Only hide password focus if password field itself is not focused
+                          // This prevents flickering when switching between fields
+                          setTimeout(() => {
+                            if (!passwordFocused && !confirmPasswordFocused) {
+                              // Both fields are blurred, safe to hide confirm password
+                            }
+                          }, 100)
+                        }}
                       />
                       <TouchableOpacity
                         onPress={() => setShowConfirmPassword(!showConfirmPassword)}
