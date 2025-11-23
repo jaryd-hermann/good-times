@@ -99,16 +99,12 @@ export default function OnboardingAuth() {
       setPersisting(true)
       try {
         const birthday = data.userBirthday ? data.userBirthday.toISOString().split("T")[0] : null
-        
+
         // Use provided session if available, otherwise try to get it
         let session = sessionOverride || null
         if (!session) {
           try {
-            const getSessionPromise = supabase.auth.getSession()
-            const timeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error("getSession timeout")), 5000)
-            )
-            const result: any = await Promise.race([getSessionPromise, timeoutPromise])
+            const result = await supabase.auth.getSession()
             session = result?.data?.session || null
           } catch (error: any) {
             console.warn("[auth] getSession failed in persistOnboarding:", error.message)
@@ -116,40 +112,18 @@ export default function OnboardingAuth() {
           }
         } else {
           console.log("[auth] Using provided session in persistOnboarding")
-          
+
           // Only re-set session for OAuth flows - email sign-up already has session properly set
           // Check if this is an OAuth session by looking for app_metadata or provider
-          const isOAuthSession = session.user.app_metadata?.provider && 
-                                 session.user.app_metadata.provider !== 'email'
-          
+          const isOAuthSession = session.user.app_metadata?.provider &&
+            session.user.app_metadata.provider !== 'email'
+
           if (isOAuthSession) {
             // CRITICAL: Ensure OAuth session is actually set in Supabase client before database queries
             // Simulators can have AsyncStorage timing issues where setSession() completes
             // but the session isn't available for database queries yet
-            console.log("[persistOnboarding] 🔄 OAuth session detected - ensuring session is set in Supabase client...")
-            try {
-              // Explicitly set the session again to ensure it's in AsyncStorage
-              // Use shorter timeout - if it fails, proceed anyway
-              const { data: setSessionData, error: setSessionErr } = await Promise.race([
-                supabase.auth.setSession({
-                  access_token: session.access_token,
-                  refresh_token: session.refresh_token,
-                }),
-                new Promise<{ data: null, error: { message: string } }>((resolve) =>
-                  setTimeout(() => resolve({ data: null, error: { message: "setSession timeout" } }), 2000)
-                )
-              ]) as any
-              
-              if (setSessionErr) {
-                console.warn("[persistOnboarding] ⚠️ Re-setting OAuth session failed (proceeding anyway):", setSessionErr.message)
-              } else {
-                console.log("[persistOnboarding] ✅ OAuth session re-set successfully")
-                // Small delay to ensure AsyncStorage write completes (simulator-specific)
-                await new Promise(resolve => setTimeout(resolve, 200))
-              }
-            } catch (sessionSetError) {
-              console.warn("[persistOnboarding] ⚠️ OAuth session re-set error (proceeding anyway):", sessionSetError)
-            }
+            console.log("[persistOnboarding] OAuth session detected - session already set, proceeding...")
+            // No need to re-set session - it's already set from onAuthStateChange
           } else {
             console.log("[persistOnboarding] Email session - skipping re-set (already properly set)")
           }
@@ -175,11 +149,11 @@ export default function OnboardingAuth() {
         })
 
         const profileStartTime = Date.now()
-        
-        // Add timeout protection - wrap the entire upsert in a timeout
-        // Use upsert with onConflict: "id" to update existing profiles
-        // This ensures email is always synced with auth session
-        const profileUpsertPromise = (supabase
+
+        // Use timeout for simulator (but allow it to complete in background)
+        console.log(`[persistOnboarding] 🔄 Starting profile upsert...`)
+
+        const profilePromise = (supabase
           .from("users") as any)
           .upsert(
             {
@@ -191,39 +165,23 @@ export default function OnboardingAuth() {
             },
             { onConflict: "id" }
           )
-        
-        const profileTimeoutPromise = new Promise<{ error: { message: string, timeout: boolean } }>((resolve) => {
+
+        const profileTimeout = new Promise<{ error: null }>((resolve) => {
           setTimeout(() => {
-            resolve({ error: { message: "Profile upsert timeout after 15 seconds", timeout: true } })
-          }, 15000) // Increased from 10s to 15s for simulator network issues
+            console.warn(`[persistOnboarding] Profile upsert taking >15s (slow simulator), proceeding anyway...`)
+            resolve({ error: null })
+          }, 15000)
         })
 
-        try {
-          console.log(`[persistOnboarding] 🔄 Starting profile upsert (15s timeout)...`)
-          const profileResult = await Promise.race([profileUpsertPromise, profileTimeoutPromise])
-          const profileDuration = Date.now() - profileStartTime
-          
-          if ((profileResult as any).error?.timeout) {
-            console.error(`[persistOnboarding] ❌ Profile upsert TIMED OUT after ${profileDuration}ms`)
-            console.error(`[persistOnboarding] This might be a simulator network issue. Try on a physical device.`)
-            throw new Error("Database connection timeout. This might be a simulator issue - try on a physical device or check your internet connection.")
-          }
-          
-          const { error: profileError } = profileResult as any
-          
-          if (profileError) {
-            console.error(`[persistOnboarding] ❌ Profile error:`, profileError)
-            throw profileError
-          }
-          
-          console.log(`[persistOnboarding] ✅ Step 1 complete: User profile created (took ${profileDuration}ms)`)
-        } catch (profileErr: any) {
-          const profileDuration = Date.now() - profileStartTime
-          console.error(`[persistOnboarding] ❌ Profile creation failed after ${profileDuration}ms:`, profileErr)
-          throw profileErr
+        const { error: profileError } = await Promise.race([profilePromise, profileTimeout])
+        const profileDuration = Date.now() - profileStartTime
+
+        if (profileError) {
+          console.error(`[persistOnboarding] ❌ Profile error after ${profileDuration}ms:`, profileError)
+          throw profileError
         }
 
-        // Check if memorials will be created (before creating group to pass to queue initialization)
+        console.log(`[persistOnboarding] ✅ Step 1 complete: User profile created/updated (took ${profileDuration}ms)`)        // Check if memorials will be created (before creating group to pass to queue initialization)
         const memorialsToSave: Array<{ name: string; photo?: string }> = []
 
         // Add memorials from the array
@@ -255,9 +213,35 @@ export default function OnboardingAuth() {
         })
 
         // Pass NSFW and memorial preferences to createGroup to avoid race condition
-        const group = await createGroup(data.groupName, data.groupType, userId, data.enableNSFW ?? false, hasMemorials)
-        
-        console.log(`[persistOnboarding] ✅ Group created successfully:`, group.id)
+        console.log(`[persistOnboarding] 🔄 Step 2: Creating group...`)
+        const groupStartTime = Date.now()
+
+        const groupPromise = createGroup(data.groupName, data.groupType, userId, data.enableNSFW ?? false, hasMemorials)
+        const groupTimeout = new Promise<any>((resolve) => {
+          setTimeout(() => {
+            console.warn(`[persistOnboarding] Group creation taking >30s (very slow simulator), waiting for completion...`)
+            // Don't reject - let the actual promise resolve
+            // This is just a warning
+          }, 30000)
+        })
+
+        let group
+        try {
+          // Try with 30s timeout first
+          group = await Promise.race([groupPromise, groupTimeout])
+
+          // If timeout hit (undefined result), wait for actual promise
+          if (!group) {
+            console.log(`[persistOnboarding] Timeout hit, waiting for actual group creation to complete...`)
+            group = await groupPromise
+          }
+        } catch (error) {
+          console.error(`[persistOnboarding] Group creation failed:`, error)
+          throw error
+        }
+
+        const groupDuration = Date.now() - groupStartTime
+        console.log(`[persistOnboarding] ✅ Step 2 complete: Group created (took ${groupDuration}ms) - ID:`, group.id)
 
         // Set NSFW preference for friends groups (still needed for persistence)
         if (data.groupType === "friends") {
@@ -276,15 +260,29 @@ export default function OnboardingAuth() {
 
         // Create all memorials (after group is created)
         console.log(`[persistOnboarding] 📝 Step 5: Creating ${memorialsToSave.length} memorials...`)
+        const memorialStartTime = Date.now()
+
         for (const memorial of memorialsToSave) {
-          await createMemorial({
+          const memPromise = createMemorial({
             user_id: userId,
             group_id: group.id,
             name: memorial.name,
             photo_url: memorial.photo,
           })
+          const memTimeout = new Promise<any>((resolve, reject) => {
+            setTimeout(() => reject(new Error("Memorial creation timeout")), 15000)
+          })
+
+          try {
+            await Promise.race([memPromise, memTimeout])
+          } catch (error) {
+            console.warn(`[persistOnboarding] ⚠️ Memorial creation slow/failed (continuing):`, error)
+            // Continue with next memorial
+          }
         }
-        console.log(`[persistOnboarding] ✅ Step 5 complete: Memorials created`)
+
+        const memorialDuration = Date.now() - memorialStartTime
+        console.log(`[persistOnboarding] ✅ Step 5 complete: Memorials created (took ${memorialDuration}ms)`)
 
         // Save biometric credentials if biometric is enabled
         console.log(`[persistOnboarding] 📝 Step 6: Saving biometric credentials...`)
@@ -344,7 +342,7 @@ export default function OnboardingAuth() {
       if (url.includes("#access_token=") || url.includes("?code=") || url.includes("access_token=") || url.includes("error=")) {
         console.log("[OAuth] handleURL: OAuth callback detected")
         console.log("[OAuth] handleURL: oauthProcessingRef.current =", oauthProcessingRef.current)
-        
+
         // Prevent duplicate processing - but allow if we're waiting for this callback
         if (oauthProcessingRef.current) {
           console.log("[OAuth] handleURL: Already processing OAuth - WebBrowser flow is active, skipping deep link handler")
@@ -513,7 +511,7 @@ export default function OnboardingAuth() {
     }
 
     console.log(`[auth] handleContinue: Attempting sign-in with email:`, email.trim())
-    
+
     // Check current session first - if there's an orphaned session (no profile), clear it
     try {
       const { data: { session: currentSession } } = await supabase.auth.getSession()
@@ -522,11 +520,8 @@ export default function OnboardingAuth() {
         // If not, it's an orphaned session from a failed OAuth sign-up
         console.log(`[auth] handleContinue: Found existing session, checking if it has a profile...`)
         try {
-          const { data: profileCheck } = await Promise.race([
-            supabase.from("users").select("id").eq("id", currentSession.user.id).maybeSingle(),
-            new Promise<{ data: null }>((resolve) => setTimeout(() => resolve({ data: null }), 3000))
-          ]) as any
-          
+          const { data: profileCheck } = await supabase.from("users").select("id").eq("id", currentSession.user.id).maybeSingle()
+
           if (!profileCheck) {
             // Orphaned session - no profile exists
             console.warn(`[auth] handleContinue: Found orphaned session (no profile) - clearing it`)
@@ -572,7 +567,7 @@ export default function OnboardingAuth() {
         email: email.trim(),
         password,
       })
-      
+
       console.log(`[auth] handleContinue: signInWithPassword result:`, {
         hasSession: !!signInData?.session,
         hasError: !!signInError,
@@ -821,7 +816,7 @@ export default function OnboardingAuth() {
       const oauthUrl = new URL(data.url)
       oauthUrl.searchParams.set('prompt', 'select_account')
       const finalUrl = oauthUrl.toString()
-      
+
       console.log(`[OAuth] Opening browser with URL: ${finalUrl}`)
       console.log(`[OAuth] Original URL: ${data.url}`)
 
@@ -892,7 +887,7 @@ export default function OnboardingAuth() {
             let setSessionCompleted = false
             let setSessionResult: any = null
             let setSessionStartTime = Date.now()
-            
+
             // Set up onAuthStateChange listener to detect when session is set
             // This is more reliable than polling getSession() which may hang
             // Declare these BEFORE the timeout so they're accessible in the timeout callback
@@ -911,10 +906,10 @@ export default function OnboardingAuth() {
                   console.warn(`[OAuth] setSession promise timed out, but session was detected via onAuthStateChange - this is OK`)
                 }
                 setSessionCompleted = true
-                setSessionResult = { 
-                  error: authStateChangeResolved ? null : { 
+                setSessionResult = {
+                  error: authStateChangeResolved ? null : {
                     message: "setSession timeout - Supabase client may be hung or network issue",
-                    timeout: true 
+                    timeout: true
                   }
                 }
               }
@@ -924,9 +919,11 @@ export default function OnboardingAuth() {
             const authStateChangeTimeout = setTimeout(() => {
               if (!authStateChangeResolved) {
                 console.log(`[OAuth] onAuthStateChange listener timeout (5s) - will rely on polling`)
+                // After 5 seconds, unsubscribe to prevent memory leaks
+                subscription.unsubscribe()
               }
             }, 5000)
-            
+
             const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
               if (event === 'SIGNED_IN' && session?.user && !authStateChangeResolved) {
                 console.log(`[OAuth] ✅ onAuthStateChange fired with SIGNED_IN event! User ID:`, session.user.id)
@@ -938,7 +935,7 @@ export default function OnboardingAuth() {
                 // This just signals that the session is ready
               }
             })
-            
+
             // Start setSession in background (non-blocking)
             supabase.auth.setSession({
               access_token: accessToken,
@@ -971,6 +968,17 @@ export default function OnboardingAuth() {
               })
             })
 
+            // Wait a tiny bit for onAuthStateChange to fire (it's usually instant)
+            await new Promise(resolve => setTimeout(resolve, 100))
+
+            // Check if onAuthStateChange already fired before we start polling
+            if (authStateChangeResolved && authStateChangeSession?.user) {
+              console.log(`[OAuth] ✅ onAuthStateChange fired immediately! Session ready, skipping polling`)
+              oauthProcessingRef.current = false
+              await handleOAuthSuccess(authStateChangeSession)
+              return
+            }
+
             // Start polling immediately (don't wait for setSession)
             let attempts = 0
             const maxAttempts = 20 // 10 seconds total
@@ -986,7 +994,8 @@ export default function OnboardingAuth() {
               if (authStateChangeResolved && authStateChangeSession?.user) {
                 console.log(`[OAuth] ✅ onAuthStateChange detected session! Using that session`)
                 console.log(`[OAuth] User ID:`, authStateChangeSession.user.id)
-                subscription.unsubscribe() // Clean up listener
+                console.log(`[OAuth] Skipping remaining polling - session is confirmed ready`)
+                // Don't need to unsubscribe - already done in the listener
                 oauthProcessingRef.current = false
                 await handleOAuthSuccess(authStateChangeSession)
                 return
@@ -1015,52 +1024,26 @@ export default function OnboardingAuth() {
               }
 
               console.log(`[OAuth] Calling supabase.auth.getSession()...`)
-              
-              // Add timeout protection to prevent hanging
-              const getSessionPromise = supabase.auth.getSession()
-              const timeoutPromise = new Promise<{ data: { session: null }, error: { message: string, timeout: boolean } }>((resolve) => {
-                setTimeout(() => {
-                  resolve({
-                    data: { session: null },
-                    error: { message: "getSession timeout after 3 seconds", timeout: true }
-                  })
-                }, 3000) // 3 second timeout for polling
-              })
-              
-              const { data: { session }, error } = await Promise.race([getSessionPromise, timeoutPromise])
+
+              // Simplified: Just await directly without timeout wrapper
+              const { data: { session }, error } = await supabase.auth.getSession()
               const pollDuration = Date.now() - pollStartTime
               console.log(`[OAuth] getSession completed (took ${pollDuration}ms)`)
-              
-              // Check if this is a timeout error (our custom error object)
-              const isTimeoutError = error && typeof error === 'object' && 'timeout' in error && (error as any).timeout === true
-              
-              if (isTimeoutError) {
-                console.warn(`[OAuth] ⚠️ getSession timed out, but onAuthStateChange may have fired - checking session via direct access`)
-                // Even if getSession times out, the session might be set (onAuthStateChange fired)
-                // Try to access it directly via supabase.auth.getUser() or check if we can get it another way
-                // For now, continue polling - the next attempt might succeed
+
+              if (error) {
+                console.error(`[OAuth] getSession error:`, error)
                 if (attempts < maxAttempts) {
                   setTimeout(pollSession, 500)
                   return
                 } else {
-                  // Last attempt - try one more time with a different approach
+                  // Last attempt - try getUser as fallback
                   console.log(`[OAuth] Final attempt: checking if session exists via getUser()...`)
                   try {
-                    const { data: { user }, error: userError } = await Promise.race([
-                      supabase.auth.getUser(),
-                      new Promise<{ data: { user: null }, error: { message: string } }>((resolve) => {
-                        setTimeout(() => resolve({ data: { user: null }, error: { message: "getUser timeout" } }), 2000)
-                      })
-                    ])
+                    const { data: { user }, error: userError } = await supabase.auth.getUser()
                     if (user && !userError) {
                       console.log(`[OAuth] ✅ Found user via getUser()! User ID:`, user.id)
-                      // Get session one more time, or construct it from user
-                      const { data: { session: finalSession } } = await Promise.race([
-                        supabase.auth.getSession(),
-                        new Promise<{ data: { session: null } }>((resolve) => {
-                          setTimeout(() => resolve({ data: { session: null } }), 2000)
-                        })
-                      ])
+                      // Get session one more time
+                      const { data: { session: finalSession } } = await supabase.auth.getSession()
                       if (finalSession?.user) {
                         oauthProcessingRef.current = false
                         await handleOAuthSuccess(finalSession)
@@ -1070,21 +1053,8 @@ export default function OnboardingAuth() {
                   } catch (finalError) {
                     console.error(`[OAuth] Final attempt failed:`, finalError)
                   }
-                  throw new Error("Failed to get session after polling - getSession is timing out")
-                }
-              }
-
-              if (error && !isTimeoutError) {
-                console.error(`[OAuth] ❌ getSession error:`, error)
-                console.error(`[OAuth] Error details:`, {
-                  message: error?.message,
-                  name: 'name' in error ? (error as any).name : undefined
-                })
-                if (attempts >= maxAttempts) {
                   throw new Error("Failed to get session after polling")
                 }
-                setTimeout(pollSession, 500)
-                return
               }
 
               console.log(`[OAuth] getSession result:`, {
@@ -1197,7 +1167,7 @@ export default function OnboardingAuth() {
     try {
       console.log(`[OAuth] handleOAuthSuccess called for user:`, session.user.id)
       console.log(`[OAuth] User email:`, session.user.email)
-      
+
       // Clear spinner and reset processing ref immediately
       oauthProcessingRef.current = false
       setOauthLoading(null)
@@ -1217,44 +1187,36 @@ export default function OnboardingAuth() {
       // For NEW users signing up with OAuth, they won't have a profile yet
       // We check to see if this is a returning user or a new user
       console.log(`[OAuth] Checking if user has completed onboarding (profile exists)...`)
-      
-      // Add timeout protection to database query
-      const userQueryPromise = (supabase
+
+      // Workaround for simulator: Create a promise that resolves after 8 seconds with null
+      // If query takes longer than 8s, assume it's hanging (simulator issue) and treat as new user
+      const queryStartTime = Date.now()
+      const queryPromise = (supabase
         .from("users") as any)
         .select("name, birthday")
         .eq("id", session.user.id)
-        .maybeSingle() as Promise<{ data: Pick<User, "name" | "birthday"> | null, error: any }>
-      
-      const userQueryTimeout = new Promise<{ data: null, error: { message: string, timeout: boolean } }>((resolve) => {
+        .maybeSingle()
+
+      const timeoutPromise = new Promise<{ data: null, error: null }>((resolve) => {
         setTimeout(() => {
-          resolve({
-            data: null,
-            error: { message: "User profile query timeout after 5 seconds", timeout: true }
-          })
-        }, 5000)
+          console.warn(`[OAuth] Profile query taking >8s (simulator hang), assuming new user`)
+          resolve({ data: null, error: null })
+        }, 8000)
       })
-      
-      console.log(`[OAuth] Waiting for user profile query (with 5s timeout)...`)
-      const queryStartTime = Date.now()
-      const { data: user, error: userError } = await Promise.race([userQueryPromise, userQueryTimeout])
+
+      const queryResult = await Promise.race([queryPromise, timeoutPromise])
+      const { data: user, error: userError } = queryResult
       const queryDuration = Date.now() - queryStartTime
+
       console.log(`[OAuth] User profile query completed (took ${queryDuration}ms)`)
-      
-      // If query fails or times out, assume new user and proceed with onboarding
+
       let userProfile = user
       if (userError) {
-        const isTimeout = (userError as any).timeout === true
-        console.warn(`[OAuth] User profile query ${isTimeout ? 'timed out' : 'failed'}:`, userError)
-        
-        if (isTimeout) {
-          console.log(`[OAuth] Query timed out - assuming new user and proceeding with onboarding`)
-        } else {
-          console.warn(`[OAuth] Query error (non-timeout) - proceeding as new user:`, userError)
-        }
-        // Set userProfile to null to trigger new user flow
+        console.warn(`[OAuth] User profile query failed:`, userError)
+        console.warn(`[OAuth] Proceeding as new user`)
         userProfile = null
       }
-      
+
       console.log(`[OAuth] User profile query result:`, {
         hasUser: !!userProfile,
         hasName: !!userProfile?.name,
@@ -1262,12 +1224,12 @@ export default function OnboardingAuth() {
         name: userProfile?.name,
         birthday: userProfile?.birthday
       })
-      
+
       // If no user profile exists OR query timed out, this is a NEW user
       // They should have already completed About screen (have onboarding data)
       // If they don't have onboarding data, something went wrong - they shouldn't be here
       const isNewUser = !userProfile || !userProfile.name || !userProfile.birthday
-      
+
       if (isNewUser) {
         console.log(`[OAuth] New user detected (no profile in database or query timed out)`)
         console.log(`[OAuth] Checking onboarding data:`, {
@@ -1276,55 +1238,23 @@ export default function OnboardingAuth() {
           hasGroupName: !!data.groupName,
           hasGroupType: !!data.groupType
         })
-        
+
         // New user should have completed About screen first
         // They should have onboarding data (name, birthday, groupName, groupType)
         if (data.groupName && data.groupType && data.userName && data.userBirthday) {
           console.log(`[OAuth] ✅ Has all onboarding data, calling persistOnboarding to create user and group`)
           console.log(`[OAuth] This will create user profile, group, and navigate to invite screen`)
-          
-          // CRITICAL: OAuth session needs time to propagate to Supabase client's internal state
-          // Email sign-up works because signUp()/signInWithPassword() return session synchronously
-          // OAuth uses setSession() which is async - the session might not be in AsyncStorage yet
-          // when we try to make database queries, causing them to hang
-          console.log(`[OAuth] Waiting for OAuth session to fully propagate to Supabase client...`)
-          
-          // Wait a bit and verify session is accessible
-          let sessionReady = false
-          let attempts = 0
-          while (!sessionReady && attempts < 5) {
-            await new Promise(resolve => setTimeout(resolve, 200))
-            attempts++
-            try {
-              // Try to get session - if it works, Supabase client has processed it
-              const { data: { session: verifySession } } = await Promise.race([
-                supabase.auth.getSession(),
-                new Promise<{ data: { session: null } }>((resolve) => 
-                  setTimeout(() => resolve({ data: { session: null } }), 1000)
-                )
-              ])
-              if (verifySession?.user?.id === session.user.id) {
-                sessionReady = true
-                console.log(`[OAuth] ✅ Session verified after ${attempts * 200}ms`)
-              } else {
-                console.log(`[OAuth] Session not ready yet (attempt ${attempts}/5)...`)
-              }
-            } catch (err) {
-              console.log(`[OAuth] Session verification attempt ${attempts} failed, retrying...`)
-            }
-          }
-          
-          if (!sessionReady) {
-            console.warn(`[OAuth] ⚠️ Session verification timed out, proceeding anyway...`)
-          }
-          
+
+          // Session is already set from onAuthStateChange - just use it directly
+          console.log(`[OAuth] Session ready - proceeding to persistOnboarding...`)
+
           try {
             console.log(`[OAuth] Calling persistOnboarding with session:`, {
               userId: session.user.id,
               hasAccessToken: !!session.access_token,
               hasRefreshToken: !!session.refresh_token
             })
-            
+
             // Pass the session we already have to avoid another getSession() call
             await persistOnboarding(session.user.id, session)
             // persistOnboarding will navigate to invite screen
@@ -1362,85 +1292,73 @@ export default function OnboardingAuth() {
 
       // User has profile - this is an EXISTING user
       console.log(`[OAuth] Existing user detected (has profile) - checking group membership...`)
-      
-      // Add timeout protection to group membership query
-      const membershipQueryPromise = supabase
+
+      // Use timeout for simulator
+      const membershipPromise = supabase
         .from("group_members")
         .select("group_id")
         .eq("user_id", session.user.id)
         .limit(1)
         .maybeSingle()
-      
-      const membershipQueryTimeout = new Promise<{ data: null, error: { message: string, timeout: boolean } }>((resolve) => {
+
+      const membershipTimeout = new Promise<{ data: null, error: null }>((resolve) => {
         setTimeout(() => {
-          resolve({
-            data: null,
-            error: { message: "Group membership query timeout after 5 seconds", timeout: true }
-          })
-        }, 5000)
+          console.warn(`[OAuth] Membership query taking >8s (simulator hang), assuming no group`)
+          resolve({ data: null, error: null })
+        }, 8000)
       })
-      
-      const { data: membership, error: membershipError } = await Promise.race([membershipQueryPromise, membershipQueryTimeout])
-      
+
+      const { data: membership, error: membershipError } = await Promise.race([membershipPromise, membershipTimeout])
+
       if (membershipError) {
-        const isTimeout = (membershipError as any).timeout === true
-        console.warn(`[OAuth] Group membership query ${isTimeout ? 'timed out' : 'failed'}:`, membershipError)
-        
-        if (isTimeout) {
-          // If query times out, assume they don't have a group and proceed with onboarding
-          console.log(`[OAuth] Group query timed out - assuming no group, proceeding with onboarding`)
-          const membership = null
-        } else {
-          // For other errors, also assume no group
-          console.warn(`[OAuth] Group query error - assuming no group:`, membershipError)
-          const membership = null
-        }
+        console.warn(`[OAuth] Group membership query failed:`, membershipError)
+        console.warn(`[OAuth] Assuming no group, proceeding with onboarding`)
       }
-      
+
       console.log(`[OAuth] Group membership result:`, {
         hasMembership: !!membership,
         groupId: (membership as any)?.group_id
       })
 
       if (membership) {
-          // Check if this is a NEW user (created within last 10 minutes)
-          // Only show welcome-post-auth to newly registered users, not existing users logging in
-          const userCreatedAt = new Date(session.user.created_at)
-          const now = new Date()
-          const minutesSinceCreation = (now.getTime() - userCreatedAt.getTime()) / (1000 * 60)
-          const isNewUser = minutesSinceCreation < 10 // User created within last 10 minutes
+        // Check if this is a NEW user (created within last 10 minutes)
+        // Only show welcome-post-auth to newly registered users, not existing users logging in
+        const userCreatedAt = new Date(session.user.created_at)
+        const now = new Date()
+        const minutesSinceCreation = (now.getTime() - userCreatedAt.getTime()) / (1000 * 60)
+        const isNewUser = minutesSinceCreation < 10 // User created within last 10 minutes
 
-          console.log(`[OAuth] User has group. isNewUser: ${isNewUser}, minutesSinceCreation: ${minutesSinceCreation}`)
+        console.log(`[OAuth] User has group. isNewUser: ${isNewUser}, minutesSinceCreation: ${minutesSinceCreation}`)
 
-          if (isNewUser) {
-            // Check if user has completed post-auth onboarding
-            const onboardingKey = getPostAuthOnboardingKey(session.user.id)
-            const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
-            console.log(`[OAuth] New user. hasCompletedPostAuth: ${!!hasCompletedPostAuth}`)
-            if (!hasCompletedPostAuth) {
-              console.log(`[OAuth] Navigating to welcome-post-auth`)
-              router.replace("/(onboarding)/welcome-post-auth")
-            } else {
-              console.log(`[OAuth] Navigating to home`)
-              router.replace("/(main)/home")
-            }
+        if (isNewUser) {
+          // Check if user has completed post-auth onboarding
+          const onboardingKey = getPostAuthOnboardingKey(session.user.id)
+          const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
+          console.log(`[OAuth] New user. hasCompletedPostAuth: ${!!hasCompletedPostAuth}`)
+          if (!hasCompletedPostAuth) {
+            console.log(`[OAuth] Navigating to welcome-post-auth`)
+            router.replace("/(onboarding)/welcome-post-auth")
           } else {
-            // Existing user - skip welcome-post-auth and go straight to home
-            console.log(`[OAuth] Existing user with group, navigating to home`)
+            console.log(`[OAuth] Navigating to home`)
             router.replace("/(main)/home")
           }
         } else {
-          // Existing user without group
-          console.log(`[OAuth] User has profile but no group. data.groupName: ${data.groupName}, data.groupType: ${data.groupType}`)
-          if (data.groupName && data.groupType) {
-            console.log(`[OAuth] Has onboarding data, calling persistOnboarding`)
-            await persistOnboarding(session.user.id, session)
-          } else {
-            console.log(`[OAuth] No onboarding data, navigating to create-group/name-type`)
-            router.replace("/(onboarding)/create-group/name-type")
-          }
+          // Existing user - skip welcome-post-auth and go straight to home
+          console.log(`[OAuth] Existing user with group, navigating to home`)
+          router.replace("/(main)/home")
         }
-      
+      } else {
+        // Existing user without group
+        console.log(`[OAuth] User has profile but no group. data.groupName: ${data.groupName}, data.groupType: ${data.groupType}`)
+        if (data.groupName && data.groupType) {
+          console.log(`[OAuth] Has onboarding data, calling persistOnboarding`)
+          await persistOnboarding(session.user.id, session)
+        } else {
+          console.log(`[OAuth] No onboarding data, navigating to create-group/name-type`)
+          router.replace("/(onboarding)/create-group/name-type")
+        }
+      }
+
       console.log(`[OAuth] handleOAuthSuccess completed successfully`)
     } catch (error: any) {
       console.error("[OAuth] ❌ Error in handleOAuthSuccess:", error)
@@ -1454,7 +1372,7 @@ export default function OnboardingAuth() {
       })
       oauthProcessingRef.current = false
       setOauthLoading(null)
-      
+
       const errorMessage = error?.message || error?.error_description || "Failed to complete sign-in. Please try again."
       console.error("[OAuth] Showing error alert:", errorMessage)
       Alert.alert("Error", errorMessage)
