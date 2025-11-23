@@ -180,10 +180,10 @@ serve(async (req) => {
       throw new Error("group_id and group_type are required")
     }
 
-    // Get group details
+    // Get group details including ice-breaker completion status
     const { data: groupData, error: groupError } = await supabaseClient
       .from("groups")
-      .select("type, created_at")
+      .select("type, created_at, ice_breaker_queue_completed_date")
       .eq("id", group_id)
       .single()
 
@@ -191,6 +191,10 @@ serve(async (req) => {
     if (!groupData) throw new Error("Group not found")
 
     const groupType = groupData.type as "family" | "friends"
+    const isIceBreakerInitialization = !groupData.ice_breaker_queue_completed_date
+    const groupCategory = groupType === "friends" ? "Friends" : "Family" // Used for ice-breaker queries
+    
+    console.log(`[initialize-group-queue] Ice-breaker initialization: ${isIceBreakerInitialization}, completion date: ${groupData.ice_breaker_queue_completed_date}`)
 
     // Check for memorials: use passed parameter first, then check database
     let hasMemorials = false
@@ -217,7 +221,7 @@ serve(async (req) => {
       .eq("group_id", group_id)
 
     // Determine disabled categories
-    const disabledCategories = new Set(
+    const disabledCategories = new Set<string>(
       (preferences || []).filter((p) => p.preference === "none").map((p) => p.category)
     )
 
@@ -272,21 +276,116 @@ serve(async (req) => {
       )
     }
 
-    // Get all prompts from eligible categories (excluding birthday prompts)
-    console.log(`[initialize-group-queue] Fetching prompts for categories:`, eligibleCategories)
-    const { data: allPrompts, error: promptsError } = await supabaseClient
-      .from("prompts")
-      .select("*")
-      .in("category", eligibleCategories)
-      .is("birthday_type", null) // Exclude birthday prompts
+    // Get prompts based on initialization type
+    let allPrompts: any[] = []
+    
+    if (isIceBreakerInitialization) {
+      // ICE-BREAKER INITIALIZATION: Use ice-breaker questions only
+      console.log(`[initialize-group-queue] ICE-BREAKER MODE: Fetching ice-breaker questions for ${groupType} groups`)
+      
+      // Fetch ice-breaker questions: ice_breaker = TRUE, category matches group type
+      // Exclude: birthday prompts, memorial prompts (filter dynamic variables in JS)
+      const { data: iceBreakerPromptsRaw, error: iceBreakerError } = await supabaseClient
+        .from("prompts")
+        .select("*")
+        .eq("ice_breaker", true)
+        .eq("category", groupCategory)
+        .is("birthday_type", null) // Exclude birthday prompts
+        .neq("category", "Remembering") // Exclude memorial prompts
+      
+      if (iceBreakerError) throw iceBreakerError
+      
+      // Filter out dynamic variables in JavaScript (check for null or empty array)
+      const iceBreakerPrompts = (iceBreakerPromptsRaw || []).filter((p: any) => {
+        const hasDynamicVars = p.dynamic_variables && 
+          Array.isArray(p.dynamic_variables) && 
+          p.dynamic_variables.length > 0
+        return !hasDynamicVars
+      })
+      
+      console.log(`[initialize-group-queue] Found ${iceBreakerPrompts.length} ice-breaker questions (filtered from ${iceBreakerPromptsRaw?.length || 0} total)`)
+      
+      // If we have fewer than 15 ice-breaker questions, fill with fallback
+      if ((iceBreakerPrompts?.length || 0) < 15) {
+        const needed = 15 - (iceBreakerPrompts?.length || 0)
+        console.log(`[initialize-group-queue] Need ${needed} more questions, fetching fallback questions`)
+        
+        // Fallback: FRIEND/FAMILY + Fun category, excluding Edgy/NSFW, A Bit Deeper
+        const fallbackCategories = [groupCategory, "Fun"]
+        const { data: fallbackPromptsRaw, error: fallbackError } = await supabaseClient
+          .from("prompts")
+          .select("*")
+          .in("category", fallbackCategories)
+          .not("category", "eq", "Edgy/NSFW")
+          .not("category", "eq", "A Bit Deeper")
+          .is("birthday_type", null)
+          .neq("category", "Remembering")
+          .eq("ice_breaker", false) // Don't double-count ice-breaker questions
+        
+        if (fallbackError) throw fallbackError
+        
+        // Filter out dynamic variables and exclude already-selected ice-breaker prompts
+        const iceBreakerIds = new Set(iceBreakerPrompts.map((p: any) => p.id))
+        const fallbackPrompts = (fallbackPromptsRaw || []).filter((p: any) => {
+          const hasDynamicVars = p.dynamic_variables && 
+            Array.isArray(p.dynamic_variables) && 
+            p.dynamic_variables.length > 0
+          return !hasDynamicVars && !iceBreakerIds.has(p.id)
+        })
+        
+        // Combine ice-breaker + fallback, limit to needed amount
+        const fallbackToAdd = fallbackPrompts.slice(0, needed)
+        allPrompts = [...iceBreakerPrompts, ...fallbackToAdd]
+        console.log(`[initialize-group-queue] Combined ${iceBreakerPrompts.length} ice-breaker + ${fallbackToAdd.length} fallback = ${allPrompts.length} total`)
+      } else {
+        // Use only ice-breaker questions (take first 15 if more exist)
+        allPrompts = iceBreakerPrompts.slice(0, 15)
+        console.log(`[initialize-group-queue] Using ${allPrompts.length} ice-breaker questions`)
+      }
+      
+      // Full fallback: If no ice-breaker questions exist, use all FRIEND/FAMILY + Fun
+      if (allPrompts.length === 0) {
+        console.log(`[initialize-group-queue] No ice-breaker questions found, using full fallback`)
+        const fallbackCategories = [groupCategory, "Fun"]
+        const { data: fullFallbackPromptsRaw, error: fullFallbackError } = await supabaseClient
+          .from("prompts")
+          .select("*")
+          .in("category", fallbackCategories)
+          .not("category", "eq", "Edgy/NSFW")
+          .not("category", "eq", "A Bit Deeper")
+          .is("birthday_type", null)
+          .neq("category", "Remembering")
+        
+        if (fullFallbackError) throw fullFallbackError
+        
+        // Filter out dynamic variables
+        allPrompts = (fullFallbackPromptsRaw || []).filter((p: any) => {
+          const hasDynamicVars = p.dynamic_variables && 
+            Array.isArray(p.dynamic_variables) && 
+            p.dynamic_variables.length > 0
+          return !hasDynamicVars
+        })
+        console.log(`[initialize-group-queue] Full fallback found ${allPrompts.length} questions`)
+      }
+    } else {
+      // NORMAL INITIALIZATION: Use existing logic
+      console.log(`[initialize-group-queue] NORMAL MODE: Fetching prompts for categories:`, eligibleCategories)
+      const { data: normalPrompts, error: promptsError } = await supabaseClient
+        .from("prompts")
+        .select("*")
+        .in("category", eligibleCategories)
+        .is("birthday_type", null) // Exclude birthday prompts
 
-    if (promptsError) throw promptsError
-    if (!allPrompts || allPrompts.length === 0) {
+      if (promptsError) throw promptsError
+      allPrompts = normalPrompts || []
+    }
+
+    if (allPrompts.length === 0) {
       return new Response(
         JSON.stringify({ 
           success: false, 
           error: "No prompts available for eligible categories",
-          eligible_categories: eligibleCategories
+          eligible_categories: isIceBreakerInitialization ? [groupType === "friends" ? "Friends" : "Family"] : eligibleCategories
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
       )
@@ -383,21 +482,79 @@ serve(async (req) => {
     }
 
     // Generate dates: 7 days past + today + 7 days future (15 days total)
-    const dates: string[] = []
+    // For ice-breaker mode, we'll extend this if birthdays are inserted
+    const baseDates: string[] = []
     const todayDate = new Date(today)
     
     for (let i = -7; i <= 7; i++) {
       const date = new Date(todayDate)
       date.setDate(date.getDate() + i)
-      dates.push(date.toISOString().split("T")[0])
+      baseDates.push(date.toISOString().split("T")[0])
+    }
+
+    // For ice-breaker initialization, check for birthdays and handle them
+    let dates = [...baseDates]
+    let birthdayPrompts: Array<{ date: string; prompt_id: string; user_id: string }> = []
+    
+    if (isIceBreakerInitialization) {
+      // Check for birthdays in the date range
+      const startDate = baseDates[0]
+      const endDate = baseDates[baseDates.length - 1]
+      
+      // Get group members and their birthdays
+      const { data: members, error: membersError } = await supabaseClient
+        .from("group_members")
+        .select("user_id, user:users(id, birthday)")
+        .eq("group_id", group_id)
+      
+      if (membersError) {
+        console.error(`[initialize-group-queue] Error fetching members:`, membersError)
+      } else if (members && members.length > 0) {
+        // Check each member's birthday
+        for (const member of members) {
+          const user = (member as any).user
+          if (user && user.birthday) {
+            const birthday = new Date(user.birthday)
+            const birthdayMonthDay = `${String(birthday.getMonth() + 1).padStart(2, '0')}-${String(birthday.getDate()).padStart(2, '0')}`
+            
+            // Check if birthday falls within our date range
+            for (const date of baseDates) {
+              const dateMonthDay = date.substring(5) // MM-DD format
+              if (dateMonthDay === birthdayMonthDay) {
+                // Find birthday prompt for "their_birthday" (for other members)
+                const { data: birthdayPrompt } = await supabaseClient
+                  .from("prompts")
+                  .select("*")
+                  .eq("birthday_type", "their_birthday")
+                  .eq("category", groupCategory)
+                  .limit(1)
+                  .maybeSingle()
+                
+                if (birthdayPrompt) {
+                  birthdayPrompts.push({
+                    date,
+                    prompt_id: birthdayPrompt.id,
+                    user_id: user.id
+                  })
+                  console.log(`[initialize-group-queue] Found birthday for user ${user.id} on ${date}`)
+                }
+                break
+              }
+            }
+          }
+        }
+      }
+      
+      // If we have birthdays, we need to shift remaining prompts
+      // For now, we'll handle this after initial scheduling
     }
 
     // Shuffle prompts using group-specific seed
     const seed = `${group_id}-${groupData.created_at}`
-    const shuffledPrompts = seededShuffle(allPrompts, seed)
+    let shuffledPrompts = seededShuffle(allPrompts, seed) // Use let to allow reassignment
     const rng = seededRandom(seed)
 
-    // Track category usage for variety
+    // Track category usage for variety (only used in normal mode)
     const categoryUsage = new Map<string, number>() // category -> count in current 7-day window
     let scheduledPrompts: Array<{ date: string; prompt_id: string }> = [] // Use let to allow filtering
     const usedPromptIds = new Set<string>()
@@ -435,14 +592,23 @@ serve(async (req) => {
         usedPromptIds.clear()
       }
 
-      // Select prompt ensuring variety
-      const selectedPrompt = selectPromptWithVariety(
-        availablePrompts,
-        eligibleCategories,
-        categoryWeights,
-        categoryUsage,
-        rng
-      )
+      // Select prompt - use simpler logic for ice-breaker mode
+      let selectedPrompt: any | null = null
+      if (isIceBreakerInitialization) {
+        // For ice-breaker mode, just pick from available prompts (no category variety needed)
+        if (availablePrompts.length > 0) {
+          selectedPrompt = availablePrompts[Math.floor(rng() * availablePrompts.length)]
+        }
+      } else {
+        // Normal mode: use variety selection
+        selectedPrompt = selectPromptWithVariety(
+          availablePrompts,
+          eligibleCategories,
+          categoryWeights,
+          categoryUsage,
+          rng
+        )
+      }
 
       if (!selectedPrompt) {
         console.warn(`[initialize-group-queue] No prompt selected for ${date}, skipping`)
@@ -492,6 +658,77 @@ serve(async (req) => {
       })
     }
 
+    // For ice-breaker mode, handle birthday insertion and shifting
+    if (isIceBreakerInitialization && birthdayPrompts.length > 0) {
+      console.log(`[initialize-group-queue] Processing ${birthdayPrompts.length} birthday prompts`)
+      
+      // Create a map of dates to scheduled prompts for easier manipulation
+      const promptMap = new Map<string, { prompt_id: string }>()
+      for (const sp of scheduledPrompts) {
+        promptMap.set(sp.date, { prompt_id: sp.prompt_id })
+      }
+      
+      // Insert birthday prompts and shift remaining prompts forward
+      // Sort birthdays by date to process in order
+      const sortedBirthdays = [...birthdayPrompts].sort((a, b) => a.date.localeCompare(b.date))
+      
+      for (const birthday of sortedBirthdays) {
+        const birthdayDate = birthday.date
+        
+        // Check if there's already a prompt scheduled for this date
+        if (promptMap.has(birthdayDate)) {
+          // Shift all prompts from this date forward by 1 day
+          const datesToShift: string[] = []
+          for (const date of dates) {
+            if (date >= birthdayDate) {
+              datesToShift.push(date)
+            }
+          }
+          
+          // Shift prompts forward (working backwards to avoid overwriting)
+          for (let i = datesToShift.length - 1; i >= 0; i--) {
+            const currentDate = datesToShift[i]
+            const nextDateIndex = dates.indexOf(currentDate) + 1
+            
+            if (nextDateIndex < dates.length) {
+              const nextDate = dates[nextDateIndex]
+              const currentPrompt = promptMap.get(currentDate)
+              if (currentPrompt) {
+                promptMap.set(nextDate, currentPrompt)
+              }
+            }
+          }
+          
+          // Insert birthday prompt
+          promptMap.set(birthdayDate, { prompt_id: birthday.prompt_id })
+          
+          // Extend dates array if needed (add one more day at the end)
+          const lastDate = dates[dates.length - 1]
+          const lastDateObj = new Date(lastDate)
+          lastDateObj.setDate(lastDateObj.getDate() + 1)
+          const newLastDate = lastDateObj.toISOString().split("T")[0]
+          dates.push(newLastDate)
+          
+          console.log(`[initialize-group-queue] Inserted birthday prompt on ${birthdayDate}, shifted remaining prompts, extended to ${newLastDate}`)
+        } else {
+          // No prompt scheduled for this date, just insert birthday
+          promptMap.set(birthdayDate, { prompt_id: birthday.prompt_id })
+          console.log(`[initialize-group-queue] Inserted birthday prompt on ${birthdayDate} (no shift needed)`)
+        }
+      }
+      
+      // Rebuild scheduledPrompts from map
+      scheduledPrompts = dates
+        .filter(date => promptMap.has(date))
+        .map(date => ({
+          date,
+          prompt_id: promptMap.get(date)!.prompt_id
+        }))
+      
+      // Add birthday prompts with user_id for user-specific prompts
+      // Note: We'll handle user-specific birthday prompts separately in the insert
+    }
+    
     // Log summary of scheduled prompts by category and validate for duplicates
     const categoryCounts = new Map<string, number>()
     const promptIdCounts = new Map<string, number>() // Track prompt ID usage
@@ -612,6 +849,65 @@ serve(async (req) => {
       
       console.log(`[initialize-group-queue] Successfully inserted/updated ${scheduledPrompts.length} prompts`)
       console.log(`[initialize-group-queue] Inserted/updated rows count:`, insertData?.length || 0)
+      
+      // Insert birthday prompts with user_id (user-specific prompts)
+      if (isIceBreakerInitialization && birthdayPrompts.length > 0) {
+        console.log(`[initialize-group-queue] Inserting ${birthdayPrompts.length} birthday prompts with user_id`)
+        
+        // Delete existing birthday prompts for these dates first
+        const birthdayDates = birthdayPrompts.map(bp => bp.date)
+        try {
+          await supabaseClient
+            .from("daily_prompts")
+            .delete()
+            .eq("group_id", group_id)
+            .in("date", birthdayDates)
+            .not("user_id", "is", null) // Only delete user-specific prompts
+        } catch (deleteBirthdayError) {
+          console.warn(`[initialize-group-queue] Warning deleting existing birthday prompts:`, deleteBirthdayError)
+        }
+        
+        // Insert birthday prompts
+        const { data: birthdayInsertData, error: birthdayInsertError } = await supabaseClient
+          .from("daily_prompts")
+          .insert(
+            birthdayPrompts.map((bp) => ({
+              group_id,
+              prompt_id: bp.prompt_id,
+              date: bp.date,
+              user_id: bp.user_id, // User-specific prompt
+            }))
+          )
+          .select()
+        
+        if (birthdayInsertError) {
+          console.error(`[initialize-group-queue] Error inserting birthday prompts:`, birthdayInsertError)
+        } else {
+          console.log(`[initialize-group-queue] Successfully inserted ${birthdayInsertData?.length || 0} birthday prompts`)
+        }
+      }
+      
+      // Set completion date for ice-breaker initialization
+      if (isIceBreakerInitialization) {
+        // Completion date = date after the last prompt
+        const lastDate = dates[dates.length - 1]
+        const lastDateObj = new Date(lastDate)
+        lastDateObj.setDate(lastDateObj.getDate() + 1)
+        const completionDate = lastDateObj.toISOString().split("T")[0]
+        
+        console.log(`[initialize-group-queue] Setting ice_breaker_queue_completed_date to ${completionDate} (day after last prompt: ${lastDate})`)
+        
+        const { error: updateError } = await supabaseClient
+          .from("groups")
+          .update({ ice_breaker_queue_completed_date: completionDate })
+          .eq("id", group_id)
+        
+        if (updateError) {
+          console.error(`[initialize-group-queue] Error setting completion date:`, updateError)
+        } else {
+          console.log(`[initialize-group-queue] Successfully set completion date to ${completionDate}`)
+        }
+      }
       
       // Verify inserts by querying back
       const { data: verifyData, error: verifyError } = await supabaseClient

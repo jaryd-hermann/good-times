@@ -26,10 +26,10 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
     )
 
-    // Get all groups
+    // Get all groups with ice-breaker completion status
     const { data: groups, error: groupsError } = await supabaseClient
       .from("groups")
-      .select("id, name")
+      .select("id, name, ice_breaker_queue_completed_date")
 
     if (groupsError) throw groupsError
 
@@ -38,6 +38,31 @@ serve(async (req) => {
     const results = []
 
     for (const group of groups || []) {
+      // Check if group is still in ice-breaker period
+      if (group.ice_breaker_queue_completed_date) {
+        const completionDate = new Date(group.ice_breaker_queue_completed_date)
+        const todayDate = new Date(today)
+        
+        // If completion date is in the future, skip normal generation (ice-breaker queue still active)
+        if (completionDate > todayDate) {
+          console.log(`[schedule-daily-prompts] Group ${group.id} still in ice-breaker period (completes ${group.ice_breaker_queue_completed_date}), skipping normal generation`)
+          results.push({ 
+            group_id: group.id, 
+            status: "skipped_ice_breaker_period",
+            completion_date: group.ice_breaker_queue_completed_date
+          })
+          continue
+        }
+      } else {
+        // If completion date is NULL, group hasn't initialized ice-breaker queue yet
+        // This shouldn't happen for active groups, but we'll skip to be safe
+        console.log(`[schedule-daily-prompts] Group ${group.id} has NULL ice_breaker_queue_completed_date, skipping (may need initialization)`)
+        results.push({ 
+          group_id: group.id, 
+          status: "skipped_no_completion_date"
+        })
+        continue
+      }
       // FIRST: Check for custom question scheduled for today (highest priority)
       const { data: customQuestion } = await supabaseClient
         .from("custom_questions")
