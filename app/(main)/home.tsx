@@ -38,9 +38,10 @@ import { EntryCard } from "../../components/EntryCard"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { FontAwesome } from "@expo/vector-icons"
 import { registerForPushNotifications, savePushToken } from "../../lib/notifications"
-import { getMemorials } from "../../lib/db"
+import { getMemorials, getCustomQuestionOpportunity, hasSeenCustomQuestionOnboarding } from "../../lib/db"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "../../lib/prompts"
 import { useTabBar } from "../../lib/tab-bar-context"
+import { CustomQuestionBanner } from "../../components/CustomQuestionBanner"
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 
@@ -393,6 +394,102 @@ export default function Home() {
     // Never show placeholder data from different group/date
     placeholderData: undefined,
   })
+
+  // Check for custom question opportunity (only on today's date)
+  const isToday = selectedDate === getTodayDate()
+  const { data: customQuestionOpportunity } = useQuery({
+    queryKey: ["customQuestionOpportunity", currentGroupId, selectedDate, userId],
+    queryFn: () =>
+      currentGroupId && userId && isToday
+        ? getCustomQuestionOpportunity(userId, currentGroupId, selectedDate)
+        : null,
+    enabled: !!currentGroupId && !!userId && isToday,
+  })
+
+  // Check if user has seen onboarding
+  const { data: hasSeenOnboarding } = useQuery({
+    queryKey: ["hasSeenCustomQuestionOnboarding", userId],
+    queryFn: () => (userId ? hasSeenCustomQuestionOnboarding(userId) : Promise.resolve(false)),
+    enabled: !!userId,
+  })
+
+  // Check if current prompt is a custom question
+  const isCustomQuestion = dailyPrompt?.prompt?.is_custom === true
+  const customQuestionData = (dailyPrompt?.prompt as any)?.customQuestion
+
+  // In dev mode, show banner if force toggle is enabled
+  const [devForceCustomQuestion, setDevForceCustomQuestion] = useState(false)
+  
+  useEffect(() => {
+    async function loadDevSettings() {
+      if (__DEV__) {
+        const forceCustomQuestion = await AsyncStorage.getItem("dev_force_custom_question")
+        setDevForceCustomQuestion(forceCustomQuestion === "true")
+      }
+    }
+    loadDevSettings()
+  }, [])
+
+  // Reload dev settings when screen comes into focus (so toggle changes take effect immediately)
+  useFocusEffect(
+    useCallback(() => {
+      async function reloadDevSettings() {
+        if (__DEV__) {
+          const forceCustomQuestion = await AsyncStorage.getItem("dev_force_custom_question")
+          setDevForceCustomQuestion(forceCustomQuestion === "true")
+        }
+      }
+      reloadDevSettings()
+    }, [])
+  )
+
+  // Show banner if:
+  // 1. User has a real custom question opportunity (show regardless of whether they've posted daily entry), OR
+  // 2. Dev mode is enabled (show even if user has posted, for testing)
+  // The banner stays visible until the user creates the custom question (opportunity disappears when date_asked is set)
+  const shouldShowCustomQuestionBanner = 
+    isToday && 
+    currentGroupId &&
+    (
+      customQuestionOpportunity || // Real opportunity - show until they create the question
+      (__DEV__ && devForceCustomQuestion) // Dev mode: show regardless
+    )
+
+  async function handleCustomQuestionPress() {
+    if (!currentGroupId || !userId) return
+
+    // In dev mode, always show onboarding for testing
+    if (__DEV__ && devForceCustomQuestion) {
+      router.push({
+        pathname: "/(main)/custom-question-onboarding",
+        params: {
+          groupId: currentGroupId,
+          date: selectedDate,
+        },
+      })
+      return
+    }
+
+    // Check if user has seen onboarding
+    const seenOnboarding = await hasSeenCustomQuestionOnboarding(userId)
+    if (!seenOnboarding) {
+      router.push({
+        pathname: "/(main)/custom-question-onboarding",
+        params: {
+          groupId: currentGroupId,
+          date: selectedDate,
+        },
+      })
+    } else {
+      router.push({
+        pathname: "/(main)/add-custom-question",
+        params: {
+          groupId: currentGroupId,
+          date: selectedDate,
+        },
+      })
+    }
+  }
   
   // Only show loading state when actually switching groups, not during normal date navigation
   const isLoadingGroupData = isGroupSwitching
@@ -568,12 +665,17 @@ export default function Home() {
   }
 
   // Calculate full header height including day scroller
+  // Reduced bottom spacing to minimize gap between header and content
   const headerHeight = useMemo(() => {
-    return insets.top + spacing.xl + spacing.md + 36 + spacing.md + 32 + spacing.md + 48 + spacing.md + spacing.sm + 48 + spacing.md
+    return insets.top + spacing.xl + spacing.md + 36 + spacing.md + 32 + spacing.md + 48 + spacing.md + spacing.sm + 48 + spacing.xs
   }, [insets.top])
 
   useEffect(() => {
-    contentPaddingTop.setValue(headerHeight)
+    // Set initial padding to header height minus extra bottom spacing
+    // The header is absolutely positioned, so we need padding to account for it
+    // but we reduce the bottom padding to minimize gap between header and content
+    const reducedPadding = headerHeight - spacing.lg // Remove extra bottom spacing
+    contentPaddingTop.setValue(reducedPadding)
   }, [headerHeight])
 
   const handleScroll = Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
@@ -634,7 +736,7 @@ export default function Home() {
     header: {
       paddingTop: spacing.sm,
       paddingHorizontal: spacing.md,
-      paddingBottom: spacing.md,
+      paddingBottom: 0, // Remove bottom padding to minimize gap
       borderBottomWidth: 1,
       borderBottomColor: isDark ? colors.gray[800] : "#000000",
       position: "absolute",
@@ -734,7 +836,7 @@ export default function Home() {
       // No marginTop - header will overlay content when visible
     },
     contentContainer: {
-      paddingTop: spacing.md,
+      paddingTop: 0, // No static padding - animated contentPaddingTop handles it
       paddingBottom: spacing.xxl * 4, // Increased bottom padding for scrolling
     },
     promptCardWrapper: {
@@ -756,12 +858,29 @@ export default function Home() {
       marginBottom: spacing.sm,
       color: colors.white,
     },
-    promptDescription: {
-      ...typography.body,
-      color: colors.gray[400],
-      marginBottom: spacing.md,
-    },
-    loadingContainer: {
+  promptDescription: {
+    ...typography.body,
+    color: colors.gray[400],
+    marginBottom: spacing.md,
+  },
+  customQuestionBanner: {
+    marginBottom: spacing.md,
+    paddingBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.gray[800],
+  },
+  customQuestionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: spacing.xs,
+  },
+  customQuestionLabel: {
+    ...typography.bodyMedium,
+    fontSize: 14,
+    color: colors.gray[400],
+    marginLeft: spacing.sm,
+  },
+  loadingContainer: {
       padding: spacing.lg,
       alignItems: "center",
       justifyContent: "center",
@@ -799,7 +918,7 @@ export default function Home() {
       textAlign: "center",
     },
     notice: {
-      marginBottom: spacing.md,
+      marginBottom: 0, // No margin - banner comes right after
       paddingHorizontal: spacing.md,
     },
     noticeText: {
@@ -955,6 +1074,14 @@ export default function Home() {
         onScroll={handleScroll}
         scrollEventThrottle={16}
       >
+        {/* Custom Question Banner */}
+        {shouldShowCustomQuestionBanner && (
+          <CustomQuestionBanner
+            groupId={currentGroupId!}
+            date={selectedDate}
+            onPress={handleCustomQuestionPress}
+          />
+        )}
         {otherEntries.length === 0 && !userEntry && (
           <View style={styles.notice}>
             <Text style={styles.noticeText}>Nobody has shared today yet. Be the first.</Text>
@@ -972,6 +1099,30 @@ export default function Home() {
                 </View>
               ) : (
                 <>
+                  {/* Custom Question Branding */}
+                  {isCustomQuestion && customQuestionData && (
+                    <View style={styles.customQuestionBanner}>
+                      {customQuestionData.is_anonymous ? (
+                        <View style={styles.customQuestionHeader}>
+                          <FontAwesome name="question-circle" size={20} color={colors.accent} style={{ marginRight: spacing.sm }} />
+                          <Text style={styles.customQuestionLabel}>
+                            Custom question! Someone in your group asked everyone this:
+                          </Text>
+                        </View>
+                      ) : (
+                        <View style={styles.customQuestionHeader}>
+                          <Avatar
+                            uri={customQuestionData.user?.avatar_url}
+                            name={customQuestionData.user?.name || "User"}
+                            size={24}
+                          />
+                          <Text style={styles.customQuestionLabel}>
+                            {customQuestionData.user?.name || "Someone"} has a question for you
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  )}
                   <Text style={styles.promptQuestion}>
                     {personalizedPromptQuestion || fallbackPrompt?.question || "Share a moment that made you smile today."}
                   </Text>

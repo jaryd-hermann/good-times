@@ -125,7 +125,9 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
     currentRoute.name.startsWith("modals/") ||
     currentRoute.name === "settings" ||
     currentRoute.name.startsWith("group-settings") ||
-    currentRoute.name === "feedback"
+    currentRoute.name === "feedback" ||
+    currentRoute.name === "custom-question-onboarding" ||
+    currentRoute.name === "add-custom-question"
   ) {
     return null
   }

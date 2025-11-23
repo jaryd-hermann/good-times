@@ -1,5 +1,5 @@
 import { supabase } from "./supabase"
-import type { User, Group, GroupMember, Prompt, DailyPrompt, Entry, Memorial, Reaction, Comment } from "./types"
+import type { User, Group, GroupMember, Prompt, DailyPrompt, Entry, Memorial, Reaction, Comment, CustomQuestion, CustomQuestionRotation, GroupActivityTracking } from "./types"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "./prompts"
 
 // User queries
@@ -211,8 +211,28 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
     .maybeSingle()
 
   if (existing && !existingError && existing.prompt) {
-    // Personalize prompts with dynamic variables using usage tracking
+    // Check if this is a custom question
     const prompt = existing.prompt as any
+    if (prompt.is_custom && prompt.custom_question_id) {
+      // Fetch custom question details
+      const { data: customQuestion } = await supabase
+        .from("custom_questions")
+        .select("*, user:users(id, name, avatar_url)")
+        .eq("id", prompt.custom_question_id)
+        .maybeSingle()
+
+      if (customQuestion) {
+        // Return prompt with custom question metadata
+        return {
+          ...existing,
+          prompt: {
+            ...prompt,
+            customQuestion: customQuestion as any,
+          },
+        }
+      }
+    }
+    // Personalize prompts with dynamic variables using usage tracking
     let personalizedQuestion = prompt.question
 
     // Handle dynamic variables
@@ -1291,4 +1311,245 @@ export async function leaveGroup(groupId: string, userId: string): Promise<void>
     .eq("user_id", userId)
 
   if (error) throw error
+}
+
+// Custom Question queries
+export async function checkCustomQuestionEligibility(groupId: string): Promise<boolean> {
+  // Check if group has 3+ members
+  const { data: members, error: membersError } = await supabase
+    .from("group_members")
+    .select("user_id, role, joined_at")
+    .eq("group_id", groupId)
+
+  if (membersError) throw membersError
+  if (!members || members.length < 3) return false
+
+  // Get activity tracking record
+  const { data: tracking } = await supabase
+    .from("group_activity_tracking")
+    .select("*")
+    .eq("group_id", groupId)
+    .maybeSingle()
+
+  if (tracking?.is_eligible_for_custom_questions) {
+    return true
+  }
+
+  // Check if 7 days have passed since first non-admin member joined
+  const nonAdminMembers = members.filter((m) => m.role !== "admin")
+  if (nonAdminMembers.length === 0) return false
+
+  const firstMemberJoin = nonAdminMembers.sort((a, b) => 
+    new Date(a.joined_at).getTime() - new Date(b.joined_at).getTime()
+  )[0]
+
+  const daysSinceFirstMember = Math.floor(
+    (Date.now() - new Date(firstMemberJoin.joined_at).getTime()) / (1000 * 60 * 60 * 24)
+  )
+
+  return daysSinceFirstMember >= 7
+}
+
+export async function getCustomQuestionOpportunity(
+  userId: string,
+  groupId: string,
+  date: string
+): Promise<CustomQuestion | null> {
+  const { data, error } = await supabase
+    .from("custom_questions")
+    .select("*, user:users(*), group:groups(*)")
+    .eq("user_id", userId)
+    .eq("group_id", groupId)
+    .eq("date_assigned", date)
+    .is("date_asked", null)
+    .maybeSingle()
+
+  if (error) throw error
+  return data
+}
+
+export async function getCustomQuestionForDate(
+  groupId: string,
+  date: string
+): Promise<CustomQuestion | null> {
+  const { data, error } = await supabase
+    .from("custom_questions")
+    .select("*, user:users(*), group:groups(*), prompt:prompts(*)")
+    .eq("group_id", groupId)
+    .eq("date_asked", date)
+    .maybeSingle()
+
+  if (error) throw error
+  return data
+}
+
+export async function createCustomQuestion(data: {
+  groupId: string
+  userId: string
+  question: string
+  description?: string
+  isAnonymous: boolean
+  dateAssigned: string
+}): Promise<CustomQuestion> {
+  // Validate question length (20 words max)
+  const wordCount = data.question.trim().split(/\s+/).length
+  if (wordCount > 20) {
+    throw new Error("Question must be 20 words or less")
+  }
+
+  // Get the existing custom_question record (created by edge function)
+  const { data: existingOpportunity, error: fetchError } = await supabase
+    .from("custom_questions")
+    .select("*")
+    .eq("group_id", data.groupId)
+    .eq("user_id", data.userId)
+    .eq("date_assigned", data.dateAssigned)
+    .is("date_asked", null)
+    .maybeSingle()
+
+  if (fetchError) throw fetchError
+  if (!existingOpportunity) {
+    throw new Error("No custom question opportunity found for this date")
+  }
+
+  // Create prompt entry for the custom question
+  const { data: prompt, error: promptError } = await supabase
+    .from("prompts")
+    .insert({
+      question: data.question,
+      description: data.description || null,
+      category: "Custom",
+      is_default: false,
+      is_custom: true,
+      custom_question_id: existingOpportunity.id,
+    })
+    .select()
+    .single()
+
+  if (promptError) throw promptError
+
+  // Calculate next available date (tomorrow, or after birthdays)
+  const tomorrow = new Date(data.dateAssigned)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  let nextAvailableDate = tomorrow.toISOString().split("T")[0]
+
+  // Check for birthdays in the next 7 days and adjust
+  const { data: members } = await supabase
+    .from("group_members")
+    .select("user_id, user:users(birthday)")
+    .eq("group_id", data.groupId)
+
+  if (members) {
+    // Check for birthdays starting from tomorrow
+    for (let i = 0; i < 7; i++) {
+      const checkDate = new Date(tomorrow)
+      checkDate.setDate(checkDate.getDate() + i)
+      const checkDateStr = checkDate.toISOString().split("T")[0]
+      const checkMonthDay = checkDateStr.substring(5) // MM-DD
+
+      const hasBirthday = members.some((m: any) => {
+        const user = m.user as any
+        if (!user?.birthday) return false
+        return user.birthday.substring(5) === checkMonthDay
+      })
+
+      if (!hasBirthday) {
+        nextAvailableDate = checkDateStr
+        break
+      }
+    }
+  }
+
+  // Update custom_question record
+  const { data: updatedQuestion, error: updateError } = await supabase
+    .from("custom_questions")
+    .update({
+      question: data.question,
+      description: data.description || null,
+      is_anonymous: data.isAnonymous,
+      date_asked: nextAvailableDate,
+      prompt_id: prompt.id,
+    })
+    .eq("id", existingOpportunity.id)
+    .select("*, user:users(*), group:groups(*), prompt:prompts(*)")
+    .single()
+
+  if (updateError) throw updateError
+
+  // Update rotation status
+  const weekStart = getWeekStartDate(data.dateAssigned)
+  await supabase
+    .from("custom_question_rotation")
+    .update({ status: "completed" })
+    .eq("group_id", data.groupId)
+    .eq("user_id", data.userId)
+    .eq("week_start_date", weekStart)
+
+  // Insert custom question prompt into group_prompt_queue at position 0
+  // First, shift all existing positions up by 1
+  const { data: existingQueue } = await supabase
+    .from("group_prompt_queue")
+    .select("id, position")
+    .eq("group_id", data.groupId)
+    .order("position", { ascending: true })
+
+  if (existingQueue && existingQueue.length > 0) {
+    // Update all positions
+    for (const item of existingQueue) {
+      await supabase
+        .from("group_prompt_queue")
+        .update({ position: item.position + 1 })
+        .eq("id", item.id)
+    }
+  }
+
+  // Insert custom question at position 0
+  await supabase.from("group_prompt_queue").insert({
+    group_id: data.groupId,
+    prompt_id: prompt.id,
+    added_by: data.userId,
+    position: 0,
+  })
+
+  return updatedQuestion
+}
+
+export async function hasSeenCustomQuestionOnboarding(userId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("users")
+    .select("has_seen_custom_question_onboarding")
+    .eq("id", userId)
+    .single()
+
+  if (error) throw error
+  return data?.has_seen_custom_question_onboarding || false
+}
+
+export async function markCustomQuestionOnboardingSeen(userId: string): Promise<void> {
+  const { error } = await supabase
+    .from("users")
+    .update({ has_seen_custom_question_onboarding: true })
+    .eq("id", userId)
+
+  if (error) throw error
+}
+
+export async function getGroupActivityTracking(groupId: string): Promise<GroupActivityTracking | null> {
+  const { data, error } = await supabase
+    .from("group_activity_tracking")
+    .select("*, group:groups(*)")
+    .eq("group_id", groupId)
+    .maybeSingle()
+
+  if (error) throw error
+  return data
+}
+
+// Helper function to get Monday of the week for a given date
+function getWeekStartDate(dateString: string): string {
+  const date = new Date(dateString)
+  const day = date.getDay()
+  const diff = date.getDate() - day + (day === 0 ? -6 : 1) // Adjust to Monday
+  const monday = new Date(date.setDate(diff))
+  return monday.toISOString().split("T")[0]
 }

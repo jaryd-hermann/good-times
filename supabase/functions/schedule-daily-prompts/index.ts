@@ -38,6 +38,41 @@ serve(async (req) => {
     const results = []
 
     for (const group of groups || []) {
+      // FIRST: Check for custom question scheduled for today (highest priority)
+      const { data: customQuestion } = await supabaseClient
+        .from("custom_questions")
+        .select("id, prompt_id, date_asked")
+        .eq("group_id", group.id)
+        .eq("date_asked", today)
+        .not("prompt_id", "is", null)
+        .maybeSingle()
+
+      if (customQuestion && customQuestion.prompt_id) {
+        // Check if daily_prompt already exists for this custom question
+        const { data: existingCustomPrompt } = await supabaseClient
+          .from("daily_prompts")
+          .select("id")
+          .eq("group_id", group.id)
+          .eq("date", today)
+          .eq("prompt_id", customQuestion.prompt_id)
+          .maybeSingle()
+
+        if (!existingCustomPrompt) {
+          // Create daily_prompt entry for custom question
+          await supabaseClient.from("daily_prompts").insert({
+            group_id: group.id,
+            prompt_id: customQuestion.prompt_id,
+            date: today,
+          })
+
+          results.push({ group_id: group.id, status: "custom_question_scheduled" })
+          continue // Skip regular prompt scheduling
+        } else {
+          results.push({ group_id: group.id, status: "already_scheduled", type: "custom" })
+          continue
+        }
+      }
+
       // Check if group already has prompts for today (general or user-specific)
       const { data: existingPrompts } = await supabaseClient
         .from("daily_prompts")

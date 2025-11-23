@@ -1354,7 +1354,7 @@ export default function EntryComposer() {
     successTitle: {
       ...typography.h1,
       fontSize: 32,
-      color: colors.white,
+      color: "#ffffff", // Always white since modal background is black
       textAlign: "center",
     },
     successButton: {

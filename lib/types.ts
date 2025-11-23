@@ -5,6 +5,7 @@ export interface User {
   birthday: string
   avatar_url?: string
   theme_preference?: "dark" | "light"
+  has_seen_custom_question_onboarding?: boolean
   created_at: string
 }
 
@@ -32,6 +33,8 @@ export interface Prompt {
   is_default: boolean
   birthday_type?: "your_birthday" | "their_birthday" | null
   dynamic_variables?: string[] // Array of variable names like ["member_name", "memorial_name"]
+  is_custom?: boolean
+  custom_question_id?: string | null
   created_at: string
 }
 
@@ -96,3 +99,43 @@ export interface Comment {
 }
 
 export type PromptCategory = "Most Popular" | "Family" | "Friends" | "Remembering" | "Fun" | "Seasonal" | "Birthday"
+
+export interface CustomQuestion {
+  id: string
+  group_id: string
+  user_id: string
+  question: string
+  description?: string
+  is_anonymous: boolean
+  created_at: string
+  date_assigned: string
+  date_asked?: string | null
+  prompt_id?: string | null
+  user?: User
+  group?: Group
+  prompt?: Prompt
+}
+
+export interface CustomQuestionRotation {
+  id: string
+  group_id: string
+  user_id: string
+  week_start_date: string
+  date_assigned: string
+  status: "assigned" | "completed" | "skipped"
+  created_at: string
+  user?: User
+  group?: Group
+}
+
+export interface GroupActivityTracking {
+  id: string
+  group_id: string
+  first_member_joined_at?: string | null
+  first_entry_date?: string | null
+  is_eligible_for_custom_questions: boolean
+  eligible_since?: string | null
+  created_at: string
+  updated_at: string
+  group?: Group
+}

@@ -42,6 +42,7 @@ export default function SettingsScreen() {
   const [biometricEnabled, setBiometricEnabled] = useState(false)
   const [biometricAvailable, setBiometricAvailable] = useState(false)
   const [biometricType, setBiometricType] = useState<"face" | "fingerprint" | "iris" | "none">("none")
+  const [devForceCustomQuestion, setDevForceCustomQuestion] = useState(false)
 
   const { data: profile } = useQuery({
     queryKey: ["profile"],
@@ -75,6 +76,16 @@ export default function SettingsScreen() {
       }
     }
     checkBiometric()
+  }, [])
+
+  useEffect(() => {
+    async function loadDevSettings() {
+      if (__DEV__) {
+        const forceCustomQuestion = await AsyncStorage.getItem("dev_force_custom_question")
+        setDevForceCustomQuestion(forceCustomQuestion === "true")
+      }
+    }
+    loadDevSettings()
   }, [])
 
   function handleProfilePress() {
@@ -148,6 +159,11 @@ export default function SettingsScreen() {
 
   function handleReportIssue() {
     router.push("/(main)/feedback")
+  }
+
+  async function handleDevForceCustomQuestionToggle(value: boolean) {
+    setDevForceCustomQuestion(value)
+    await AsyncStorage.setItem("dev_force_custom_question", value ? "true" : "false")
   }
 
   async function handleDevReset() {
@@ -358,6 +374,21 @@ export default function SettingsScreen() {
               <Text style={styles.settingRowSubtitle}>Log in quickly with {biometricType === "face" ? "FaceID" : biometricType === "fingerprint" ? "TouchID" : "biometric authentication"}.</Text>
             </View>
             <Switch value={biometricEnabled} onValueChange={handleBiometricToggle} trackColor={{ true: colors.accent }} />
+          </View>
+        )}
+
+        {__DEV__ && (
+          <View style={styles.settingRow}>
+            <View style={styles.settingRowText}>
+              <Text style={styles.settingRowTitle}>Force Custom Question</Text>
+              <Text style={styles.settingRowSubtitle}>Override eligibility to test custom question flow</Text>
+            </View>
+            <Switch
+              value={devForceCustomQuestion}
+              onValueChange={handleDevForceCustomQuestionToggle}
+              trackColor={{ false: colors.gray[700], true: colors.accent }}
+              thumbColor={colors.white}
+            />
           </View>
         )}
 
