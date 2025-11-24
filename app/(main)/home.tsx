@@ -13,11 +13,13 @@ import {
   Dimensions,
   Modal,
   Animated,
+  AppState,
 } from "react-native"
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback } from "react"
 import { usePostHog } from "posthog-react-native"
+import { captureEvent, safeCapture } from "../../lib/posthog"
 import { supabase } from "../../lib/supabase"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import {
@@ -73,6 +75,42 @@ export default function Home() {
   const contentPaddingTop = useRef(new Animated.Value(0)).current
   const lastScrollY = useRef(0)
   const { opacity: tabBarOpacity } = useTabBar()
+  const posthog = usePostHog()
+
+  // Track loaded_home_screen event once per session
+  useEffect(() => {
+    let hasTrackedSession = false
+    async function trackHomeScreen() {
+      try {
+        // Check if we've already tracked this session
+        const sessionKey = await AsyncStorage.getItem("posthog_home_session_tracked")
+        if (sessionKey === "true") {
+          return // Already tracked this session
+        }
+
+        // Track the event
+        safeCapture(posthog, "loaded_home_screen")
+
+        // Mark session as tracked
+        await AsyncStorage.setItem("posthog_home_session_tracked", "true")
+        hasTrackedSession = true
+      } catch (error) {
+        if (__DEV__) console.error("[home] Failed to track loaded_home_screen:", error)
+      }
+    }
+    trackHomeScreen()
+
+    // Reset session tracking when app goes to background (new session)
+    const subscription = AppState.addEventListener("change", (nextAppState) => {
+      if (nextAppState === "background" || nextAppState === "inactive") {
+        AsyncStorage.removeItem("posthog_home_session_tracked")
+      }
+    })
+
+    return () => {
+      subscription.remove()
+    }
+  }, [posthog])
 
   useEffect(() => {
     loadUser()
@@ -587,6 +625,10 @@ export default function Home() {
       Alert.alert("No prompt available", "Please check back shortly — today's prompt is still loading.")
       return
     }
+    
+    // Track opened_daily_question event
+    safeCapture(posthog, "opened_daily_question")
+    
     router.push({
       pathname: "/(main)/modals/entry-composer",
       params: {
@@ -600,6 +642,12 @@ export default function Home() {
   async function handleSelectGroup(groupId: string) {
     if (groupId !== currentGroupId) {
       const oldGroupId = currentGroupId
+      
+      // Track switched_group event
+      safeCapture(posthog, "switched_group", {
+        from_group_id: oldGroupId || "",
+        to_group_id: groupId,
+      })
       
       // Set loading state immediately to prevent flash
       setIsGroupSwitching(true)
@@ -1051,7 +1099,19 @@ export default function Home() {
               <TouchableOpacity
                 key={day.date}
                 style={[styles.dayButton, isSelected && styles.dayButtonSelected]}
-                onPress={() => setSelectedDate(day.date)}
+                onPress={() => {
+                  const oldDate = selectedDate
+                  setSelectedDate(day.date)
+                  
+                  // Track changed_dates event
+                  if (oldDate !== day.date && currentGroupId) {
+                    safeCapture(posthog, "changed_dates", {
+                      from_date: oldDate,
+                      to_date: day.date,
+                      group_id: currentGroupId,
+                    })
+                  }
+                }}
               >
                 <Text style={[styles.dayText, isSelected && styles.dayTextSelected]}>{day.day}</Text>
                 <Text style={[styles.dayNum, isSelected && styles.dayNumSelected]}>{day.dayNum}</Text>

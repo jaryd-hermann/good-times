@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Alert, Dimensions, ImageBackground, StyleSheet, Text, View } from "react-native"
 import { LinearGradient } from "expo-linear-gradient"
 import { useLocalSearchParams, useRouter } from "expo-router"
@@ -9,6 +9,8 @@ import { Button } from "../../components/Button"
 import { OnboardingBack } from "../../components/OnboardingBack"
 import { useOnboarding } from "../../components/OnboardingProvider"
 import { createGroupFromOnboarding } from "../../lib/onboarding-actions"
+import { usePostHog } from "posthog-react-native"
+import { captureEvent } from "../../lib/posthog"
 
 const { width, height } = Dimensions.get("window")
 
@@ -18,6 +20,19 @@ export default function Memorial() {
   const mode = params.mode as string | undefined
   const { data, setMemorialName, setMemorialPhoto, clear } = useOnboarding()
   const [creating, setCreating] = useState(false)
+  const posthog = usePostHog()
+
+  useEffect(() => {
+    try {
+      if (posthog) {
+        posthog.capture("loaded_memorial")
+      } else {
+        captureEvent("loaded_memorial")
+      }
+    } catch (error) {
+      if (__DEV__) console.error("[memorial] Failed to track event:", error)
+    }
+  }, [posthog])
 
   async function handleSkip() {
     if (mode === "add") {

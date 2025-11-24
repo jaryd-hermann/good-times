@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, useEffect } from "react"
 import {
   View,
   Text,
@@ -22,6 +22,8 @@ import { colors, spacing, typography } from "../../../lib/theme"
 import { Button } from "../../../components/Button"
 import { OnboardingBack } from "../../../components/OnboardingBack"
 import { getCurrentUser } from "../../../lib/db"
+import { usePostHog } from "posthog-react-native"
+import { captureEvent } from "../../../lib/posthog"
 
 const POST_AUTH_ONBOARDING_KEY_PREFIX = "has_completed_post_auth_onboarding"
 
@@ -35,12 +37,28 @@ export default function Invite() {
   const params = useLocalSearchParams()
   const groupId = params.groupId as string
   const mode = params.mode as string | undefined
+  const posthog = usePostHog()
 
   const [contactsModalVisible, setContactsModalVisible] = useState(false)
   const [contactsLoading, setContactsLoading] = useState(false)
   const [contacts, setContacts] = useState<InviteContact[]>([])
   const [selectedContacts, setSelectedContacts] = useState<string[]>([])
   const [searchQuery, setSearchQuery] = useState("")
+
+  // Track generated_invite_link event when screen loads
+  useEffect(() => {
+    if (groupId) {
+      try {
+        if (posthog) {
+          posthog.capture("generated_invite_link", { group_id: groupId })
+        } else {
+          captureEvent("generated_invite_link", { group_id: groupId })
+        }
+      } catch (error) {
+        if (__DEV__) console.error("[invite] Failed to track generated_invite_link:", error)
+      }
+    }
+  }, [posthog, groupId])
 
   async function handleShare() {
     try {
@@ -50,6 +68,19 @@ export default function Invite() {
       
       const inviteLink = `goodtimes://join/${groupId}`
       const inviteMessage = `I've created a group for us on this new app, Good Times. Join ${userName} here: ${inviteLink}`
+      
+      // Track took_invite_action and shared_invite_link events
+      try {
+        if (posthog) {
+          posthog.capture("took_invite_action", { action_type: "share_cta" })
+          posthog.capture("shared_invite_link", { group_id: groupId, share_method: "share_sheet" })
+        } else {
+          captureEvent("took_invite_action", { action_type: "share_cta" })
+          captureEvent("shared_invite_link", { group_id: groupId, share_method: "share_sheet" })
+        }
+      } catch (error) {
+        if (__DEV__) console.error("[invite] Failed to track share events:", error)
+      }
       
       await Share.share({
         url: inviteLink,
@@ -101,6 +132,17 @@ export default function Invite() {
   }, [contacts, searchQuery])
 
   async function handleOpenContacts() {
+    // Track took_invite_action event
+    try {
+      if (posthog) {
+        posthog.capture("took_invite_action", { action_type: "open_phonebook" })
+      } else {
+        captureEvent("took_invite_action", { action_type: "open_phonebook" })
+      }
+    } catch (error) {
+      if (__DEV__) console.error("[invite] Failed to track open_phonebook:", error)
+    }
+
     const { status } = await Contacts.requestPermissionsAsync()
     if (status !== "granted") {
       Alert.alert("Permission needed", "Please allow contacts access to send invites directly.")
@@ -162,6 +204,17 @@ export default function Invite() {
       })
       .join(", ")
 
+    // Track shared_invite_link event when sending from contacts
+    try {
+      if (posthog) {
+        posthog.capture("shared_invite_link", { group_id: groupId, share_method: "share_sheet" })
+      } else {
+        captureEvent("shared_invite_link", { group_id: groupId, share_method: "share_sheet" })
+      }
+    } catch (error) {
+      if (__DEV__) console.error("[invite] Failed to track shared_invite_link:", error)
+    }
+
     try {
       await Share.share({
         message: `${inviteMessage}\n\nInviting: ${inviteList}`,
@@ -182,6 +235,19 @@ export default function Invite() {
     
     const inviteLink = `goodtimes://join/${groupId}`
     const inviteMessage = `I've created a group for us on this new app, Good Times. Join ${userName} here: ${inviteLink}`
+    
+    // Track took_invite_action and copied_invite_link events
+    try {
+      if (posthog) {
+        posthog.capture("took_invite_action", { action_type: "copy_clipboard" })
+        posthog.capture("copied_invite_link", { group_id: groupId })
+      } else {
+        captureEvent("took_invite_action", { action_type: "copy_clipboard" })
+        captureEvent("copied_invite_link", { group_id: groupId })
+      }
+    } catch (error) {
+      if (__DEV__) console.error("[invite] Failed to track copy events:", error)
+    }
     
     try {
       await Clipboard.setStringAsync(inviteMessage)

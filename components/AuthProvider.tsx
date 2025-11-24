@@ -251,6 +251,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function handleSignOut() {
+    // Track logged_out event before clearing session
+    try {
+      if (posthog) {
+        posthog.capture("logged_out")
+      } else {
+        const { captureEvent } = await import("../lib/posthog")
+        captureEvent("logged_out")
+      }
+    } catch (error) {
+      // Never let PostHog errors affect sign-out
+      if (__DEV__) console.error("[AuthProvider] Failed to track logged_out:", error)
+    }
+    
     // Clear biometric credentials on sign out
     try {
       await clearBiometricCredentials()

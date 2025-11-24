@@ -69,6 +69,22 @@ export async function createGroup(
 
   if (memberError) throw memberError
 
+  // Track created_group event
+  try {
+    const { captureEvent } = await import("./posthog")
+    captureEvent("created_group", {
+      group_id: group.id,
+      group_type: type,
+      has_memorial: hasMemorials ?? false,
+      nsfw_enabled: enableNSFW ?? false,
+    })
+  } catch (error) {
+    // Never let PostHog errors affect group creation
+    if (__DEV__) {
+      console.error("[createGroup] Failed to track created_group event:", error)
+    }
+  }
+
   // Initialize question queue for the new group (non-blocking)
   // If this fails, group creation still succeeds (graceful degradation)
   try {

@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect } from "react"
 import { View, Text, StyleSheet, ImageBackground, Dimensions } from "react-native"
 import { LinearGradient } from "expo-linear-gradient"
 import { useRouter } from "expo-router"
@@ -7,11 +8,26 @@ import { colors, typography, spacing } from "../../lib/theme"
 import { Button } from "../../components/Button"
 import { OnboardingBack } from "../../components/OnboardingBack"
 import { OnboardingProgress } from "../../components/OnboardingProgress"
+import { usePostHog } from "posthog-react-native"
+import { captureEvent } from "../../lib/posthog"
 
 const { width, height } = Dimensions.get("window")
 
 export default function Welcome2() {
   const router = useRouter()
+  const posthog = usePostHog()
+
+  useEffect(() => {
+    try {
+      if (posthog) {
+        posthog.capture("loaded_jaryd_intro_1")
+      } else {
+        captureEvent("loaded_jaryd_intro_1")
+      }
+    } catch (error) {
+      if (__DEV__) console.error("[welcome-2] Failed to track event:", error)
+    }
+  }, [posthog])
 
   return (
     <ImageBackground

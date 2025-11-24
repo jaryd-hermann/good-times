@@ -34,6 +34,8 @@ import { EmbeddedPlayer } from "../../../components/EmbeddedPlayer"
 import * as Clipboard from "expo-clipboard"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "../../../lib/prompts"
 import * as FileSystem from "expo-file-system/legacy"
+import { usePostHog } from "posthog-react-native"
+import { captureEvent, safeCapture } from "../../../lib/posthog"
 
 type MediaItem = {
   id: string
@@ -89,6 +91,7 @@ export default function EntryComposer() {
   const [uploadingMedia, setUploadingMedia] = useState<Record<string, boolean>>({})
   const [showUploadingModal, setShowUploadingModal] = useState(false)
   const [showFileSizeModal, setShowFileSizeModal] = useState(false)
+  const posthog = usePostHog()
   
   // File size limit: 2GB = 2 * 1024 * 1024 * 1024 bytes
   const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024
@@ -881,6 +884,22 @@ export default function EntryComposer() {
           }
         )
 
+        // Track edited_entry event
+        const hasMedia = uploadedMedia.length > 0 || embeddedMedia.length > 0
+        const mediaTypes = uploadedMedia.map((item) => item.type)
+        if (embeddedMedia.length > 0) {
+          mediaTypes.push("embedded")
+        }
+        
+        safeCapture(posthog, "edited_entry", {
+          entry_id: entryId,
+          prompt_id: activePrompt.id,
+          group_id: currentGroupId,
+          date: date,
+          has_media: hasMedia,
+          text_length: text.trim().length,
+        })
+
         // Invalidate queries for the updated entry
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: ["entry", entryId] }),
@@ -900,6 +919,22 @@ export default function EntryComposer() {
           media_urls: uploadedMedia.map((item) => item.url),
           media_types: uploadedMedia.map((item) => item.type),
           embedded_media: embeddedMediaForStorage.length > 0 ? embeddedMediaForStorage : undefined,
+        })
+
+        // Track answered_daily_question event
+        const hasMedia = uploadedMedia.length > 0 || embeddedMedia.length > 0
+        const mediaTypes = uploadedMedia.map((item) => item.type)
+        if (embeddedMedia.length > 0) {
+          mediaTypes.push("embedded")
+        }
+        
+        safeCapture(posthog, "answered_daily_question", {
+          prompt_id: activePrompt.id,
+          group_id: currentGroupId,
+          date: date,
+          has_media: hasMedia,
+          media_types_added: mediaTypes,
+          text_length: text.trim().length,
         })
 
         // Invalidate queries scoped to the specific group to prevent cross-group contamination

@@ -8,12 +8,15 @@ import { supabase } from "../../lib/supabase"
 import { colors, typography, spacing } from "../../lib/theme"
 import { Input } from "../../components/Input"
 import { Button } from "../../components/Button"
+import { usePostHog } from "posthog-react-native"
+import { captureEvent, identifyUser } from "../../lib/posthog"
 
 export default function SignIn() {
   const router = useRouter()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
+  const posthog = usePostHog()
 
   async function handleEmailSignIn() {
     if (!email || !password) {
@@ -29,6 +32,21 @@ export default function SignIn() {
       })
 
       if (error) throw error
+
+      // Track signed_in event and identify user in PostHog
+      try {
+        const userId = data.user.id
+        if (posthog) {
+          posthog.capture("signed_in")
+          posthog.identify(userId)
+        } else {
+          captureEvent("signed_in")
+          identifyUser(userId)
+        }
+      } catch (error) {
+        // Never let PostHog errors affect sign-in
+        if (__DEV__) console.error("[sign-in] Failed to track signed_in:", error)
+      }
 
       // Check if user has completed profile
       const { data: user } = await supabase.from("users").select("name, birthday").eq("id", data.user.id).single()

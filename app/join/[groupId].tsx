@@ -11,6 +11,8 @@ import { Avatar } from "../../components/Avatar"
 import { Button } from "../../components/Button"
 import { getGroupMembers } from "../../lib/db"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
+import { usePostHog } from "posthog-react-native"
+import { captureEvent } from "../../lib/posthog"
 
 const { width, height } = Dimensions.get("window")
 const PENDING_GROUP_KEY = "pending_group_join"
@@ -32,6 +34,20 @@ export default function JoinGroup() {
   const [creator, setCreator] = useState<any>(null)
   const [members, setMembers] = useState<any[]>([])
   const [showAboutModal, setShowAboutModal] = useState(false)
+  const posthog = usePostHog()
+
+  // Track loaded_invite_group_screen event
+  useEffect(() => {
+    try {
+      if (posthog) {
+        posthog.capture("loaded_invite_group_screen")
+      } else {
+        captureEvent("loaded_invite_group_screen")
+      }
+    } catch (error) {
+      if (__DEV__) console.error("[join] Failed to track loaded_invite_group_screen:", error)
+    }
+  }, [posthog, groupId])
 
   useEffect(() => {
     loadGroupInfo()
@@ -153,6 +169,23 @@ export default function JoinGroup() {
           return
         }
         throw insertError
+      }
+
+      // Track joined_group event
+      try {
+        if (posthog) {
+          posthog.capture("joined_group", {
+            group_id: groupId,
+            join_method: "invite_link",
+          })
+        } else {
+          captureEvent("joined_group", {
+            group_id: groupId,
+            join_method: "invite_link",
+          })
+        }
+      } catch (error) {
+        if (__DEV__) console.error("[join] Failed to track joined_group:", error)
       }
 
       // Success - check post-auth onboarding before redirecting (user-specific)

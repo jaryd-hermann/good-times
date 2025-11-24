@@ -23,6 +23,8 @@ import { Avatar } from "../../components/Avatar"
 import { OnboardingBack } from "../../components/OnboardingBack"
 import { useOnboarding } from "../../components/OnboardingProvider"
 import AsyncStorage from "@react-native-async-storage/async-storage"
+import { usePostHog } from "posthog-react-native"
+import { captureEvent } from "../../lib/posthog"
 
 const PENDING_GROUP_KEY = "pending_group_join"
 
@@ -36,6 +38,21 @@ export default function About() {
   const [loading, setLoading] = useState(false)
   const insets = useSafeAreaInsets()
   const nameInputRef = useRef<any>(null)
+
+  const posthog = usePostHog()
+
+  // Track loaded_about event
+  useEffect(() => {
+    try {
+      if (posthog) {
+        posthog.capture("loaded_about")
+      } else {
+        captureEvent("loaded_about")
+      }
+    } catch (error) {
+      if (__DEV__) console.error("[about] Failed to track event:", error)
+    }
+  }, [posthog])
 
   // Auto-focus the input when component mounts
   useEffect(() => {

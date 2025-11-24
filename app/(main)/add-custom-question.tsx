@@ -24,6 +24,8 @@ import { getTodayDate } from "../../lib/utils"
 import { Avatar } from "../../components/Avatar"
 import { FontAwesome } from "@expo/vector-icons"
 import AsyncStorage from "@react-native-async-storage/async-storage"
+import { usePostHog } from "posthog-react-native"
+import { captureEvent } from "../../lib/posthog"
 
 export default function AddCustomQuestion() {
   const router = useRouter()
@@ -40,6 +42,20 @@ export default function AddCustomQuestion() {
   const [loading, setLoading] = useState(false)
   const [userId, setUserId] = useState<string>()
   const [devForceCustomQuestion, setDevForceCustomQuestion] = useState(false)
+  const posthog = usePostHog()
+
+  // Track loaded_custom_question_screen event
+  useEffect(() => {
+    try {
+      if (posthog) {
+        posthog.capture("loaded_custom_question_screen", { group_id: groupId, date })
+      } else {
+        captureEvent("loaded_custom_question_screen", { group_id: groupId, date })
+      }
+    } catch (error) {
+      if (__DEV__) console.error("[add-custom-question] Failed to track loaded_custom_question_screen:", error)
+    }
+  }, [posthog, groupId, date])
 
   const { data: currentUser } = useQuery({
     queryKey: ["currentUser"],
@@ -115,6 +131,30 @@ export default function AddCustomQuestion() {
         isAnonymous,
         dateAssigned: date,
       })
+
+      // Track created_custom_question event
+      try {
+        const hasDescription = !!description.trim()
+        if (posthog) {
+          posthog.capture("created_custom_question", {
+            group_id: groupId,
+            date: date,
+            text_length: question.trim().length,
+            description: hasDescription,
+            visibility: isAnonymous ? "anonymous" : "public",
+          })
+        } else {
+          captureEvent("created_custom_question", {
+            group_id: groupId,
+            date: date,
+            text_length: question.trim().length,
+            description: hasDescription,
+            visibility: isAnonymous ? "anonymous" : "public",
+          })
+        }
+      } catch (error) {
+        if (__DEV__) console.error("[add-custom-question] Failed to track created_custom_question:", error)
+      }
 
       // Invalidate queries
       await queryClient.invalidateQueries({ queryKey: ["customQuestionOpportunity"] })

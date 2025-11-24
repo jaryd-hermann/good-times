@@ -16,12 +16,39 @@ import {
 import { supabase } from "../../lib/supabase"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { useOnboarding } from "../../components/OnboardingProvider"
+import { usePostHog } from "posthog-react-native"
+import { captureEvent } from "../../lib/posthog"
 
 const { width, height } = Dimensions.get("window")
 
 export default function Welcome1() {
   const router = useRouter()
   const { clear } = useOnboarding()
+  const posthog = usePostHog()
+
+  // Track onboarding_started event
+  useEffect(() => {
+    async function trackOnboardingStart() {
+      try {
+        // Check if user came from invite link
+        const pendingGroupId = await AsyncStorage.getItem("pending_group_join")
+        const source = pendingGroupId ? "invite_page" : "default_landing"
+        
+        if (posthog) {
+          posthog.capture("onboarding_started", { source })
+        } else {
+          // Fallback to captureEvent if hook not available
+          captureEvent("onboarding_started", { source })
+        }
+      } catch (error) {
+        // Never let PostHog errors affect app behavior
+        if (__DEV__) {
+          console.error("[welcome-1] Failed to track onboarding_started:", error)
+        }
+      }
+    }
+    trackOnboardingStart()
+  }, [posthog])
 
   async function handleLogin() {
     // Clear any onboarding data to ensure sign-in mode (not sign-up)

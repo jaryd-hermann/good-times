@@ -9,6 +9,8 @@ import { Input } from "../../components/Input"
 import { Button } from "../../components/Button"
 import { OnboardingBack } from "../../components/OnboardingBack"
 import { useOnboarding } from "../../components/OnboardingProvider"
+import { usePostHog } from "posthog-react-native"
+import { captureEvent } from "../../lib/posthog"
 
 export default function MemorialInput() {
   const router = useRouter()
@@ -18,6 +20,7 @@ export default function MemorialInput() {
   // Don't pre-populate - start fresh for each new person
   const [name, setName] = useState("")
   const [photoUri, setPhotoUri] = useState<string | undefined>(undefined)
+  const posthog = usePostHog()
 
   async function pickImage() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
@@ -40,6 +43,19 @@ export default function MemorialInput() {
       Alert.alert("Error", "Please enter a name")
       return
     }
+    
+    // Track added_memorial event
+    try {
+      const hasPhoto = !!photoUri
+      if (posthog) {
+        posthog.capture("added_memorial", { has_photo: hasPhoto })
+      } else {
+        captureEvent("added_memorial", { has_photo: hasPhoto })
+      }
+    } catch (error) {
+      if (__DEV__) console.error("[memorial-input] Failed to track event:", error)
+    }
+    
     setMemorialName(name.trim())
     setMemorialPhoto(photoUri)
     router.push({

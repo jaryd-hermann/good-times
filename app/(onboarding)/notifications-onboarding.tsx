@@ -10,6 +10,8 @@ import { Button } from "../../components/Button"
 import { registerForPushNotifications, savePushToken } from "../../lib/notifications"
 import { supabase } from "../../lib/supabase"
 import * as Notifications from "expo-notifications"
+import { usePostHog } from "posthog-react-native"
+import { captureEvent } from "../../lib/posthog"
 
 const { width, height } = Dimensions.get("window")
 const POST_AUTH_ONBOARDING_KEY_PREFIX = "has_completed_post_auth_onboarding"
@@ -25,6 +27,7 @@ export default function NotificationsOnboarding() {
   const [processing, setProcessing] = useState(false)
   const [isChecking, setIsChecking] = useState(true)
   const [shouldShow, setShouldShow] = useState(false)
+  const posthog = usePostHog()
 
   useEffect(() => {
     // Check if user has already completed post-auth onboarding
@@ -108,6 +111,17 @@ export default function NotificationsOnboarding() {
 
         // Only show screen if user is new AND hasn't completed onboarding
         setShouldShow(true)
+        
+        // Track loaded_notification_screen event
+        try {
+          if (posthog) {
+            posthog.capture("loaded_notification_screen")
+          } else {
+            captureEvent("loaded_notification_screen")
+          }
+        } catch (error) {
+          if (__DEV__) console.error("[notifications-onboarding] Failed to track event:", error)
+        }
       } catch (error) {
         console.error("[notifications-onboarding] Error checking onboarding status:", error)
         // On error, redirect to home to be safe

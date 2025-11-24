@@ -1,6 +1,7 @@
 import * as Notifications from "expo-notifications"
 import { Platform } from "react-native"
 import { supabase } from "./supabase"
+import { captureEvent } from "./posthog"
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -27,6 +28,18 @@ export async function registerForPushNotifications(): Promise<string | null> {
     if (existingStatus !== "granted") {
       const { status } = await Notifications.requestPermissionsAsync()
       finalStatus = status
+    }
+
+    // Track notification permission result
+    try {
+      if (finalStatus === "granted") {
+        captureEvent("notification_permission_granted")
+      } else {
+        captureEvent("notification_permission_denied")
+      }
+    } catch (error) {
+      // Never let PostHog errors affect notification flow
+      if (__DEV__) console.error("[notifications] Failed to track permission event:", error)
     }
 
     // If permission not granted, return null (not an error - user's choice)

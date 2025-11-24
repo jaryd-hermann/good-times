@@ -1,6 +1,9 @@
 -- Migration: Setup email webhook for welcome emails
--- This webhook triggers when a user creates their first group (completes registration)
+-- This webhook triggers when a user joins their first group (either by creating a group or joining an existing group)
 -- It sends a welcome email with their name and group name
+-- Works for both scenarios:
+--   1. User creates a new group (becomes admin) -> group_members INSERT with role='admin'
+--   2. User joins an existing group -> group_members INSERT with role='member'
 
 -- Enable pg_net extension for HTTP requests (if not already enabled)
 CREATE EXTENSION IF NOT EXISTS pg_net;

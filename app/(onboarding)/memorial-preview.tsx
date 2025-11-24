@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Alert, Dimensions, ImageBackground, StyleSheet, Text, TouchableOpacity, View } from "react-native"
 import { useLocalSearchParams, useRouter } from "expo-router"
 import { colors, typography, spacing } from "../../lib/theme"
@@ -8,6 +8,8 @@ import { Button } from "../../components/Button"
 import { OnboardingBack } from "../../components/OnboardingBack"
 import { useOnboarding } from "../../components/OnboardingProvider"
 import { createGroupFromOnboarding } from "../../lib/onboarding-actions"
+import { usePostHog } from "posthog-react-native"
+import { captureEvent } from "../../lib/posthog"
 
 const { width, height } = Dimensions.get("window")
 
@@ -17,8 +19,21 @@ export default function MemorialPreview() {
   const mode = params.mode as string | undefined
   const { data, clear, addMemorial, clearCurrentMemorial } = useOnboarding()
   const [creating, setCreating] = useState(false)
+  const posthog = usePostHog()
 
   const hasPhoto = !!(data.memorialPhoto && data.memorialPhoto.length > 0)
+
+  useEffect(() => {
+    try {
+      if (posthog) {
+        posthog.capture("loaded_memorial_preview")
+      } else {
+        captureEvent("loaded_memorial_preview")
+      }
+    } catch (error) {
+      if (__DEV__) console.error("[memorial-preview] Failed to track event:", error)
+    }
+  }, [posthog])
 
   async function handleContinue() {
     // Save current memorial before continuing (if not already saved)

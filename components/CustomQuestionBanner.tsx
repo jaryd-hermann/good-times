@@ -1,10 +1,12 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useEffect } from "react"
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native"
 import { useTheme } from "../lib/theme-context"
 import { spacing, typography } from "../lib/theme"
 import { FontAwesome } from "@expo/vector-icons"
+import { usePostHog } from "posthog-react-native"
+import { captureEvent } from "../lib/posthog"
 
 interface CustomQuestionBannerProps {
   groupId: string
@@ -14,6 +16,35 @@ interface CustomQuestionBannerProps {
 
 export function CustomQuestionBanner({ groupId, date, onPress }: CustomQuestionBannerProps) {
   const { colors } = useTheme()
+  const posthog = usePostHog()
+
+  // Track custom_question_banner_shown event when banner is rendered
+  useEffect(() => {
+    try {
+      if (posthog) {
+        posthog.capture("custom_question_banner_shown", { group_id: groupId, date })
+      } else {
+        captureEvent("custom_question_banner_shown", { group_id: groupId, date })
+      }
+    } catch (error) {
+      if (__DEV__) console.error("[CustomQuestionBanner] Failed to track custom_question_banner_shown:", error)
+    }
+  }, [posthog, groupId, date])
+
+  function handlePress() {
+    // Track clicked_custom_question_alert event
+    try {
+      if (posthog) {
+        posthog.capture("clicked_custom_question_alert", { group_id: groupId, date })
+      } else {
+        captureEvent("clicked_custom_question_alert", { group_id: groupId, date })
+      }
+    } catch (error) {
+      if (__DEV__) console.error("[CustomQuestionBanner] Failed to track clicked_custom_question_alert:", error)
+    }
+    
+    onPress()
+  }
 
   const styles = useMemo(() => StyleSheet.create({
     banner: {
@@ -55,7 +86,7 @@ export function CustomQuestionBanner({ groupId, date, onPress }: CustomQuestionB
 
   return (
     <View style={styles.bannerWrapper}>
-      <TouchableOpacity style={styles.banner} onPress={onPress} activeOpacity={0.8}>
+      <TouchableOpacity style={styles.banner} onPress={handlePress} activeOpacity={0.8}>
         <View style={styles.bannerContent}>
           <Text style={styles.bannerTitle}>You've been selected...</Text>
           <Text style={styles.bannerText}>

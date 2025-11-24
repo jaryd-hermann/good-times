@@ -8,6 +8,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage"
 import { colors, typography, spacing } from "../../lib/theme"
 import { Button } from "../../components/Button"
 import { supabase } from "../../lib/supabase"
+import { usePostHog } from "posthog-react-native"
+import { captureEvent } from "../../lib/posthog"
 
 const { width, height } = Dimensions.get("window")
 const POST_AUTH_ONBOARDING_KEY_PREFIX = "has_completed_post_auth_onboarding"
@@ -22,6 +24,7 @@ export default function WelcomePostAuth() {
   const router = useRouter()
   const [isChecking, setIsChecking] = useState(true)
   const [shouldShow, setShouldShow] = useState(false)
+  const posthog = usePostHog()
 
   useEffect(() => {
     // Check if user has already completed post-auth onboarding
@@ -105,6 +108,17 @@ export default function WelcomePostAuth() {
 
         // Only show screen if user is new AND hasn't completed onboarding
         setShouldShow(true)
+        
+        // Track loaded_feedback_screen event
+        try {
+          if (posthog) {
+            posthog.capture("loaded_feedback_screen")
+          } else {
+            captureEvent("loaded_feedback_screen")
+          }
+        } catch (error) {
+          if (__DEV__) console.error("[welcome-post-auth] Failed to track event:", error)
+        }
       } catch (error) {
         console.error("[welcome-post-auth] Error checking onboarding status:", error)
         // On error, redirect to home to be safe

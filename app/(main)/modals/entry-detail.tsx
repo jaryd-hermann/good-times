@@ -17,6 +17,8 @@ import { EmbeddedPlayer } from "../../../components/EmbeddedPlayer"
 import type { EmbeddedMedia } from "../../../lib/types"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "../../../lib/prompts"
+import { usePostHog } from "posthog-react-native"
+import { captureEvent } from "../../../lib/posthog"
 
 export default function EntryDetail() {
   const router = useRouter()
@@ -51,6 +53,35 @@ export default function EntryDetail() {
   const [audioLoading, setAudioLoading] = useState<Record<string, boolean>>({})
   const [imageDimensions, setImageDimensions] = useState<Record<number, { width: number; height: number }>>({})
   const insets = useSafeAreaInsets()
+  const posthog = usePostHog()
+
+  // Track viewed_entry event when entry loads
+  useEffect(() => {
+    if (entry && userId) {
+      try {
+        const isOwnEntry = entry.user_id === userId
+        if (posthog) {
+          posthog.capture("viewed_entry", {
+            entry_id: entry.id,
+            prompt_id: entry.prompt_id,
+            group_id: entry.group_id,
+            date: entry.date,
+            is_own_entry: isOwnEntry,
+          })
+        } else {
+          captureEvent("viewed_entry", {
+            entry_id: entry.id,
+            prompt_id: entry.prompt_id,
+            group_id: entry.group_id,
+            date: entry.date,
+            is_own_entry: isOwnEntry,
+          })
+        }
+      } catch (error) {
+        if (__DEV__) console.error("[entry-detail] Failed to track viewed_entry:", error)
+      }
+    }
+  }, [entry, userId, posthog])
 
   useEffect(() => {
     return () => {
@@ -201,11 +232,35 @@ export default function EntryDetail() {
 
   const addCommentMutation = useMutation({
     mutationFn: (text: string) => createComment(entryId, userId!, text.trim()),
-    onSuccess: () => {
+    onSuccess: (_, text) => {
       queryClient.invalidateQueries({ queryKey: ["comments", entryId] })
       queryClient.invalidateQueries({ queryKey: ["historyComments"] })
       queryClient.invalidateQueries({ queryKey: ["historyEntries"] })
       queryClient.invalidateQueries({ queryKey: ["entries"] })
+      
+      // Track added_comment event
+      if (entry) {
+        try {
+          if (posthog) {
+            posthog.capture("added_comment", {
+              entry_id: entryId,
+              prompt_id: entry.prompt_id,
+              group_id: entry.group_id,
+              comment_length: text.trim().length,
+            })
+          } else {
+            captureEvent("added_comment", {
+              entry_id: entryId,
+              prompt_id: entry.prompt_id,
+              group_id: entry.group_id,
+              comment_length: text.trim().length,
+            })
+          }
+        } catch (error) {
+          if (__DEV__) console.error("[entry-detail] Failed to track added_comment:", error)
+        }
+      }
+      
       setCommentText("")
     },
   })
@@ -246,8 +301,35 @@ export default function EntryDetail() {
       Alert.alert("Hold on", "You need to be signed in to react to entries.")
       return
     }
+    
+    // Check if user is adding (not removing) a reaction
+    const isAdding = !hasLiked
+    
     try {
       await toggleReactionMutation.mutateAsync()
+      
+      // Track added_reaction event only when adding (not removing)
+      if (isAdding && entry) {
+        try {
+          if (posthog) {
+            posthog.capture("added_reaction", {
+              entry_id: entryId,
+              prompt_id: entry.prompt_id,
+              group_id: entry.group_id,
+              reaction_type: "heart", // From toggleReaction function
+            })
+          } else {
+            captureEvent("added_reaction", {
+              entry_id: entryId,
+              prompt_id: entry.prompt_id,
+              group_id: entry.group_id,
+              reaction_type: "heart",
+            })
+          }
+        } catch (error) {
+          if (__DEV__) console.error("[entry-detail] Failed to track added_reaction:", error)
+        }
+      }
     } catch (error: any) {
       Alert.alert("Reaction error", error.message ?? "Something went wrong while updating your reaction.")
     }

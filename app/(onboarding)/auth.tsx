@@ -27,6 +27,8 @@ import { createGroup, createMemorial } from "../../lib/db"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { saveBiometricCredentials, getBiometricPreference } from "../../lib/biometric"
 import type { User } from "../../lib/types"
+import { usePostHog } from "posthog-react-native"
+import { captureEvent, identifyUser } from "../../lib/posthog"
 
 type OAuthProvider = "google" | "apple"
 const POST_AUTH_ONBOARDING_KEY_PREFIX = "has_completed_post_auth_onboarding"
@@ -48,6 +50,7 @@ export default function OnboardingAuth() {
   const oauthTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const [persisting, setPersisting] = useState(false)
   const insets = useSafeAreaInsets()
+  const posthog = usePostHog()
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false)
   const [emailFocused, setEmailFocused] = useState(false)
   const [passwordFocused, setPasswordFocused] = useState(false)
@@ -594,6 +597,20 @@ export default function OnboardingAuth() {
         const userId = signInData.session.user.id
         const session = signInData.session
 
+        // Track signed_in event and identify user in PostHog
+        try {
+          if (posthog) {
+            posthog.capture("signed_in")
+            posthog.identify(userId)
+          } else {
+            captureEvent("signed_in")
+            identifyUser(userId)
+          }
+        } catch (error) {
+          // Never let PostHog errors affect sign-in
+          if (__DEV__) console.error("[auth] Failed to track signed_in:", error)
+        }
+
         // Save biometric credentials if biometric is enabled
         const biometricEnabled = await getBiometricPreference()
         if (biometricEnabled && session.refresh_token) {
@@ -713,6 +730,21 @@ export default function OnboardingAuth() {
         }
 
         if (signUpData.session?.user) {
+          // Track created_account event and identify user in PostHog
+          try {
+            const userId = signUpData.session.user.id
+            if (posthog) {
+              posthog.capture("created_account")
+              posthog.identify(userId)
+            } else {
+              const { captureEvent, identifyUser } = await import("../../lib/posthog")
+              captureEvent("created_account")
+              identifyUser(userId)
+            }
+          } catch (error) {
+            // Never let PostHog errors affect account creation
+            if (__DEV__) console.error("[auth] Failed to track created_account:", error)
+          }
           // Check for pending group join
           const pendingGroupId = await AsyncStorage.getItem("pending_group_join")
           if (pendingGroupId) {
@@ -1282,6 +1314,22 @@ export default function OnboardingAuth() {
       
       if (isNewUser) {
         console.log(`[OAuth] New user detected (no profile in database or query timed out)`)
+        
+        // Track created_account event and identify user in PostHog for OAuth
+        try {
+          const userId = session.user.id
+          if (posthog) {
+            posthog.capture("created_account")
+            posthog.identify(userId)
+          } else {
+            captureEvent("created_account")
+            identifyUser(userId)
+          }
+        } catch (error) {
+          // Never let PostHog errors affect OAuth flow
+          if (__DEV__) console.error("[OAuth] Failed to track created_account:", error)
+        }
+        
         console.log(`[OAuth] Checking onboarding data:`, {
           hasUserName: !!data.userName,
           hasUserBirthday: !!data.userBirthday,

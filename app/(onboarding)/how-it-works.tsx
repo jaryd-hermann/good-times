@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect } from "react"
 import { View, Text, StyleSheet, ImageBackground, Dimensions } from "react-native"
 import { LinearGradient } from "expo-linear-gradient"
 import { useRouter } from "expo-router"
@@ -8,6 +9,8 @@ import { Button } from "../../components/Button"
 import { OnboardingBack } from "../../components/OnboardingBack"
 import { OnboardingProgress } from "../../components/OnboardingProgress"
 import AsyncStorage from "@react-native-async-storage/async-storage"
+import { usePostHog } from "posthog-react-native"
+import { captureEvent } from "../../lib/posthog"
 
 const { width, height } = Dimensions.get("window")
 const PENDING_GROUP_KEY = "pending_group_join"
@@ -22,6 +25,19 @@ const STEPS = [
 
 export default function HowItWorks() {
   const router = useRouter()
+  const posthog = usePostHog()
+
+  useEffect(() => {
+    try {
+      if (posthog) {
+        posthog.capture("loaded_how_it_works")
+      } else {
+        captureEvent("loaded_how_it_works")
+      }
+    } catch (error) {
+      if (__DEV__) console.error("[how-it-works] Failed to track event:", error)
+    }
+  }, [posthog])
 
   async function handleContinue() {
     // Check if user is joining a group (group join flow)

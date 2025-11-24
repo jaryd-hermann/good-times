@@ -6,6 +6,8 @@ import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
 import { useQuery } from "@tanstack/react-query"
 import { supabase } from "../../lib/supabase"
 import AsyncStorage from "@react-native-async-storage/async-storage"
+import { usePostHog } from "posthog-react-native"
+import { captureEvent } from "../../lib/posthog"
 import {
   format,
   parseISO,
@@ -145,6 +147,20 @@ export default function History() {
   const [viewMode, setViewMode] = useState<ViewMode>("Days")
   const [showFilter, setShowFilter] = useState(false)
   const [showFilterModal, setShowFilterModal] = useState(false)
+  const posthog = usePostHog()
+
+  // Track loaded_history_screen event
+  useEffect(() => {
+    try {
+      if (posthog) {
+        posthog.capture("loaded_history_screen")
+      } else {
+        captureEvent("loaded_history_screen")
+      }
+    } catch (error) {
+      if (__DEV__) console.error("[history] Failed to track loaded_history_screen:", error)
+    }
+  }, [posthog])
   const [selectedCategories, setSelectedCategories] = useState<string[]>([])
   const [selectedMembers, setSelectedMembers] = useState<string[]>([])
   const [selectedMemorials, setSelectedMemorials] = useState<string[]>([])

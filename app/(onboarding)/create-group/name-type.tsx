@@ -9,6 +9,8 @@ import { Button } from "../../../components/Button"
 import { OnboardingBack } from "../../../components/OnboardingBack"
 import { useOnboarding } from "../../../components/OnboardingProvider"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
+import { usePostHog } from "posthog-react-native"
+import { captureEvent } from "../../../lib/posthog"
 
 export default function CreateGroupNameType() {
   const router = useRouter()
@@ -22,6 +24,21 @@ export default function CreateGroupNameType() {
   const scrollViewRef = useRef<ScrollView>(null)
   const inputRef = useRef<any>(null)
   const insets = useSafeAreaInsets()
+
+  const posthog = usePostHog()
+
+  // Track loaded_create_group event
+  useEffect(() => {
+    try {
+      if (posthog) {
+        posthog.capture("loaded_create_group")
+      } else {
+        captureEvent("loaded_create_group")
+      }
+    } catch (error) {
+      if (__DEV__) console.error("[create-group] Failed to track event:", error)
+    }
+  }, [posthog])
 
   // Auto-focus the input when component mounts
   useEffect(() => {

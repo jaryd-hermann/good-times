@@ -22,6 +22,8 @@ import { useTheme } from "../../lib/theme-context"
 import { Button } from "../../components/Button"
 import { Avatar } from "../../components/Avatar"
 import { FontAwesome } from "@expo/vector-icons"
+import { usePostHog } from "posthog-react-native"
+import { captureEvent } from "../../lib/posthog"
 import {
   isBiometricAvailable,
   getBiometricType,
@@ -43,6 +45,20 @@ export default function SettingsScreen() {
   const [biometricAvailable, setBiometricAvailable] = useState(false)
   const [biometricType, setBiometricType] = useState<"face" | "fingerprint" | "iris" | "none">("none")
   const [devForceCustomQuestion, setDevForceCustomQuestion] = useState(false)
+  const posthog = usePostHog()
+
+  // Track loaded_settings_screen event
+  useEffect(() => {
+    try {
+      if (posthog) {
+        posthog.capture("loaded_settings_screen")
+      } else {
+        captureEvent("loaded_settings_screen")
+      }
+    } catch (error) {
+      if (__DEV__) console.error("[settings] Failed to track loaded_settings_screen:", error)
+    }
+  }, [posthog])
 
   const { data: profile } = useQuery({
     queryKey: ["profile"],
@@ -360,7 +376,28 @@ export default function SettingsScreen() {
           </View>
           <Switch 
             value={theme === "light"} 
-            onValueChange={(value) => setTheme(value ? "light" : "dark")} 
+            onValueChange={(value) => {
+              const newTheme = value ? "light" : "dark"
+              const oldTheme = theme
+              setTheme(newTheme)
+              
+              // Track changed_app_theme event
+              try {
+                if (posthog) {
+                  posthog.capture("changed_app_theme", {
+                    from_theme: oldTheme,
+                    to_theme: newTheme,
+                  })
+                } else {
+                  captureEvent("changed_app_theme", {
+                    from_theme: oldTheme,
+                    to_theme: newTheme,
+                  })
+                }
+              } catch (error) {
+                if (__DEV__) console.error("[settings] Failed to track changed_app_theme:", error)
+              }
+            }} 
             trackColor={{ true: colors.accent }} 
           />
         </View>

@@ -10,6 +10,8 @@ import { isGroupAdmin } from "../../../lib/db"
 import { spacing, typography } from "../../../lib/theme"
 import { useTheme } from "../../../lib/theme-context"
 import { FontAwesome } from "@expo/vector-icons"
+import { usePostHog } from "posthog-react-native"
+import { captureEvent } from "../../../lib/posthog"
 
 export default function GroupSettingsIndex() {
   const router = useRouter()
@@ -19,6 +21,20 @@ export default function GroupSettingsIndex() {
   const insets = useSafeAreaInsets()
   const [userId, setUserId] = useState<string>()
   const [isAdmin, setIsAdmin] = useState(false)
+  const posthog = usePostHog()
+
+  // Track loaded_group_settings event
+  useEffect(() => {
+    try {
+      if (posthog) {
+        posthog.capture("loaded_group_settings", { group_id: groupId })
+      } else {
+        captureEvent("loaded_group_settings", { group_id: groupId })
+      }
+    } catch (error) {
+      if (__DEV__) console.error("[group-settings] Failed to track loaded_group_settings:", error)
+    }
+  }, [posthog, groupId])
 
   useEffect(() => {
     async function loadUser() {

@@ -28,6 +28,8 @@ import { spacing, typography } from "../../../lib/theme"
 import { useTheme } from "../../../lib/theme-context"
 import { Button } from "../../../components/Button"
 import { Avatar } from "../../../components/Avatar"
+import { usePostHog } from "posthog-react-native"
+import { captureEvent } from "../../../lib/posthog"
 
 export default function ProfileSettings() {
   const router = useRouter()
@@ -41,6 +43,20 @@ export default function ProfileSettings() {
   const [initialAvatar, setInitialAvatar] = useState<string | undefined>()
   const [saving, setSaving] = useState(false)
   const [showBirthdayPicker, setShowBirthdayPicker] = useState(false)
+  const posthog = usePostHog()
+
+  // Track loaded_profile_settings event
+  useEffect(() => {
+    try {
+      if (posthog) {
+        posthog.capture("loaded_profile_settings")
+      } else {
+        captureEvent("loaded_profile_settings")
+      }
+    } catch (error) {
+      if (__DEV__) console.error("[profile-settings] Failed to track loaded_profile_settings:", error)
+    }
+  }, [posthog])
 
   const { data: profile } = useQuery({
     queryKey: ["profile"],

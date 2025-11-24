@@ -119,20 +119,68 @@ export const resetPostHog = () => {
 /**
  * Capture a custom event
  * Use this for manual event tracking
+ * This function is safe to call anywhere - it will never throw or block
+ * Always logs in development mode for testing
  */
 export const captureEvent = (eventName: string, properties?: Record<string, any>) => {
-  const client = getPostHog()
-  if (!client) return
-
   try {
-    client.capture(eventName, properties)
-    if (__DEV__) {
-      console.log('[PostHog] Event captured:', eventName, properties)
+    const client = getPostHog()
+    if (!client) {
+      // Log even when PostHog is not configured (for testing)
+      console.log('[PostHog] Event captured (not configured):', eventName, properties || {})
+      return
     }
+
+    client.capture(eventName, properties)
+    // Always log for testing/debugging
+    console.log('[PostHog] Event captured:', eventName, properties || {})
   } catch (error) {
+    // Never let PostHog errors affect app behavior
     console.error('[PostHog] Failed to capture event:', error)
   }
 }
+
+/**
+ * Safe capture helper for use with usePostHog hook
+ * Use this in components instead of calling posthog.capture() directly
+ * Always logs for testing/debugging
+ */
+export const safeCapture = (posthog: any, eventName: string, properties?: Record<string, any>) => {
+  try {
+    if (posthog) {
+      posthog.capture(eventName, properties)
+      // Always log for testing/debugging
+      console.log('[PostHog] Event captured (hook):', eventName, properties || {})
+    } else {
+      // Fallback to captureEvent if hook not available
+      captureEvent(eventName, properties)
+    }
+  } catch (error) {
+    // Never let PostHog errors affect app behavior
+    console.error('[PostHog] Failed to capture event:', error)
+  }
+}
+
+/**
+ * NOTE: Always import usePostHog from 'posthog-react-native' in components
+ * The hook returns null if PostHog isn't configured, which is safe
+ * PostHogProvider is always rendered in _layout.tsx, so the hook is always available
+ * 
+ * Pattern to use in components:
+ * ```tsx
+ * import { usePostHog } from "posthog-react-native"
+ * import { captureEvent } from "../../lib/posthog"
+ * 
+ * const posthog = usePostHog()
+ * 
+ * // Then use:
+ * if (posthog) {
+ *   posthog.capture("event_name", { ... })
+ * } else {
+ *   captureEvent("event_name", { ... })
+ * }
+ * ```
+ */
 
 /**
  * Check if PostHog is configured and ready
