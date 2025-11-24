@@ -93,15 +93,9 @@ export default function About() {
     setUserBirthday(birthday)
     setUserPhoto(photoUri)
     
-    // Check if we're in a group join flow
-    const pendingGroupId = await AsyncStorage.getItem(PENDING_GROUP_KEY)
-    if (pendingGroupId) {
-      // In group join flow - go to auth, then how-it-works
-      router.push("/(onboarding)/auth")
-    } else {
-      // Normal onboarding - go to auth
-      router.push("/(onboarding)/auth")
-    }
+    // Save onboarding data and continue to auth
+    // Auth will handle group join if pending_group_join exists
+    router.push("/(onboarding)/auth")
     setLoading(false)
   }
 

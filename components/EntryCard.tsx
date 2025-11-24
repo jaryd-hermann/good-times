@@ -124,12 +124,12 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   const personalizedQuestion = useMemo(() => {
     if (!entry.prompt?.question) return entry.prompt?.question
     let question = entry.prompt.question
-
+    
     // Check for memorial_name placeholder
     if (question.match(/\{.*memorial_name.*\}/i) && memorials.length > 0) {
       question = personalizeMemorialPrompt(question, memorials[0].name)
     }
-
+    
     return question
   }, [entry.prompt?.question, memorials])
 
@@ -216,7 +216,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
       console.error("Audio error:", error)
     } finally {
       setAudioLoading((prev) => ({ ...prev, [audioId]: false }))
-    }
+                  }
   }
 
   function formatMillis(ms: number) {
@@ -228,96 +228,96 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
 
   // Create dynamic styles based on theme
   const styles = useMemo(() => StyleSheet.create({
-    entryWrapper: {
-      width: "100%",
+  entryWrapper: {
+    width: "100%",
       marginBottom: spacing.md,
       paddingHorizontal: 0,
-    },
+  },
     entryCard: {
       backgroundColor: colors.black,
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.lg,
       paddingBottom: spacing.md,
       borderRadius: 0,
-    },
-    entryHeader: {
-      flexDirection: "row",
+  },
+  entryHeader: {
+    flexDirection: "row",
       justifyContent: "flex-start",
-      alignItems: "center",
-      marginBottom: spacing.sm,
-    },
-    entryAuthor: {
-      flexDirection: "row",
-      alignItems: "center",
+    alignItems: "center",
+    marginBottom: spacing.sm,
+  },
+  entryAuthor: {
+    flexDirection: "row",
+    alignItems: "center",
       gap: spacing.sm,
-      flexShrink: 1,
-    },
-    userName: {
-      ...typography.bodyBold,
-      fontSize: 14,
+    flexShrink: 1,
+  },
+  userName: {
+    ...typography.bodyBold,
+    fontSize: 14,
       color: colors.white,
-    },
-    question: {
-      ...typography.h3,
-      fontSize: 16,
+  },
+  question: {
+    ...typography.h3,
+    fontSize: 16,
       marginBottom: spacing.md,
       color: colors.white,
-    },
-    textContainer: {
-      position: "relative",
+  },
+  textContainer: {
+    position: "relative",
       marginBottom: spacing.md,
-    },
-    entryText: {
-      ...typography.body,
-      fontSize: 16,
-      lineHeight: 24,
-      color: colors.gray[300],
-    },
-    textFadeOverlay: {
-      position: "absolute",
-      bottom: 0,
-      left: 0,
-      right: 0,
-      height: 48, // 2 lines fade (2 * 24px line height)
+  },
+  entryText: {
+    ...typography.body,
+    fontSize: 16,
+    lineHeight: 24,
+    color: colors.gray[300],
+  },
+  textFadeOverlay: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 48, // 2 lines fade (2 * 24px line height)
       zIndex: 2,
-    },
-    fadeLine1: {
-      position: "absolute",
-      bottom: 0,
-      left: 0,
-      right: 0,
+  },
+  fadeLine1: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
       height: 24,
       backgroundColor: colors.black,
-      opacity: 0.85,
-    },
-    fadeLine2: {
-      position: "absolute",
-      bottom: 24,
-      left: 0,
-      right: 0,
+    opacity: 0.85,
+  },
+  fadeLine2: {
+    position: "absolute",
+    bottom: 24,
+    left: 0,
+    right: 0,
       height: 24,
       backgroundColor: colors.black,
-      opacity: 0.6,
-    },
+    opacity: 0.6,
+  },
     voiceMemoContainer: {
       marginBottom: spacing.md,
       gap: spacing.sm,
-    },
+  },
     voiceMemoPill: {
-      flexDirection: "row",
+    flexDirection: "row",
       alignItems: "center",
       gap: spacing.md,
       padding: spacing.md,
-      backgroundColor: colors.gray[900],
+    backgroundColor: colors.gray[900],
       borderRadius: 16,
-    },
+  },
     voiceMemoIcon: {
       width: 40,
       height: 40,
       borderRadius: 20,
-      backgroundColor: colors.gray[800],
-      justifyContent: "center",
-      alignItems: "center",
+    backgroundColor: colors.gray[800],
+    justifyContent: "center",
+    alignItems: "center",
     },
     voiceMemoInfo: {
       flex: 1,
@@ -332,8 +332,8 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
       height: 4,
       borderRadius: 2,
       backgroundColor: colors.gray[800],
-      overflow: "hidden",
-    },
+    overflow: "hidden",
+  },
     voiceMemoProgressFill: {
       height: "100%",
       backgroundColor: colors.accent,
@@ -352,26 +352,26 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
       paddingRight: 0,
     },
     mediaImage: {
-      width: "100%",
+    width: "100%",
       height: 300, // Fallback height while loading dimensions
       backgroundColor: colors.gray[900],
-    },
+  },
     videoContainer: {
       width: "100%",
       minHeight: 200,
       backgroundColor: colors.gray[900],
-      justifyContent: "center",
-      alignItems: "center",
-      position: "relative",
-      overflow: "hidden",
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative",
+    overflow: "hidden",
       alignSelf: "stretch",
-    },
+  },
     videoOverlay: {
-      position: "absolute",
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
       justifyContent: "center",
       alignItems: "center",
       backgroundColor: "rgba(0, 0, 0, 0.3)",
@@ -390,19 +390,19 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     },
     actionsRow: {
       flexDirection: "row",
-      alignItems: "center",
+    alignItems: "center",
       justifyContent: "space-between",
-      marginTop: spacing.sm,
+    marginTop: spacing.sm,
     },
     actionsLeft: {
       flexDirection: "row",
       alignItems: "center",
       gap: spacing.lg,
-    },
+  },
     actionButton: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.xs,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
     },
     iconOutline: {
       // Outline icon - white stroke, transparent fill
@@ -413,36 +413,36 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     actionCount: {
       ...typography.bodyMedium,
       fontSize: 14,
-      color: colors.white,
-    },
+    color: colors.white,
+  },
     commentsContainer: {
       paddingHorizontal: spacing.lg,
-      paddingTop: spacing.xs,
-      gap: spacing.xs,
-    },
-    commentPreviewItem: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      alignItems: "center",
-      gap: spacing.xs,
-    },
-    commentPreviewUser: {
-      ...typography.bodyMedium,
-      fontSize: 14,
-      color: colors.gray[300],
-    },
-    commentPreviewText: {
-      ...typography.body,
-      fontSize: 14,
-      color: colors.gray[400],
-      flex: 1,
-    },
-    commentPreviewMore: {
-      ...typography.caption,
-      fontSize: 13,
-      color: colors.gray[500],
-      marginTop: spacing.xs,
-    },
+    paddingTop: spacing.xs,
+    gap: spacing.xs,
+  },
+  commentPreviewItem: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  commentPreviewUser: {
+    ...typography.bodyMedium,
+    fontSize: 14,
+    color: colors.gray[300],
+  },
+  commentPreviewText: {
+    ...typography.body,
+    fontSize: 14,
+    color: colors.gray[400],
+    flex: 1,
+  },
+  commentPreviewMore: {
+    ...typography.caption,
+    fontSize: 13,
+    color: colors.gray[500],
+    marginTop: spacing.xs,
+  },
     separator: {
       width: "100%",
       height: 1,
@@ -674,13 +674,17 @@ function VideoThumbnail({
   const videoStyles = useMemo(() => StyleSheet.create({
     videoContainer: {
       width: "100%",
-      minHeight: 200,
+      height: SCREEN_WIDTH, // Square aspect ratio (1:1) for gallery-like appearance
       backgroundColor: colors.gray[900],
       justifyContent: "center",
       alignItems: "center",
       position: "relative",
       overflow: "hidden",
       alignSelf: "stretch",
+    },
+    video: {
+      width: "100%",
+      height: "100%",
     },
     videoOverlay: {
       position: "absolute",
@@ -696,36 +700,20 @@ function VideoThumbnail({
   }), [colors])
 
   return (
-    <View style={[
-      videoStyles.videoContainer,
-      dimensions && {
-        width: "100%",
-        height: undefined,
-        aspectRatio: dimensions.width / dimensions.height,
-        minHeight: undefined,
-      },
-    ]}>
+    <View style={videoStyles.videoContainer}>
       <Video
         ref={videoRef}
         source={{ uri }}
-        style={dimensions ? {
-          width: "100%",
-          height: undefined,
-          aspectRatio: dimensions.width / dimensions.height,
-        } : StyleSheet.absoluteFill}
-        resizeMode={ResizeMode.CONTAIN}
+        style={videoStyles.video}
+        resizeMode={ResizeMode.COVER}
         shouldPlay={false}
         isMuted={true}
         isLooping={false}
         useNativeControls={false}
         onLoad={(status) => {
-          // Note: expo-av doesn't provide video dimensions in onLoad
-          // We'll use a workaround: load the video and let it determine its size
-          // For now, use a default aspect ratio that will be adjusted when video loads
           if (!dimensions && status.isLoaded) {
-            // Default to 16:9 (common landscape ratio)
-            // The video will render with its natural aspect ratio via resizeMode="contain"
-            onLoad({ width: 16, height: 9 })
+            // Store dimensions for potential future use, but we use fixed square size
+            onLoad({ width: SCREEN_WIDTH, height: SCREEN_WIDTH })
           }
         }}
       />

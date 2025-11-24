@@ -504,7 +504,7 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
       if (!hasMemorials) {
         disabledCategories.add("Remembering")
       }
-      
+
       // Get member count to filter {member_name} questions
       const members = await getGroupMembers(groupId)
       const memberCount = members.length

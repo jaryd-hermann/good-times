@@ -857,6 +857,7 @@ export default function Home() {
       fontSize: 22,
       marginBottom: spacing.sm,
       color: colors.white,
+      fontWeight: "bold",
     },
   promptDescription: {
     ...typography.body,
@@ -918,7 +919,7 @@ export default function Home() {
       textAlign: "center",
     },
     notice: {
-      marginBottom: 0, // No margin - banner comes right after
+      marginBottom: spacing.lg, // Add space between notice and question card divider
       paddingHorizontal: spacing.md,
     },
     noticeText: {
@@ -1082,10 +1083,20 @@ export default function Home() {
             onPress={handleCustomQuestionPress}
           />
         )}
-        {otherEntries.length === 0 && !userEntry && (
-          <View style={styles.notice}>
-            <Text style={styles.noticeText}>Nobody has shared today yet. Be the first.</Text>
-          </View>
+        {/* Notice above daily question - mutually exclusive messages */}
+        {!userEntry && (
+          <>
+            {otherEntries.length === 0 ? (
+              <View style={styles.notice}>
+                <Text style={styles.noticeText}>Nobody has shared today yet. Be the first.</Text>
+              </View>
+            ) : (
+              <View style={styles.notice}>
+                <Text style={styles.noticeText}>People have shared today.</Text>
+                <Text style={styles.noticeText}>Answer to see what they said.</Text>
+              </View>
+            )}
+          </>
         )}
         {/* Daily prompt */}
         {!userEntry && (
@@ -1144,12 +1155,7 @@ export default function Home() {
         )}
 
         {/* Entries feed */}
-        {!userEntry && otherEntries.length > 0 ? (
-          <View style={styles.lockedMessage}>
-            <Text style={styles.lockedText}>People have shared today.</Text>
-            <Text style={styles.lockedText}>Add yours to see what they said.</Text>
-          </View>
-        ) : userEntry ? (
+        {userEntry ? (
           <View style={styles.entriesContainer}>
             {entries.map((entry, entryIndex) => (
               <EntryCard

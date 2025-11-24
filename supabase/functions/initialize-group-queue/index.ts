@@ -371,12 +371,12 @@ serve(async (req) => {
       // NORMAL INITIALIZATION: Use existing logic
       console.log(`[initialize-group-queue] NORMAL MODE: Fetching prompts for categories:`, eligibleCategories)
       const { data: normalPrompts, error: promptsError } = await supabaseClient
-        .from("prompts")
-        .select("*")
-        .in("category", eligibleCategories)
-        .is("birthday_type", null) // Exclude birthday prompts
+      .from("prompts")
+      .select("*")
+      .in("category", eligibleCategories)
+      .is("birthday_type", null) // Exclude birthday prompts
 
-      if (promptsError) throw promptsError
+    if (promptsError) throw promptsError
       allPrompts = normalPrompts || []
     }
 
@@ -602,12 +602,12 @@ serve(async (req) => {
       } else {
         // Normal mode: use variety selection
         selectedPrompt = selectPromptWithVariety(
-          availablePrompts,
-          eligibleCategories,
-          categoryWeights,
-          categoryUsage,
-          rng
-        )
+        availablePrompts,
+        eligibleCategories,
+        categoryWeights,
+        categoryUsage,
+        rng
+      )
       }
 
       if (!selectedPrompt) {
@@ -728,7 +728,7 @@ serve(async (req) => {
       // Add birthday prompts with user_id for user-specific prompts
       // Note: We'll handle user-specific birthday prompts separately in the insert
     }
-    
+
     // Log summary of scheduled prompts by category and validate for duplicates
     const categoryCounts = new Map<string, number>()
     const promptIdCounts = new Map<string, number>() // Track prompt ID usage

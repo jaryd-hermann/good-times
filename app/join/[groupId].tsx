@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { View, Text, StyleSheet, ActivityIndicator, Alert, TouchableOpacity, ScrollView, ImageBackground, Dimensions } from "react-native"
+import { View, Text, StyleSheet, ActivityIndicator, Alert, TouchableOpacity, ScrollView, ImageBackground, Dimensions, Modal } from "react-native"
+import { LinearGradient } from "expo-linear-gradient"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { supabase } from "../../lib/supabase"
 import { colors, typography, spacing } from "../../lib/theme"
@@ -30,6 +31,7 @@ export default function JoinGroup() {
   const [group, setGroup] = useState<any>(null)
   const [creator, setCreator] = useState<any>(null)
   const [members, setMembers] = useState<any[]>([])
+  const [showAboutModal, setShowAboutModal] = useState(false)
 
   useEffect(() => {
     loadGroupInfo()
@@ -83,9 +85,9 @@ export default function JoinGroup() {
       if (sessionError) throw sessionError
 
       if (!session) {
-        // User not authenticated - store groupId and redirect to onboarding
+        // User not authenticated - store groupId and redirect to welcome-2
         await AsyncStorage.setItem(PENDING_GROUP_KEY, groupId)
-        router.replace("/(onboarding)/about")
+        router.replace("/(onboarding)/welcome-2")
         return
       }
 
@@ -99,9 +101,9 @@ export default function JoinGroup() {
         .single()
 
       if (!userProfile?.name || !userProfile?.birthday) {
-        // User doesn't have complete profile - go to about screen
+        // User doesn't have complete profile - go to welcome-2
         await AsyncStorage.setItem(PENDING_GROUP_KEY, groupId)
-        router.replace("/(onboarding)/about")
+        router.replace("/(onboarding)/welcome-2")
         return
       }
 
@@ -200,29 +202,32 @@ export default function JoinGroup() {
 
   return (
     <ImageBackground source={require("../../assets/images/welcome-home.png")} style={styles.container} resizeMode="cover">
-      <View style={styles.overlay} />
+      <LinearGradient
+        colors={["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0.3)", "rgba(0, 0, 0, 0.8)", "rgba(0, 0, 0, 1)"]}
+        locations={[0, 0.4, 0.7, 1]}
+        style={styles.gradientOverlay}
+      />
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.xl }]}
+        contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.xxl * 3 }]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <Text style={styles.title}>You&apos;ve been added!</Text>
+          <Text style={styles.title}>Your invite</Text>
         </View>
 
         <View style={styles.inviterSection}>
           <Avatar uri={creator?.avatar_url} name={creator?.name || "User"} size={80} />
-          <Text style={styles.inviterName}>{creator?.name || "Someone"}</Text>
-          <Text style={styles.inviterText}>invited you to join</Text>
-        </View>
-
-        <View style={styles.groupSection}>
-          <Text style={styles.groupName}>{group?.name}</Text>
-          <Text style={styles.groupType}>{group?.type === "family" ? "Family Group" : "Friends Group"}</Text>
+          <View style={styles.inviterTextContainer}>
+            <Text style={styles.inviterName}>{creator?.name || "Someone"}</Text>
+            <Text style={styles.inviterText}>
+              invited you to join the closed group &quot;<Text style={styles.groupNameBold}>{group?.name}</Text>&quot;
+            </Text>
+          </View>
         </View>
 
         {members.length > 0 && (
           <View style={styles.membersSection}>
-            <Text style={styles.membersTitle}>Already In</Text>
+            <Text style={styles.membersTitle}>In the group already</Text>
             <View style={styles.membersList}>
               {members.slice(0, 6).map((member) => (
                 <View key={member.id} style={styles.memberItem}>
@@ -244,16 +249,52 @@ export default function JoinGroup() {
           </View>
         )}
 
-        <View style={styles.descriptionSection}>
-          <Text style={styles.descriptionText}>
-            Good Times is a private space for you and your favorite people to stay connected. Every day, your group gets
-            a simple question to answer—share moments, memories, and stay close without the pressure of social media.
-          </Text>
+        <View style={styles.buttonSection}>
+          <Button 
+            title={group?.type === "family" ? "Join Your Family" : "Join Your Friends"} 
+            onPress={handleJoinGroup} 
+            style={styles.joinButton} 
+          />
+          <View style={styles.aboutLinkContainer}>
+            <TouchableOpacity 
+              onPress={() => setShowAboutModal(true)}
+              style={styles.aboutLink}
+            >
+              <Text style={styles.aboutLinkText}>What&apos;s this app?</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
-        <View style={styles.buttonSection}>
-          <Button title="Join Group" onPress={handleJoinGroup} style={styles.joinButton} />
-        </View>
+        <Modal
+          transparent
+          animationType="fade"
+          visible={showAboutModal}
+          onRequestClose={() => setShowAboutModal(false)}
+        >
+          <TouchableOpacity
+            style={styles.modalBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowAboutModal(false)}
+          >
+            <View 
+              style={[styles.modalContent, { paddingBottom: insets.bottom + spacing.lg }]}
+              onStartShouldSetResponder={() => true}
+            >
+              <Text style={styles.modalTitle}>About Good Times</Text>
+              <Text style={styles.modalText}>
+                {creator?.name || "Someone"} has invited you to join them on Good Times, a free group journaling app for friends and family. Stay close and keep connected to your favorite people with one quick question a day.
+              </Text>
+              <Button
+                title={group?.type === "family" ? "Join Your Family" : "Join Your Friends"}
+                onPress={() => {
+                  setShowAboutModal(false)
+                  handleJoinGroup()
+                }}
+                style={styles.modalButton}
+              />
+            </View>
+          </TouchableOpacity>
+        </Modal>
       </ScrollView>
     </ImageBackground>
   )
@@ -265,14 +306,14 @@ const styles = StyleSheet.create({
     width,
     height,
   },
-  overlay: {
+  gradientOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
   },
   content: {
     flex: 1,
     padding: spacing.lg,
     paddingBottom: spacing.xxl * 2,
+    justifyContent: "flex-end",
   },
   header: {
     marginBottom: spacing.xl,
@@ -281,38 +322,34 @@ const styles = StyleSheet.create({
     ...typography.h1,
     fontSize: 36,
     color: colors.white,
-    textAlign: "center",
+    textAlign: "left",
   },
   inviterSection: {
-    alignItems: "center",
+    flexDirection: "row",
+    alignItems: "flex-start",
     marginBottom: spacing.xl,
-    gap: spacing.sm,
+    gap: spacing.md,
+  },
+  inviterTextContainer: {
+    flex: 1,
   },
   inviterName: {
     ...typography.h2,
     fontSize: 24,
     color: colors.white,
+    marginBottom: spacing.xs,
   },
   inviterText: {
     ...typography.body,
     fontSize: 16,
-    color: colors.gray[300],
-  },
-  groupSection: {
-    alignItems: "center",
-    marginBottom: spacing.xl,
-    gap: spacing.xs,
-  },
-  groupName: {
-    ...typography.h1,
-    fontSize: 32,
     color: colors.white,
+    textAlign: "left",
+    lineHeight: 24,
   },
-  groupType: {
-    ...typography.body,
+  groupNameBold: {
+    ...typography.bodyBold,
     fontSize: 16,
-    color: colors.gray[400],
-    textTransform: "capitalize",
+    color: colors.white,
   },
   membersSection: {
     marginBottom: spacing.xl,
@@ -322,13 +359,13 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: colors.white,
     marginBottom: spacing.md,
-    textAlign: "center",
+    textAlign: "left",
   },
   membersList: {
     flexDirection: "row",
     flexWrap: "wrap",
-    justifyContent: "center",
-    gap: spacing.md,
+    justifyContent: "flex-start",
+    gap: spacing.md * 0.5, // 50% closer spacing
   },
   memberItem: {
     alignItems: "center",
@@ -356,23 +393,53 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.white,
   },
-  descriptionSection: {
-    marginBottom: spacing.xl,
-    paddingHorizontal: spacing.md,
-  },
-  descriptionText: {
-    ...typography.body,
-    fontSize: 16,
-    lineHeight: 24,
-    color: colors.white,
-    textAlign: "center",
-  },
   buttonSection: {
-    alignItems: "center",
+    alignItems: "flex-start",
+    gap: spacing.md,
   },
   joinButton: {
     width: "100%",
     maxWidth: 400,
+  },
+  aboutLinkContainer: {
+    width: "100%",
+    alignItems: "center",
+  },
+  aboutLink: {
+    paddingVertical: spacing.sm,
+  },
+  aboutLinkText: {
+    ...typography.body,
+    fontSize: 16,
+    color: colors.white,
+    textDecorationLine: "underline",
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    backgroundColor: colors.black,
+    padding: spacing.lg,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    gap: spacing.md,
+  },
+  modalTitle: {
+    ...typography.h2,
+    fontSize: 24,
+    color: colors.white,
+    marginBottom: spacing.sm,
+  },
+  modalText: {
+    ...typography.body,
+    fontSize: 16,
+    lineHeight: 24,
+    color: colors.gray[300],
+  },
+  modalButton: {
+    marginTop: spacing.md,
   },
   text: {
     ...typography.body,

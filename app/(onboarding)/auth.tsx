@@ -59,8 +59,22 @@ export default function OnboardingAuth() {
   // Check if user is in registration flow (onboarding or invite/join)
   useEffect(() => {
     async function checkRegistrationFlow() {
-      // Check if user has onboarding data (came from About screen)
-      const hasOnboardingData = !!(data.userName && data.userBirthday)
+      // Check AsyncStorage directly to avoid stale context data
+      // This ensures we get the most up-to-date state even if context hasn't updated
+      const storedData = await AsyncStorage.getItem("onboarding-data-v1")
+      let hasOnboardingData = false
+      if (storedData) {
+        try {
+          const parsed = JSON.parse(storedData)
+          hasOnboardingData = !!(parsed.userName && parsed.userBirthday)
+        } catch (error) {
+          // If parsing fails, fall back to context check
+          hasOnboardingData = !!(data.userName && data.userBirthday)
+        }
+      } else {
+        // Fall back to context check if AsyncStorage is empty
+        hasOnboardingData = !!(data.userName && data.userBirthday)
+      }
       
       // Check if user is joining a group via invite link
       const pendingGroupId = await AsyncStorage.getItem("pending_group_join")
@@ -305,10 +319,9 @@ export default function OnboardingAuth() {
         // Check for pending group join from deep link
         const pendingGroupId = await AsyncStorage.getItem("pending_group_join")
         if (pendingGroupId) {
-          console.log(`[persistOnboarding] ✅ Navigating to how-it-works (pending group join)`)
-          // Keep pendingGroupId for after onboarding completes
-          // Go to how-it-works, which will handle joining
-          router.replace("/(onboarding)/how-it-works")
+          console.log(`[persistOnboarding] ✅ Navigating to welcome-post-auth (pending group join)`)
+          // After registration, always go to welcome-post-auth
+          router.replace("/(onboarding)/welcome-post-auth")
           return
         }
 
@@ -631,31 +644,32 @@ export default function OnboardingAuth() {
             .maybeSingle()
 
           if (membership) {
-            // Check if this is a NEW user (created within last 10 minutes)
-            // Only show welcome-post-auth to newly registered users, not existing users logging in
-            const userCreatedAt = new Date(signInData.session.user.created_at)
-            const now = new Date()
-            const minutesSinceCreation = (now.getTime() - userCreatedAt.getTime()) / (1000 * 60)
-            const isNewUser = minutesSinceCreation < 10 // User created within last 10 minutes
-
-            if (isNewUser) {
-              // Check if user has completed post-auth onboarding
+            // Sign-in should ALWAYS go to home - never show onboarding screens
+            // Onboarding screens are only shown during registration flow (after group creation)
+            // Check if this is a registration flow (user has onboarding data)
+            const isRegistration = !!(data.userName && data.userBirthday)
+            
+            if (isRegistration) {
+              // This is registration flow - check if user needs onboarding
               const onboardingKey = getPostAuthOnboardingKey(userId)
               const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
+              
               if (!hasCompletedPostAuth) {
+                // New user in registration flow who hasn't completed onboarding
                 router.replace("/(onboarding)/welcome-post-auth")
               } else {
+                // Registration flow but onboarding already completed
                 router.replace("/(main)/home")
               }
             } else {
-              // Existing user - skip welcome-post-auth and go straight to home
+              // This is sign-in flow - always go to home, never show onboarding
               router.replace("/(main)/home")
             }
             return
           } else {
-            // Existing user without group - if pending group join, go to how-it-works
+            // Existing user without group - if pending group join, go to welcome-post-auth after registration
             if (pendingGroupId) {
-              router.replace("/(onboarding)/how-it-works")
+              router.replace("/(onboarding)/welcome-post-auth")
             } else {
               router.replace("/(onboarding)/create-group/name-type")
             }
@@ -664,10 +678,10 @@ export default function OnboardingAuth() {
         }
 
         // New user or incomplete profile - continue with onboarding flow
-        // If pending group join, go to how-it-works after completing profile
+        // If pending group join, go to welcome-post-auth after completing profile
         if (pendingGroupId) {
-          // User is joining a group - go to how-it-works (profile will be saved there)
-          router.replace("/(onboarding)/how-it-works")
+          // User is joining a group - after registration, go to welcome-post-auth
+          router.replace("/(onboarding)/welcome-post-auth")
         } else if (data.groupName && data.groupType) {
           // New user creating their own group
           await persistOnboarding(userId, signInData.session)
@@ -702,7 +716,7 @@ export default function OnboardingAuth() {
           // Check for pending group join
           const pendingGroupId = await AsyncStorage.getItem("pending_group_join")
           if (pendingGroupId) {
-            // In group join flow - save profile and go to how-it-works
+            // In group join flow - save profile and go to welcome-post-auth after registration
             const userId = signUpData.session.user.id
             const birthday = data.userBirthday ? data.userBirthday.toISOString().split("T")[0] : null
             const emailFromSession = data.userEmail ?? signUpData.session.user.email
@@ -720,7 +734,7 @@ export default function OnboardingAuth() {
                   { onConflict: "id" }
                 )
             }
-            router.replace("/(onboarding)/how-it-works")
+            router.replace("/(onboarding)/welcome-post-auth")
           } else {
             // Normal onboarding - create group
             await persistOnboarding(signUpData.session.user.id, signUpData.session)
@@ -1401,30 +1415,32 @@ export default function OnboardingAuth() {
       })
 
       if (membership) {
-          // Check if this is a NEW user (created within last 10 minutes)
-          // Only show welcome-post-auth to newly registered users, not existing users logging in
-          const userCreatedAt = new Date(session.user.created_at)
-          const now = new Date()
-          const minutesSinceCreation = (now.getTime() - userCreatedAt.getTime()) / (1000 * 60)
-          const isNewUser = minutesSinceCreation < 10 // User created within last 10 minutes
+          // OAuth sign-in should ALWAYS go to home - never show onboarding screens
+          // Onboarding screens are only shown during registration flow (after group creation)
+          // Check if this is a registration flow (user has onboarding data)
+          const isRegistration = !!(data.userName && data.userBirthday)
+          
+          console.log(`[OAuth] User has group. isRegistration: ${isRegistration}`)
 
-          console.log(`[OAuth] User has group. isNewUser: ${isNewUser}, minutesSinceCreation: ${minutesSinceCreation}`)
-
-          if (isNewUser) {
-            // Check if user has completed post-auth onboarding
+          if (isRegistration) {
+            // This is registration flow - check if user needs onboarding
             const onboardingKey = getPostAuthOnboardingKey(session.user.id)
             const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
-            console.log(`[OAuth] New user. hasCompletedPostAuth: ${!!hasCompletedPostAuth}`)
+            
+            console.log(`[OAuth] Registration flow. hasCompletedPostAuth: ${!!hasCompletedPostAuth}`)
+            
             if (!hasCompletedPostAuth) {
-              console.log(`[OAuth] Navigating to welcome-post-auth`)
+              // New user in registration flow who hasn't completed onboarding
+              console.log(`[OAuth] Registration flow without completed onboarding, navigating to welcome-post-auth`)
               router.replace("/(onboarding)/welcome-post-auth")
             } else {
-              console.log(`[OAuth] Navigating to home`)
+              // Registration flow but onboarding already completed
+              console.log(`[OAuth] Registration flow with completed onboarding, navigating to home`)
               router.replace("/(main)/home")
             }
           } else {
-            // Existing user - skip welcome-post-auth and go straight to home
-            console.log(`[OAuth] Existing user with group, navigating to home`)
+            // This is sign-in flow - always go to home, never show onboarding
+            console.log(`[OAuth] Sign-in flow with group, navigating to home`)
             router.replace("/(main)/home")
           }
         } else {
@@ -1490,12 +1506,33 @@ export default function OnboardingAuth() {
             )}
 
             <View style={styles.content}>
+              {isRegistrationFlow && (
+                <View style={styles.loginLinkContainer}>
+                  <Text style={styles.loginLinkPrefix}>Already a member? </Text>
+                  <TouchableOpacity 
+                    onPress={() => {
+                      setIsRegistrationFlow(false)
+                      setConfirmPassword("") // Clear confirm password when switching to login
+                      setConfirmPasswordFocused(false) // Reset focus state
+                    }} 
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.loginLinkText}>Login</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
               <Text style={styles.title}>{isRegistrationFlow ? "Create Account" : "Sign In"}</Text>
 
               <View style={styles.fieldsContainer}>
-                {(emailFocused || passwordFocused) && (
-                  <View style={styles.formBackground} />
-                )}
+                <View 
+                  style={[
+                    styles.formBackground, 
+                    { 
+                      opacity: (emailFocused || passwordFocused) ? 1 : 0,
+                      pointerEvents: (emailFocused || passwordFocused) ? 'auto' : 'none'
+                    }
+                  ]} 
+                />
 
                 <View style={styles.fieldGroup}>
                   <Text style={styles.fieldLabel}>Email</Text>
@@ -1675,6 +1712,22 @@ const styles = StyleSheet.create({
   content: {
     gap: spacing.lg,
     maxWidth: 460,
+  },
+  loginLinkContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: spacing.sm,
+  },
+  loginLinkPrefix: {
+    fontFamily: "Roboto-Regular",
+    fontSize: 16,
+    color: colors.white,
+  },
+  loginLinkText: {
+    fontFamily: "Roboto-Bold",
+    fontSize: 16,
+    color: colors.white,
+    textDecorationLine: "underline",
   },
   fieldsContainer: {
     position: "relative",

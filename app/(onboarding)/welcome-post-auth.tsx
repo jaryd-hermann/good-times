@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect } from "react"
-import { View, Text, StyleSheet, ImageBackground, Dimensions } from "react-native"
+import { useEffect, useState } from "react"
+import { View, Text, StyleSheet, ImageBackground, Dimensions, ActivityIndicator } from "react-native"
 import { LinearGradient } from "expo-linear-gradient"
 import { useRouter } from "expo-router"
 import AsyncStorage from "@react-native-async-storage/async-storage"
@@ -11,6 +11,7 @@ import { supabase } from "../../lib/supabase"
 
 const { width, height } = Dimensions.get("window")
 const POST_AUTH_ONBOARDING_KEY_PREFIX = "has_completed_post_auth_onboarding"
+const PENDING_GROUP_KEY = "pending_group_join"
 
 // Helper function to get user-specific onboarding key
 function getPostAuthOnboardingKey(userId: string): string {
@@ -19,26 +20,115 @@ function getPostAuthOnboardingKey(userId: string): string {
 
 export default function WelcomePostAuth() {
   const router = useRouter()
+  const [isChecking, setIsChecking] = useState(true)
+  const [shouldShow, setShouldShow] = useState(false)
 
   useEffect(() => {
     // Check if user has already completed post-auth onboarding
-    // If yes, skip directly to home
+    // If yes, skip directly to home BEFORE rendering anything
     async function checkOnboardingStatus() {
+      try {
       const {
         data: { user },
       } = await supabase.auth.getUser()
-      if (!user) return
+        
+        if (!user) {
+          // No user - redirect to welcome
+          router.replace("/(onboarding)/welcome-1")
+          return
+        }
 
-      const onboardingKey = getPostAuthOnboardingKey(user.id)
-      const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
-      
-      if (hasCompletedPostAuth) {
-        // Already completed - skip to home
+        // PRIMARY CHECK: Check if they've completed onboarding (most reliable)
+        // This is the source of truth - if this is set, user has completed onboarding
+        const onboardingKey = getPostAuthOnboardingKey(user.id)
+        let hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
+        
+        // Retry once if not found (handles AsyncStorage timing issues)
+        if (!hasCompletedPostAuth) {
+          await new Promise(resolve => setTimeout(resolve, 100))
+          hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
+        }
+
+        // SECONDARY CHECK: Check if user is an existing user (created more than 10 minutes ago)
+        // Only use this as a fallback if onboarding key check fails
+        const userCreatedAt = new Date(user.created_at)
+        const now = new Date()
+        const minutesSinceCreation = (now.getTime() - userCreatedAt.getTime()) / (1000 * 60)
+        const isExistingUser = minutesSinceCreation >= 10
+        
+        // If has completed onboarding OR is existing user, check for pending group join before redirecting
+        // Prioritize hasCompletedPostAuth check (more reliable)
+        if (hasCompletedPostAuth || isExistingUser) {
+          const pendingGroupId = await AsyncStorage.getItem(PENDING_GROUP_KEY)
+          if (pendingGroupId) {
+            // Try to join the group
+            try {
+              const { data: existingMember } = await supabase
+                .from("group_members")
+                .select("id")
+                .eq("group_id", pendingGroupId)
+                .eq("user_id", user.id)
+                .maybeSingle()
+
+              if (!existingMember) {
+                const { error: joinError } = await supabase
+                  .from("group_members")
+                  .insert({
+                    group_id: pendingGroupId,
+                    user_id: user.id,
+                    role: "member",
+                  })
+
+                if (!joinError) {
+                  await AsyncStorage.removeItem(PENDING_GROUP_KEY)
+                  router.replace({
+                    pathname: "/(main)/home",
+                    params: { focusGroupId: pendingGroupId },
+                  })
+                  return
+                }
+              } else {
+                await AsyncStorage.removeItem(PENDING_GROUP_KEY)
+                router.replace({
+                  pathname: "/(main)/home",
+                  params: { focusGroupId: pendingGroupId },
+                })
+                return
+              }
+            } catch (error) {
+              console.error("[welcome-post-auth] Error joining group:", error)
+            }
+          }
+          router.replace("/(main)/home")
+          return
+        }
+
+        // Only show screen if user is new AND hasn't completed onboarding
+        setShouldShow(true)
+      } catch (error) {
+        console.error("[welcome-post-auth] Error checking onboarding status:", error)
+        // On error, redirect to home to be safe
         router.replace("/(main)/home")
+      } finally {
+        setIsChecking(false)
       }
     }
     checkOnboardingStatus()
   }, [router])
+
+  // Don't render anything until we've checked onboarding status
+  if (isChecking) {
+    return (
+      <View style={styles.checkingContainer}>
+        <ActivityIndicator size="large" color={colors.white} />
+      </View>
+    )
+  }
+
+  // Don't render if user shouldn't see this screen
+  if (!shouldShow) {
+    return null
+  }
 
   function handleContinue() {
     router.replace("/(onboarding)/notifications-onboarding")
@@ -126,6 +216,12 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     fontSize: 32,
+  },
+  checkingContainer: {
+    flex: 1,
+    backgroundColor: colors.black,
+    justifyContent: "center",
+    alignItems: "center",
   },
 })
 

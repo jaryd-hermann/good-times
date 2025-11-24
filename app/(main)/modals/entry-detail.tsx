@@ -592,7 +592,7 @@ export default function EntryDetail() {
                 <Avatar uri={entry.user?.avatar_url} name={entry.user?.name || "User"} size={48} />
                 <View style={styles.headerText}>
                   <View style={styles.headerTextRow}>
-                    <Text style={styles.userName}>{entry.user?.name}</Text>
+                  <Text style={styles.userName}>{entry.user?.name}</Text>
                     {userId === entry.user_id && entry.date === getTodayDate() && (
                       <TouchableOpacity
                         onPress={() => {

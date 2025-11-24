@@ -358,7 +358,7 @@ serve(async (req) => {
             .select("*")
             .in("category", eligibleCategories.length > 0 ? eligibleCategories : ["Fun", "A Bit Deeper"])
             .is("birthday_type", null)
-          
+
           // Filter out prompts with {member_name} unless group has 3+ members
           const filteredPromptsRaw = (allPromptsRaw || []).filter((p: any) => {
             if (p.dynamic_variables && Array.isArray(p.dynamic_variables) && p.dynamic_variables.includes("member_name")) {

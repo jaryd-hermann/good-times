@@ -14,11 +14,26 @@ import {
   authenticateWithBiometric 
 } from "../../lib/biometric"
 import { supabase } from "../../lib/supabase"
+import AsyncStorage from "@react-native-async-storage/async-storage"
+import { useOnboarding } from "../../components/OnboardingProvider"
 
 const { width, height } = Dimensions.get("window")
 
 export default function Welcome1() {
   const router = useRouter()
+  const { clear } = useOnboarding()
+
+  async function handleLogin() {
+    // Clear any onboarding data to ensure sign-in mode (not sign-up)
+    // This ensures users always see the Sign In screen, not Create Account
+    // Clear both AsyncStorage and in-memory context state
+    clear() // This clears both AsyncStorage and context state
+    // Also clear any pending group join to ensure clean sign-in flow
+    await AsyncStorage.removeItem("pending_group_join")
+    // Small delay to ensure state is cleared before navigation
+    await new Promise(resolve => setTimeout(resolve, 100))
+    router.push("/(onboarding)/auth")
+  }
 
   useEffect(() => {
     async function attemptBiometricLogin() {
@@ -83,7 +98,7 @@ export default function Welcome1() {
         <View style={styles.buttonContainer}>
           <View style={styles.loginContainer}>
             <Text style={styles.loginPrefix}>Already in a group? </Text>
-            <TouchableOpacity onPress={() => router.push("/(onboarding)/auth")} activeOpacity={0.8}>
+            <TouchableOpacity onPress={handleLogin} activeOpacity={0.8}>
               <Text style={styles.loginText}>Login</Text>
             </TouchableOpacity>
           </View>

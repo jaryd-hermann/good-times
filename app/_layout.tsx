@@ -247,11 +247,11 @@ export default function RootLayout() {
         <SafeAreaProvider>
           <AuthProvider>
             <ThemeProvider>
-              <QueryClientProvider client={queryClient}>
+            <QueryClientProvider client={queryClient}>
                 <TabBarProvider>
-                  <Stack screenOptions={{ headerShown: false }} />
+              <Stack screenOptions={{ headerShown: false }} />
                 </TabBarProvider>
-              </QueryClientProvider>
+            </QueryClientProvider>
             </ThemeProvider>
           </AuthProvider>
         </SafeAreaProvider>

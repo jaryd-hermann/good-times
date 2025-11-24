@@ -18,7 +18,7 @@ import {
 } from "date-fns"
 import { typography, spacing } from "../../lib/theme"
 import { useTheme } from "../../lib/theme-context"
-import { getGroupMembers, getAllPrompts, getDailyPrompt, getMemorials } from "../../lib/db"
+import { getGroupMembers, getAllPrompts, getDailyPrompt, getMemorials, getGroup } from "../../lib/db"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { Button } from "../../components/Button"
 import { getTodayDate } from "../../lib/utils"
@@ -283,6 +283,13 @@ export default function History() {
     enabled: !!currentGroupId,
   })
 
+  // Fetch group to get type
+  const { data: group } = useQuery({
+    queryKey: ["history-group", currentGroupId],
+    queryFn: () => (currentGroupId ? getGroup(currentGroupId) : null),
+    enabled: !!currentGroupId,
+  })
+
   // Fetch memorials for personalizing prompt questions
   const { data: memorials = [] } = useQuery({
     queryKey: ["history-memorials", currentGroupId],
@@ -291,15 +298,43 @@ export default function History() {
   })
 
   const { data: categories = [] } = useQuery({
-    queryKey: ["history-categories"],
+    queryKey: ["history-categories", currentGroupId, group?.type, memorials.length],
     queryFn: async () => {
       const prompts = await getAllPrompts()
       const unique = new Set<string>()
       prompts.forEach((prompt) => {
         if (prompt.category) unique.add(prompt.category)
       })
-      return Array.from(unique)
+      
+      let filteredCategories = Array.from(unique)
+      
+      // Filter based on group type
+      if (group?.type === "family") {
+        // Family groups: exclude "Edgy/NSFW", "Friends", "Seasonal"
+        filteredCategories = filteredCategories.filter(
+          (cat) => cat !== "Edgy/NSFW" && cat !== "Friends" && cat !== "Seasonal"
+        )
+      } else if (group?.type === "friends") {
+        // Friends groups: exclude "Family", "Seasonal"
+        filteredCategories = filteredCategories.filter(
+          (cat) => cat !== "Family" && cat !== "Seasonal"
+        )
+      } else {
+        // No group yet: exclude "Seasonal"
+        filteredCategories = filteredCategories.filter((cat) => cat !== "Seasonal")
+      }
+      
+      // Exclude "Remembering" unless group has memorials
+      if (memorials.length === 0) {
+        filteredCategories = filteredCategories.filter((cat) => cat !== "Remembering")
+      }
+      
+      // Add "Custom" option for both group types
+      filteredCategories.push("Custom")
+      
+      return filteredCategories
     },
+    enabled: !!currentGroupId && !!group,
   })
 
   const { data: todayPrompt } = useQuery({
@@ -342,7 +377,8 @@ export default function History() {
   const filteredEntries = useMemo(
     () =>
       entriesWithinPeriod.filter((entry) => {
-        const category = entry.prompt?.category ?? ""
+        const isCustom = entry.prompt?.is_custom === true
+        const category = isCustom ? "Custom" : (entry.prompt?.category ?? "")
 
         if (selectedCategories.length > 0 && (!category || !selectedCategories.includes(category))) {
           return false
@@ -578,297 +614,297 @@ export default function History() {
 
   // Create dynamic styles based on theme
   const styles = useMemo(() => StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.black,
-    },
-    header: {
-      paddingTop: spacing.xxl * 2,
-      paddingHorizontal: spacing.md,
-      paddingBottom: spacing.md,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.gray[800],
-      position: "absolute",
-      top: 0,
-      left: 0,
-      right: 0,
-      backgroundColor: colors.black,
-      gap: spacing.sm,
-      zIndex: 20,
-      elevation: 20,
-      overflow: "visible",
-    },
-    headerTop: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-      gap: spacing.md,
-    },
-    title: {
-      ...typography.h1,
-      fontSize: 32,
+  container: {
+    flex: 1,
+    backgroundColor: colors.black,
+  },
+  header: {
+    paddingTop: spacing.xxl * 2,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.gray[800],
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.black,
+    gap: spacing.sm,
+    zIndex: 20,
+    elevation: 20,
+    overflow: "visible",
+  },
+  headerTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  title: {
+    ...typography.h1,
+    fontSize: 32,
       color: colors.white,
-    },
-    headerActions: {
-      flexDirection: "row",
-      gap: spacing.sm,
-      alignItems: "center",
-    },
-    filterButton: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.xs,
-      paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.md,
-      borderRadius: 16,
+  },
+  headerActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    alignItems: "center",
+  },
+  filterButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: 16,
       backgroundColor: isDark ? colors.gray[800] : colors.black,
-    },
-    filterButtonWrapper: {
-      position: "relative",
-    },
-    filterText: {
-      ...typography.bodyMedium,
-      color: colors.white,
-    },
-    filterChevron: {
-      ...typography.caption,
-      color: colors.gray[400],
-    },
-    filterCTA: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.md,
-      borderRadius: 16,
+  },
+  filterButtonWrapper: {
+    position: "relative",
+  },
+  filterText: {
+    ...typography.bodyMedium,
+    color: colors.white,
+  },
+  filterChevron: {
+    ...typography.caption,
+    color: colors.gray[400],
+  },
+  filterCTA: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: 16,
       backgroundColor: isDark ? colors.gray[800] : colors.black,
-      minHeight: 40,
-    },
-    filterCTAText: {
-      ...typography.bodyBold,
+    minHeight: 40,
+  },
+  filterCTAText: {
+    ...typography.bodyBold,
       color: colors.white,
-    },
-    filterMenu: {
-      position: "absolute",
-      top: "100%",
-      right: 0,
-      backgroundColor: colors.gray[900],
-      borderRadius: 12,
-      paddingVertical: spacing.xs,
-      borderWidth: 1,
-      borderColor: colors.gray[700],
-      width: 140,
-      zIndex: 1000,
-      elevation: 12,
-      marginTop: spacing.xs,
-    },
-    filterOption: {
-      paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.md,
-    },
-    filterOptionText: {
-      ...typography.body,
-      color: colors.gray[400],
-    },
-    filterOptionTextActive: {
-      color: colors.white,
-    },
-    content: {
-      flex: 1,
-      // No marginTop - header overlays content
-    },
-    contentContainer: {
-      paddingBottom: spacing.xxl * 3,
-    },
-    daySection: {
-      marginBottom: spacing.xl,
-    },
-    dateHeader: {
+  },
+  filterMenu: {
+    position: "absolute",
+    top: "100%",
+    right: 0,
+    backgroundColor: colors.gray[900],
+    borderRadius: 12,
+    paddingVertical: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.gray[700],
+    width: 140,
+    zIndex: 1000,
+    elevation: 12,
+    marginTop: spacing.xs,
+  },
+  filterOption: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  filterOptionText: {
+    ...typography.body,
+    color: colors.gray[400],
+  },
+  filterOptionTextActive: {
+    color: colors.white,
+  },
+  content: {
+    flex: 1,
+    // No marginTop - header overlays content
+  },
+  contentContainer: {
+    paddingBottom: spacing.xxl * 3,
+  },
+  daySection: {
+    marginBottom: spacing.xl,
+  },
+  dateHeader: {
       ...typography.h2,
       fontSize: 22,
-      marginBottom: spacing.xl,
+    marginBottom: spacing.xl,
       marginHorizontal: spacing.lg,
-      color: colors.gray[300],
-    },
-    placeholderContainer: {
-      flex: 1,
-      justifyContent: "center",
-      alignItems: "center",
-      paddingVertical: spacing.xxl * 2,
-    },
-    placeholderText: {
-      ...typography.body,
-      color: colors.gray[500],
-    },
-    emptyState: {
-      padding: spacing.xl,
-      alignItems: "center",
-      gap: spacing.md,
-    },
-    emptyTitle: {
-      ...typography.h2,
+    color: colors.gray[300],
+  },
+  placeholderContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: spacing.xxl * 2,
+  },
+  placeholderText: {
+    ...typography.body,
+    color: colors.gray[500],
+  },
+  emptyState: {
+    padding: spacing.xl,
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  emptyTitle: {
+    ...typography.h2,
+    color: colors.white,
+  },
+  emptySubtitle: {
+    ...typography.body,
+    color: colors.gray[400],
+    textAlign: "center",
+  },
+  emptyButtonFull: {
+    width: "100%",
+    marginTop: spacing.sm,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: colors.black,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+  },
+  modalTitle: {
+    ...typography.h1,
+    fontSize: 32,
       color: colors.white,
-    },
-    emptySubtitle: {
-      ...typography.body,
-      color: colors.gray[400],
-      textAlign: "center",
-    },
-    emptyButtonFull: {
-      width: "100%",
-      marginTop: spacing.sm,
-    },
-    modalContainer: {
-      flex: 1,
-      backgroundColor: colors.black,
-    },
-    modalHeader: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-      paddingHorizontal: spacing.lg,
-      paddingBottom: spacing.md,
-    },
-    modalTitle: {
-      ...typography.h1,
-      fontSize: 32,
-      color: colors.white,
-    },
-    modalCloseButton: {
-      padding: spacing.sm,
-    },
-    modalClose: {
-      ...typography.bodyBold,
-      fontSize: 24,
-      color: colors.white,
-    },
-    modalContent: {
-      paddingHorizontal: spacing.lg,
-      paddingBottom: spacing.xxl * 2,
-    },
-    modalSection: {
-      ...typography.bodyMedium,
-      fontSize: 14,
-      color: colors.gray[500],
-      marginTop: spacing.sm,
-    },
-    modalSectionSpacing: {
-      marginTop: spacing.lg,
-    },
-    selectionGrid: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: spacing.sm,
-      marginTop: spacing.sm,
-    },
-    selectionCard: {
-      width: "48%",
-      backgroundColor: colors.gray[900],
-      borderRadius: 16,
-      paddingVertical: spacing.md,
-      paddingHorizontal: spacing.sm,
-      alignItems: "center",
-      gap: spacing.sm,
-    },
-    selectionCardActive: {
-      borderWidth: 1,
-      borderColor: colors.white,
-    },
-    selectionLabel: {
-      ...typography.bodyMedium,
-      color: colors.white,
-      textAlign: "center",
-    },
-    memorialList: {
-      gap: spacing.sm,
-      marginTop: spacing.sm,
-    },
-    memorialRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.md,
-      backgroundColor: colors.gray[900],
-      borderRadius: 16,
-      paddingVertical: spacing.md,
-      paddingHorizontal: spacing.md,
-      width: "100%",
-    },
-    memorialRowActive: {
-      borderWidth: 1,
-      borderColor: colors.white,
-    },
-    memorialName: {
-      ...typography.bodyMedium,
-      color: colors.white,
-      fontSize: 16,
-    },
-    periodBanner: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm,
-      backgroundColor: colors.gray[900],
-      borderBottomWidth: 1,
-      borderBottomColor: colors.gray[800],
-    },
-    periodBannerTitle: {
-      ...typography.bodyBold,
-      color: colors.white,
-    },
-    periodBannerSubtitle: {
-      ...typography.caption,
-      color: colors.gray[400],
-    },
-    periodBannerAction: {
-      padding: spacing.xs,
-    },
-    periodBannerClear: {
-      ...typography.bodyMedium,
-      color: colors.accent,
-    },
-    periodGrid: {
-      gap: spacing.md,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.md,
-    },
-    periodCard: {
-      overflow: "hidden",
-    },
-    periodBackground: {
-      height: 220,
-      overflow: "hidden",
-      justifyContent: "flex-end",
-    },
-    periodImage: {
-      // No borderRadius - square edges
-    },
-    periodFallback: {
-      backgroundColor: colors.gray[800],
-    },
-    periodShade: {
-      ...StyleSheet.absoluteFillObject,
-      backgroundColor: "rgba(0,0,0,0.35)",
-    },
-    periodOverlay: {
-      padding: spacing.xxl,
-      gap: spacing.sm,
-    },
-    periodTitle: {
-      ...typography.bodyBold,
-      fontSize: 24,
-      color: colors.white,
-    },
-    periodSubtitle: {
-      ...typography.caption,
-      fontSize: 16,
-      color: colors.gray[100],
-    },
-    periodCount: {
-      ...typography.caption,
-      fontSize: 14,
-      color: colors.gray[200],
-    },
+  },
+  modalCloseButton: {
+    padding: spacing.sm,
+  },
+  modalClose: {
+    ...typography.bodyBold,
+    fontSize: 24,
+    color: colors.white,
+  },
+  modalContent: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xxl * 2,
+  },
+  modalSection: {
+    ...typography.bodyMedium,
+    fontSize: 14,
+    color: colors.gray[500],
+    marginTop: spacing.sm,
+  },
+  modalSectionSpacing: {
+    marginTop: spacing.lg,
+  },
+  selectionGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  selectionCard: {
+    width: "48%",
+    backgroundColor: colors.gray[900],
+    borderRadius: 16,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  selectionCardActive: {
+    borderWidth: 1,
+    borderColor: colors.white,
+  },
+  selectionLabel: {
+    ...typography.bodyMedium,
+    color: colors.white,
+    textAlign: "center",
+  },
+  memorialList: {
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  memorialRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    backgroundColor: colors.gray[900],
+    borderRadius: 16,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    width: "100%",
+  },
+  memorialRowActive: {
+    borderWidth: 1,
+    borderColor: colors.white,
+  },
+  memorialName: {
+    ...typography.bodyMedium,
+    color: colors.white,
+    fontSize: 16,
+  },
+  periodBanner: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.gray[900],
+    borderBottomWidth: 1,
+    borderBottomColor: colors.gray[800],
+  },
+  periodBannerTitle: {
+    ...typography.bodyBold,
+    color: colors.white,
+  },
+  periodBannerSubtitle: {
+    ...typography.caption,
+    color: colors.gray[400],
+  },
+  periodBannerAction: {
+    padding: spacing.xs,
+  },
+  periodBannerClear: {
+    ...typography.bodyMedium,
+    color: colors.accent,
+  },
+  periodGrid: {
+    gap: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+  },
+  periodCard: {
+    overflow: "hidden",
+  },
+  periodBackground: {
+    height: 220,
+    overflow: "hidden",
+    justifyContent: "flex-end",
+  },
+  periodImage: {
+    // No borderRadius - square edges
+  },
+  periodFallback: {
+    backgroundColor: colors.gray[800],
+  },
+  periodShade: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.35)",
+  },
+  periodOverlay: {
+    padding: spacing.xxl,
+    gap: spacing.sm,
+  },
+  periodTitle: {
+    ...typography.bodyBold,
+    fontSize: 24,
+    color: colors.white,
+  },
+  periodSubtitle: {
+    ...typography.caption,
+    fontSize: 16,
+    color: colors.gray[100],
+  },
+  periodCount: {
+    ...typography.caption,
+    fontSize: 14,
+    color: colors.gray[200],
+  },
   }), [colors])
 
   return (
@@ -950,7 +986,7 @@ export default function History() {
             <View style={styles.selectionGrid}>
               {members.map((member) => {
                 const isSelected = selectedMembers.includes(member.user_id)
-                return (
+  return (
                   <TouchableOpacity
                     key={member.id}
                     style={[styles.selectionCard, isSelected && styles.selectionCardActive]}
@@ -1064,7 +1100,7 @@ export default function History() {
                     />
                   )
                 })}
-              </View>
+      </View>
               )
             })}
           </>

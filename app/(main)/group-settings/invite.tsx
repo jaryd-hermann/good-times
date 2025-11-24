@@ -31,90 +31,90 @@ export default function InviteMembersSettings() {
 
   // Create dynamic styles based on theme
   const styles = useMemo(() => StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.black,
-    },
-    header: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      paddingHorizontal: spacing.md,
-      paddingBottom: spacing.md,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.gray[800],
-    },
-    closeButton: {
-      padding: spacing.sm,
-    },
-    closeText: {
-      ...typography.h2,
+  container: {
+    flex: 1,
+    backgroundColor: colors.black,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.gray[800],
+  },
+  closeButton: {
+    padding: spacing.sm,
+  },
+  closeText: {
+    ...typography.h2,
+    color: colors.white,
+  },
+  title: {
+    ...typography.h1,
+    fontSize: 28,
       color: colors.white,
-    },
-    title: {
-      ...typography.h1,
-      fontSize: 28,
+  },
+  content: {
+    flex: 1,
+    padding: spacing.lg,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.lg,
+  },
+  iconContainer: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: colors.gray[900],
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  heading: {
+    ...typography.h2,
+    fontSize: 24,
+    textAlign: "center",
       color: colors.white,
-    },
-    content: {
-      flex: 1,
-      padding: spacing.lg,
-      alignItems: "center",
-      justifyContent: "center",
-      gap: spacing.lg,
-    },
-    iconContainer: {
-      width: 96,
-      height: 96,
-      borderRadius: 48,
-      backgroundColor: colors.gray[900],
-      justifyContent: "center",
-      alignItems: "center",
-    },
-    heading: {
-      ...typography.h2,
-      fontSize: 24,
-      textAlign: "center",
-      color: colors.white,
-    },
-    description: {
-      ...typography.body,
-      color: colors.gray[400],
-      textAlign: "center",
-      lineHeight: 22,
-    },
-    shareButton: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.sm,
-      backgroundColor: colors.accent,
-      paddingVertical: spacing.md,
-      paddingHorizontal: spacing.xl,
-      borderRadius: 12,
-      marginTop: spacing.md,
-    },
-    shareButtonText: {
-      ...typography.bodyBold,
-      color: colors.white,
-      fontSize: 16,
-    },
-    linkContainer: {
-      width: "100%",
-      backgroundColor: colors.gray[900],
-      borderRadius: 12,
-      padding: spacing.md,
-      gap: spacing.xs,
-    },
-    linkLabel: {
-      ...typography.caption,
-      color: colors.gray[400],
-      fontSize: 12,
-    },
-    linkText: {
-      ...typography.body,
-      color: colors.white,
-      fontSize: 14,
-    },
+  },
+  description: {
+    ...typography.body,
+    color: colors.gray[400],
+    textAlign: "center",
+    lineHeight: 22,
+  },
+  shareButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.accent,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    borderRadius: 12,
+    marginTop: spacing.md,
+  },
+  shareButtonText: {
+    ...typography.bodyBold,
+    color: colors.white,
+    fontSize: 16,
+  },
+  linkContainer: {
+    width: "100%",
+    backgroundColor: colors.gray[900],
+    borderRadius: 12,
+    padding: spacing.md,
+    gap: spacing.xs,
+  },
+  linkLabel: {
+    ...typography.caption,
+    color: colors.gray[400],
+    fontSize: 12,
+  },
+  linkText: {
+    ...typography.body,
+    color: colors.white,
+    fontSize: 14,
+  },
   }), [colors])
 
   return (

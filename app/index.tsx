@@ -262,29 +262,11 @@ export default function Index() {
         // Push notifications will be requested on first visit to home.tsx
         console.log("[boot] routing decision...");
         if (membership?.group_id) {
-          // Check if this is a NEW user (created within last 10 minutes)
-          // Only show welcome-post-auth to newly registered users, not existing users logging in
-          const userCreatedAt = new Date(session.user.created_at);
-          const now = new Date();
-          const minutesSinceCreation = (now.getTime() - userCreatedAt.getTime()) / (1000 * 60);
-          const isNewUser = minutesSinceCreation < 10; // User created within last 10 minutes
-          
-          if (isNewUser) {
-            // Check if user has completed post-auth onboarding
-            const onboardingKey = `has_completed_post_auth_onboarding_${session.user.id}`
-            const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
-            if (!hasCompletedPostAuth) {
-              console.log("[boot] new user with group but not completed post-auth onboarding → welcome-post-auth");
-              router.replace("/(onboarding)/welcome-post-auth");
-            } else {
-              console.log("[boot] new user with group → (main)/home");
-              router.replace("/(main)/home");
-            }
-          } else {
-            // Existing user - skip welcome-post-auth and go straight to home
-            console.log("[boot] existing user with group → (main)/home");
-            router.replace("/(main)/home");
-          }
+          // Boot flow should ALWAYS go to home if user has a group
+          // Onboarding screens are only shown during registration flow (after group creation)
+          // Never show onboarding screens during boot/sign-in
+          console.log("[boot] user with group → (main)/home");
+          router.replace("/(main)/home");
         } else {
           console.log("[boot] no group → onboarding/create-group/name-type");
           router.replace("/(onboarding)/create-group/name-type");

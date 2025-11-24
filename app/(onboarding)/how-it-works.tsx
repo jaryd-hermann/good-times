@@ -7,18 +7,10 @@ import { colors, typography, spacing } from "../../lib/theme"
 import { Button } from "../../components/Button"
 import { OnboardingBack } from "../../components/OnboardingBack"
 import { OnboardingProgress } from "../../components/OnboardingProgress"
-import { useOnboarding } from "../../components/OnboardingProvider"
-import { supabase } from "../../lib/supabase"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 
-const POST_AUTH_ONBOARDING_KEY_PREFIX = "has_completed_post_auth_onboarding"
-
-// Helper function to get user-specific onboarding key
-function getPostAuthOnboardingKey(userId: string): string {
-  return `${POST_AUTH_ONBOARDING_KEY_PREFIX}_${userId}`
-}
-
 const { width, height } = Dimensions.get("window")
+const PENDING_GROUP_KEY = "pending_group_join"
 
 const STEPS = [
   "Every day, you get one short question.",
@@ -30,7 +22,18 @@ const STEPS = [
 
 export default function HowItWorks() {
   const router = useRouter()
-  const { data } = useOnboarding()
+
+  async function handleContinue() {
+    // Check if user is joining a group (group join flow)
+    const pendingGroupId = await AsyncStorage.getItem(PENDING_GROUP_KEY)
+    if (pendingGroupId) {
+      // Group join flow: skip create-group and memorial, go straight to about
+      router.push("/(onboarding)/about")
+    } else {
+      // Standard flow: go to create-group
+      router.push("/(onboarding)/create-group/name-type")
+    }
+  }
 
   return (
     <ImageBackground
@@ -65,63 +68,7 @@ export default function HowItWorks() {
           <View style={styles.buttonContainer}>
             <Button
               title="→"
-              onPress={async () => {
-                // Check for pending group join
-                const pendingGroupId = await AsyncStorage.getItem("pending_group_join")
-                if (pendingGroupId) {
-                  // Save user profile first if we have onboarding data
-                  const {
-                    data: { session },
-                  } = await supabase.auth.getSession()
-                  if (session) {
-                    // Save profile if we have onboarding data
-                    if (data.userName && data.userBirthday) {
-                      const birthday = data.userBirthday.toISOString().split("T")[0]
-                      const emailFromSession = data.userEmail ?? session.user.email
-                      if (emailFromSession) {
-                        await supabase
-                          .from("users")
-                          .upsert(
-                            {
-                              id: session.user.id,
-                              email: emailFromSession,
-                              name: data.userName.trim(),
-                              birthday,
-                              avatar_url: data.userPhoto,
-                            } as any,
-                            { onConflict: "id" }
-                          )
-                      }
-                    }
-                    
-                    // Join the group and go to home
-                    const { error } = await supabase.from("group_members").insert({
-                      group_id: pendingGroupId,
-                      user_id: session.user.id,
-                      role: "member",
-                    } as any)
-                    if (!error) {
-                      await AsyncStorage.removeItem("pending_group_join")
-                      
-                      // Check if user has completed post-auth onboarding (user-specific)
-                      const onboardingKey = getPostAuthOnboardingKey(session.user.id)
-                      const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
-                      if (!hasCompletedPostAuth) {
-                        // Route to post-auth onboarding screens first
-                        router.replace("/(onboarding)/welcome-post-auth")
-                        return
-                      }
-                      
-                      router.replace({
-                        pathname: "/(main)/home",
-                        params: { focusGroupId: pendingGroupId },
-                      })
-                      return
-                    }
-                  }
-                }
-                router.push("/(onboarding)/create-group/name-type")
-              }}
+              onPress={handleContinue}
               style={styles.button}
               textStyle={styles.buttonText}
             />

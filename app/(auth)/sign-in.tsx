@@ -43,26 +43,9 @@ export default function SignIn() {
           .single()
 
         if (membership) {
-          // Check if this is a NEW user (created within last 10 minutes)
-          // Only show welcome-post-auth to newly registered users, not existing users logging in
-          const userCreatedAt = new Date(data.user.created_at)
-          const now = new Date()
-          const minutesSinceCreation = (now.getTime() - userCreatedAt.getTime()) / (1000 * 60)
-          const isNewUser = minutesSinceCreation < 10 // User created within last 10 minutes
-          
-          if (isNewUser) {
-            // Check if user has completed post-auth onboarding
-            const onboardingKey = `has_completed_post_auth_onboarding_${data.user.id}`
-            const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
-            if (!hasCompletedPostAuth) {
-              router.replace("/(onboarding)/welcome-post-auth")
-            } else {
-              router.replace("/(main)/home")
-            }
-          } else {
-            // Existing user - skip welcome-post-auth and go straight to home
-            router.replace("/(main)/home")
-          }
+          // Sign-in should ALWAYS go to home - never show onboarding screens
+          // Onboarding screens are only shown during registration flow
+          router.replace("/(main)/home")
         } else {
           router.replace("/(onboarding)/create-group/name-type")
         }

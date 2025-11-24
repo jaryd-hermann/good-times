@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { View, Text, StyleSheet, Alert, TextInput, ImageBackground, KeyboardAvoidingView, Platform, ScrollView } from "react-native"
+import { View, Text, StyleSheet, Alert, TextInput, KeyboardAvoidingView, Platform, ScrollView } from "react-native"
 import { useRouter } from "expo-router"
 import { supabase } from "../../lib/supabase"
 import { colors, spacing } from "../../lib/theme"
@@ -48,12 +48,7 @@ export default function ForgotPassword() {
   }
 
   return (
-    <ImageBackground
-      source={require("../../assets/images/auth-bg.png")}
-      style={styles.background}
-      resizeMode="cover"
-    >
-      <View style={styles.overlay} />
+    <View style={styles.background}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.flex}
@@ -75,10 +70,9 @@ export default function ForgotPassword() {
             </View>
 
             <View style={styles.content}>
-              <Text style={styles.title}>Forgot Password</Text>
-
               {!sent ? (
                 <>
+                  <Text style={styles.title}>Forgot Password</Text>
                   <Text style={styles.subtitle}>
                     Enter your email address and we'll send you a link to reset your password.
                   </Text>
@@ -122,17 +116,14 @@ export default function ForgotPassword() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </ImageBackground>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
   background: {
     flex: 1,
-  },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.55)",
+    backgroundColor: colors.black,
   },
   flex: {
     flex: 1,
