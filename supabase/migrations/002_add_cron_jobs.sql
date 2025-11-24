@@ -107,3 +107,17 @@ SELECT cron.schedule(
     ) AS request_id;
   $$
 );
+
+-- Send inactivity notifications daily at 9:30 PM UTC (evening, after daily prompts)
+-- Notifies users who haven't answered questions in a group for 3 consecutive days
+SELECT cron.schedule(
+  'send-inactivity-notifications',
+  '30 21 * * *',
+  $$
+  SELECT
+    net.http_post(
+      url:='https://YOUR_PROJECT_REF.supabase.co/functions/v1/send-inactivity-notifications',
+      headers:='{"Content-Type": "application/json", "Authorization": "Bearer YOUR_ANON_KEY"}'::jsonb
+    ) AS request_id;
+  $$
+);

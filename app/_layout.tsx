@@ -88,6 +88,12 @@ export default function RootLayout() {
           pathname: "/(main)/home",
           params: { focusGroupId: group_id },
         })
+      } else if (type === "inactivity_reminder" && group_id) {
+        // Navigate to home with group focused
+        router.push({
+          pathname: "/(main)/home",
+          params: { focusGroupId: group_id },
+        })
       }
     })
 
