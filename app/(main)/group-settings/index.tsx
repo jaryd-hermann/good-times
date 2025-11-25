@@ -1,12 +1,13 @@
 "use client"
 
 import { useEffect, useState, useMemo } from "react"
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native"
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Platform } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { useQuery } from "@tanstack/react-query"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
+import AsyncStorage from "@react-native-async-storage/async-storage"
 import { supabase } from "../../../lib/supabase"
-import { isGroupAdmin } from "../../../lib/db"
+import { isGroupAdmin, getUserGroups } from "../../../lib/db"
 import { spacing, typography } from "../../../lib/theme"
 import { useTheme } from "../../../lib/theme-context"
 import { FontAwesome } from "@expo/vector-icons"
@@ -16,12 +17,40 @@ import { captureEvent } from "../../../lib/posthog"
 export default function GroupSettingsIndex() {
   const router = useRouter()
   const params = useLocalSearchParams()
-  const { colors } = useTheme()
+  const { colors, isDark } = useTheme()
   const groupId = params.groupId as string
   const insets = useSafeAreaInsets()
   const [userId, setUserId] = useState<string>()
   const [isAdmin, setIsAdmin] = useState(false)
+  const [isDefaultGroup, setIsDefaultGroup] = useState(false)
+  const [hasMultipleGroups, setHasMultipleGroups] = useState(false)
   const posthog = usePostHog()
+
+  // Load user groups to check if user has multiple groups
+  const { data: groups = [] } = useQuery({
+    queryKey: ["groups", userId],
+    queryFn: () => (userId ? getUserGroups(userId) : []),
+    enabled: !!userId,
+  })
+
+  useEffect(() => {
+    if (groups.length > 1) {
+      setHasMultipleGroups(true)
+    } else {
+      setHasMultipleGroups(false)
+    }
+  }, [groups.length])
+
+  // Load default group preference
+  useEffect(() => {
+    async function loadDefaultGroup() {
+      const defaultGroupId = await AsyncStorage.getItem("default_group_id")
+      setIsDefaultGroup(defaultGroupId === groupId)
+    }
+    if (groupId) {
+      loadDefaultGroup()
+    }
+  }, [groupId])
 
   // Track loaded_group_settings event
   useEffect(() => {
@@ -96,6 +125,40 @@ export default function GroupSettingsIndex() {
       icon: "sign-out",
     },
   ]
+
+  async function handleDefaultGroupToggle(value: boolean) {
+    if (value) {
+      // Set this group as default
+      await AsyncStorage.setItem("default_group_id", groupId)
+      setIsDefaultGroup(true)
+      
+      // Track event
+      try {
+        if (posthog) {
+          posthog.capture("set_default_group", { group_id: groupId })
+        } else {
+          captureEvent("set_default_group", { group_id: groupId })
+        }
+      } catch (error) {
+        if (__DEV__) console.error("[group-settings] Failed to track set_default_group:", error)
+      }
+    } else {
+      // Remove default group
+      await AsyncStorage.removeItem("default_group_id")
+      setIsDefaultGroup(false)
+      
+      // Track event
+      try {
+        if (posthog) {
+          posthog.capture("unset_default_group", { group_id: groupId })
+        } else {
+          captureEvent("unset_default_group", { group_id: groupId })
+        }
+      } catch (error) {
+        if (__DEV__) console.error("[group-settings] Failed to track unset_default_group:", error)
+      }
+    }
+  }
 
   function handleNavigate(optionId: string) {
     router.push({
@@ -182,6 +245,33 @@ export default function GroupSettingsIndex() {
       color: colors.gray[400],
       fontSize: 13,
     },
+    defaultGroupCard: {
+      backgroundColor: colors.gray[900],
+      borderRadius: 16,
+      overflow: "hidden",
+      marginBottom: spacing.sm,
+    },
+    defaultGroupContent: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      padding: spacing.md,
+    },
+    defaultGroupText: {
+      flex: 1,
+      marginRight: spacing.md,
+    },
+    defaultGroupTitle: {
+      ...typography.bodyBold,
+      fontSize: 16,
+      color: colors.white,
+    },
+    defaultGroupSubtitle: {
+      ...typography.caption,
+      color: colors.gray[400],
+      fontSize: 13,
+      marginTop: spacing.xs,
+    },
   }), [colors])
 
   return (
@@ -201,6 +291,26 @@ export default function GroupSettingsIndex() {
       )}
 
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+        {/* Default Group Toggle - only show if user has multiple groups */}
+        {hasMultipleGroups && (
+          <View style={styles.defaultGroupCard}>
+            <View style={styles.defaultGroupContent}>
+              <View style={styles.defaultGroupText}>
+                <Text style={styles.defaultGroupTitle}>Set default group</Text>
+                <Text style={styles.defaultGroupSubtitle}>
+                  This group will load when you open the app
+                </Text>
+              </View>
+              <Switch
+                value={isDefaultGroup}
+                onValueChange={handleDefaultGroupToggle}
+                trackColor={{ true: colors.accent }}
+                thumbColor={Platform.OS === "android" ? (isDark ? colors.white : colors.black) : undefined}
+              />
+            </View>
+          </View>
+        )}
+
         {settingsOptions.map((option) => {
           // Hide admin-only options for non-admins
           if (option.adminOnly && !isAdmin) {

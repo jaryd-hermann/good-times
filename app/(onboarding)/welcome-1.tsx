@@ -118,7 +118,7 @@ export default function Welcome1() {
         <View style={styles.textContainer}>
           <Text style={styles.title}>Good Times</Text>
           <Text style={styles.subtitle}>
-            The friends and family group journaling app.
+          The group-based, low-effort, social app for friends & family to meaningfully hear from each other everyday in just 3 minutes.
           </Text>
         </View>
 

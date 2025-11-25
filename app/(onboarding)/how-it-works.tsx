@@ -19,7 +19,7 @@ const STEPS = [
   "Every day, you get one short question.",
   "Answer in just a minute or two.",
   "Enjoy what everyone said.",
-  "It all gets connected in your History.",
+  "Entries are collected in your shared History.",
   "Flip through your timeine to relive memories and feel closer even when you're far apart.",
 ]
 

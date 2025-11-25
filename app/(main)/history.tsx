@@ -740,6 +740,16 @@ export default function History() {
       fontSize: 22,
     marginBottom: spacing.xl,
       marginHorizontal: spacing.lg,
+    flexDirection: "row",
+  },
+  dateHeaderDay: {
+      ...typography.h2,
+      fontSize: 22,
+    color: isDark ? colors.white : colors.black,
+  },
+  dateHeaderDate: {
+      ...typography.h2,
+      fontSize: 22,
     color: colors.gray[300],
   },
   placeholderContainer: {
@@ -921,7 +931,7 @@ export default function History() {
     fontSize: 14,
     color: colors.gray[200],
   },
-  }), [colors])
+  }), [colors, isDark])
 
   return (
     <View style={styles.container}>
@@ -1103,7 +1113,10 @@ export default function History() {
               const entries = dateEntries as any[]
               return (
               <View key={date} style={styles.daySection}>
-                <Text style={styles.dateHeader}>{format(parseISO(date), "EEEE, d MMMM yyyy")}</Text>
+                <View style={styles.dateHeader}>
+                  <Text style={styles.dateHeaderDay}>{format(parseISO(date), "EEEE")}</Text>
+                  <Text style={styles.dateHeaderDate}>, {format(parseISO(date), "d MMMM yyyy")}</Text>
+                </View>
                 {entries.map((entry: any, entryIndex: number) => {
                   const entryIdList = entries.map((item: any) => item.id)
                   return (

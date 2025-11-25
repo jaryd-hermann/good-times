@@ -46,7 +46,10 @@ export default function Welcome3() {
         </View>
         <View style={styles.textContainer}>
           <Text style={styles.body}>
-          This is for you if you want a meaningful and easy way to keep connected and get closer to your people, with <Text style={styles.boldText}>just one question a day</Text>. 
+          Social media isn't real, and finding time for calls or texting can be tricky. This is a simple, free, and intentional alternative for private groups.
+          </Text>
+          <Text style={[styles.body, styles.secondParagraph]}>
+            <Text style={styles.boldText}>Just one easy, shared Q&A a day</Text>.
           </Text>
         </View>
 
@@ -98,6 +101,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
     color: colors.white,
+  },
+  secondParagraph: {
+    marginTop: spacing.md,
   },
   boldText: {
     fontWeight: "bold",

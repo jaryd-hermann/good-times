@@ -183,22 +183,33 @@ export default function Home() {
       if (groups.length > 0) {
         // Priority order:
         // 1. focusGroupId param (highest priority)
-        // 2. Persisted group ID from AsyncStorage
-        // 3. Current state (if already set)
-        // 4. First group (fallback)
+        // 2. Default group ID from AsyncStorage (if user has multiple groups)
+        // 3. Persisted group ID from AsyncStorage
+        // 4. Current state (if already set)
+        // 5. First group (fallback)
         
         if (focusGroupId && groups.some((group) => group.id === focusGroupId)) {
           setCurrentGroupId(focusGroupId)
           await AsyncStorage.setItem("current_group_id", focusGroupId)
         } else if (!currentGroupId) {
-          // Try to restore from AsyncStorage
-          const persistedGroupId = await AsyncStorage.getItem("current_group_id")
-          if (persistedGroupId && groups.some((group) => group.id === persistedGroupId)) {
-            setCurrentGroupId(persistedGroupId)
+          // Check for default group first (only if user has multiple groups)
+          const defaultGroupId = groups.length > 1 
+            ? await AsyncStorage.getItem("default_group_id")
+            : null
+          
+          if (defaultGroupId && groups.some((group) => group.id === defaultGroupId)) {
+            setCurrentGroupId(defaultGroupId)
+            await AsyncStorage.setItem("current_group_id", defaultGroupId)
           } else {
-            // Fallback to first group
-            setCurrentGroupId(groups[0].id)
-            await AsyncStorage.setItem("current_group_id", groups[0].id)
+            // Try to restore from AsyncStorage
+            const persistedGroupId = await AsyncStorage.getItem("current_group_id")
+            if (persistedGroupId && groups.some((group) => group.id === persistedGroupId)) {
+              setCurrentGroupId(persistedGroupId)
+            } else {
+              // Fallback to first group
+              setCurrentGroupId(groups[0].id)
+              await AsyncStorage.setItem("current_group_id", groups[0].id)
+            }
           }
         }
         // Otherwise, preserve the existing currentGroupId
@@ -905,7 +916,7 @@ export default function Home() {
       fontSize: 22,
       marginBottom: spacing.sm,
       color: colors.white,
-      fontWeight: "bold",
+      fontFamily: "LibreBaskerville-Bold", // Explicitly set Baskerville Bold for Android compatibility
     },
   promptDescription: {
     ...typography.body,

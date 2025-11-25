@@ -86,5 +86,6 @@ const styles = StyleSheet.create({
   text: {
     ...typography.bodyBold,
     fontSize: 18,
+    textAlign: "center",
   },
 })

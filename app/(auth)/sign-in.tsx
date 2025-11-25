@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from "react-native"
+import { useState, useRef } from "react"
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from "react-native"
 import { useRouter } from "expo-router"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { supabase } from "../../lib/supabase"
@@ -17,6 +17,8 @@ export default function SignIn() {
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const posthog = usePostHog()
+  const emailInputRef = useRef<any>(null)
+  const passwordInputRef = useRef<any>(null)
 
   async function handleEmailSignIn() {
     if (!email || !password) {
@@ -85,54 +87,71 @@ export default function SignIn() {
     Alert.alert("Coming Soon", "Apple sign-in will be available soon")
   }
 
+  const scrollViewRef = useRef<ScrollView>(null)
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Welcome back</Text>
-        <Text style={styles.subtitle}>Sign in to continue your story</Text>
-      </View>
-
-      <View style={styles.form}>
-        <Input
-          label="Email"
-          value={email}
-          onChangeText={setEmail}
-          placeholder="your@email.com"
-          keyboardType="email-address"
-          autoCapitalize="none"
-          autoComplete="email"
-        />
-
-        <Input
-          label="Password"
-          value={password}
-          onChangeText={setPassword}
-          placeholder="Enter your password"
-          secureTextEntry
-          autoCapitalize="none"
-          autoComplete="password"
-        />
-
-        <Button title="Sign In" onPress={handleEmailSignIn} loading={loading} style={styles.button} />
-
-        <View style={styles.divider}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>or continue with</Text>
-          <View style={styles.dividerLine} />
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={0}
+      enabled={true}
+    >
+      <ScrollView
+        ref={scrollViewRef}
+        style={styles.scrollView}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.header}>
+          <Text style={styles.title}>Welcome back</Text>
+          <Text style={styles.subtitle}>Sign in to continue your story</Text>
         </View>
 
-        <Button title="Continue with Google" onPress={handleGoogleSignIn} variant="secondary" style={styles.button} />
+        <View style={styles.form}>
+          <Input
+            ref={emailInputRef}
+            label="Email"
+            value={email}
+            onChangeText={setEmail}
+            placeholder="your@email.com"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+          />
 
-        <Button title="Continue with Apple" onPress={handleAppleSignIn} variant="secondary" style={styles.button} />
-      </View>
+          <Input
+            ref={passwordInputRef}
+            label="Password"
+            value={password}
+            onChangeText={setPassword}
+            placeholder="Enter your password"
+            secureTextEntry
+            autoCapitalize="none"
+            autoComplete="password"
+          />
 
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>Don't have an account? </Text>
-        <TouchableOpacity onPress={() => router.push("/(auth)/sign-up")}>
-          <Text style={styles.footerLink}>Sign up</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+          <Button title="Sign In" onPress={handleEmailSignIn} loading={loading} style={styles.button} />
+
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>or continue with</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          <Button title="Continue with Google" onPress={handleGoogleSignIn} variant="secondary" style={styles.button} />
+
+          <Button title="Continue with Apple" onPress={handleAppleSignIn} variant="secondary" style={styles.button} />
+        </View>
+
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>Don't have an account? </Text>
+          <TouchableOpacity onPress={() => router.push("/(auth)/sign-up")}>
+            <Text style={styles.footerLink}>Sign up</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   )
 }
 
@@ -141,9 +160,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.black,
   },
+  scrollView: {
+    flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
   content: {
     padding: spacing.lg,
     paddingTop: spacing.xxl * 2,
+    paddingBottom: Platform.OS === "android" ? spacing.xxl * 4 : spacing.xxl * 2, // Extra padding for Android keyboard
+    flexGrow: 1,
   },
   header: {
     marginBottom: spacing.xxl,

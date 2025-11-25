@@ -10,6 +10,7 @@ import {
   StyleSheet,
   Image,
   Switch,
+  Platform,
 } from "react-native"
 import { useRouter } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -354,7 +355,12 @@ export default function SettingsScreen() {
             <Text style={styles.settingRowTitle}>Notifications</Text>
             <Text style={styles.settingRowSubtitle}>Stay updated when your group shares.</Text>
           </View>
-          <Switch value={notificationsEnabled} onValueChange={setNotificationsEnabled} trackColor={{ true: colors.accent }} />
+          <Switch 
+            value={notificationsEnabled} 
+            onValueChange={setNotificationsEnabled} 
+            trackColor={{ true: colors.accent }} 
+            thumbColor={Platform.OS === "android" ? (isDark ? colors.white : colors.black) : undefined}
+          />
         </View>
 
         <View style={styles.settingRow}>
@@ -366,6 +372,7 @@ export default function SettingsScreen() {
             value={dailyQuestionNotifications}
             onValueChange={setDailyQuestionNotifications}
             trackColor={{ true: colors.accent }}
+            thumbColor={Platform.OS === "android" ? (isDark ? colors.white : colors.black) : undefined}
           />
         </View>
 
@@ -398,7 +405,8 @@ export default function SettingsScreen() {
                 if (__DEV__) console.error("[settings] Failed to track changed_app_theme:", error)
               }
             }} 
-            trackColor={{ true: colors.accent }} 
+            trackColor={{ true: colors.accent }}
+            thumbColor={Platform.OS === "android" ? (isDark ? colors.white : colors.black) : undefined}
           />
         </View>
 
@@ -410,7 +418,12 @@ export default function SettingsScreen() {
               </Text>
               <Text style={styles.settingRowSubtitle}>Log in quickly with {biometricType === "face" ? "FaceID" : biometricType === "fingerprint" ? "TouchID" : "biometric authentication"}.</Text>
             </View>
-            <Switch value={biometricEnabled} onValueChange={handleBiometricToggle} trackColor={{ true: colors.accent }} />
+            <Switch 
+              value={biometricEnabled} 
+              onValueChange={handleBiometricToggle} 
+              trackColor={{ true: colors.accent }}
+              thumbColor={Platform.OS === "android" ? (isDark ? colors.white : colors.black) : undefined}
+            />
           </View>
         )}
 
@@ -424,7 +437,7 @@ export default function SettingsScreen() {
               value={devForceCustomQuestion}
               onValueChange={handleDevForceCustomQuestionToggle}
               trackColor={{ false: colors.gray[700], true: colors.accent }}
-              thumbColor={colors.white}
+              thumbColor={Platform.OS === "android" ? (isDark ? colors.white : colors.black) : colors.white}
             />
           </View>
         )}

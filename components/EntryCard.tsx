@@ -242,9 +242,12 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   },
   entryHeader: {
     flexDirection: "row",
-      justifyContent: "flex-start",
+      justifyContent: "space-between",
     alignItems: "center",
     marginBottom: spacing.sm,
+  },
+  arrowIcon: {
+    opacity: 0.5,
   },
   entryAuthor: {
     flexDirection: "row",
@@ -465,6 +468,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
             <Avatar uri={entry.user?.avatar_url} name={entry.user?.name || "User"} size={28} />
             <Text style={styles.userName}>{entry.user?.name}</Text>
           </View>
+          <FontAwesome name="chevron-right" size={14} color={colors.gray[400]} style={styles.arrowIcon} />
         </View>
 
         {/* Question */}

@@ -69,6 +69,30 @@ export default function NotificationsOnboarding() {
           if (pendingGroupId) {
             // Try to join the group
             try {
+              // CRITICAL: Ensure user has a profile before joining group
+              const { data: existingProfile } = await supabase
+                .from("users")
+                .select("id")
+                .eq("id", user.id)
+                .maybeSingle()
+
+              if (!existingProfile) {
+                console.log("[notifications-onboarding] User profile not found, creating profile...")
+                const { error: profileError } = await supabase
+                  .from("users")
+                  .insert({
+                    id: user.id,
+                    email: user.email || "",
+                  } as any)
+
+                if (profileError) {
+                  console.error("[notifications-onboarding] Failed to create user profile:", profileError)
+                  // Continue anyway
+                } else {
+                  console.log("[notifications-onboarding] User profile created successfully")
+                }
+              }
+
               const { data: existingMember } = await supabase
                 .from("group_members")
                 .select("id")
@@ -83,7 +107,7 @@ export default function NotificationsOnboarding() {
                     group_id: pendingGroupId,
                     user_id: user.id,
                     role: "member",
-                  })
+                  } as any)
 
                 if (!joinError) {
                   await AsyncStorage.removeItem(PENDING_GROUP_KEY)
@@ -166,6 +190,32 @@ export default function NotificationsOnboarding() {
     if (pendingGroupId) {
       console.log("[notifications-onboarding] Joining group from invite link:", pendingGroupId)
       try {
+        // CRITICAL: Ensure user has a profile before joining group
+        // Check if user profile exists
+        const { data: existingProfile } = await supabase
+          .from("users")
+          .select("id")
+          .eq("id", user.id)
+          .maybeSingle()
+
+        if (!existingProfile) {
+          console.log("[notifications-onboarding] User profile not found, creating profile...")
+          // Create minimal profile with email
+          const { error: profileError } = await supabase
+            .from("users")
+            .insert({
+              id: user.id,
+              email: user.email || "",
+            } as any)
+
+          if (profileError) {
+            console.error("[notifications-onboarding] Failed to create user profile:", profileError)
+            // Continue anyway - user can complete profile later
+          } else {
+            console.log("[notifications-onboarding] User profile created successfully")
+          }
+        }
+
         // Check if user is already a member
         const { data: existingMember } = await supabase
           .from("group_members")
@@ -182,7 +232,7 @@ export default function NotificationsOnboarding() {
               group_id: pendingGroupId,
               user_id: user.id,
               role: "member",
-            })
+            } as any)
 
           if (joinError) {
             console.error("[notifications-onboarding] Failed to join group:", joinError)

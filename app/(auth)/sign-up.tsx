@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from "react-native"
+import { useState, useRef } from "react"
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from "react-native"
 import { useRouter } from "expo-router"
 import { supabase } from "../../lib/supabase"
 import { colors, typography, spacing } from "../../lib/theme"
@@ -14,6 +14,9 @@ export default function SignUp() {
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [loading, setLoading] = useState(false)
+  const emailInputRef = useRef<any>(null)
+  const passwordInputRef = useRef<any>(null)
+  const confirmPasswordInputRef = useRef<any>(null)
 
   async function handleEmailSignUp() {
     if (!email || !password || !confirmPassword) {
@@ -67,64 +70,82 @@ export default function SignUp() {
     Alert.alert("Coming Soon", "Apple sign-up will be available soon")
   }
 
+  const scrollViewRef = useRef<ScrollView>(null)
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Create account</Text>
-        <Text style={styles.subtitle}>Start your shared story today</Text>
-      </View>
-
-      <View style={styles.form}>
-        <Input
-          label="Email"
-          value={email}
-          onChangeText={setEmail}
-          placeholder="your@email.com"
-          keyboardType="email-address"
-          autoCapitalize="none"
-          autoComplete="email"
-        />
-
-        <Input
-          label="Password"
-          value={password}
-          onChangeText={setPassword}
-          placeholder="At least 6 characters"
-          secureTextEntry
-          autoCapitalize="none"
-          autoComplete="password-new"
-        />
-
-        <Input
-          label="Confirm Password"
-          value={confirmPassword}
-          onChangeText={setConfirmPassword}
-          placeholder="Re-enter your password"
-          secureTextEntry
-          autoCapitalize="none"
-          autoComplete="password-new"
-        />
-
-        <Button title="Create Account" onPress={handleEmailSignUp} loading={loading} style={styles.button} />
-
-        <View style={styles.divider}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>or continue with</Text>
-          <View style={styles.dividerLine} />
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={0}
+      enabled={true}
+    >
+      <ScrollView
+        ref={scrollViewRef}
+        style={styles.scrollView}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.header}>
+          <Text style={styles.title}>Create account</Text>
+          <Text style={styles.subtitle}>Start your shared story today</Text>
         </View>
 
-        <Button title="Continue with Google" onPress={handleGoogleSignUp} variant="secondary" style={styles.button} />
+        <View style={styles.form}>
+          <Input
+            ref={emailInputRef}
+            label="Email"
+            value={email}
+            onChangeText={setEmail}
+            placeholder="your@email.com"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+          />
 
-        <Button title="Continue with Apple" onPress={handleAppleSignUp} variant="secondary" style={styles.button} />
-      </View>
+          <Input
+            ref={passwordInputRef}
+            label="Password"
+            value={password}
+            onChangeText={setPassword}
+            placeholder="At least 6 characters"
+            secureTextEntry
+            autoCapitalize="none"
+            autoComplete="password-new"
+          />
 
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>Already have an account? </Text>
-        <TouchableOpacity onPress={() => router.push("/(auth)/sign-in")}>
-          <Text style={styles.footerLink}>Sign in</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+          <Input
+            ref={confirmPasswordInputRef}
+            label="Confirm Password"
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            placeholder="Re-enter your password"
+            secureTextEntry
+            autoCapitalize="none"
+            autoComplete="password-new"
+          />
+
+          <Button title="Create Account" onPress={handleEmailSignUp} loading={loading} style={styles.button} />
+
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>or continue with</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          <Button title="Continue with Google" onPress={handleGoogleSignUp} variant="secondary" style={styles.button} />
+
+          <Button title="Continue with Apple" onPress={handleAppleSignUp} variant="secondary" style={styles.button} />
+        </View>
+
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>Already have an account? </Text>
+          <TouchableOpacity onPress={() => router.push("/(auth)/sign-in")}>
+            <Text style={styles.footerLink}>Sign in</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   )
 }
 
@@ -133,9 +154,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.black,
   },
+  scrollView: {
+    flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
   content: {
     padding: spacing.lg,
     paddingTop: spacing.xxl * 2,
+    paddingBottom: Platform.OS === "android" ? spacing.xxl * 5 : spacing.xxl * 2, // Extra padding for Android keyboard (more fields)
+    flexGrow: 1,
   },
   header: {
     marginBottom: spacing.xxl,

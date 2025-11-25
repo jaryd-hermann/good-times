@@ -1553,7 +1553,7 @@ export default function EntryComposer() {
       </KeyboardAvoidingView>
 
       {/* Toolbar - positioned above keyboard */}
-      <View style={[styles.toolbar, { bottom: keyboardHeight }]}>
+      <View style={[styles.toolbar, { bottom: Platform.OS === "android" ? keyboardHeight + spacing.lg : keyboardHeight }]}>
         <View style={styles.toolbarButtons}>
           <View style={styles.toolCluster}>
             <TouchableOpacity style={styles.iconButton} onPress={handleGalleryAction}>
@@ -1562,13 +1562,14 @@ export default function EntryComposer() {
             <TouchableOpacity style={styles.iconButton} onPress={startRecording}>
               <FontAwesome name="microphone" size={18} color={colors.white} />
             </TouchableOpacity>
-            <TouchableOpacity 
+            {/* Shuffle button commented out - everyone answers the same question */}
+            {/* <TouchableOpacity 
               style={[styles.iconButton, editMode && styles.iconButtonDisabled]} 
               onPress={shufflePrompt}
               disabled={editMode}
             >
               <FontAwesome name="random" size={18} color={editMode ? colors.gray[600] : colors.white} />
-            </TouchableOpacity>
+            </TouchableOpacity> */}
             <TouchableOpacity
               style={styles.iconButton}
               onPress={() => setShowSongModal(true)}

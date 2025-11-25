@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform } from "react-native"
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { supabase } from "../../../lib/supabase"
@@ -52,8 +52,31 @@ export default function EntryDetail() {
   const [audioDurations, setAudioDurations] = useState<Record<string, number>>({})
   const [audioLoading, setAudioLoading] = useState<Record<string, boolean>>({})
   const [imageDimensions, setImageDimensions] = useState<Record<number, { width: number; height: number }>>({})
+  const [keyboardHeight, setKeyboardHeight] = useState(0)
   const insets = useSafeAreaInsets()
   const posthog = usePostHog()
+
+  // Listen to keyboard events to adjust comment input position on Android
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener("keyboardDidShow", (e) => {
+      setKeyboardHeight(e.endCoordinates.height)
+    })
+    const hideSubscription = Keyboard.addListener("keyboardDidHide", () => {
+      setKeyboardHeight(0)
+    })
+
+    return () => {
+      showSubscription.remove()
+      hideSubscription.remove()
+    }
+  }, [])
+
+  // Load entry data first
+  const { data: entry } = useQuery({
+    queryKey: ["entry", entryId],
+    queryFn: () => getEntryById(entryId),
+    enabled: !!entryId,
+  })
 
   // Track viewed_entry event when entry loads
   useEffect(() => {
@@ -110,12 +133,6 @@ export default function EntryDetail() {
     }
     loadUser()
   }, [])
-
-  const { data: entry } = useQuery({
-    queryKey: ["entry", entryId],
-    queryFn: () => getEntryById(entryId),
-    enabled: !!entryId,
-  })
 
   // Fetch all entries for the group to enable Next navigation through history
   const { data: allGroupEntries = [] } = useQuery({
@@ -416,6 +433,7 @@ export default function EntryDetail() {
     },
     containerInner: {
       flex: 1,
+      ...(Platform.OS === "android" ? { position: "relative" as const } : {}),
     },
     header: {
       flexDirection: "row",
@@ -443,7 +461,7 @@ export default function EntryDetail() {
     },
     contentContainer: {
       padding: spacing.lg,
-      paddingBottom: spacing.xxl * 2,
+      paddingBottom: Platform.OS === "android" ? spacing.xxl * 2 + 80 : spacing.xxl * 2, // Extra padding for fixed comment input on Android
     },
     entryHeader: {
       flexDirection: "row",
@@ -645,8 +663,9 @@ export default function EntryDetail() {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={0}
+      enabled={Platform.OS === "ios"}
     >
       <View style={styles.containerInner}>
         <View style={styles.header}>
@@ -772,8 +791,7 @@ export default function EntryDetail() {
                       const dimensions = imageDimensions[index]
                       const imageStyle = dimensions
                         ? {
-                            width: "100%",
-                            height: undefined,
+                            width: "100%" as const,
                             aspectRatio: dimensions.width / dimensions.height,
                           }
                         : styles.mediaImage
@@ -844,7 +862,19 @@ export default function EntryDetail() {
         </ScrollView>
 
         {/* Fixed comment input at bottom */}
-        <View style={[styles.fixedCommentInput, { paddingBottom: insets.bottom + spacing.md }]}>
+        <View style={[
+          styles.fixedCommentInput,
+          Platform.OS === "android" && {
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: keyboardHeight > 0 ? keyboardHeight + spacing.md : 0,
+            paddingBottom: keyboardHeight > 0 ? spacing.md : insets.bottom + spacing.md,
+          },
+          Platform.OS === "ios" && {
+            paddingBottom: insets.bottom + spacing.md,
+          },
+        ]}>
           <Avatar uri={currentUserAvatar} name={currentUserName} size={32} />
           <TextInput
             value={commentText}

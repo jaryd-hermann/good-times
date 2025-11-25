@@ -76,7 +76,7 @@ export default function JoinGroup() {
       }
 
       setGroup(groupData)
-      setCreator(groupData.creator)
+      setCreator((groupData as any).creator)
 
       // Get group members
       const membersData = await getGroupMembers(groupId)
@@ -109,14 +109,37 @@ export default function JoinGroup() {
 
       const userId = session.user.id
 
-      // Check if user has profile
+      // CRITICAL: Ensure user has a profile before joining group
+      // Check if user profile exists
       const { data: userProfile } = await supabase
         .from("users")
         .select("name, birthday")
         .eq("id", userId)
-        .single()
+        .maybeSingle()
 
-      if (!userProfile?.name || !userProfile?.birthday) {
+      if (!userProfile) {
+        // User profile doesn't exist - create minimal profile
+        console.log("[join] User profile not found, creating profile...")
+        const { error: profileError } = await supabase
+          .from("users")
+          .insert({
+            id: userId,
+            email: session.user.email || "",
+          } as any)
+
+        if (profileError) {
+          console.error("[join] Failed to create user profile:", profileError)
+          // Continue anyway - user can complete profile later
+        } else {
+          console.log("[join] User profile created successfully")
+        }
+        // User doesn't have complete profile - go to welcome-2 to complete onboarding
+        await AsyncStorage.setItem(PENDING_GROUP_KEY, groupId)
+        router.replace("/(onboarding)/welcome-2")
+        return
+      }
+
+      if (!(userProfile as any)?.name || !(userProfile as any)?.birthday) {
         // User doesn't have complete profile - go to welcome-2
         await AsyncStorage.setItem(PENDING_GROUP_KEY, groupId)
         router.replace("/(onboarding)/welcome-2")
@@ -151,7 +174,7 @@ export default function JoinGroup() {
         group_id: groupId,
         user_id: userId,
         role: "member",
-      })
+      } as any)
 
       if (insertError) {
         if (insertError.code === "23505") {
@@ -315,7 +338,13 @@ export default function JoinGroup() {
             >
               <Text style={styles.modalTitle}>About Good Times</Text>
               <Text style={styles.modalText}>
-                {creator?.name || "Someone"} has invited you to join them on Good Times, a free group journaling app for friends and family. Stay close and keep connected to your favorite people with one quick question a day.
+                {creator?.name || "Someone"} has invited you to join their free private group on Good Times.
+              </Text>
+              <Text style={[styles.modalText, styles.modalTextSpacing]}>
+                Good Times is the group-based, low-effort, social app for friends & family to meaningfully hear from each other everyday in just 3 minutes.
+              </Text>
+              <Text style={[styles.modalText, styles.modalTextSpacing]}>
+                <Text style={styles.modalTextBold}>Just one easy, shared Q&A a day</Text>
               </Text>
               <Button
                 title={group?.type === "family" ? "Join Your Family" : "Join Your Friends"}
@@ -470,6 +499,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
     color: colors.gray[300],
+  },
+  modalTextSpacing: {
+    marginTop: spacing.md,
+  },
+  modalTextBold: {
+    fontWeight: "bold",
   },
   modalButton: {
     marginTop: spacing.md,

@@ -8,7 +8,7 @@ interface InputProps extends TextInputProps {
 }
 
 export const Input = forwardRef<TextInput, InputProps>(
-  ({ label, error, style, ...props }, ref) => {
+  ({ label, error, style, onFocus, ...props }, ref) => {
     return (
       <View style={styles.container}>
         {label && <Text style={styles.label}>{label}</Text>}
@@ -16,6 +16,10 @@ export const Input = forwardRef<TextInput, InputProps>(
           ref={ref}
           style={[styles.input, error && styles.inputError, style]}
           placeholderTextColor={colors.gray[500]}
+          onFocus={(e) => {
+            console.log("[Input] onFocus fired in Input component")
+            onFocus?.(e)
+          }}
           {...props}
         />
         {error && <Text style={styles.error}>{error}</Text>}

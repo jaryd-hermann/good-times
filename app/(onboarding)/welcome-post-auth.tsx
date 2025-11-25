@@ -66,6 +66,30 @@ export default function WelcomePostAuth() {
           if (pendingGroupId) {
             // Try to join the group
             try {
+              // CRITICAL: Ensure user has a profile before joining group
+              const { data: existingProfile } = await supabase
+                .from("users")
+                .select("id")
+                .eq("id", user.id)
+                .maybeSingle()
+
+              if (!existingProfile) {
+                console.log("[welcome-post-auth] User profile not found, creating profile...")
+                const { error: profileError } = await supabase
+                  .from("users")
+                  .insert({
+                    id: user.id,
+                    email: user.email || "",
+                  } as any)
+
+                if (profileError) {
+                  console.error("[welcome-post-auth] Failed to create user profile:", profileError)
+                  // Continue anyway
+                } else {
+                  console.log("[welcome-post-auth] User profile created successfully")
+                }
+              }
+
               const { data: existingMember } = await supabase
                 .from("group_members")
                 .select("id")
@@ -80,7 +104,7 @@ export default function WelcomePostAuth() {
                     group_id: pendingGroupId,
                     user_id: user.id,
                     role: "member",
-                  })
+                  } as any)
 
                 if (!joinError) {
                   await AsyncStorage.removeItem(PENDING_GROUP_KEY)
@@ -163,7 +187,7 @@ export default function WelcomePostAuth() {
         <View style={styles.textContainer}>
           <Text style={styles.title}>Welcome</Text>
           <Text style={styles.body}>
-            Thanks for downloading my app! I made it myself, so if you see any problems or have any ideas...find me in
+            Thanks for joining! This is a new app, so if you see any problems or have any ideas...find me in
             "Settings". Email, text, or WhatsApp, I'd love to hear your feedback.
           </Text>
         </View>
