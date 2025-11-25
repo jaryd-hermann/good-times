@@ -1588,15 +1588,6 @@ export default function OnboardingAuth() {
               <Text style={styles.title}>{isRegistrationFlow ? "Create Account" : "Sign In"}</Text>
 
               <View style={styles.fieldsContainer}>
-                <View 
-                  style={[
-                    styles.formBackground, 
-                    { 
-                      opacity: (emailFocused || passwordFocused) ? 1 : 0,
-                      pointerEvents: (emailFocused || passwordFocused) ? 'auto' : 'none'
-                    }
-                  ]} 
-                />
 
                 <View style={styles.fieldGroup}>
                   <Text style={styles.fieldLabel}>Email</Text>

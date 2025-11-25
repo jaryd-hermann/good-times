@@ -868,7 +868,7 @@ export default function EntryDetail() {
             position: "absolute",
             left: 0,
             right: 0,
-            bottom: keyboardHeight > 0 ? keyboardHeight + spacing.md : 0,
+            bottom: keyboardHeight > 0 ? keyboardHeight + spacing.xl : 0,
             paddingBottom: keyboardHeight > 0 ? spacing.md : insets.bottom + spacing.md,
           },
           Platform.OS === "ios" && {

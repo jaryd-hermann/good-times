@@ -1553,7 +1553,7 @@ export default function EntryComposer() {
       </KeyboardAvoidingView>
 
       {/* Toolbar - positioned above keyboard */}
-      <View style={[styles.toolbar, { bottom: Platform.OS === "android" ? keyboardHeight + spacing.xl : keyboardHeight }]}>
+      <View style={[styles.toolbar, { bottom: Platform.OS === "android" ? keyboardHeight + spacing.xl + spacing.md : keyboardHeight }]}>
         <View style={styles.toolbarButtons}>
           <View style={styles.toolCluster}>
             <TouchableOpacity style={styles.iconButton} onPress={handleGalleryAction}>

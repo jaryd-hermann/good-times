@@ -14,6 +14,7 @@ import {
   Modal,
   Animated,
   AppState,
+  Platform,
 } from "react-native"
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -1265,7 +1266,7 @@ export default function Home() {
 
       <Modal visible={groupPickerVisible} transparent animationType="fade" onRequestClose={() => setGroupPickerVisible(false)}>
         <TouchableOpacity style={styles.groupModalBackdrop} activeOpacity={1} onPress={() => setGroupPickerVisible(false)}>
-          <View style={styles.groupModalSheet}>
+          <View style={[styles.groupModalSheet, Platform.OS === "android" && { paddingBottom: spacing.lg + insets.bottom }]}>
             <Text style={styles.groupModalTitle}>Switch group</Text>
             <ScrollView contentContainerStyle={styles.groupList}>
               {groups.map((group) => (
