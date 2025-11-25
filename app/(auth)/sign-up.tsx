@@ -3,6 +3,7 @@
 import { useState, useRef } from "react"
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from "react-native"
 import { useRouter } from "expo-router"
+import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { supabase } from "../../lib/supabase"
 import { colors, typography, spacing } from "../../lib/theme"
 import { Input } from "../../components/Input"
@@ -10,6 +11,7 @@ import { Button } from "../../components/Button"
 
 export default function SignUp() {
   const router = useRouter()
+  const insets = useSafeAreaInsets()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -70,19 +72,19 @@ export default function SignUp() {
     Alert.alert("Coming Soon", "Apple sign-up will be available soon")
   }
 
-  const scrollViewRef = useRef<ScrollView>(null)
-
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={0}
-      enabled={true}
+      enabled={Platform.OS === "ios"}
     >
       <ScrollView
-        ref={scrollViewRef}
         style={styles.scrollView}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: Platform.OS === "android" ? insets.top + spacing.xs : spacing.xxl * 2 }
+        ]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
@@ -157,13 +159,11 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
-  scrollView: {
-    flex: 1,
-  },
   content: {
-    padding: spacing.lg,
-    paddingTop: spacing.xxl * 2,
-    paddingBottom: Platform.OS === "android" ? spacing.xxl * 5 : spacing.xxl * 2, // Extra padding for Android keyboard (more fields)
+    paddingLeft: spacing.lg,
+    paddingRight: spacing.lg,
+    paddingBottom: Platform.OS === "android" ? spacing.xxl * 5 : spacing.xxl * 2,
+    // paddingTop is set inline at runtime (not in StyleSheet) to properly handle platform differences
     flexGrow: 1,
   },
   header: {

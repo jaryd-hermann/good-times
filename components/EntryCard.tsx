@@ -261,10 +261,10 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
       color: colors.white,
   },
   question: {
-    ...typography.h3,
-    fontSize: 16,
+    fontFamily: "Roboto-Regular",
+    fontSize: 14,
       marginBottom: spacing.md,
-      color: colors.white,
+      color: colors.gray[400],
   },
   textContainer: {
     position: "relative",
@@ -272,9 +272,9 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   },
   entryText: {
     ...typography.body,
-    fontSize: 16,
-    lineHeight: 24,
-    color: colors.gray[300],
+    fontSize: 14,
+    lineHeight: 22,
+    color: colors.white, // colors.white is #000000 (black) in light mode, #ffffff (white) in dark mode
   },
   textFadeOverlay: {
     position: "absolute",

@@ -52,6 +52,7 @@ export default function OnboardingAuth() {
   const insets = useSafeAreaInsets()
   const posthog = usePostHog()
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false)
+  const [keyboardHeight, setKeyboardHeight] = useState(0)
   const [emailFocused, setEmailFocused] = useState(false)
   const [passwordFocused, setPasswordFocused] = useState(false)
   const [confirmPasswordFocused, setConfirmPasswordFocused] = useState(false)
@@ -93,11 +94,22 @@ export default function OnboardingAuth() {
   useEffect(() => {
     const keyboardWillShow = Keyboard.addListener(
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
-      () => setIsKeyboardVisible(true)
+      (e) => {
+        setIsKeyboardVisible(true)
+        if (Platform.OS === "android") {
+          // Use actual keyboard height for Android
+          setKeyboardHeight(e.endCoordinates.height)
+        }
+      }
     )
     const keyboardWillHide = Keyboard.addListener(
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
-      () => setIsKeyboardVisible(false)
+      () => {
+        setIsKeyboardVisible(false)
+        if (Platform.OS === "android") {
+          setKeyboardHeight(0)
+        }
+      }
     )
 
     return () => {
@@ -1526,9 +1538,10 @@ export default function OnboardingAuth() {
   return (
     <View style={styles.background}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "padding"}
         style={styles.flex}
-        keyboardVerticalOffset={0}
+        keyboardVerticalOffset={Platform.OS === "android" ? -40 : 0}
+        enabled={true}
       >
         <ScrollView
           contentContainerStyle={styles.scrollContent}
@@ -1538,7 +1551,10 @@ export default function OnboardingAuth() {
           <View
             style={[
               styles.container,
-              { paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.xl },
+              { 
+                paddingTop: Platform.OS === "android" ? insets.top + spacing.xs : insets.top + spacing.xl, 
+                paddingBottom: insets.bottom + spacing.xl 
+              },
             ]}
           >
             {!isKeyboardVisible && (
@@ -1736,7 +1752,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: spacing.lg,
-    justifyContent: "flex-end",
+    justifyContent: "flex-end", // Content starts at bottom on both platforms
   },
   topBar: {
     position: "absolute",

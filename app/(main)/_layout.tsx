@@ -2,11 +2,12 @@ import type { BottomTabBarProps } from "@react-navigation/bottom-tabs"
 import { Tabs } from "expo-router"
 import { spacing } from "../../lib/theme"
 import { useTheme } from "../../lib/theme-context"
-import { View, StyleSheet, TouchableOpacity, Text, Animated } from "react-native"
+import { View, StyleSheet, TouchableOpacity, Text, Animated, Platform } from "react-native"
 import { FontAwesome } from "@expo/vector-icons"
 import { useEffect, useRef, useMemo } from "react"
 import { useTabBar } from "../../lib/tab-bar-context"
 import { usePathname } from "expo-router"
+import { useSafeAreaInsets } from "react-native-safe-area-context"
 
 function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
   const currentRoute = state.routes[state.index]
@@ -15,6 +16,10 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
   const { opacity: tabBarOpacity } = useTabBar()
   const { colors, isDark } = useTheme()
   const pathname = usePathname()
+  const insets = useSafeAreaInsets()
+  
+  // Calculate bottom offset for Android navigation bar
+  const bottomOffset = Platform.OS === "android" ? insets.bottom + 24 : 24
 
   const visibleRoutes = state.routes.filter((route) => route.name === "home" || route.name === "history")
 
@@ -65,7 +70,7 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
   const styles = useMemo(() => StyleSheet.create({
     tabWrapper: {
       position: "absolute",
-      bottom: 24,
+      bottom: bottomOffset,
       left: 0,
       right: 0,
       alignItems: "center",
@@ -115,7 +120,7 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
     navItemActive: {
       backgroundColor: isDark ? "#8A8484" : colors.gray[800],
     },
-  }), [colors, isDark])
+  }), [colors, isDark, bottomOffset])
 
   // Early return AFTER all hooks
   // Hide tab bar on profile screen or other modal/settings screens

@@ -16,10 +16,7 @@ export const Input = forwardRef<TextInput, InputProps>(
           ref={ref}
           style={[styles.input, error && styles.inputError, style]}
           placeholderTextColor={colors.gray[500]}
-          onFocus={(e) => {
-            console.log("[Input] onFocus fired in Input component")
-            onFocus?.(e)
-          }}
+          onFocus={onFocus}
           {...props}
         />
         {error && <Text style={styles.error}>{error}</Text>}

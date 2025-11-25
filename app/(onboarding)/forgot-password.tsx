@@ -50,9 +50,10 @@ export default function ForgotPassword() {
   return (
     <View style={styles.background}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "padding"}
         style={styles.flex}
-        keyboardVerticalOffset={0}
+        keyboardVerticalOffset={Platform.OS === "android" ? -40 : 0}
+        enabled={true}
       >
         <ScrollView
           contentContainerStyle={styles.scrollContent}
@@ -62,7 +63,10 @@ export default function ForgotPassword() {
           <View
             style={[
               styles.container,
-              { paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.xl },
+              { 
+                paddingTop: Platform.OS === "android" ? insets.top + spacing.xs : insets.top + spacing.xl, 
+                paddingBottom: insets.bottom + spacing.xl 
+              },
             ]}
           >
             <View style={styles.topBar}>

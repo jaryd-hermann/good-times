@@ -24,7 +24,7 @@ export default function EntryDetail() {
   const router = useRouter()
   const params = useLocalSearchParams()
   const queryClient = useQueryClient()
-  const { colors } = useTheme()
+  const { colors, isDark } = useTheme()
   const entryId = params.entryId as string
   const rawEntryIds = params.entryIds as string | undefined
   const entryIds = useMemo(() => {
@@ -502,10 +502,10 @@ export default function EntryDetail() {
     },
     text: {
       ...typography.body,
-      fontSize: 16,
-      lineHeight: 24,
+      fontSize: 14,
+      lineHeight: 22,
       marginBottom: spacing.md,
-      color: colors.gray[300],
+      color: colors.white, // colors.white is #000000 (black) in light mode, #ffffff (white) in dark mode
     },
     mediaContainer: {
       gap: spacing.xl, // Increased by 150% (from spacing.sm to spacing.xl)

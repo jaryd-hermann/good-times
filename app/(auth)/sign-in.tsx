@@ -1,8 +1,9 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useMemo } from "react"
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from "react-native"
 import { useRouter } from "expo-router"
+import { useSafeAreaInsets } from "react-native-safe-area-context"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { supabase } from "../../lib/supabase"
 import { colors, typography, spacing } from "../../lib/theme"
@@ -12,7 +13,10 @@ import { usePostHog } from "posthog-react-native"
 import { captureEvent, identifyUser } from "../../lib/posthog"
 
 export default function SignIn() {
+  console.log("[sign-in] Component rendering - TOP OF FUNCTION")
   const router = useRouter()
+  const insets = useSafeAreaInsets()
+  console.log("[sign-in] After hooks, Platform:", Platform.OS, "insets.top:", insets.top)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
@@ -53,7 +57,7 @@ export default function SignIn() {
       // Check if user has completed profile
       const { data: user } = await supabase.from("users").select("name, birthday").eq("id", data.user.id).single()
 
-      if (user?.name && user?.birthday) {
+      if ((user as any)?.name && (user as any)?.birthday) {
         // Check if user is in a group
         const { data: membership } = await supabase
           .from("group_members")
@@ -87,25 +91,37 @@ export default function SignIn() {
     Alert.alert("Coming Soon", "Apple sign-in will be available soon")
   }
 
-  const scrollViewRef = useRef<ScrollView>(null)
-
+  const androidPaddingTop = Platform.OS === "android" ? insets.top + spacing.xs : spacing.xxl * 2
+  console.log("[sign-in] Platform:", Platform.OS, "paddingTop:", androidPaddingTop, "insets.top:", insets.top)
+  
+  try {
+    console.log("[sign-in] styles.content:", styles.content)
+  } catch (e) {
+    console.error("[sign-in] Error accessing styles:", e)
+  }
+  
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={0}
-      enabled={true}
+      enabled={Platform.OS === "ios"}
     >
       <ScrollView
-        ref={scrollViewRef}
         style={styles.scrollView}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: androidPaddingTop }
+        ]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.header}>
-          <Text style={styles.title}>Welcome back</Text>
-          <Text style={styles.subtitle}>Sign in to continue your story</Text>
+        <View style={[
+          styles.header,
+          Platform.OS === "android" && { backgroundColor: "red", padding: 20 } // TEST: Make Android header visible
+        ]}>
+          <Text style={styles.title}>ANDROID TEST - Welcome back</Text>
+          <Text style={styles.subtitle}>TEST SUBTITLE - Sign in to continue your story</Text>
         </View>
 
         <View style={styles.form}>
@@ -163,13 +179,11 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
-  scrollView: {
-    flex: 1,
-  },
   content: {
-    padding: spacing.lg,
-    paddingTop: spacing.xxl * 2,
-    paddingBottom: Platform.OS === "android" ? spacing.xxl * 4 : spacing.xxl * 2, // Extra padding for Android keyboard
+    paddingLeft: spacing.lg,
+    paddingRight: spacing.lg,
+    paddingBottom: Platform.OS === "android" ? spacing.xxl * 4 : spacing.xxl * 2,
+    // paddingTop is set inline at runtime (not in StyleSheet) to properly handle platform differences
     flexGrow: 1,
   },
   header: {

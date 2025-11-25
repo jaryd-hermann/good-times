@@ -743,9 +743,10 @@ export default function History() {
     flexDirection: "row",
   },
   dateHeaderDay: {
-      ...typography.h2,
+      fontFamily: "LibreBaskerville-Bold",
       fontSize: 22,
-    color: isDark ? colors.white : colors.black,
+      lineHeight: 32,
+      color: isDark ? colors.white : colors.white, // In light mode, colors.white is #000000 (black), in dark mode it's white
   },
   dateHeaderDate: {
       ...typography.h2,
