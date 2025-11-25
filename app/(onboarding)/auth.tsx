@@ -1598,7 +1598,6 @@ export default function OnboardingAuth() {
                     placeholderTextColor="rgba(255,255,255,0.6)"
                     keyboardType="email-address"
                     autoCapitalize="none"
-                    autoComplete="email"
                     style={styles.fieldInput}
                     onFocus={() => setEmailFocused(true)}
                     onBlur={() => setEmailFocused(false)}
