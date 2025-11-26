@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState, useRef, memo } from "react"
+import { useCallback, useEffect, useState, useRef, memo, useMemo } from "react"
 import {
   View,
   Text,
@@ -1728,12 +1728,41 @@ export default function OnboardingAuth() {
   )
 }
 
-// Memoized email input component to prevent unnecessary re-renders
+// Memoized email input component - optimized to prevent iOS glitch
 const EmailInput = memo(({ value, onChangeText, style }: { value: string; onChangeText: (text: string) => void; style: any }) => {
+  const [localValue, setLocalValue] = useState(value)
+  const rafRef = useRef<number | null>(null)
+  
+  // Sync local value when prop changes externally
+  useEffect(() => {
+    setLocalValue(value)
+  }, [value])
+  
+  // On iOS, batch parent updates using requestAnimationFrame to prevent glitch
+  const handleChangeText = useCallback((text: string) => {
+    setLocalValue(text) // Update local state immediately for responsive UI
+    
+    if (Platform.OS === "ios") {
+      // Cancel pending update
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current)
+      }
+      
+      // Batch parent update on next frame
+      rafRef.current = requestAnimationFrame(() => {
+        onChangeText(text)
+        rafRef.current = null
+      })
+    } else {
+      // Android: immediate update
+      onChangeText(text)
+    }
+  }, [onChangeText])
+  
   return (
     <TextInput
-      value={value}
-      onChangeText={onChangeText}
+      value={localValue}
+      onChangeText={handleChangeText}
       placeholder="you@email.com"
       placeholderTextColor="rgba(255,255,255,0.6)"
       autoCapitalize="none"

@@ -10,8 +10,8 @@ import { useTheme } from "../lib/theme-context"
 import { Avatar } from "./Avatar"
 import { FontAwesome } from "@expo/vector-icons"
 import { supabase } from "../lib/supabase"
-import { getComments, getMemorials, getReactions } from "../lib/db"
-import { useQuery } from "@tanstack/react-query"
+import { getComments, getMemorials, getReactions, toggleReaction } from "../lib/db"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { personalizeMemorialPrompt } from "../lib/prompts"
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
@@ -156,6 +156,24 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
 
   const hasLiked = reactions.some((r) => r.user_id === userId)
   const reactionCount = reactions.length
+  const queryClient = useQueryClient()
+
+  const toggleReactionMutation = useMutation({
+    mutationFn: () => toggleReaction(entry.id, userId!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["reactions", entry.id] })
+    },
+  })
+
+  async function handleToggleReaction(e: any) {
+    e.stopPropagation()
+    if (!userId) return
+    try {
+      await toggleReactionMutation.mutateAsync()
+    } catch (error) {
+      // Silently fail - user can try again
+    }
+  }
 
   async function handleToggleAudio(audioId: string, uri: string) {
     try {
@@ -588,10 +606,8 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
           <View style={styles.actionsLeft}>
             <TouchableOpacity
               style={styles.actionButton}
-              onPress={(e) => {
-                e.stopPropagation()
-                handleEntryPress()
-              }}
+              onPress={handleToggleReaction}
+              disabled={!userId || toggleReactionMutation.isPending}
               activeOpacity={0.7}
             >
               <FontAwesome 

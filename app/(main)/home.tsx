@@ -38,6 +38,7 @@ import { useTheme } from "../../lib/theme-context"
 import { Avatar } from "../../components/Avatar"
 import { Button } from "../../components/Button"
 import { EntryCard } from "../../components/EntryCard"
+import { CategoryTag } from "../../components/CategoryTag"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { FontAwesome } from "@expo/vector-icons"
 import { registerForPushNotifications, savePushToken } from "../../lib/notifications"
@@ -1205,6 +1206,9 @@ export default function Home() {
                         </View>
                       )}
                     </View>
+                  )}
+                  {fallbackPrompt?.category && (
+                    <CategoryTag category={fallbackPrompt.category} />
                   )}
                   <Text style={styles.promptQuestion}>
                     {personalizedPromptQuestion || fallbackPrompt?.question || "Share a moment that made you smile today."}
