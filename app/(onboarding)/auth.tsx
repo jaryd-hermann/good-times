@@ -43,6 +43,11 @@ export default function OnboardingAuth() {
   const { data, clear, setUserEmail } = useOnboarding()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  
+  // Memoize email change handler to prevent re-renders
+  const handleEmailChange = useCallback((text: string) => {
+    setEmail(text)
+  }, [])
   const [confirmPassword, setConfirmPassword] = useState("")
   const [continueLoading, setContinueLoading] = useState(false)
   const [oauthLoading, setOauthLoading] = useState<OAuthProvider | null>(null)
@@ -1592,10 +1597,14 @@ export default function OnboardingAuth() {
                   <Text style={styles.fieldLabel}>Email</Text>
                   <TextInput
                     value={email}
-                    onChangeText={setEmail}
+                    onChangeText={handleEmailChange}
                     placeholder="you@email.com"
                     placeholderTextColor="rgba(255,255,255,0.6)"
                     autoCapitalize="none"
+                    autoCorrect={false}
+                    textContentType="none"
+                    keyboardAppearance="dark"
+                    blurOnSubmit={false}
                     style={styles.fieldInput}
                   />
                 </View>
@@ -1610,6 +1619,8 @@ export default function OnboardingAuth() {
                       placeholderTextColor="rgba(255,255,255,0.6)"
                       secureTextEntry={!showPassword}
                       autoCapitalize="none"
+                      keyboardAppearance="dark"
+                      blurOnSubmit={false}
                       style={styles.passwordInput}
                       onFocus={() => setPasswordFocused(true)}
                       onBlur={() => {
