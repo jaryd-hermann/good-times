@@ -1,8 +1,10 @@
 "use client"
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
+import { AppState, AppStateStatus } from "react-native"
 import type { User } from "../lib/types"
 import { getBiometricPreference, saveBiometricCredentials, clearBiometricCredentials } from "../lib/biometric"
+import { ensureValidSession } from "../lib/auth"
 
 // Import usePostHog hook
 // PostHogProvider is always rendered in _layout.tsx, so this hook is safe to call
@@ -157,6 +159,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
   }, [posthog])
+
+  // Refresh session when app comes to foreground
+  useEffect(() => {
+    let lastAppState: AppStateStatus = AppState.currentState
+    let refreshTimeout: NodeJS.Timeout | null = null
+
+    const handleAppStateChange = async (nextAppState: AppStateStatus) => {
+      // App came to foreground from background/inactive
+      if (lastAppState.match(/inactive|background/) && nextAppState === "active") {
+        console.log("[AuthProvider] App came to foreground, checking session...")
+        
+        // Small delay to ensure app is fully active
+        refreshTimeout = setTimeout(async () => {
+          try {
+            // Only refresh if we have a user (session exists)
+            if (user) {
+              const refreshed = await ensureValidSession()
+              if (refreshed) {
+                console.log("[AuthProvider] Session refreshed on app resume")
+                // Reload user data to ensure it's fresh
+                const { data: { session } } = await supabase.auth.getSession()
+                if (session?.user) {
+                  await loadUser(session.user.id)
+                }
+              } else {
+                console.warn("[AuthProvider] Failed to refresh session on app resume")
+              }
+            }
+          } catch (error) {
+            console.error("[AuthProvider] Error refreshing session on app resume:", error)
+          }
+        }, 500) // 500ms delay
+      }
+      
+      lastAppState = nextAppState
+    }
+
+    const subscription = AppState.addEventListener("change", handleAppStateChange)
+
+    return () => {
+      subscription.remove()
+      if (refreshTimeout) {
+        clearTimeout(refreshTimeout)
+      }
+    }
+  }, [user])
 
   async function loadUser(userId: string) {
     try {

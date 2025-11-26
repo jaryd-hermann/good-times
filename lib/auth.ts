@@ -24,12 +24,57 @@ export async function getCurrentSession() {
 }
 
 export async function refreshSession() {
-  const {
-    data: { session },
-    error,
-  } = await supabase.auth.refreshSession()
-  if (error) throw error
-  return session
+  try {
+    // Add timeout protection
+    const refreshPromise = supabase.auth.refreshSession()
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("refreshSession timeout")), 10000)
+    )
+    
+    const result: any = await Promise.race([refreshPromise, timeoutPromise])
+    const { data: { session }, error } = result
+    
+    if (error) throw error
+    return session
+  } catch (error: any) {
+    console.error("[auth] refreshSession failed:", error.message)
+    throw error
+  }
+}
+
+// Check if session is expired or about to expire (within 5 minutes)
+export async function isSessionExpired(): Promise<boolean> {
+  try {
+    const session = await getCurrentSession()
+    if (!session) return true
+    
+    // Check if session expires within 5 minutes
+    const expiresAt = session.expires_at
+    if (!expiresAt) return false
+    
+    const expiresIn = expiresAt - Math.floor(Date.now() / 1000)
+    return expiresIn < 300 // Less than 5 minutes
+  } catch (error) {
+    console.error("[auth] isSessionExpired check failed:", error)
+    return true // Assume expired on error
+  }
+}
+
+// Refresh session if expired or about to expire
+export async function ensureValidSession(): Promise<boolean> {
+  try {
+    const expired = await isSessionExpired()
+    if (expired) {
+      console.log("[auth] Session expired or expiring soon, refreshing...")
+      await refreshSession()
+      console.log("[auth] Session refreshed successfully")
+      return true
+    }
+    return true
+  } catch (error: any) {
+    console.error("[auth] ensureValidSession failed:", error.message)
+    return false
+  }
 }
 
 export function onAuthStateChange(callback: (user: User | null) => void) {

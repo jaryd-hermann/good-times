@@ -179,6 +179,29 @@ export default function Index() {
           }
         }
 
+        // CRITICAL: Refresh session if expired before proceeding
+        if (session) {
+          try {
+            console.log("[boot] Ensuring session is valid before navigation...")
+            const { ensureValidSession } = await import("../lib/auth")
+            const refreshed = await ensureValidSession()
+            if (!refreshed) {
+              console.warn("[boot] Failed to refresh expired session, user may need to sign in again")
+              // Continue anyway - AuthProvider will handle auth state changes
+            } else {
+              // Get fresh session after refresh
+              const { data: { session: freshSession } } = await supabase.auth.getSession()
+              if (freshSession) {
+                session = freshSession
+                console.log("[boot] Session refreshed, using fresh session")
+              }
+            }
+          } catch (error: any) {
+            console.error("[boot] Session refresh check failed:", error.message)
+            // Continue anyway - don't block boot if refresh fails
+          }
+        }
+
         if (!session) {
           console.log("[boot] no session → onboarding/welcome-1");
           // Keep pendingGroupId in storage for after auth

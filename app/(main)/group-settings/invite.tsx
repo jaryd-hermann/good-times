@@ -18,7 +18,7 @@ export default function InviteMembersSettings() {
   async function handleShareInvite() {
     if (!groupId) return
     try {
-      const inviteLink = `goodtimes://join/${groupId}`
+      const inviteLink = `https://thegoodtimes.app/join/${groupId}`
       await Share.share({
         url: inviteLink,
         message: inviteLink,
@@ -151,7 +151,7 @@ export default function InviteMembersSettings() {
         <View style={styles.linkContainer}>
           <Text style={styles.linkLabel}>Invite Link:</Text>
           <Text style={styles.linkText} selectable>
-            goodtimes://join/{groupId}
+            https://thegoodtimes.app/join/{groupId}
           </Text>
         </View>
       </View>

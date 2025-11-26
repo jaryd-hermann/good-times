@@ -1,0 +1,13 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.goodtimes.app",
+      "sha256_cert_fingerprints": [
+        "37:FB:01:1F:DC:9E:BA:BC:E3:D8:96:3F:36:CD:E8:E3:EB:FE:76:B9:B7:8E:D5:7D:15:74:44:3C:DC:3C:83:CE"
+      ]
+    }
+  }
+]
+

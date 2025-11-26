@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { View, Text, StyleSheet, ImageBackground, Dimensions, ActivityIndicator } from "react-native"
+import { View, Text, StyleSheet, ImageBackground, Dimensions, ActivityIndicator, Alert } from "react-native"
 import { LinearGradient } from "expo-linear-gradient"
 import { useRouter } from "expo-router"
 import AsyncStorage from "@react-native-async-storage/async-storage"
@@ -98,23 +98,46 @@ export default function WelcomePostAuth() {
                 .maybeSingle()
 
               if (!existingMember) {
-                const { error: joinError } = await supabase
+                const { error: joinError, data: joinData } = await supabase
                   .from("group_members")
                   .insert({
                     group_id: pendingGroupId,
                     user_id: user.id,
                     role: "member",
                   } as any)
+                  .select()
 
-                if (!joinError) {
-                  await AsyncStorage.removeItem(PENDING_GROUP_KEY)
-                  router.replace({
-                    pathname: "/(main)/home",
-                    params: { focusGroupId: pendingGroupId },
-                  })
+                if (joinError) {
+                  console.error("[welcome-post-auth] Failed to join group:", joinError)
+                  Alert.alert(
+                    "Error",
+                    `Failed to join group: ${joinError.message || "Unknown error"}`,
+                    [{ text: "OK" }]
+                  )
+                  // Don't clear pending group - let user try again
                   return
                 }
+
+                // Verify insert was successful
+                if (!joinData || joinData.length === 0) {
+                  console.error("[welcome-post-auth] Group join returned no data")
+                  Alert.alert(
+                    "Error",
+                    "Failed to join group. Please try again.",
+                    [{ text: "OK" }]
+                  )
+                  return
+                }
+
+                // Success - clear pending and navigate
+                await AsyncStorage.removeItem(PENDING_GROUP_KEY)
+                router.replace({
+                  pathname: "/(main)/home",
+                  params: { focusGroupId: pendingGroupId },
+                })
+                return
               } else {
+                // Already a member - clear pending and navigate
                 await AsyncStorage.removeItem(PENDING_GROUP_KEY)
                 router.replace({
                   pathname: "/(main)/home",
@@ -124,6 +147,12 @@ export default function WelcomePostAuth() {
               }
             } catch (error) {
               console.error("[welcome-post-auth] Error joining group:", error)
+              Alert.alert(
+                "Error",
+                `Failed to join group: ${error instanceof Error ? error.message : "Unknown error"}`,
+                [{ text: "OK" }]
+              )
+              return
             }
           }
           router.replace("/(main)/home")

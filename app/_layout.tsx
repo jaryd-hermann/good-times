@@ -34,7 +34,23 @@ try {
 
 SplashScreen.preventAutoHideAsync().catch(() => {})
 
-const queryClient = new QueryClient()
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: (failureCount, error: any) => {
+        // Don't retry on 401/403 (expired session) - let session refresh handle it
+        if (error?.status === 401 || error?.status === 403) {
+          return false
+        }
+        // Retry up to 2 times for other errors
+        return failureCount < 2
+      },
+      staleTime: 0, // Always consider data stale to ensure fresh data
+      refetchOnMount: true,
+      refetchOnWindowFocus: true,
+    },
+  },
+})
 
 export default function RootLayout() {
   // 1️⃣ Load fonts (keep this active)
@@ -138,9 +154,15 @@ export default function RootLayout() {
             // Navigation will happen automatically via app/index.tsx
           }
         }
-        // Handle join links
+        // Handle join links (both deep link and HTTPS)
         else if (url.includes("goodtimes://join/")) {
           const groupId = url.split("goodtimes://join/")[1]?.split("?")[0]?.split("/")[0]
+          if (groupId) {
+            router.push(`/join/${groupId}`)
+          }
+        }
+        else if (url.includes("thegoodtimes.app/join/")) {
+          const groupId = url.split("thegoodtimes.app/join/")[1]?.split("?")[0]?.split("/")[0]
           if (groupId) {
             router.push(`/join/${groupId}`)
           }

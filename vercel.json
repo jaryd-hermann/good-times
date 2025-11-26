@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    {
+      "source": "/join/:path*",
+      "destination": "/api/proxy-join/:path*"
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "https://www.thegoodtimes.app",
+      "permanent": true
+    }
+  ]
+}
+

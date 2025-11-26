@@ -66,7 +66,7 @@ export default function Invite() {
       const currentUser = await getCurrentUser()
       const userName = currentUser?.name || "me"
       
-      const inviteLink = `goodtimes://join/${groupId}`
+      const inviteLink = `https://thegoodtimes.app/join/${groupId}`
       const inviteMessage = `I've created a group for us on this new app, Good Times. Join ${userName} here: ${inviteLink}`
       
       // Track took_invite_action and shared_invite_link events

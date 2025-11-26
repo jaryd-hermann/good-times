@@ -76,6 +76,8 @@ export default function JoinGroup() {
       }
 
       setGroup(groupData)
+      // Show group creator/admin as the inviter
+      // Note: We don't track who actually sent the invite link, so we show the group creator
       setCreator((groupData as any).creator)
 
       // Get group members
@@ -129,10 +131,14 @@ export default function JoinGroup() {
 
         if (profileError) {
           console.error("[join] Failed to create user profile:", profileError)
-          // Continue anyway - user can complete profile later
-        } else {
-          console.log("[join] User profile created successfully")
+          Alert.alert(
+            "Error",
+            "Failed to create your profile. Please try again.",
+            [{ text: "OK", onPress: () => {} }]
+          )
+          return
         }
+        console.log("[join] User profile created successfully")
         // User doesn't have complete profile - go to welcome-2 to complete onboarding
         await AsyncStorage.setItem(PENDING_GROUP_KEY, groupId)
         router.replace("/(onboarding)/welcome-2")
@@ -170,11 +176,11 @@ export default function JoinGroup() {
       }
 
       // Add user to group
-      const { error: insertError } = await supabase.from("group_members").insert({
+      const { error: insertError, data: insertData } = await supabase.from("group_members").insert({
         group_id: groupId,
         user_id: userId,
         role: "member",
-      } as any)
+      } as any).select()
 
       if (insertError) {
         if (insertError.code === "23505") {
@@ -191,7 +197,24 @@ export default function JoinGroup() {
           })
           return
         }
-        throw insertError
+        console.error("[join] Failed to join group:", insertError)
+        Alert.alert(
+          "Error",
+          `Failed to join group: ${insertError.message || "Unknown error"}`,
+          [{ text: "OK", onPress: () => {} }]
+        )
+        return
+      }
+
+      // Verify the insert was successful
+      if (!insertData || insertData.length === 0) {
+        console.error("[join] Group join returned no data")
+        Alert.alert(
+          "Error",
+          "Failed to join group. Please try again.",
+          [{ text: "OK", onPress: () => {} }]
+        )
+        return
       }
 
       // Track joined_group event

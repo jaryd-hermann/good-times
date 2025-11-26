@@ -124,23 +124,32 @@ export default function Home() {
     useCallback(() => {
       // Only reload user profile, not group (preserve current group)
       async function reloadProfile() {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser()
-        if (user) {
-          setUserId(user.id)
-          const profile = await getCurrentUser()
-          if (profile) {
-            setUserAvatarUrl(profile.avatar_url || undefined)
-            setUserName(profile.name || "User")
-          }
-          // Only update group if focusGroupId param is provided
-          if (focusGroupId) {
-            const groups = await getUserGroups(user.id)
-            if (groups.some((group) => group.id === focusGroupId)) {
-              setCurrentGroupId(focusGroupId)
+        try {
+          // Ensure session is valid before loading data
+          const { ensureValidSession } = await import("../../lib/auth")
+          await ensureValidSession()
+          
+          const {
+            data: { user },
+          } = await supabase.auth.getUser()
+          if (user) {
+            setUserId(user.id)
+            const profile = await getCurrentUser()
+            if (profile) {
+              setUserAvatarUrl(profile.avatar_url || undefined)
+              setUserName(profile.name || "User")
+            }
+            // Only update group if focusGroupId param is provided
+            if (focusGroupId) {
+              const groups = await getUserGroups(user.id)
+              if (groups.some((group) => group.id === focusGroupId)) {
+                setCurrentGroupId(focusGroupId)
+              }
             }
           }
+        } catch (error) {
+          console.error("[home] Error reloading profile:", error)
+          // Don't block UI if reload fails
         }
       }
       reloadProfile()
@@ -170,52 +179,61 @@ export default function Home() {
   }, [userId])
 
   async function loadUser() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (user) {
-      setUserId(user.id)
-      const profile = await getCurrentUser()
-      if (profile) {
-        setUserAvatarUrl(profile.avatar_url || undefined)
-        setUserName(profile.name || "User")
-      }
-      // Get user's groups
-      const groups = await getUserGroups(user.id)
-      if (groups.length > 0) {
-        // Priority order:
-        // 1. focusGroupId param (highest priority)
-        // 2. Default group ID from AsyncStorage (if user has multiple groups)
-        // 3. Persisted group ID from AsyncStorage
-        // 4. Current state (if already set)
-        // 5. First group (fallback)
-        
-        if (focusGroupId && groups.some((group) => group.id === focusGroupId)) {
-          setCurrentGroupId(focusGroupId)
-          await AsyncStorage.setItem("current_group_id", focusGroupId)
-        } else if (!currentGroupId) {
-          // Check for default group first (only if user has multiple groups)
-          const defaultGroupId = groups.length > 1 
-            ? await AsyncStorage.getItem("default_group_id")
-            : null
+    try {
+      // Ensure session is valid before loading data
+      const { ensureValidSession } = await import("../../lib/auth")
+      await ensureValidSession()
+      
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (user) {
+        setUserId(user.id)
+        const profile = await getCurrentUser()
+        if (profile) {
+          setUserAvatarUrl(profile.avatar_url || undefined)
+          setUserName(profile.name || "User")
+        }
+        // Get user's groups
+        const groups = await getUserGroups(user.id)
+        if (groups.length > 0) {
+          // Priority order:
+          // 1. focusGroupId param (highest priority)
+          // 2. Default group ID from AsyncStorage (if user has multiple groups)
+          // 3. Persisted group ID from AsyncStorage
+          // 4. Current state (if already set)
+          // 5. First group (fallback)
           
-          if (defaultGroupId && groups.some((group) => group.id === defaultGroupId)) {
-            setCurrentGroupId(defaultGroupId)
-            await AsyncStorage.setItem("current_group_id", defaultGroupId)
-          } else {
-            // Try to restore from AsyncStorage
-            const persistedGroupId = await AsyncStorage.getItem("current_group_id")
-            if (persistedGroupId && groups.some((group) => group.id === persistedGroupId)) {
-              setCurrentGroupId(persistedGroupId)
+          if (focusGroupId && groups.some((group) => group.id === focusGroupId)) {
+            setCurrentGroupId(focusGroupId)
+            await AsyncStorage.setItem("current_group_id", focusGroupId)
+          } else if (!currentGroupId) {
+            // Check for default group first (only if user has multiple groups)
+            const defaultGroupId = groups.length > 1 
+              ? await AsyncStorage.getItem("default_group_id")
+              : null
+            
+            if (defaultGroupId && groups.some((group) => group.id === defaultGroupId)) {
+              setCurrentGroupId(defaultGroupId)
+              await AsyncStorage.setItem("current_group_id", defaultGroupId)
             } else {
-              // Fallback to first group
-              setCurrentGroupId(groups[0].id)
-              await AsyncStorage.setItem("current_group_id", groups[0].id)
+              // Try to restore from AsyncStorage
+              const persistedGroupId = await AsyncStorage.getItem("current_group_id")
+              if (persistedGroupId && groups.some((group) => group.id === persistedGroupId)) {
+                setCurrentGroupId(persistedGroupId)
+              } else {
+                // Fallback to first group
+                setCurrentGroupId(groups[0].id)
+                await AsyncStorage.setItem("current_group_id", groups[0].id)
+              }
             }
           }
+          // Otherwise, preserve the existing currentGroupId
         }
-        // Otherwise, preserve the existing currentGroupId
       }
+    } catch (error) {
+      console.error("[home] Error loading user:", error)
+      // Don't block UI if load fails - user can retry
     }
   }
 
@@ -621,7 +639,7 @@ export default function Home() {
   async function handleShareInvite() {
     if (!currentGroupId || !userName) return
     try {
-      const inviteLink = `goodtimes://join/${currentGroupId}`
+      const inviteLink = `https://thegoodtimes.app/join/${currentGroupId}`
       const inviteMessage = `I've created a group for us on this new app, Good Times. Join ${userName} here: ${inviteLink}`
       await Share.share({
         url: inviteLink,
