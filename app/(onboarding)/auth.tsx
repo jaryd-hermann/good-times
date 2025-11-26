@@ -53,7 +53,6 @@ export default function OnboardingAuth() {
   const posthog = usePostHog()
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false)
   const [keyboardHeight, setKeyboardHeight] = useState(0)
-  const [emailFocused, setEmailFocused] = useState(false)
   const [passwordFocused, setPasswordFocused] = useState(false)
   const [confirmPasswordFocused, setConfirmPasswordFocused] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -1596,11 +1595,8 @@ export default function OnboardingAuth() {
                     onChangeText={setEmail}
                     placeholder="you@email.com"
                     placeholderTextColor="rgba(255,255,255,0.6)"
-                    keyboardType="email-address"
                     autoCapitalize="none"
                     style={styles.fieldInput}
-                    onFocus={() => setEmailFocused(true)}
-                    onBlur={() => setEmailFocused(false)}
                   />
                 </View>
 
