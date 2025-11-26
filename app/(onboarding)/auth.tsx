@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState, useRef } from "react"
+import { useCallback, useEffect, useState, useRef, memo } from "react"
 import {
   View,
   Text,
@@ -1595,16 +1595,9 @@ export default function OnboardingAuth() {
 
                 <View style={styles.fieldGroup}>
                   <Text style={styles.fieldLabel}>Email</Text>
-                  <TextInput
+                  <EmailInput
                     value={email}
                     onChangeText={handleEmailChange}
-                    placeholder="you@email.com"
-                    placeholderTextColor="rgba(255,255,255,0.6)"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    textContentType="none"
-                    keyboardAppearance="dark"
-                    blurOnSubmit={false}
                     style={styles.fieldInput}
                   />
                 </View>
@@ -1734,6 +1727,26 @@ export default function OnboardingAuth() {
     </View>
   )
 }
+
+// Memoized email input component to prevent unnecessary re-renders
+const EmailInput = memo(({ value, onChangeText, style }: { value: string; onChangeText: (text: string) => void; style: any }) => {
+  return (
+    <TextInput
+      value={value}
+      onChangeText={onChangeText}
+      placeholder="you@email.com"
+      placeholderTextColor="rgba(255,255,255,0.6)"
+      autoCapitalize="none"
+      autoCorrect={false}
+      textContentType="none"
+      keyboardAppearance="dark"
+      blurOnSubmit={false}
+      style={style}
+    />
+  )
+})
+
+EmailInput.displayName = "EmailInput"
 
 const styles = StyleSheet.create({
   background: {
