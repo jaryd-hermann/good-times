@@ -2,7 +2,7 @@ import type { BottomTabBarProps } from "@react-navigation/bottom-tabs"
 import { Tabs } from "expo-router"
 import { spacing } from "../../lib/theme"
 import { useTheme } from "../../lib/theme-context"
-import { View, StyleSheet, TouchableOpacity, Text, Animated, Platform } from "react-native"
+import { View, StyleSheet, TouchableOpacity, Text, Animated, Platform, Image } from "react-native"
 import { FontAwesome } from "@expo/vector-icons"
 import { useEffect, useRef, useMemo } from "react"
 import { useTabBar } from "../../lib/tab-bar-context"
@@ -21,7 +21,7 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
   // Calculate bottom offset for Android navigation bar
   const bottomOffset = Platform.OS === "android" ? insets.bottom + 24 : 24
 
-  const visibleRoutes = state.routes.filter((route) => route.name === "home" || route.name === "history")
+  const visibleRoutes = state.routes.filter((route) => route.name === "home" || route.name === "explore-decks" || route.name === "history")
 
   // Initialize animated values for each route
   visibleRoutes.forEach((route) => {
@@ -79,7 +79,7 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
       flexDirection: "row",
       backgroundColor: isDark ? "#282626" : "#ffffff",
       borderRadius: 38,
-      width: 194,
+      width: 280, // Increased width to accommodate 3 tabs
       height: 66,
       paddingHorizontal: spacing.xs,
       paddingVertical: spacing.xs,
@@ -132,7 +132,10 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
     currentRoute.name.startsWith("group-settings") ||
     currentRoute.name === "feedback" ||
     currentRoute.name === "custom-question-onboarding" ||
-    currentRoute.name === "add-custom-question"
+    currentRoute.name === "add-custom-question" ||
+    currentRoute.name.startsWith("collection-detail") ||
+    currentRoute.name.startsWith("deck-detail") ||
+    currentRoute.name.startsWith("deck-vote")
   ) {
     return null
   }
@@ -142,7 +145,7 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
       <View style={styles.tabContainer}>
       {visibleRoutes.map((route) => {
         const isFocused = state.index === state.routes.indexOf(route)
-        const label = route.name === "home" ? "Today" : "History"
+        const label = route.name === "home" ? "Answer" : route.name === "explore-decks" ? "Ask" : "Remember"
         const animatedValue = animatedValuesRef.current[route.key] || new Animated.Value(isFocused ? 1 : 0)
 
         const iconScale = animatedValue.interpolate({
@@ -167,6 +170,16 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
           }
         }
 
+        // Determine icon source based on route
+        let iconSource
+        if (route.name === "home") {
+          iconSource = require("../../assets/images/Answer.png")
+        } else if (route.name === "explore-decks") {
+          iconSource = require("../../assets/images/Ask.png")
+        } else {
+          iconSource = require("../../assets/images/Remember.png")
+        }
+
         return (
           <TouchableOpacity key={route.key} onPress={onPress} style={styles.tabButton} activeOpacity={0.8}>
             <Animated.View 
@@ -179,10 +192,14 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
               ]}
             >
               <Animated.View style={{ transform: [{ scale: iconScale }] }}>
-                <FontAwesome
-                  name={route.name === "home" ? "home" : "book"}
-                  size={20}
-                  color={isFocused ? colors.white : (isDark ? "#848282" : colors.gray[500])}
+                <Image
+                  source={iconSource}
+                  style={{
+                    width: 20,
+                    height: 20,
+                    tintColor: isFocused ? colors.white : (isDark ? "#848282" : colors.gray[500]),
+                  }}
+                  resizeMode="contain"
                 />
               </Animated.View>
               <Text style={[styles.navLabel, isFocused && styles.navLabelActive]}>{label}</Text>
@@ -206,6 +223,7 @@ export default function MainLayout() {
       tabBar={(props) => <FloatingTabBar {...props} />}
     >
       <Tabs.Screen name="home" />
+      <Tabs.Screen name="explore-decks" />
       <Tabs.Screen name="history" />
       <Tabs.Screen
         name="settings"

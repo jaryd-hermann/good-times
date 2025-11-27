@@ -1,0 +1,536 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Image,
+  Modal,
+  Dimensions,
+} from "react-native"
+import { useRouter, useLocalSearchParams } from "expo-router"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useSafeAreaInsets } from "react-native-safe-area-context"
+import { FontAwesome } from "@expo/vector-icons"
+import { useTheme } from "../../lib/theme-context"
+import { typography, spacing } from "../../lib/theme"
+import { getDeckDetails, getDeckQuestions, requestDeckVote, getVoteStatus, getUserVote, getCurrentUser, getCollectionDetails, castVote } from "../../lib/db"
+import { supabase } from "../../lib/supabase"
+import { Button } from "../../components/Button"
+import AsyncStorage from "@react-native-async-storage/async-storage"
+
+const { width: SCREEN_WIDTH } = Dimensions.get("window")
+const QUESTION_CARD_WIDTH = SCREEN_WIDTH - spacing.md * 2
+
+export default function DeckDetail() {
+  const router = useRouter()
+  const params = useLocalSearchParams()
+  const deckId = params.deckId as string
+  const groupId = params.groupId as string
+  const { colors, isDark } = useTheme()
+  const insets = useSafeAreaInsets()
+  const [userId, setUserId] = useState<string>()
+  const [voteModalVisible, setVoteModalVisible] = useState(false)
+  const [requestingVote, setRequestingVote] = useState(false)
+  const [devOverrideMemberLimit, setDevOverrideMemberLimit] = useState(false)
+  const queryClient = useQueryClient()
+
+  useEffect(() => {
+    async function loadUser() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (user) {
+        setUserId(user.id)
+      }
+    }
+    loadUser()
+
+    // Load dev override setting
+    if (__DEV__) {
+      async function loadDevSettings() {
+        const override = await AsyncStorage.getItem("dev_override_deck_member_limit")
+        setDevOverrideMemberLimit(override === "true")
+      }
+      loadDevSettings()
+    }
+  }, [])
+
+  const { data: deck } = useQuery({
+    queryKey: ["deck", deckId],
+    queryFn: () => getDeckDetails(deckId),
+    enabled: !!deckId,
+  })
+
+  // Get collection info for the deck
+  const { data: collection } = useQuery({
+    queryKey: ["collection", deck?.collection_id],
+    queryFn: () => (deck?.collection_id ? getCollectionDetails(deck.collection_id) : null),
+    enabled: !!deck?.collection_id,
+  })
+
+  const { data: questions = [] } = useQuery({
+    queryKey: ["deckQuestions", deckId],
+    queryFn: () => getDeckQuestions(deckId),
+    enabled: !!deckId,
+  })
+
+  // Check if deck is already being voted on or active
+  const { data: voteStatus } = useQuery({
+    queryKey: ["voteStatus", groupId, deckId],
+    queryFn: () => (groupId && deckId ? getVoteStatus(groupId, deckId) : null),
+    enabled: !!groupId && !!deckId,
+    retry: 1, // Reduce retries to avoid timeout
+    staleTime: 30000, // Cache for 30 seconds
+  })
+
+  const { data: userVote } = useQuery({
+    queryKey: ["userVote", groupId, deckId, userId],
+    queryFn: () => (groupId && deckId && userId ? getUserVote(groupId, deckId, userId) : null),
+    enabled: !!groupId && !!deckId && !!userId,
+  })
+
+  const requestVoteMutation = useMutation({
+    mutationFn: async () => {
+      if (!groupId || !deckId || !userId) throw new Error("Missing required params")
+      await requestDeckVote(groupId, deckId, userId)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["voteStatus", groupId, deckId] })
+      queryClient.invalidateQueries({ queryKey: ["groupActiveDecks", groupId] })
+      setVoteModalVisible(false)
+      router.back()
+    },
+    onError: (error) => {
+      console.error("[deck-detail] Error requesting vote:", error)
+      alert(error instanceof Error ? error.message : "Failed to request vote")
+    },
+  })
+
+  const handleRequestVote = async () => {
+    if (!groupId || !deckId || !userId) {
+      alert("Missing required information")
+      return
+    }
+
+    // Check if group has 4+ members (unless dev override is enabled)
+    if (!__DEV__ || !devOverrideMemberLimit) {
+      const { data: members } = await supabase
+        .from("group_members")
+        .select("user_id")
+        .eq("group_id", groupId)
+
+      if (!members || members.length < 4) {
+        alert("Your group needs at least 4 members to vote on decks")
+        return
+      }
+    }
+
+    setRequestingVote(true)
+    try {
+      await requestDeckVote(groupId, deckId, userId, __DEV__ && devOverrideMemberLimit)
+      setVoteModalVisible(false)
+      queryClient.invalidateQueries({ queryKey: ["voteStatus", groupId, deckId] })
+      queryClient.invalidateQueries({ queryKey: ["groupActiveDecks", groupId] })
+      router.back()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Failed to request vote")
+    } finally {
+      setRequestingVote(false)
+    }
+  }
+
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.black,
+    },
+    header: {
+      paddingTop: insets.top + spacing.md + 50, // Move content down to avoid back button
+      paddingHorizontal: spacing.md,
+      paddingBottom: spacing.md,
+      alignItems: "center", // Centered content
+    },
+    backButton: {
+      position: "absolute",
+      top: insets.top + spacing.md,
+      left: spacing.md,
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.gray[900],
+      justifyContent: "center",
+      alignItems: "center",
+      zIndex: 10,
+    },
+    headerContent: {
+      alignItems: "center", // Centered
+      width: "100%",
+    },
+    collectionName: {
+      fontFamily: "Roboto-Bold",
+      fontSize: 16, // Bigger
+      color: colors.gray[400],
+      marginBottom: spacing.md, // More space
+      fontWeight: "700",
+    },
+    deckName: {
+      ...typography.h1,
+      fontSize: 28,
+      color: colors.white,
+      marginBottom: spacing.md, // More space
+      textAlign: "center", // Centered
+    },
+    deckDescription: {
+      ...typography.body,
+      fontSize: 16, // Bigger description
+      color: colors.gray[400],
+      textAlign: "center", // Centered
+      lineHeight: 22,
+      marginBottom: spacing.lg, // More space
+    },
+    separator: {
+      width: "100%",
+      height: 1,
+      backgroundColor: colors.gray[800],
+      marginBottom: spacing.lg,
+    },
+    content: {
+      flex: 1,
+      paddingBottom: spacing.xxl * 2,
+    },
+    questionsTitle: {
+      fontFamily: "Roboto-Regular",
+      fontSize: 14,
+      color: colors.gray[400],
+      marginBottom: spacing.md,
+      paddingHorizontal: spacing.md,
+      textAlign: "center",
+    },
+    questionsCarousel: {
+      paddingHorizontal: spacing.md,
+    },
+    questionCard: {
+      width: SCREEN_WIDTH * 0.85, // Bigger cards like screenshot
+      backgroundColor: colors.gray[900], // Dark gray background
+      borderWidth: 1,
+      borderColor: colors.white,
+      borderRadius: 0, // Square edges
+      padding: spacing.lg,
+      marginRight: spacing.md,
+      opacity: 1,
+      minHeight: 200,
+    },
+    questionCardFaded: {
+      opacity: 0.3,
+    },
+    carouselMessage: {
+      width: SCREEN_WIDTH * 0.85,
+      backgroundColor: colors.black,
+      padding: spacing.lg,
+      marginRight: spacing.md,
+      justifyContent: "center",
+      alignItems: "center",
+      minHeight: 200,
+    },
+    carouselMessageText: {
+      ...typography.body,
+      fontSize: 14,
+      color: colors.gray[400],
+      textAlign: "center",
+      lineHeight: 20,
+    },
+    questionNumber: {
+      position: "absolute",
+      top: spacing.md,
+      right: spacing.md,
+      fontFamily: "Roboto-Bold",
+      fontSize: 16, // Larger
+      color: colors.gray[400],
+      fontWeight: "700",
+    },
+    questionText: {
+      ...typography.bodyBold,
+      fontSize: 20, // Bigger font
+      color: colors.white,
+      lineHeight: 28,
+      marginTop: spacing.md,
+      fontWeight: "700",
+    },
+    ctaContainer: {
+      paddingHorizontal: spacing.md,
+      paddingTop: spacing.xl,
+      alignItems: "center",
+    },
+    ctaSubtext: {
+      fontFamily: "Roboto-Regular",
+      fontSize: 14,
+      color: colors.gray[400],
+      textAlign: "center",
+      marginTop: spacing.md,
+      paddingHorizontal: spacing.lg,
+    },
+    voteStatusContainer: {
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
+      backgroundColor: colors.gray[900],
+      borderRadius: 12,
+      marginBottom: spacing.md,
+    },
+    voteStatusText: {
+      ...typography.body,
+      color: colors.white,
+      marginBottom: spacing.xs,
+    },
+    voteStatusSubtext: {
+      ...typography.caption,
+      color: colors.gray[400],
+    },
+    // Modal styles (bottom slide-up)
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(0, 0, 0, 0.85)",
+      justifyContent: "flex-end",
+    },
+    modalContent: {
+      backgroundColor: colors.black,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      padding: spacing.xl,
+      paddingBottom: insets.bottom + spacing.xl,
+    },
+    modalTitle: {
+      ...typography.h2,
+      fontSize: 24,
+      color: colors.white,
+      marginBottom: spacing.md,
+      textAlign: "center",
+    },
+    modalText: {
+      ...typography.body,
+      color: colors.gray[300],
+      lineHeight: 24,
+      marginBottom: spacing.xl,
+      textAlign: "center",
+    },
+    modalButton: {
+      marginTop: spacing.md,
+    },
+  })
+
+  // Show CTA if no vote status, rejected, or if voting hasn't started yet (no votes cast)
+  const showVoteCTA = !voteStatus || voteStatus.status === "rejected" || (voteStatus.status === "voting" && voteStatus.yes_votes === 0 && voteStatus.no_votes === 0)
+  const isVoting = voteStatus?.status === "voting" && (voteStatus.yes_votes > 0 || voteStatus.no_votes > 0) // Only show if vote actually started
+  const isActive = voteStatus?.status === "active"
+  const isFinished = voteStatus?.status === "finished"
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => {
+            // Navigate back to collection detail if we have collection_id
+            if (collection?.id) {
+              router.push(`/(main)/collection-detail?collectionId=${collection.id}&groupId=${groupId}`)
+            } else {
+              router.back()
+            }
+          }}
+        >
+          <FontAwesome name="arrow-left" size={16} color={colors.white} />
+        </TouchableOpacity>
+        <View style={styles.headerContent}>
+          {collection && (
+            <Text style={styles.collectionName}>{collection.name}</Text>
+          )}
+          <Text style={styles.deckName}>{deck?.name || "Deck"}</Text>
+          <Text style={styles.deckDescription}>{deck?.description || ""}</Text>
+        </View>
+        <View style={styles.separator} />
+      </View>
+
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Vote Status Banner - Only show if vote is actually active (has votes) */}
+        {isVoting && voteStatus && voteStatus.yes_votes + voteStatus.no_votes > 0 && (
+          <View style={styles.voteStatusContainer}>
+            <Text style={styles.voteStatusText}>
+              Voting in progress: {voteStatus.yes_votes} yes, {voteStatus.no_votes} no
+            </Text>
+            <Text style={styles.voteStatusSubtext}>
+              {voteStatus.yes_votes >= voteStatus.majority_threshold
+                ? "Majority reached! Deck will be activated."
+                : `Need ${voteStatus.majority_threshold - voteStatus.yes_votes} more yes votes`}
+            </Text>
+          </View>
+        )}
+
+        {isActive && (
+          <View style={styles.voteStatusContainer}>
+            <Text style={styles.voteStatusText}>✓ This deck is active</Text>
+            <Text style={styles.voteStatusSubtext}>
+              Questions from this deck are being included in your daily rotation
+            </Text>
+          </View>
+        )}
+
+        {isFinished && (
+          <View style={styles.voteStatusContainer}>
+            <Text style={styles.voteStatusText}>Deck finished</Text>
+            <Text style={styles.voteStatusSubtext}>
+              All questions from this deck have been asked
+            </Text>
+          </View>
+        )}
+
+        {/* Questions Carousel */}
+        <Text style={styles.questionsTitle}>
+          {questions.length} {questions.length === 1 ? 'question' : 'questions'} in this deck
+        </Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.questionsCarousel}
+          contentContainerStyle={{ 
+            paddingRight: (SCREEN_WIDTH * 0.85 + spacing.md) * 1.15, // Limit to 15% into card 2
+            paddingLeft: 0,
+          }}
+          scrollEnabled={true}
+          decelerationRate="fast"
+          snapToInterval={SCREEN_WIDTH * 0.85 + spacing.md}
+          snapToAlignment="start"
+          bounces={false}
+          scrollEventThrottle={16}
+        >
+          {questions.slice(0, 2).map((question, index) => (
+            <View
+              key={question.id}
+              style={styles.questionCard}
+            >
+              <Text style={styles.questionNumber}>
+                {String(index + 1).padStart(2, '0')}
+              </Text>
+              <Text style={styles.questionText}>{question.question}</Text>
+            </View>
+          ))}
+          {/* Message card after 2nd question */}
+          <View style={styles.carouselMessage}>
+            <Text style={styles.carouselMessageText}>
+              To see the rest of the questions, add this deck for your group
+            </Text>
+          </View>
+        </ScrollView>
+
+        {/* CTA Button */}
+        {showVoteCTA && (
+          <View style={styles.ctaContainer}>
+            <Button
+              title="Add this deck →"
+              onPress={() => setVoteModalVisible(true)}
+              loading={requestingVote}
+            />
+            <Text style={styles.ctaSubtext}>
+              If the majority vote yes, we'll shuffle this deck of questions into your list.
+            </Text>
+          </View>
+        )}
+      </ScrollView>
+
+      {/* Vote Request Modal - Bottom Slide Up */}
+      <Modal
+        transparent
+        animationType="slide"
+        visible={voteModalVisible}
+        onRequestClose={() => setVoteModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setVoteModalVisible(false)}
+        >
+          <View
+            style={styles.modalContent}
+            onStartShouldSetResponder={() => true}
+          >
+            <Text style={styles.modalTitle}>Great choice!</Text>
+            <Text style={styles.modalText}>
+              We'll ask your group if they're interested in this deck, and if the majority vote yes, we'll shuffle these into your upcoming days. We'll let you know too.
+            </Text>
+            <Button
+              title="Vote yes to start"
+              onPress={async () => {
+                if (!groupId || !deckId || !userId) {
+                  alert("Missing required information")
+                  return
+                }
+
+                // Check if group has 4+ members (unless dev override is enabled)
+                if (!__DEV__ || !devOverrideMemberLimit) {
+                  const { data: members } = await supabase
+                    .from("group_members")
+                    .select("user_id")
+                    .eq("group_id", groupId)
+
+                  if (!members || members.length < 4) {
+                    alert("Your group needs at least 4 members to vote on decks")
+                    return
+                  }
+                }
+                
+                setRequestingVote(true)
+                try {
+                  // Request vote (this creates the voting record)
+                  await requestDeckVote(groupId, deckId, userId, __DEV__ && devOverrideMemberLimit)
+                  
+                  // Cast the requester's vote as yes
+                  await castVote(groupId, deckId, userId, "yes")
+                  
+                  // Close modal and navigate to explore
+                  setVoteModalVisible(false)
+                  queryClient.invalidateQueries({ queryKey: ["voteStatus", groupId, deckId] })
+                  queryClient.invalidateQueries({ queryKey: ["groupActiveDecks", groupId] })
+                  queryClient.invalidateQueries({ queryKey: ["pendingVotes", groupId, userId] })
+                  router.push(`/(main)/explore-decks?groupId=${groupId}`)
+                } catch (error) {
+                  alert(error instanceof Error ? error.message : "Failed to start vote")
+                } finally {
+                  setRequestingVote(false)
+                }
+              }}
+              loading={requestingVote}
+              style={styles.modalButton}
+            />
+            {__DEV__ && (
+              <TouchableOpacity
+                onPress={async () => {
+                  const currentValue = await AsyncStorage.getItem("dev_override_deck_member_limit")
+                  const newValue = currentValue === "true" ? "false" : "true"
+                  await AsyncStorage.setItem("dev_override_deck_member_limit", newValue)
+                  setDevOverrideMemberLimit(newValue === "true")
+                  alert(`Dev override: ${newValue === "true" ? "ENABLED" : "DISABLED"}\n\n4-member limit ${newValue === "true" ? "bypassed" : "enforced"}`)
+                }}
+                style={{ marginTop: spacing.md, padding: spacing.sm }}
+              >
+                <Text style={{ ...typography.caption, color: colors.gray[500], textAlign: "center", fontSize: 10 }}>
+                  [DEV] Override 4-member limit: {devOverrideMemberLimit ? "ON" : "OFF"}
+                </Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              onPress={() => setVoteModalVisible(false)}
+              style={{ marginTop: spacing.md }}
+            >
+              <Text style={{ ...typography.body, color: colors.gray[400], textAlign: "center" }}>
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </View>
+  )
+}
+

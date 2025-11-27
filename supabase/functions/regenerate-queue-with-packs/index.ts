@@ -34,6 +34,8 @@ function seededShuffle<T>(array: T[], seed: string): T[] {
   return shuffled
 }
 
+// Determine eligible categories based on group settings
+// Note: Fun/A Bit Deeper removed - replaced with deck system
 function getEligibleCategories(
   groupType: "family" | "friends",
   hasNSFW: boolean,
@@ -49,6 +51,7 @@ function getEligibleCategories(
     eligible.push("Friends")
   }
   
+  // Conditional categories
   if (hasNSFW && !disabledCategories.has("Edgy/NSFW")) {
     eligible.push("Edgy/NSFW")
   }
@@ -143,7 +146,7 @@ serve(async (req) => {
     // Get group details
     const { data: groupData, error: groupError } = await supabaseClient
       .from("groups")
-      .select("type, created_at")
+      .select("type, created_at, ice_breaker_queue_completed_date")
       .eq("id", group_id)
       .single()
 
@@ -151,6 +154,17 @@ serve(async (req) => {
     if (!groupData) throw new Error("Group not found")
 
     const groupType = groupData.type as "family" | "friends"
+    
+    // Only regenerate if ice-breaker period is complete
+    if (!groupData.ice_breaker_queue_completed_date) {
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: "Group is still in ice-breaker period" 
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
+      )
+    }
 
     // Check for memorials
     const { data: memorials } = await supabaseClient
@@ -161,7 +175,7 @@ serve(async (req) => {
     
     const hasMemorials = (memorials?.length || 0) > 0
 
-    // Get updated category preferences
+    // Get category preferences
     const { data: preferences } = await supabaseClient
       .from("question_category_preferences")
       .select("category, preference, weight")
@@ -190,6 +204,40 @@ serve(async (req) => {
       )
     }
 
+    // Fetch active decks
+    const { data: activeDecksData } = await supabaseClient
+      .from("group_active_decks")
+      .select("deck_id, deck:decks(id, name)")
+      .eq("group_id", group_id)
+      .eq("status", "active")
+    
+    const activeDecks: Array<{ id: string; name: string }> = []
+    let deckPrompts: any[] = []
+    
+    if (activeDecksData && activeDecksData.length > 0) {
+      activeDecks = activeDecksData.map((ad: any) => ({
+        id: ad.deck_id,
+        name: ad.deck?.name || "Unknown Deck"
+      }))
+      
+      // Get prompts from active decks
+      const deckIds = activeDecks.map(d => d.id)
+      const { data: deckPromptsData, error: deckPromptsError } = await supabaseClient
+        .from("prompts")
+        .select("*")
+        .in("deck_id", deckIds)
+        .not("deck_id", "is", null)
+        .order("deck_id", { ascending: true })
+        .order("deck_order", { ascending: true })
+      
+      if (deckPromptsError) {
+        console.error(`[regenerate-queue-with-packs] Error fetching deck prompts:`, deckPromptsError)
+      } else {
+        deckPrompts = deckPromptsData || []
+        console.log(`[regenerate-queue-with-packs] Found ${activeDecks.length} active decks with ${deckPrompts.length} total prompts`)
+      }
+    }
+
     // Get all prompts from eligible categories
     const { data: allPrompts, error: promptsError } = await supabaseClient
       .from("prompts")
@@ -211,34 +259,39 @@ serve(async (req) => {
 
     const today = new Date().toISOString().split("T")[0]
     const todayDate = new Date(today)
+    const tomorrow = new Date(todayDate)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    const tomorrowStr = tomorrow.toISOString().split("T")[0]
 
     // Delete future prompts that don't match new preferences
-    // Keep today and past prompts, only update future dates
+    // Keep today and tomorrow, only update future dates
+    // Also preserve custom questions and birthdays
     const { error: deleteError } = await supabaseClient
       .from("daily_prompts")
       .delete()
       .eq("group_id", group_id)
-      .gt("date", today) // Only delete future dates
+      .gt("date", tomorrowStr) // Only delete dates after tomorrow
       .is("user_id", null) // Only general prompts (not birthday-specific)
+      .is("deck_id", null) // Don't delete deck prompts - we'll regenerate them
 
     if (deleteError) {
-      console.warn("[update-group-queue] Error deleting future prompts:", deleteError)
+      console.warn("[regenerate-queue-with-packs] Error deleting future prompts:", deleteError)
       // Continue anyway - we'll regenerate
     }
 
-    // Get prompts already used (today and past) to avoid duplicates
+    // Get prompts already used (today, tomorrow, and past) to avoid duplicates
     const { data: usedPrompts } = await supabaseClient
       .from("daily_prompts")
       .select("prompt_id")
       .eq("group_id", group_id)
-      .lte("date", today)
+      .lte("date", tomorrowStr)
       .is("user_id", null)
 
     const usedPromptIds = new Set(usedPrompts?.map((p) => p.prompt_id) || [])
 
-    // Generate dates: next 7 days (future only)
+    // Generate dates: next 7 days (future only, starting from day after tomorrow)
     const dates: string[] = []
-    for (let i = 1; i <= 7; i++) {
+    for (let i = 2; i <= 8; i++) {
       const date = new Date(todayDate)
       date.setDate(date.getDate() + i)
       dates.push(date.toISOString().split("T")[0])
@@ -251,11 +304,36 @@ serve(async (req) => {
 
     // Track category usage for variety
     const categoryUsage = new Map<string, number>()
-    const scheduledPrompts: Array<{ date: string; prompt_id: string }> = []
+    const scheduledPrompts: Array<{ date: string; prompt_id: string; deck_id?: string }> = []
     const newUsedPromptIds = new Set<string>()
+    
+    // Track deck usage per week (for ensuring 1 per week per active deck)
+    const deckUsagePerWeek = new Map<string, Set<string>>() // week_key -> Set<deck_id>
+    const getWeekKey = (date: string) => {
+      const d = new Date(date)
+      const dayOfWeek = d.getDay()
+      const weekStart = new Date(d)
+      weekStart.setDate(d.getDate() - dayOfWeek) // Get Sunday of the week
+      return weekStart.toISOString().split("T")[0]
+    }
 
     // Generate queue for each future date
     for (const date of dates) {
+      const weekKey = getWeekKey(date)
+      
+      // Reset category usage every 7 days
+      const dateIndex = dates.indexOf(date)
+      if (dateIndex % 7 === 0) {
+        categoryUsage.clear()
+        deckUsagePerWeek.delete(weekKey)
+      }
+      
+      // Initialize week tracking if needed
+      if (!deckUsagePerWeek.has(weekKey)) {
+        deckUsagePerWeek.set(weekKey, new Set<string>())
+      }
+      const weekDeckUsage = deckUsagePerWeek.get(weekKey)!
+
       // Get available prompts (not used in past or in this new queue)
       const availablePrompts = shuffledPrompts.filter(
         (p) => !usedPromptIds.has(p.id) && !newUsedPromptIds.has(p.id)
@@ -264,21 +342,53 @@ serve(async (req) => {
       // If we've used all prompts, reset and reuse
       if (availablePrompts.length === 0) {
         newUsedPromptIds.clear()
-        const resetPrompts = seededShuffle(allPrompts, `${seed}-reset-${dates.indexOf(date)}`)
+        const resetPrompts = seededShuffle(allPrompts, `${seed}-reset-${dateIndex}`)
         availablePrompts.push(...resetPrompts.filter((p) => !usedPromptIds.has(p.id)))
       }
 
-      // Select prompt ensuring variety
-      const selectedPrompt = selectPromptWithVariety(
-        availablePrompts,
-        eligibleCategories,
-        categoryWeights,
-        categoryUsage,
-        rng
-      )
+      // Select prompt - prioritize deck questions (1 per week per active deck)
+      let selectedPrompt: any | null = null
+      let selectedDeckId: string | null = null
+      
+      // Check if we need to schedule a deck question this week
+      const unusedDecksThisWeek = activeDecks.filter(deck => !weekDeckUsage.has(deck.id))
+      
+      if (unusedDecksThisWeek.length > 0 && deckPrompts.length > 0) {
+        // Schedule a deck question - pick a random unused deck
+        const deckToUse = unusedDecksThisWeek[Math.floor(rng() * unusedDecksThisWeek.length)]
+        
+        // Get available prompts from this deck (not used yet in this queue)
+        const availableDeckPrompts = deckPrompts.filter(
+          (p) => p.deck_id === deckToUse.id && !usedPromptIds.has(p.id) && !newUsedPromptIds.has(p.id)
+        )
+        
+        if (availableDeckPrompts.length > 0) {
+          // Select a prompt from this deck (use deck_order for deterministic selection)
+          availableDeckPrompts.sort((a, b) => (a.deck_order || 0) - (b.deck_order || 0))
+          selectedPrompt = availableDeckPrompts[0] // Use first available (by order)
+          selectedDeckId = deckToUse.id
+          weekDeckUsage.add(deckToUse.id)
+          console.log(`[regenerate-queue-with-packs] Scheduling deck question from "${deckToUse.name}" for ${date}`)
+        } else {
+          // No more prompts available from this deck - mark as used for this week anyway
+          weekDeckUsage.add(deckToUse.id)
+          console.log(`[regenerate-queue-with-packs] Deck "${deckToUse.name}" has no more available prompts, skipping for this week`)
+        }
+      }
+      
+      // If no deck question scheduled, use category variety selection
+      if (!selectedPrompt) {
+        selectedPrompt = selectPromptWithVariety(
+          availablePrompts,
+          eligibleCategories,
+          categoryWeights,
+          categoryUsage,
+          rng
+        )
+      }
 
       if (!selectedPrompt) {
-        console.warn(`[update-group-queue] No prompt selected for ${date}, skipping`)
+        console.warn(`[regenerate-queue-with-packs] No prompt selected for ${date}, skipping`)
         continue
       }
 
@@ -290,6 +400,7 @@ serve(async (req) => {
       scheduledPrompts.push({
         date,
         prompt_id: selectedPrompt.id,
+        deck_id: selectedDeckId || undefined,
       })
     }
 
@@ -303,6 +414,7 @@ serve(async (req) => {
             prompt_id: sp.prompt_id,
             date: sp.date,
             user_id: null,
+            deck_id: sp.deck_id || null,
           }))
         )
 
@@ -315,12 +427,13 @@ serve(async (req) => {
         prompts_scheduled: scheduledPrompts.length,
         dates: scheduledPrompts.map((sp) => sp.date),
         eligible_categories: eligibleCategories,
+        active_decks: activeDecks.length,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     )
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
-    console.error("[update-group-queue] Fatal error:", errorMessage)
+    console.error("[regenerate-queue-with-packs] Fatal error:", errorMessage)
     return new Response(
       JSON.stringify({ error: errorMessage }),
       {

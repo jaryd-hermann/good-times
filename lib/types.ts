@@ -35,6 +35,8 @@ export interface Prompt {
   dynamic_variables?: string[] // Array of variable names like ["member_name", "memorial_name"]
   is_custom?: boolean
   custom_question_id?: string | null
+  deck_id?: string | null
+  deck_order?: number | null
   created_at: string
 }
 
@@ -44,6 +46,7 @@ export interface DailyPrompt {
   prompt_id: string
   date: string
   user_id?: string | null // NULL for general prompts, user_id for user-specific prompts (birthdays)
+  deck_id?: string | null // NULL for category prompts, deck_id for deck prompts
   created_at: string
   prompt?: Prompt
 }
@@ -137,5 +140,52 @@ export interface GroupActivityTracking {
   eligible_since?: string | null
   created_at: string
   updated_at: string
+  group?: Group
+}
+
+export interface Collection {
+  id: string
+  name: string
+  description?: string
+  icon_url?: string
+  display_order: number
+  created_at: string
+}
+
+export interface Deck {
+  id: string
+  collection_id: string
+  name: string
+  description?: string
+  icon_url?: string
+  display_order: number
+  created_at: string
+  collection?: Collection
+}
+
+export interface GroupDeckVote {
+  id: string
+  group_id: string
+  deck_id: string
+  user_id: string
+  vote: "yes" | "no"
+  created_at: string
+  updated_at: string
+  user?: User
+  deck?: Deck
+}
+
+export interface GroupActiveDeck {
+  id: string
+  group_id: string
+  deck_id: string
+  status: "voting" | "active" | "rejected" | "finished"
+  requested_by: string
+  activated_at?: string | null
+  finished_at?: string | null
+  created_at: string
+  updated_at: string
+  deck?: Deck
+  requested_by_user?: User
   group?: Group
 }

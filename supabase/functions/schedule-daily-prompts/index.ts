@@ -239,15 +239,8 @@ serve(async (req) => {
       )
 
       // Determine eligible categories (same logic as initialize-group-queue)
+      // Note: Fun/A Bit Deeper removed - replaced with deck system
       const eligibleCategories: string[] = []
-      
-      // Always eligible categories
-      if (!disabledCategories.has("Fun")) {
-        eligibleCategories.push("Fun")
-      }
-      if (!disabledCategories.has("A Bit Deeper")) {
-        eligibleCategories.push("A Bit Deeper")
-      }
       
       // Group type specific
       if (groupData?.type === "family") {
@@ -313,7 +306,78 @@ serve(async (req) => {
         }
       }
 
-      // If no queued prompt, use weighted selection
+      // If no queued prompt, check for deck questions first (1 per week per active deck)
+      let selectedDeckId: string | null = null
+      
+      if (!selectedPrompt) {
+        // Check active decks and see if we need to schedule a deck question this week
+        const { data: activeDecksData } = await supabaseClient
+          .from("group_active_decks")
+          .select("deck_id, deck:decks(id, name)")
+          .eq("group_id", group.id)
+          .eq("status", "active")
+        
+        if (activeDecksData && activeDecksData.length > 0) {
+          // Get week start date (Sunday)
+          const todayDate = new Date(today)
+          const dayOfWeek = todayDate.getDay()
+          const weekStart = new Date(todayDate)
+          weekStart.setDate(todayDate.getDate() - dayOfWeek)
+          const weekStartStr = weekStart.toISOString().split("T")[0]
+          
+          // Check which decks have been used this week
+          const { data: weekDeckPrompts } = await supabaseClient
+            .from("daily_prompts")
+            .select("deck_id")
+            .eq("group_id", group.id)
+            .gte("date", weekStartStr)
+            .lte("date", today)
+            .not("deck_id", "is", null)
+            .is("user_id", null)
+          
+          const usedDeckIdsThisWeek = new Set((weekDeckPrompts || []).map((dp: any) => dp.deck_id))
+          
+          // Find decks that haven't been used this week
+          const unusedDecksThisWeek = activeDecksData.filter(
+            (ad: any) => !usedDeckIdsThisWeek.has(ad.deck_id)
+          )
+          
+          if (unusedDecksThisWeek.length > 0) {
+            // Pick a random unused deck
+            const deckToUse = unusedDecksThisWeek[Math.floor(Math.random() * unusedDecksThisWeek.length)]
+            
+            // Get prompts from this deck that haven't been used
+            const { data: usedPrompts } = await supabaseClient
+              .from("daily_prompts")
+              .select("prompt_id")
+              .eq("group_id", group.id)
+              .is("user_id", null)
+            
+            const usedPromptIds = usedPrompts?.map((p) => p.prompt_id) || []
+            
+            // Get available prompts from this deck
+            const { data: deckPromptsData } = await supabaseClient
+              .from("prompts")
+              .select("*")
+              .eq("deck_id", deckToUse.deck_id)
+              .not("deck_id", "is", null)
+              .order("deck_order", { ascending: true })
+            
+            const availableDeckPrompts = (deckPromptsData || []).filter(
+              (p: any) => !usedPromptIds.includes(p.id)
+            )
+            
+            if (availableDeckPrompts.length > 0) {
+              // Select first available prompt (by deck_order)
+              selectedPrompt = availableDeckPrompts[0]
+              selectedDeckId = deckToUse.deck_id
+              console.log(`[schedule-daily-prompts] Scheduling deck question from "${deckToUse.deck?.name || 'Unknown'}" for ${today}`)
+            }
+          }
+        }
+      }
+      
+      // If no deck prompt selected, use weighted selection from categories
       if (!selectedPrompt) {
         // Get all prompts used for this group (general prompts only)
         const { data: usedPrompts } = await supabaseClient
@@ -328,11 +392,13 @@ serve(async (req) => {
         let availablePrompts: any[] = []
 
         // Get prompts from eligible categories only
+        // Note: No fallback to Fun/A Bit Deeper - these categories are removed
         const { data: allPromptsData } = await supabaseClient
           .from("prompts")
           .select("*")
-          .in("category", eligibleCategories.length > 0 ? eligibleCategories : ["Fun", "A Bit Deeper"]) // Fallback if no eligible
+          .in("category", eligibleCategories.length > 0 ? eligibleCategories : []) // No fallback
           .is("birthday_type", null) // Exclude birthday prompts
+          .is("deck_id", null) // Exclude deck prompts (handled separately)
 
         // Filter out used prompts and prompts with {member_name} unless group has 3+ members
         const memberCount = members?.length || 0
@@ -356,8 +422,9 @@ serve(async (req) => {
           const { data: allPromptsRaw } = await supabaseClient
             .from("prompts")
             .select("*")
-            .in("category", eligibleCategories.length > 0 ? eligibleCategories : ["Fun", "A Bit Deeper"])
+            .in("category", eligibleCategories.length > 0 ? eligibleCategories : []) // No fallback
             .is("birthday_type", null)
+            .is("deck_id", null) // Exclude deck prompts (handled separately)
 
           // Filter out prompts with {member_name} unless group has 3+ members
           const filteredPromptsRaw = (allPromptsRaw || []).filter((p: any) => {
@@ -446,6 +513,7 @@ serve(async (req) => {
         prompt_id: promptId,
         date: today,
         user_id: null, // General prompt for all members
+        deck_id: selectedDeckId || null, // Track which deck this prompt belongs to
       })
 
       if (insertError) throw insertError

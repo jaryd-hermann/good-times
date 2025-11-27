@@ -42,7 +42,7 @@ import { CategoryTag } from "../../components/CategoryTag"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { FontAwesome } from "@expo/vector-icons"
 import { registerForPushNotifications, savePushToken } from "../../lib/notifications"
-import { getMemorials, getCustomQuestionOpportunity, hasSeenCustomQuestionOnboarding } from "../../lib/db"
+import { getMemorials, getCustomQuestionOpportunity, hasSeenCustomQuestionOnboarding, getPendingVotes, getDeckDetails } from "../../lib/db"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "../../lib/prompts"
 import { useTabBar } from "../../lib/tab-bar-context"
 import { CustomQuestionBanner } from "../../components/CustomQuestionBanner"
@@ -485,6 +485,20 @@ export default function Home() {
   // Check if current prompt is a custom question
   const isCustomQuestion = dailyPrompt?.prompt?.is_custom === true
   const customQuestionData = (dailyPrompt?.prompt as any)?.customQuestion
+
+  // Get pending votes for deck voting
+  const { data: pendingVotes = [] } = useQuery({
+    queryKey: ["pendingVotes", currentGroupId, userId],
+    queryFn: () => (currentGroupId && userId ? getPendingVotes(currentGroupId, userId) : []),
+    enabled: !!currentGroupId && !!userId,
+  })
+
+  // Get deck info if prompt has deck_id
+  const { data: deckInfo } = useQuery({
+    queryKey: ["deckInfo", dailyPrompt?.deck_id],
+    queryFn: () => (dailyPrompt?.deck_id ? getDeckDetails(dailyPrompt.deck_id) : null),
+    enabled: !!dailyPrompt?.deck_id,
+  })
 
   // In dev mode, show banner if force toggle is enabled
   const [devForceCustomQuestion, setDevForceCustomQuestion] = useState(false)
@@ -1174,6 +1188,29 @@ export default function Home() {
             onPress={handleCustomQuestionPress}
           />
         )}
+        
+        {/* Pending Vote Banner */}
+        {pendingVotes.length > 0 && isToday && (
+          <TouchableOpacity
+            style={styles.voteBanner}
+            onPress={() => {
+              if (pendingVotes.length === 1) {
+                router.push(`/(main)/deck-vote?deckId=${pendingVotes[0].deck_id}&groupId=${currentGroupId}`)
+              } else {
+                router.push(`/(main)/explore-decks?groupId=${currentGroupId}`)
+              }
+            }}
+          >
+            <Text style={styles.voteBannerText}>
+              {pendingVotes.length === 1
+                ? `Vote on "${pendingVotes[0].deck?.name || "a deck"}"`
+                : "Multiple decks being voted on"}
+            </Text>
+            <View style={styles.voteBannerButton}>
+              <Text style={styles.voteBannerButtonText}>Vote</Text>
+            </View>
+          </TouchableOpacity>
+        )}
         {/* Notice above daily question - mutually exclusive messages */}
         {!userEntry && (
           <>
@@ -1225,9 +1262,32 @@ export default function Home() {
                       )}
                     </View>
                   )}
-                  {fallbackPrompt?.category && (
-                    <CategoryTag category={fallbackPrompt.category} />
-                  )}
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginBottom: spacing.sm }}>
+                    {fallbackPrompt?.category && (
+                      <CategoryTag category={fallbackPrompt.category} />
+                    )}
+                    {dailyPrompt?.deck_id && deckInfo && (
+                      <TouchableOpacity
+                        onPress={() => router.push(`/(main)/deck-detail?deckId=${dailyPrompt.deck_id}&groupId=${currentGroupId}`)}
+                        style={{
+                          alignSelf: "flex-start",
+                          paddingHorizontal: spacing.md,
+                          paddingVertical: spacing.xs,
+                          borderRadius: 16,
+                          backgroundColor: isDark ? colors.white : colors.black,
+                        }}
+                      >
+                        <Text style={{
+                          ...typography.caption,
+                          fontSize: 12,
+                          fontWeight: "600",
+                          color: isDark ? colors.black : colors.white,
+                        }}>
+                          {deckInfo.name}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
                   <Text style={styles.promptQuestion}>
                     {personalizedPromptQuestion || fallbackPrompt?.question || "Share a moment that made you smile today."}
                   </Text>

@@ -20,7 +20,7 @@ import {
 } from "date-fns"
 import { typography, spacing } from "../../lib/theme"
 import { useTheme } from "../../lib/theme-context"
-import { getGroupMembers, getAllPrompts, getDailyPrompt, getMemorials, getGroup } from "../../lib/db"
+import { getGroupMembers, getAllPrompts, getDailyPrompt, getMemorials, getGroup, getGroupActiveDecks } from "../../lib/db"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { Button } from "../../components/Button"
 import { getTodayDate } from "../../lib/utils"
@@ -164,6 +164,7 @@ export default function History() {
   const [selectedCategories, setSelectedCategories] = useState<string[]>([])
   const [selectedMembers, setSelectedMembers] = useState<string[]>([])
   const [selectedMemorials, setSelectedMemorials] = useState<string[]>([])
+  const [selectedDecks, setSelectedDecks] = useState<string[]>([])
   const [currentGroupId, setCurrentGroupId] = useState<string>()
   const [userId, setUserId] = useState<string>()
   const [activePeriod, setActivePeriod] = useState<ActivePeriod | null>(null)
@@ -205,6 +206,8 @@ export default function History() {
       setSelectedCategories([])
       setSelectedMembers([])
       setSelectedMemorials([])
+      setSelectedDecks([])
+          setSelectedDecks([])
     }
   }, [focusGroupId, currentGroupId])
 
@@ -313,6 +316,16 @@ export default function History() {
     enabled: !!currentGroupId,
   })
 
+  // Fetch active decks for filtering
+  const { data: activeDecks = [] } = useQuery({
+    queryKey: ["history-activeDecks", currentGroupId],
+    queryFn: () => (currentGroupId ? getGroupActiveDecks(currentGroupId) : []),
+    enabled: !!currentGroupId,
+  })
+
+  // Get only active decks (for filtering)
+  const availableDecks = activeDecks.filter((deck) => deck.status === "active" || deck.status === "finished")
+
   const { data: categories = [] } = useQuery({
     queryKey: ["history-categories", currentGroupId, group?.type, memorials.length],
     queryFn: async () => {
@@ -399,6 +412,15 @@ export default function History() {
         if (selectedCategories.length > 0 && (!category || !selectedCategories.includes(category))) {
           return false
         }
+
+        // Filter by deck
+        if (selectedDecks.length > 0) {
+          const entryDeckId = entry.prompt?.deck_id || null
+          if (!entryDeckId || !selectedDecks.includes(entryDeckId)) {
+            return false
+          }
+        }
+
         if (selectedMembers.length > 0 && !selectedMembers.includes(entry.user_id)) {
           return false
         }
@@ -1062,11 +1084,11 @@ export default function History() {
 
             <Text style={[styles.modalSection, styles.modalSectionSpacing]}>Question Categories</Text>
             <View style={styles.selectionGrid}>
-              {categories.map((category) => {
+              {categories.map((category, index) => {
                 const isSelected = selectedCategories.includes(category)
                 return (
                   <TouchableOpacity
-                    key={category}
+                    key={`category-${category}-${index}`}
                     style={[styles.selectionCard, isSelected && styles.selectionCardActive]}
                     onPress={() =>
                       setSelectedCategories((prev) =>
@@ -1079,6 +1101,33 @@ export default function History() {
                 )
               })}
             </View>
+
+            {/* Decks filter - only show if group has active decks */}
+            {availableDecks.length > 0 && (
+              <>
+                <Text style={[styles.modalSection, styles.modalSectionSpacing]}>Question Decks</Text>
+                <View style={styles.selectionGrid}>
+                  {availableDecks.map((deck, index) => {
+                    const isSelected = selectedDecks.includes(deck.deck_id)
+                    return (
+                      <TouchableOpacity
+                        key={`deck-${deck.deck_id}-${index}`}
+                        style={[styles.selectionCard, isSelected && styles.selectionCardActive]}
+                        onPress={() =>
+                          setSelectedDecks((prev) =>
+                            prev.includes(deck.deck_id)
+                              ? prev.filter((id) => id !== deck.deck_id)
+                              : [...prev, deck.deck_id],
+                          )
+                        }
+                      >
+                        <Text style={styles.selectionLabel}>{deck.deck?.name || "Unknown Deck"}</Text>
+                      </TouchableOpacity>
+                    )
+                  })}
+                </View>
+              </>
+            )}
           </ScrollView>
         </View>
       </Modal>

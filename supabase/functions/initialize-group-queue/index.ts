@@ -36,6 +36,7 @@ function seededShuffle<T>(array: T[], seed: string): T[] {
 }
 
 // Determine eligible categories based on group settings
+// Note: Fun/A Bit Deeper removed - replaced with deck system
 function getEligibleCategories(
   groupType: "family" | "friends",
   hasNSFW: boolean,
@@ -44,15 +45,7 @@ function getEligibleCategories(
 ): string[] {
   const eligible: string[] = []
   
-  // Always eligible categories
-  if (!disabledCategories.has("Fun")) {
-    eligible.push("Fun")
-  }
-  if (!disabledCategories.has("A Bit Deeper")) {
-    eligible.push("A Bit Deeper")
-  }
-  
-  // Group type specific
+  // Group type specific (Fun/A Bit Deeper removed)
   if (groupType === "family" && !disabledCategories.has("Family")) {
     eligible.push("Family")
   } else if (groupType === "friends" && !disabledCategories.has("Friends")) {
@@ -274,6 +267,45 @@ serve(async (req) => {
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
       )
+    }
+
+    // Fetch active decks (only after ice-breaker period)
+    let activeDecks: Array<{ id: string; name: string }> = []
+    let deckPrompts: any[] = []
+    
+    if (!isIceBreakerInitialization) {
+      // Get active decks for this group
+      const { data: activeDecksData, error: decksError } = await supabaseClient
+        .from("group_active_decks")
+        .select("deck_id, deck:decks(id, name)")
+        .eq("group_id", group_id)
+        .eq("status", "active")
+      
+      if (decksError) {
+        console.error(`[initialize-group-queue] Error fetching active decks:`, decksError)
+      } else if (activeDecksData && activeDecksData.length > 0) {
+        activeDecks = activeDecksData.map((ad: any) => ({
+          id: ad.deck_id,
+          name: ad.deck?.name || "Unknown Deck"
+        }))
+        
+        // Get prompts from active decks
+        const deckIds = activeDecks.map(d => d.id)
+        const { data: deckPromptsData, error: deckPromptsError } = await supabaseClient
+          .from("prompts")
+          .select("*")
+          .in("deck_id", deckIds)
+          .not("deck_id", "is", null)
+          .order("deck_id", { ascending: true })
+          .order("deck_order", { ascending: true })
+        
+        if (deckPromptsError) {
+          console.error(`[initialize-group-queue] Error fetching deck prompts:`, deckPromptsError)
+        } else {
+          deckPrompts = deckPromptsData || []
+          console.log(`[initialize-group-queue] Found ${activeDecks.length} active decks with ${deckPrompts.length} total prompts`)
+        }
+      }
     }
 
     // Get prompts based on initialization type
@@ -556,16 +588,35 @@ serve(async (req) => {
 
     // Track category usage for variety (only used in normal mode)
     const categoryUsage = new Map<string, number>() // category -> count in current 7-day window
-    let scheduledPrompts: Array<{ date: string; prompt_id: string }> = [] // Use let to allow filtering
+    let scheduledPrompts: Array<{ date: string; prompt_id: string; deck_id?: string }> = [] // Use let to allow filtering
     const usedPromptIds = new Set<string>()
+    
+    // Track deck usage per week (for ensuring 1 per week per active deck)
+    const deckUsagePerWeek = new Map<string, Set<string>>() // week_key -> Set<deck_id>
+    const getWeekKey = (date: string) => {
+      const d = new Date(date)
+      const weekStart = new Date(d)
+      weekStart.setDate(d.getDate() - d.getDay()) // Get Sunday of the week
+      return weekStart.toISOString().split("T")[0]
+    }
 
     // Generate queue for each date
     for (const date of dates) {
       // Reset category usage every 7 days
       const dateIndex = dates.indexOf(date)
+      const weekKey = getWeekKey(date)
+      
       if (dateIndex % 7 === 0) {
         categoryUsage.clear()
+        // Reset deck usage for new week
+        deckUsagePerWeek.delete(weekKey)
       }
+      
+      // Initialize week tracking if needed
+      if (!deckUsagePerWeek.has(weekKey)) {
+        deckUsagePerWeek.set(weekKey, new Set<string>())
+      }
+      const weekDeckUsage = deckUsagePerWeek.get(weekKey)!
 
       // Get available prompts (not used in this queue yet)
       let availablePrompts = shuffledPrompts.filter(
@@ -592,22 +643,55 @@ serve(async (req) => {
         usedPromptIds.clear()
       }
 
-      // Select prompt - use simpler logic for ice-breaker mode
+      // Select prompt - prioritize deck questions (1 per week per active deck)
       let selectedPrompt: any | null = null
+      let selectedDeckId: string | null = null
+      
       if (isIceBreakerInitialization) {
         // For ice-breaker mode, just pick from available prompts (no category variety needed)
+        // No deck questions during ice-breaker period
         if (availablePrompts.length > 0) {
           selectedPrompt = availablePrompts[Math.floor(rng() * availablePrompts.length)]
         }
       } else {
-        // Normal mode: use variety selection
-        selectedPrompt = selectPromptWithVariety(
-        availablePrompts,
-        eligibleCategories,
-        categoryWeights,
-        categoryUsage,
-        rng
-      )
+        // Normal mode: check if we need to schedule a deck question this week
+        // Find decks that haven't been used this week yet
+        const unusedDecksThisWeek = activeDecks.filter(deck => !weekDeckUsage.has(deck.id))
+        
+        if (unusedDecksThisWeek.length > 0 && deckPrompts.length > 0) {
+          // Schedule a deck question - pick a random unused deck
+          const deckToUse = unusedDecksThisWeek[Math.floor(rng() * unusedDecksThisWeek.length)]
+          
+          // Get available prompts from this deck (not used yet in this queue)
+          const availableDeckPrompts = deckPrompts.filter(
+            (p) => p.deck_id === deckToUse.id && !usedPromptIds.has(p.id)
+          )
+          
+          if (availableDeckPrompts.length > 0) {
+            // Select a prompt from this deck (use deck_order for deterministic selection)
+            availableDeckPrompts.sort((a, b) => (a.deck_order || 0) - (b.deck_order || 0))
+            selectedPrompt = availableDeckPrompts[0] // Use first available (by order)
+            selectedDeckId = deckToUse.id
+            weekDeckUsage.add(deckToUse.id)
+            console.log(`[initialize-group-queue] Scheduling deck question from "${deckToUse.name}" (prompt ${selectedPrompt.deck_order}) for ${date}`)
+          } else {
+            // No more prompts available from this deck - mark as used for this week anyway
+            // (prevents infinite loop trying to find prompts from exhausted deck)
+            weekDeckUsage.add(deckToUse.id)
+            console.log(`[initialize-group-queue] Deck "${deckToUse.name}" has no more available prompts, skipping for this week`)
+          }
+        }
+        
+        // If no deck question scheduled, use category variety selection
+        if (!selectedPrompt) {
+          selectedPrompt = selectPromptWithVariety(
+            availablePrompts,
+            eligibleCategories,
+            categoryWeights,
+            categoryUsage,
+            rng
+          )
+        }
       }
 
       if (!selectedPrompt) {
@@ -655,6 +739,7 @@ serve(async (req) => {
       scheduledPrompts.push({
         date,
         prompt_id: selectedPrompt.id,
+        deck_id: selectedDeckId || undefined,
       })
     }
 
@@ -750,8 +835,9 @@ serve(async (req) => {
           console.error(`[initialize-group-queue] DUPLICATE: Prompt ${sp.prompt_id} appears ${promptCount + 1} times!`)
         }
         
-        // Validate that prompt category is in eligible categories
-        if (!eligibleCategories.includes(prompt.category)) {
+        // Validate that prompt category is in eligible categories (skip deck prompts)
+        // Deck prompts don't have categories, they're tracked by deck_id
+        if (!sp.deck_id && !eligibleCategories.includes(prompt.category)) {
           invalidScheduledPrompts.push({
             date: sp.date,
             prompt_id: sp.prompt_id,
@@ -835,6 +921,7 @@ serve(async (req) => {
             prompt_id: sp.prompt_id,
             date: sp.date,
             user_id: null, // General prompts for all members
+            deck_id: sp.deck_id || null, // Track which deck this prompt belongs to
           }))
         )
         .select() // Return inserted rows to verify

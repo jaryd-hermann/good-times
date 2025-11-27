@@ -1,5 +1,5 @@
 import { supabase } from "./supabase"
-import type { User, Group, GroupMember, Prompt, DailyPrompt, Entry, Memorial, Reaction, Comment, CustomQuestion, CustomQuestionRotation, GroupActivityTracking } from "./types"
+import type { User, Group, GroupMember, Prompt, DailyPrompt, Entry, Memorial, Reaction, Comment, CustomQuestion, CustomQuestionRotation, GroupActivityTracking, Collection, Deck, GroupDeckVote, GroupActiveDeck } from "./types"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "./prompts"
 
 // User queries
@@ -1568,4 +1568,402 @@ function getWeekStartDate(dateString: string): string {
   const diff = date.getDate() - day + (day === 0 ? -6 : 1) // Adjust to Monday
   const monday = new Date(date.setDate(diff))
   return monday.toISOString().split("T")[0]
+}
+
+// Collections & Decks queries
+export async function getCollections(): Promise<Collection[]> {
+  const { data, error } = await supabase
+    .from("collections")
+    .select("*")
+    .order("display_order", { ascending: true })
+
+  if (error) throw error
+  return data || []
+}
+
+export async function getCollectionDetails(collectionId: string): Promise<Collection | null> {
+  const { data, error } = await supabase
+    .from("collections")
+    .select("*")
+    .eq("id", collectionId)
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+export async function getDecksByCollection(collectionId: string): Promise<Deck[]> {
+  const { data, error } = await supabase
+    .from("decks")
+    .select("*, collection:collections(*)")
+    .eq("collection_id", collectionId)
+    .order("display_order", { ascending: true })
+
+  if (error) throw error
+  return data || []
+}
+
+export async function getDeckDetails(deckId: string): Promise<Deck | null> {
+  const { data, error } = await supabase
+    .from("decks")
+    .select("*, collection:collections(*)")
+    .eq("id", deckId)
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+export async function getDeckQuestions(deckId: string): Promise<Prompt[]> {
+  const { data, error } = await supabase
+    .from("prompts")
+    .select("*")
+    .eq("deck_id", deckId)
+    .not("deck_id", "is", null)
+    .order("deck_order", { ascending: true })
+
+  if (error) throw error
+  return data || []
+}
+
+// Voting queries
+export async function requestDeckVote(groupId: string, deckId: string, userId: string, bypassMemberLimit?: boolean): Promise<void> {
+  // Check if group has 4+ members (unless bypassed in dev mode)
+  if (!bypassMemberLimit) {
+    const { data: members, error: membersError } = await supabase
+      .from("group_members")
+      .select("user_id")
+      .eq("group_id", groupId)
+
+    if (membersError) throw membersError
+    if (!members || members.length < 4) {
+      throw new Error("Group must have at least 4 members to vote on decks")
+    }
+  }
+
+  // Check if deck is already active/voting/rejected for this group
+  const { data: existing } = await supabase
+    .from("group_active_decks")
+    .select("status")
+    .eq("group_id", groupId)
+    .eq("deck_id", deckId)
+    .maybeSingle()
+
+  if (existing) {
+    if (existing.status === "active" || existing.status === "voting") {
+      throw new Error("This deck is already active or being voted on")
+    }
+    if (existing.status === "rejected") {
+      // Allow re-voting on rejected decks - update status to voting
+      const { error: updateError } = await supabase
+        .from("group_active_decks")
+        .update({
+          status: "voting",
+          requested_by: userId,
+          activated_at: null,
+          finished_at: null,
+        })
+        .eq("group_id", groupId)
+        .eq("deck_id", deckId)
+
+      if (updateError) throw updateError
+
+      // Delete old votes
+      await supabase
+        .from("group_deck_votes")
+        .delete()
+        .eq("group_id", groupId)
+        .eq("deck_id", deckId)
+
+      // Create vote for requester (automatic yes)
+      await supabase.from("group_deck_votes").insert({
+        group_id: groupId,
+        deck_id: deckId,
+        user_id: userId,
+        vote: "yes",
+      })
+
+      // Send notifications to all members except requester
+      await sendDeckVoteNotifications(groupId, deckId, userId)
+      return
+    }
+  }
+
+  // Create new voting record
+  const { error: createError } = await supabase
+    .from("group_active_decks")
+    .insert({
+      group_id: groupId,
+      deck_id: deckId,
+      status: "voting",
+      requested_by: userId,
+    })
+
+  if (createError) throw createError
+
+  // Create vote for requester (automatic yes)
+  await supabase.from("group_deck_votes").insert({
+    group_id: groupId,
+    deck_id: deckId,
+    user_id: userId,
+    vote: "yes",
+  })
+
+  // Send notifications to all members except requester
+  await sendDeckVoteNotifications(groupId, deckId, userId)
+}
+
+async function sendDeckVoteNotifications(groupId: string, deckId: string, requestedBy: string): Promise<void> {
+  // Get all group members except requester
+  const { data: members } = await supabase
+    .from("group_members")
+    .select("user_id")
+    .eq("group_id", groupId)
+    .neq("user_id", requestedBy)
+
+  if (!members || members.length === 0) return
+
+  // Get requester name
+  const { data: requester } = await supabase
+    .from("users")
+    .select("name")
+    .eq("id", requestedBy)
+    .single()
+
+  const requesterName = requester?.name || "Someone"
+
+  // Get deck name
+  const { data: deck } = await supabase
+    .from("decks")
+    .select("name")
+    .eq("id", deckId)
+    .single()
+
+  const deckName = deck?.name || "a deck"
+
+  // Create notifications for all members
+  const notifications = members.map((member) => ({
+    user_id: member.user_id,
+    type: "pack_vote_requested",
+    title: "New Deck Vote",
+    body: `${requesterName} wants to add "${deckName}" to your group's question rotation. Vote now!`,
+    data: {
+      group_id: groupId,
+      deck_id: deckId,
+    },
+  }))
+
+  await supabase.from("notifications").insert(notifications)
+}
+
+export async function castVote(groupId: string, deckId: string, userId: string, vote: "yes" | "no"): Promise<void> {
+  // Upsert vote (allows changing vote)
+  const { error } = await supabase
+    .from("group_deck_votes")
+    .upsert(
+      {
+        group_id: groupId,
+        deck_id: deckId,
+        user_id: userId,
+        vote,
+        updated_at: new Date().toISOString(),
+      },
+      {
+        onConflict: "group_id,deck_id,user_id",
+      }
+    )
+
+  if (error) throw error
+
+  // Check if majority has been reached and activate if needed
+  // Only call if there's an active voting record
+  try {
+    const { data: activeDeck } = await supabase
+      .from("group_active_decks")
+      .select("status")
+      .eq("group_id", groupId)
+      .eq("deck_id", deckId)
+      .eq("status", "voting")
+      .maybeSingle()
+
+    if (activeDeck) {
+      const { data, error: activateError } = await supabase.functions.invoke("activate-deck", {
+        body: { group_id: groupId, deck_id: deckId },
+      })
+
+      if (activateError) {
+        console.warn("[castVote] Error checking activation:", activateError)
+        // Don't throw - vote was recorded successfully
+      }
+    }
+  } catch (err) {
+    console.warn("[castVote] Exception checking activation:", err)
+    // Don't throw - vote was recorded successfully
+  }
+}
+
+export async function getVoteStatus(groupId: string, deckId: string): Promise<{
+  yes_votes: number
+  no_votes: number
+  total_members: number
+  majority_threshold: number
+  status: "voting" | "active" | "rejected" | "finished"
+}> {
+  // Get group members count
+  const { data: members, error: membersError } = await supabase
+    .from("group_members")
+    .select("user_id")
+    .eq("group_id", groupId)
+
+  if (membersError) throw membersError
+  const totalMembers = members?.length || 0
+  const majorityThreshold = Math.ceil(totalMembers / 2)
+
+  // Get active deck status
+  const { data: activeDeck, error: activeDeckError } = await supabase
+    .from("group_active_decks")
+    .select("status, requested_by")
+    .eq("group_id", groupId)
+    .eq("deck_id", deckId)
+    .maybeSingle()
+
+  if (activeDeckError) throw activeDeckError
+
+  const status = (activeDeck?.status as "voting" | "active" | "rejected" | "finished") || "voting"
+
+  // Get votes (include user_id to check requester)
+  const { data: votes, error: votesError } = await supabase
+    .from("group_deck_votes")
+    .select("vote, user_id")
+    .eq("group_id", groupId)
+    .eq("deck_id", deckId)
+
+  if (votesError) throw votesError
+
+  let yesVotes = 0
+  let noVotes = 0
+
+  // Count all votes from database
+  votes?.forEach((vote: any) => {
+    if (vote.vote === "yes") {
+      yesVotes++
+    } else if (vote.vote === "no") {
+      noVotes++
+    }
+  })
+
+  // If requester hasn't voted yet (shouldn't happen, but handle edge case)
+  // Note: requestDeckVote creates a vote for requester, so this should always be false
+  if (activeDeck && votes) {
+    const requesterVoted = votes.some((v: any) => v.user_id === activeDeck.requested_by)
+    if (!requesterVoted) {
+      // This shouldn't happen, but if it does, don't double count
+      // The requester's vote should already be in the database
+    }
+  }
+
+  return {
+    yes_votes: yesVotes,
+    no_votes: noVotes,
+    total_members: totalMembers,
+    majority_threshold: majorityThreshold,
+    status,
+  }
+}
+
+export async function getUserVote(groupId: string, deckId: string, userId: string): Promise<"yes" | "no" | null> {
+  const { data, error } = await supabase
+    .from("group_deck_votes")
+    .select("vote")
+    .eq("group_id", groupId)
+    .eq("deck_id", deckId)
+    .eq("user_id", userId)
+    .maybeSingle()
+
+  if (error) throw error
+  return data?.vote || null
+}
+
+// Active Decks queries
+export async function getGroupActiveDecks(groupId: string): Promise<GroupActiveDeck[]> {
+  const { data, error } = await supabase
+    .from("group_active_decks")
+    .select("*, deck:decks(*), requested_by_user:users(id, name, avatar_url)")
+    .eq("group_id", groupId)
+    .order("created_at", { ascending: false })
+
+  if (error) throw error
+  return data || []
+}
+
+export async function getPendingVotes(groupId: string, userId: string): Promise<GroupActiveDeck[]> {
+  // Get decks that are being voted on and user hasn't voted yet
+  const { data: votingDecks, error: votingError } = await supabase
+    .from("group_active_decks")
+    .select("deck_id")
+    .eq("group_id", groupId)
+    .eq("status", "voting")
+
+  if (votingError) throw votingError
+  if (!votingDecks || votingDecks.length === 0) return []
+
+  const deckIds = votingDecks.map((vd: any) => vd.deck_id)
+
+  // Get decks where user has voted
+  const { data: userVotes, error: votesError } = await supabase
+    .from("group_deck_votes")
+    .select("deck_id")
+    .eq("group_id", groupId)
+    .eq("user_id", userId)
+    .in("deck_id", deckIds)
+
+  if (votesError) throw votesError
+
+  const votedDeckIds = new Set((userVotes || []).map((v: any) => v.deck_id))
+  const pendingDeckIds = deckIds.filter((id: string) => !votedDeckIds.has(id))
+
+  if (pendingDeckIds.length === 0) return []
+
+  // Get full deck details
+  const { data: pendingDecks, error: pendingError } = await supabase
+    .from("group_active_decks")
+    .select("*, deck:decks(*), requested_by_user:users(id, name, avatar_url)")
+    .eq("group_id", groupId)
+    .in("deck_id", pendingDeckIds)
+    .eq("status", "voting")
+
+  if (pendingError) throw pendingError
+  return pendingDecks || []
+}
+
+export async function getDeckQuestionsAskedCount(groupId: string, deckId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from("daily_prompts")
+    .select("prompt_id")
+    .eq("group_id", groupId)
+    .eq("deck_id", deckId)
+    .is("user_id", null) // Only count general prompts
+
+  if (error) throw error
+
+  // Count unique prompts asked
+  const uniquePromptIds = new Set((data || []).map((p: any) => p.prompt_id))
+  return uniquePromptIds.size
+}
+
+export async function getDeckQuestionsLeftCount(groupId: string, deckId: string): Promise<number> {
+  // Get total questions in deck
+  const { data: deckPrompts, error: deckError } = await supabase
+    .from("prompts")
+    .select("id")
+    .eq("deck_id", deckId)
+    .not("deck_id", "is", null)
+
+  if (deckError) throw deckError
+  const totalQuestions = deckPrompts?.length || 0
+
+  // Get questions asked
+  const askedCount = await getDeckQuestionsAskedCount(groupId, deckId)
+
+  return Math.max(0, totalQuestions - askedCount)
 }
