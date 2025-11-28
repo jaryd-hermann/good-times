@@ -121,3 +121,5 @@ SELECT cron.schedule(
     ) AS request_id;
   $$
 );
+
+-- Note: Birthday Cards cron jobs are in migration 022_add_birthday_card_cron_jobs.sql

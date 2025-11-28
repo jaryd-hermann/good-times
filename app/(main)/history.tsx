@@ -20,7 +20,7 @@ import {
 } from "date-fns"
 import { typography, spacing } from "../../lib/theme"
 import { useTheme } from "../../lib/theme-context"
-import { getGroupMembers, getAllPrompts, getDailyPrompt, getMemorials, getGroup, getGroupActiveDecks } from "../../lib/db"
+import { getGroupMembers, getAllPrompts, getDailyPrompt, getMemorials, getGroup, getGroupActiveDecks, hasReceivedBirthdayCards, getMyBirthdayCards } from "../../lib/db"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { Button } from "../../components/Button"
 import { getTodayDate } from "../../lib/utils"
@@ -165,6 +165,7 @@ export default function History() {
   const [selectedMembers, setSelectedMembers] = useState<string[]>([])
   const [selectedMemorials, setSelectedMemorials] = useState<string[]>([])
   const [selectedDecks, setSelectedDecks] = useState<string[]>([])
+  const [showBirthdayCards, setShowBirthdayCards] = useState(false)
   const [currentGroupId, setCurrentGroupId] = useState<string>()
   const [userId, setUserId] = useState<string>()
   const [activePeriod, setActivePeriod] = useState<ActivePeriod | null>(null)
@@ -207,7 +208,7 @@ export default function History() {
       setSelectedMembers([])
       setSelectedMemorials([])
       setSelectedDecks([])
-          setSelectedDecks([])
+      setShowBirthdayCards(false)
     }
   }, [focusGroupId, currentGroupId])
 
@@ -326,6 +327,20 @@ export default function History() {
   // Get only active decks (for filtering)
   const availableDecks = activeDecks.filter((deck) => deck.status === "active" || deck.status === "finished")
 
+  // Check if user has received birthday cards (for filter option)
+  const { data: hasReceivedCards } = useQuery({
+    queryKey: ["hasReceivedBirthdayCards", currentGroupId, userId],
+    queryFn: () => (currentGroupId && userId ? hasReceivedBirthdayCards(currentGroupId, userId) : false),
+    enabled: !!currentGroupId && !!userId,
+  })
+
+  // Get user's birthday cards (only their own) - only fetch when filter is active
+  const { data: myBirthdayCards = [] } = useQuery({
+    queryKey: ["myBirthdayCards", currentGroupId, userId],
+    queryFn: () => (currentGroupId && userId ? getMyBirthdayCards(currentGroupId, userId) : []),
+    enabled: !!currentGroupId && !!userId && showBirthdayCards,
+  })
+
   const { data: categories = [] } = useQuery({
     queryKey: ["history-categories", currentGroupId, group?.type, memorials.length],
     queryFn: async () => {
@@ -358,8 +373,10 @@ export default function History() {
         filteredCategories = filteredCategories.filter((cat) => cat !== "Remembering")
       }
       
-      // Add "Custom" option for both group types
-      filteredCategories.push("Custom")
+      // Add "Custom" option for both group types (only if not already present)
+      if (!filteredCategories.includes("Custom")) {
+        filteredCategories.push("Custom")
+      }
       
       return filteredCategories
     },
@@ -441,7 +458,7 @@ export default function History() {
         }
         return true
       }),
-    [entriesWithinPeriod, selectedCategories, selectedMembers, selectedMemorials, memorials],
+    [entriesWithinPeriod, selectedCategories, selectedMembers, selectedMemorials, selectedDecks, memorials],
   )
 
   // Fetch comments for all entries to show previews
@@ -580,7 +597,52 @@ export default function History() {
   }
 
   // Group entries by date for Days view
-  const entriesByDate = filteredEntries.reduce(
+  // When birthday cards filter is active, add birthday cards as special entries
+  const entriesWithBirthdayCards = useMemo(() => {
+    if (!showBirthdayCards) return filteredEntries
+    
+    // Create a map of birthday cards by date
+    const cardsByDate = new Map<string, typeof myBirthdayCards>()
+    myBirthdayCards.forEach((card) => {
+      if (!cardsByDate.has(card.birthday_date)) {
+        cardsByDate.set(card.birthday_date, [])
+      }
+      cardsByDate.get(card.birthday_date)!.push(card)
+    })
+    
+    // Add birthday cards as special "entries" for display
+    const entries: any[] = [...filteredEntries]
+    cardsByDate.forEach((cards, date) => {
+      cards.forEach((card) => {
+        // Create a special entry-like object for the birthday card
+        entries.push({
+          id: `birthday-card-${card.id}`,
+          group_id: card.group_id,
+          user_id: card.birthday_user_id,
+          prompt_id: null,
+          date: card.birthday_date,
+          text_content: null,
+          media_urls: null,
+          media_types: null,
+          embedded_media: null,
+          created_at: card.published_at || card.created_at,
+          user: card.birthday_user,
+          prompt: null,
+          is_birthday_card: true, // Flag to identify birthday cards
+          birthday_card_id: card.id,
+        })
+      })
+    })
+    
+    // Sort by date descending, then by created_at descending
+    return entries.sort((a, b) => {
+      const dateCompare = new Date(b.date).getTime() - new Date(a.date).getTime()
+      if (dateCompare !== 0) return dateCompare
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    })
+  }, [filteredEntries, showBirthdayCards, myBirthdayCards])
+
+  const entriesByDate = entriesWithBirthdayCards.reduce(
     (acc, entry) => {
       const date = entry.date
       if (!acc[date]) {
@@ -954,6 +1016,30 @@ export default function History() {
     fontSize: 14,
     color: colors.gray[200],
   },
+  birthdayCardEntry: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: colors.gray[900],
+    borderRadius: 12,
+    padding: spacing.md,
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+  },
+  birthdayCardEntryContent: {
+    flex: 1,
+  },
+  birthdayCardEntryTitle: {
+    ...typography.bodyBold,
+    fontSize: 16,
+    color: colors.white,
+    marginBottom: spacing.xs,
+  },
+  birthdayCardEntrySubtitle: {
+    ...typography.body,
+    fontSize: 14,
+    color: colors.gray[400],
+  },
   }), [colors, isDark])
 
   return (
@@ -1128,6 +1214,19 @@ export default function History() {
                 </View>
               </>
             )}
+
+            {/* Birthday Cards filter - only show if user has received cards */}
+            {hasReceivedCards && (
+              <>
+                <Text style={[styles.modalSection, styles.modalSectionSpacing]}>Birthday Cards</Text>
+                <TouchableOpacity
+                  style={[styles.memorialRow, showBirthdayCards && styles.memorialRowActive]}
+                  onPress={() => setShowBirthdayCards((prev) => !prev)}
+                >
+                  <Text style={styles.memorialName}>Show my birthday cards</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </ScrollView>
         </View>
       </Modal>
@@ -1168,6 +1267,32 @@ export default function History() {
                   <Text style={styles.dateHeaderDate}>, {format(parseISO(date), "d MMMM yyyy")}</Text>
                 </View>
                 {entries.map((entry: any, entryIndex: number) => {
+                  // Handle birthday card entries specially
+                  if (entry.is_birthday_card) {
+                    return (
+                      <TouchableOpacity
+                        key={entry.id}
+                        style={styles.birthdayCardEntry}
+                        onPress={() => {
+                          router.push({
+                            pathname: "/(main)/birthday-card-details",
+                            params: {
+                              cardId: entry.birthday_card_id,
+                              groupId: currentGroupId!,
+                              returnTo: "/(main)/history",
+                            },
+                          })
+                        }}
+                      >
+                        <View style={styles.birthdayCardEntryContent}>
+                          <Text style={styles.birthdayCardEntryTitle}>🎂 Birthday Card</Text>
+                          <Text style={styles.birthdayCardEntrySubtitle}>Tap to view your birthday card</Text>
+                        </View>
+                        <FontAwesome name="chevron-right" size={16} color={colors.gray[400]} />
+                      </TouchableOpacity>
+                    )
+                  }
+                  
                   const entryIdList = entries.map((item: any) => item.id)
                   return (
                     <EntryCard

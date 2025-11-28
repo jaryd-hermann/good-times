@@ -63,11 +63,20 @@ export default function ProfileSettings() {
     queryFn: getCurrentUser,
   })
 
+  // Helper function to parse date string as local date (not UTC)
+  // Prevents timezone shift issues where "1969-03-15" becomes March 14 in some timezones
+  function parseLocalDate(dateString: string): Date {
+    const [year, month, day] = dateString.split("-").map(Number)
+    // Month is 0-indexed in Date constructor, so subtract 1
+    return new Date(year, month - 1, day)
+  }
+
   useEffect(() => {
     if (profile) {
       setName(profile.name ?? "")
       setEmail(profile.email ?? "")
-      setBirthday(profile.birthday ? new Date(profile.birthday) : undefined)
+      // Parse birthday as local date to avoid timezone shift issues
+      setBirthday(profile.birthday ? parseLocalDate(profile.birthday) : undefined)
       setAvatarUri(profile.avatar_url ?? undefined)
       setInitialAvatar(profile.avatar_url ?? undefined)
     }

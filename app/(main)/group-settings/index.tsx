@@ -90,13 +90,6 @@ export default function GroupSettingsIndex() {
       icon: "edit",
     },
     {
-      id: "question-types",
-      title: "Types of Questions",
-      subtitle: "Control which question categories appear",
-      adminOnly: true,
-      icon: "question-circle",
-    },
-    {
       id: "remembering-them",
       title: "Remembering Them",
       subtitle: "See and manage people you're remembering",

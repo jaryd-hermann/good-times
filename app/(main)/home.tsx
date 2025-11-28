@@ -15,6 +15,7 @@ import {
   Animated,
   AppState,
   Platform,
+  Image,
 } from "react-native"
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -31,6 +32,10 @@ import {
   getUserEntryForDate,
   getCurrentUser,
   getAllPrompts,
+  getUpcomingBirthdayCards,
+  getMyCardEntriesForDate,
+  getMyBirthdayCard,
+  getBirthdayCardEntries,
 } from "../../lib/db"
 import { getTodayDate, getWeekDates } from "../../lib/utils"
 import { typography, spacing } from "../../lib/theme"
@@ -46,6 +51,9 @@ import { getMemorials, getCustomQuestionOpportunity, hasSeenCustomQuestionOnboar
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "../../lib/prompts"
 import { useTabBar } from "../../lib/tab-bar-context"
 import { CustomQuestionBanner } from "../../components/CustomQuestionBanner"
+import { BirthdayCardUpcomingBanner } from "../../components/BirthdayCardUpcomingBanner"
+import { BirthdayCardEditBanner } from "../../components/BirthdayCardEditBanner"
+import { BirthdayCardYourCardBanner } from "../../components/BirthdayCardYourCardBanner"
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 
@@ -452,6 +460,26 @@ export default function Home() {
     enabled: !!currentGroupId && !!userId,
   })
 
+  // Fetch user entries for all week dates to show check marks
+  const weekDatesList = getWeekDates().map((d) => d.date)
+  const { data: userEntriesForWeek = [] } = useQuery({
+    queryKey: ["userEntriesForWeek", currentGroupId, userId, weekDatesList.join(",")],
+    queryFn: async () => {
+      if (!currentGroupId || !userId) return []
+      // Fetch entries for all week dates
+      const entries = await Promise.all(
+        weekDatesList.map((date) => getUserEntryForDate(currentGroupId, userId, date))
+      )
+      return entries.filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    },
+    enabled: !!currentGroupId && !!userId && weekDatesList.length > 0,
+  })
+  
+  // Create a Set of dates where user has entries for quick lookup
+  const userEntryDates = useMemo(() => {
+    return new Set(userEntriesForWeek.map((entry) => entry.date))
+  }, [userEntriesForWeek])
+
   const { data: entries = [], isLoading: isLoadingEntries, isFetching: isFetchingEntries } = useQuery({
     queryKey: ["entries", currentGroupId, selectedDate],
     queryFn: () => (currentGroupId ? getEntriesForDate(currentGroupId, selectedDate) : []),
@@ -491,6 +519,9 @@ export default function Home() {
     queryKey: ["pendingVotes", currentGroupId, userId],
     queryFn: () => (currentGroupId && userId ? getPendingVotes(currentGroupId, userId) : []),
     enabled: !!currentGroupId && !!userId,
+    staleTime: 0, // Always refetch to ensure fresh data
+    refetchOnMount: true, // Refetch when component mounts
+    refetchOnWindowFocus: true, // Refetch when screen comes into focus
   })
 
   // Get deck info if prompt has deck_id
@@ -525,6 +556,70 @@ export default function Home() {
       reloadDevSettings()
     }, [])
   )
+
+  // Birthday Card Queries
+  // Use today's date for upcoming birthday cards (not selectedDate) - banners should show based on actual today
+  const todayDate = getTodayDate()
+  
+  // Debug: Log query enablement
+  useEffect(() => {
+    console.log("[home] Birthday cards query params:", {
+      currentGroupId,
+      userId,
+      todayDate,
+      enabled: !!(currentGroupId && userId && todayDate)
+    })
+  }, [currentGroupId, userId, todayDate])
+  
+  const { data: upcomingBirthdayCards = [], error: upcomingCardsError, isLoading: upcomingCardsLoading } = useQuery({
+    queryKey: ["upcomingBirthdayCards", currentGroupId, userId, todayDate],
+    queryFn: async () => {
+      console.log("[home] ⭐ Birthday cards queryFn called with:", { currentGroupId, userId, todayDate })
+      if (!currentGroupId || !userId || !todayDate) {
+        console.log("[home] ❌ Birthday cards query skipped - missing params:", { currentGroupId, userId, todayDate })
+        return []
+      }
+      console.log("[home] ✅ Fetching upcoming birthday cards:", { currentGroupId, userId, todayDate })
+      try {
+        const cards = await getUpcomingBirthdayCards(currentGroupId, userId, todayDate)
+        console.log("[home] ✅ Received upcoming birthday cards:", cards.length, cards)
+        return cards
+      } catch (error) {
+        console.error("[home] ❌ Error fetching upcoming birthday cards:", error)
+        throw error
+      }
+    },
+    enabled: !!currentGroupId && !!userId && !!todayDate,
+  })
+  
+  // Log query state
+  useEffect(() => {
+    console.log("[home] Birthday cards query state:", {
+      isLoading: upcomingCardsLoading,
+      error: upcomingCardsError,
+      cardsCount: upcomingBirthdayCards?.length || 0,
+      cards: upcomingBirthdayCards
+    })
+  }, [upcomingCardsLoading, upcomingCardsError, upcomingBirthdayCards])
+
+  const { data: myCardEntries = [] } = useQuery({
+    queryKey: ["myCardEntries", currentGroupId, userId, selectedDate],
+    queryFn: () => (currentGroupId && userId && selectedDate ? getMyCardEntriesForDate(currentGroupId, userId, selectedDate) : []),
+    enabled: !!currentGroupId && !!userId && !!selectedDate,
+  })
+
+  const { data: myBirthdayCard } = useQuery({
+    queryKey: ["myBirthdayCard", currentGroupId, userId, selectedDate],
+    queryFn: () => (currentGroupId && userId && selectedDate ? getMyBirthdayCard(currentGroupId, userId, selectedDate) : null),
+    enabled: !!currentGroupId && !!userId && !!selectedDate,
+  })
+
+  // Get contributor avatars for "Your Card" banner
+  const { data: cardEntries = [] } = useQuery({
+    queryKey: ["birthdayCardEntries", myBirthdayCard?.id],
+    queryFn: () => (myBirthdayCard?.id ? getBirthdayCardEntries(myBirthdayCard.id) : []),
+    enabled: !!myBirthdayCard?.id,
+  })
 
   // Show banner if:
   // 1. User has a real custom question opportunity (show regardless of whether they've posted daily entry), OR
@@ -917,13 +1012,6 @@ export default function Home() {
     dayNumSelected: {
       color: colors.white,
     },
-    dayCheck: {
-      width: 4,
-      height: 4,
-      borderRadius: 2,
-      backgroundColor: colors.accent,
-      marginTop: spacing.xs,
-    },
     content: {
       flex: 1,
       // No marginTop - header will overlay content when visible
@@ -1000,6 +1088,9 @@ export default function Home() {
     entriesContainer: {
       gap: spacing.lg,
       marginTop: -spacing.xl, // Large negative margin to pull entries right up to divider
+    },
+    entriesContainerWithVoteBanner: {
+      marginTop: spacing.md, // Add extra padding when vote banner is shown
     },
     postingStatusContainer: {
       paddingVertical: spacing.lg,
@@ -1097,6 +1188,60 @@ export default function Home() {
       ...typography.bodyBold,
       color: colors.white,
     },
+    voteBannerWrapper: {
+      marginBottom: spacing.md, // Reduced padding below banner (50% of xl)
+      zIndex: 10, // Ensure banner renders above entries
+      elevation: 10, // Android elevation
+    },
+    voteBanner: {
+      backgroundColor: colors.gray[900],
+      paddingRight: spacing.md,
+      paddingLeft: spacing.md, // Add left padding
+      paddingVertical: spacing.sm, // Reduced vertical padding (50% of md)
+      borderRadius: 0, // Square edges
+      borderWidth: 1,
+      borderColor: "#ffffff",
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.xs,
+      flexDirection: "row",
+      alignItems: "center", // Center content vertically
+      justifyContent: "space-between",
+      minHeight: 80, // Minimum height, can grow with content
+    },
+    voteBannerContent: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+    },
+    voteBannerIconContainer: {
+      marginRight: spacing.md,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    voteBannerIcon: {
+      width: 60, // Smaller, not square - with padding
+      height: 60,
+      borderRadius: 4, // Slight rounding
+    },
+    voteBannerTextContainer: {
+      flex: 1,
+    },
+    voteBannerSubtext: {
+      ...typography.body,
+      fontSize: 14,
+      color: colors.gray[300],
+      opacity: 0.9,
+      marginBottom: spacing.xs,
+    },
+    voteBannerText: {
+      ...typography.bodyBold,
+      fontSize: 16,
+      color: isDark ? "#ffffff" : "#000000",
+    },
+    voteBannerChevron: {
+      marginLeft: spacing.md,
+      alignSelf: "center", // Center chevron vertically
+    },
   }), [colors, isDark])
 
   return (
@@ -1125,7 +1270,7 @@ export default function Home() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.membersScroll}>
           {members.map((member) => (
             <View key={member.id} style={styles.memberAvatar}>
-              <Avatar uri={member.user.avatar_url} name={member.user.name} size={32} />
+              <Avatar uri={member.user.avatar_url} name={member.user.name || "User"} size={32} />
             </View>
           ))}
           <TouchableOpacity style={styles.addMemberButton} onPress={handleShareInvite}>
@@ -1138,7 +1283,7 @@ export default function Home() {
         {/* Day scroller */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.dayScroller}>
           {weekDates.map((day) => {
-            const hasEntry = false // TODO: Check if user has entry for this day
+            const hasEntry = userEntryDates.has(day.date)
             const isSelected = day.date === selectedDate
             return (
               <TouchableOpacity
@@ -1159,8 +1304,11 @@ export default function Home() {
                 }}
               >
                 <Text style={[styles.dayText, isSelected && styles.dayTextSelected]}>{day.day}</Text>
-                <Text style={[styles.dayNum, isSelected && styles.dayNumSelected]}>{day.dayNum}</Text>
-                {hasEntry && <View style={styles.dayCheck} />}
+                {hasEntry ? (
+                  <FontAwesome name="check" size={12} color={colors.gray[400]} style={{ marginTop: spacing.xs }} />
+                ) : (
+                  <Text style={[styles.dayNum, isSelected && styles.dayNumSelected]}>{day.dayNum}</Text>
+                )}
               </TouchableOpacity>
             )
           })}
@@ -1186,30 +1334,138 @@ export default function Home() {
             groupId={currentGroupId!}
             date={selectedDate}
             onPress={handleCustomQuestionPress}
+            reduceSpacing={
+              // Reduce spacing if any birthday banners will be shown
+              (myBirthdayCard && myBirthdayCard.birthday_date === selectedDate) ||
+              upcomingBirthdayCards.length > 0 ||
+              myCardEntries.length > 0
+            }
           />
         )}
         
+        {/* Birthday Card Banners */}
+        {/* 1. Your Card Banner (highest priority - if it's user's birthday) */}
+        {myBirthdayCard && myBirthdayCard.birthday_date === selectedDate && (
+          <BirthdayCardYourCardBanner
+            groupId={currentGroupId!}
+            cardId={myBirthdayCard.id}
+            birthdayDate={myBirthdayCard.birthday_date}
+            contributorAvatars={cardEntries.map((e) => ({
+              user_id: e.contributor_user_id,
+              avatar_url: e.contributor?.avatar_url,
+              name: e.contributor?.name,
+            }))}
+            onPress={() => {
+              router.push({
+                pathname: "/(main)/birthday-card-details",
+                params: {
+                  cardId: myBirthdayCard.id,
+                  groupId: currentGroupId!,
+                  returnTo: `/(main)/home?groupId=${currentGroupId}&date=${selectedDate}`,
+                },
+              })
+            }}
+          />
+        )}
+
+        {/* 2. Upcoming Birthday Banners (stacked vertically) */}
+        {upcomingBirthdayCards.map((card) => {
+          const birthdayUser = (card as any).birthday_user
+          return (
+            <BirthdayCardUpcomingBanner
+              key={card.id}
+              groupId={currentGroupId!}
+              cardId={card.id}
+              birthdayUserId={card.birthday_user_id}
+              birthdayUserName={birthdayUser?.name || "Someone"}
+              birthdayUserAvatar={birthdayUser?.avatar_url}
+              birthdayDate={card.birthday_date}
+              onPress={() => {
+                router.push({
+                  pathname: "/(main)/modals/birthday-card-composer",
+                  params: {
+                    cardId: card.id,
+                    groupId: currentGroupId!,
+                    birthdayUserId: card.birthday_user_id,
+                    birthdayUserName: birthdayUser?.name || "Someone",
+                    returnTo: `/(main)/home?groupId=${currentGroupId}&date=${selectedDate}`,
+                  },
+                })
+              }}
+            />
+          )
+        })}
+
+        {/* 3. Edit Banners (for entries written on selectedDate) */}
+        {myCardEntries.map((entry) => {
+          const card = (entry as any).card
+          const birthdayUser = card?.birthday_user
+          return (
+            <BirthdayCardEditBanner
+              key={entry.id}
+              groupId={currentGroupId!}
+              cardId={card?.id || ""}
+              entryId={entry.id}
+              birthdayUserId={card?.birthday_user_id || ""}
+              birthdayUserName={birthdayUser?.name || "Someone"}
+              birthdayUserAvatar={birthdayUser?.avatar_url}
+              birthdayDate={card?.birthday_date || ""}
+              onPress={() => {
+                router.push({
+                  pathname: "/(main)/modals/birthday-card-composer",
+                  params: {
+                    cardId: card?.id || "",
+                    groupId: currentGroupId!,
+                    birthdayUserId: card?.birthday_user_id || "",
+                    birthdayUserName: birthdayUser?.name || "Someone",
+                    entryId: entry.id,
+                    returnTo: `/(main)/home?groupId=${currentGroupId}&date=${selectedDate}`,
+                  },
+                })
+              }}
+            />
+          )
+        })}
+
         {/* Pending Vote Banner */}
         {pendingVotes.length > 0 && isToday && (
-          <TouchableOpacity
-            style={styles.voteBanner}
-            onPress={() => {
-              if (pendingVotes.length === 1) {
-                router.push(`/(main)/deck-vote?deckId=${pendingVotes[0].deck_id}&groupId=${currentGroupId}`)
-              } else {
-                router.push(`/(main)/explore-decks?groupId=${currentGroupId}`)
-              }
-            }}
-          >
-            <Text style={styles.voteBannerText}>
-              {pendingVotes.length === 1
-                ? `Vote on "${pendingVotes[0].deck?.name || "a deck"}"`
-                : "Multiple decks being voted on"}
-            </Text>
-            <View style={styles.voteBannerButton}>
-              <Text style={styles.voteBannerButtonText}>Vote</Text>
-            </View>
-          </TouchableOpacity>
+          <View style={styles.voteBannerWrapper}>
+            <TouchableOpacity
+              style={styles.voteBanner}
+              onPress={() => {
+                if (pendingVotes.length === 1) {
+                  router.push(`/(main)/deck-vote?deckId=${pendingVotes[0].deck_id}&groupId=${currentGroupId}`)
+                } else {
+                  router.push(`/(main)/explore-decks?groupId=${currentGroupId}`)
+                }
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={styles.voteBannerContent}>
+                {/* Deck image on the left */}
+                <View style={styles.voteBannerIconContainer}>
+                  <Image
+                    source={pendingVotes[0].deck?.icon_url ? { uri: pendingVotes[0].deck.icon_url } : require("../../assets/images/deck-icon-default.png")}
+                    style={styles.voteBannerIcon}
+                    resizeMode="cover"
+                  />
+                </View>
+                {/* Text content */}
+                <View style={styles.voteBannerTextContainer}>
+                  <Text style={styles.voteBannerSubtext}>
+                    {pendingVotes[0].requested_by_user?.name || "Someone"} wants to add a deck
+                  </Text>
+                  <Text style={styles.voteBannerText}>
+                    {pendingVotes.length === 1
+                      ? "Vote on it"
+                      : "Multiple decks being voted on"}
+                  </Text>
+                </View>
+              </View>
+              {/* Chevron on the right */}
+              <FontAwesome name="chevron-right" size={16} color={isDark ? "#ffffff" : "#000000"} style={styles.voteBannerChevron} />
+            </TouchableOpacity>
+          </View>
         )}
         {/* Notice above daily question - mutually exclusive messages */}
         {!userEntry && (
@@ -1310,7 +1566,7 @@ export default function Home() {
 
         {/* Entries feed */}
         {userEntry ? (
-          <View style={styles.entriesContainer}>
+          <View style={[styles.entriesContainer, pendingVotes.length > 0 && isToday && styles.entriesContainerWithVoteBanner]}>
             {entries.map((entry, entryIndex) => (
               <EntryCard
                 key={entry.id}

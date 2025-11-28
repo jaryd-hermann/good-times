@@ -13,13 +13,29 @@ serve(async (req: Request) => {
   try {
     const url = new URL(req.url)
     // Extract pathname, handling both direct calls and proxied calls
-    // Direct: /functions/v1/join-redirect/join/abc123 -> /join/abc123
+    // Direct via Supabase: /functions/v1/join-redirect/join/abc123 -> /join/abc123
+    // Direct function call: /join-redirect/join/abc123 -> /join/abc123
     // Proxied: /join/abc123 -> /join/abc123
     let pathname = url.pathname
-    // If called via Supabase function URL, strip the function path prefix
+    console.log("[join-redirect] Original pathname:", pathname, "Full URL:", req.url)
+    
+    // Strip known function path prefixes
     if (pathname.startsWith("/functions/v1/join-redirect")) {
       pathname = pathname.replace("/functions/v1/join-redirect", "")
+    } else if (pathname.startsWith("/join-redirect")) {
+      // Handle direct function calls (without /functions/v1 prefix)
+      pathname = pathname.replace("/join-redirect", "")
     }
+    
+    // Ensure pathname starts with / if it doesn't
+    if (!pathname.startsWith("/")) {
+      pathname = "/" + pathname
+    }
+    
+    // Normalize pathname (remove trailing slashes except for root)
+    pathname = pathname.replace(/\/+$/, "") || "/"
+    
+    console.log("[join-redirect] Processed pathname:", pathname)
 
     // Handle iOS Universal Links verification file
     if (pathname === "/.well-known/apple-app-site-association") {

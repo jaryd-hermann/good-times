@@ -19,6 +19,8 @@ import { getCollectionDetails, getDecksByCollection, getGroupActiveDecks } from 
 import { supabase } from "../../lib/supabase"
 import type { Deck } from "../../lib/types"
 import { Dimensions } from "react-native"
+import { usePostHog } from "posthog-react-native"
+import { safeCapture } from "../../lib/posthog"
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 const CARD_WIDTH = (SCREEN_WIDTH - spacing.md * 3) / 2 // 2 columns with spacing
@@ -30,6 +32,7 @@ export default function CollectionDetail() {
   const groupId = params.groupId as string
   const { colors, isDark } = useTheme()
   const insets = useSafeAreaInsets()
+  const posthog = usePostHog()
 
   const { data: collection } = useQuery({
     queryKey: ["collection", collectionId],
@@ -52,6 +55,17 @@ export default function CollectionDetail() {
 
   const usedDeckIds = new Set(groupDecks.map((gd) => gd.deck_id))
   const availableDecks = decks.filter((d) => !usedDeckIds.has(d.id))
+
+  // Track viewed_collection_detail event
+  useEffect(() => {
+    if (collection && groupId) {
+      safeCapture(posthog, "viewed_collection_detail", {
+        collection_id: collectionId,
+        collection_name: collection.name,
+        group_id: groupId,
+      })
+    }
+  }, [posthog, collection, collectionId, groupId])
 
   const styles = StyleSheet.create({
     container: {

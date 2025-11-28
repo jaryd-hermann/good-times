@@ -189,3 +189,31 @@ export interface GroupActiveDeck {
   requested_by_user?: User
   group?: Group
 }
+
+export interface BirthdayCard {
+  id: string
+  group_id: string
+  birthday_user_id: string
+  birthday_date: string
+  birthday_year: number
+  status: "draft" | "published" | "public"
+  is_public: boolean
+  created_at: string
+  published_at?: string | null
+  birthday_user?: User
+  group?: Group
+}
+
+export interface BirthdayCardEntry {
+  id: string
+  card_id: string
+  contributor_user_id: string
+  text_content?: string
+  media_urls?: string[]
+  media_types?: ("photo" | "video" | "audio")[]
+  embedded_media?: EmbeddedMedia[]
+  created_at: string
+  updated_at: string
+  contributor?: User
+  card?: BirthdayCard
+}

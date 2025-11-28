@@ -21,6 +21,8 @@ import { getDeckDetails, getDeckQuestions, requestDeckVote, getVoteStatus, getUs
 import { supabase } from "../../lib/supabase"
 import { Button } from "../../components/Button"
 import AsyncStorage from "@react-native-async-storage/async-storage"
+import { usePostHog } from "posthog-react-native"
+import { safeCapture } from "../../lib/posthog"
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 const QUESTION_CARD_WIDTH = SCREEN_WIDTH - spacing.md * 2
@@ -37,6 +39,20 @@ export default function DeckDetail() {
   const [requestingVote, setRequestingVote] = useState(false)
   const [devOverrideMemberLimit, setDevOverrideMemberLimit] = useState(false)
   const queryClient = useQueryClient()
+  const posthog = usePostHog()
+
+  // Track viewed_deck_detail event
+  useEffect(() => {
+    if (deck && groupId) {
+      safeCapture(posthog, "viewed_deck_detail", {
+        deck_id: deckId,
+        deck_name: deck.name,
+        collection_id: deck.collection_id,
+        collection_name: collection?.name,
+        group_id: groupId,
+      })
+    }
+  }, [posthog, deck, deckId, groupId, collection])
 
   useEffect(() => {
     async function loadUser() {
@@ -132,6 +148,16 @@ export default function DeckDetail() {
     setRequestingVote(true)
     try {
       await requestDeckVote(groupId, deckId, userId, __DEV__ && devOverrideMemberLimit)
+      
+      // Track requested_deck_vote event
+      safeCapture(posthog, "requested_deck_vote", {
+        deck_id: deckId,
+        deck_name: deck?.name,
+        collection_id: deck?.collection_id,
+        collection_name: collection?.name,
+        group_id: groupId,
+      })
+      
       setVoteModalVisible(false)
       queryClient.invalidateQueries({ queryKey: ["voteStatus", groupId, deckId] })
       queryClient.invalidateQueries({ queryKey: ["groupActiveDecks", groupId] })
@@ -487,6 +513,15 @@ export default function DeckDetail() {
                   
                   // Cast the requester's vote as yes
                   await castVote(groupId, deckId, userId, "yes")
+                  
+                  // Track requested_deck_vote event
+                  safeCapture(posthog, "requested_deck_vote", {
+                    deck_id: deckId,
+                    deck_name: deck?.name,
+                    collection_id: deck?.collection_id,
+                    collection_name: collection?.name,
+                    group_id: groupId,
+                  })
                   
                   // Close modal and navigate to explore
                   setVoteModalVisible(false)

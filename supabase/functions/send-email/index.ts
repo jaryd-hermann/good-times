@@ -16,6 +16,11 @@ const FROM_EMAIL = "Good Times <welcome@thegoodtimes.app>"
 const EMAIL_TEMPLATES = {
   welcome: {
     subject: "Welcome to Good Times!",
+    templateId: null, // Uses inline HTML
+  },
+  birthday_card: {
+    subject: "Your birthday card is ready! 🎂",
+    templateId: "birthday-card-email", // Resend template ID
   },
 } as const
 
@@ -67,6 +72,72 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
 </html>
       `.trim()
     }
+    case "birthday_card": {
+      const userName = templateData.user_name || "there"
+      const groupType = templateData.group_type || "friends" // "friends" or "family"
+      const contributorNames = templateData.contributor_names || []
+      const cardLink = templateData.card_link || "#"
+      
+      // Personalize greeting based on group type
+      const groupGreeting = groupType === "family" 
+        ? "your family" 
+        : "your friends"
+      
+      // Format contributor names
+      let contributorsText = ""
+      if (contributorNames.length === 0) {
+        contributorsText = groupType === "family" ? "your family members" : "your friends"
+      } else if (contributorNames.length === 1) {
+        contributorsText = contributorNames[0]
+      } else if (contributorNames.length === 2) {
+        contributorsText = `${contributorNames[0]} and ${contributorNames[1]}`
+      } else {
+        const lastName = contributorNames[contributorNames.length - 1]
+        const otherNames = contributorNames.slice(0, -1).join(", ")
+        contributorsText = `${otherNames}, and ${lastName}`
+      }
+      
+      return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your Birthday Card is Ready!</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background-color: #000; color: #fff; padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
+    <h1 style="margin: 0; font-size: 28px;">🎂 Happy Birthday! 🎉</h1>
+  </div>
+  <div style="background-color: #f9f9f9; padding: 40px; border-radius: 0 0 8px 8px;">
+    <p style="font-size: 18px; margin-bottom: 20px;">Hi ${userName},</p>
+    <p style="font-size: 16px; margin-bottom: 20px;">
+      ${contributorNames.length > 0 
+        ? `<strong>${contributorsText}</strong> wrote you a special birthday card!` 
+        : `You have a special birthday card from ${groupGreeting}!`}
+    </p>
+    <p style="font-size: 16px; margin-bottom: 30px;">
+      Open the app to see the heartfelt messages ${groupType === "family" ? "your family" : "your friends"} left for you on your special day.
+    </p>
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${cardLink}" style="display: inline-block; background-color: #de2f08; color: #fff; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">
+        View Your Birthday Card
+      </a>
+    </div>
+    <p style="font-size: 14px; color: #666; margin-top: 30px; text-align: center;">
+      If the button doesn't work, copy and paste this link into your browser:<br>
+      <a href="${cardLink}" style="color: #de2f08; word-break: break-all;">${cardLink}</a>
+    </p>
+    <div style="text-align: center; margin-top: 30px;">
+      <p style="font-size: 14px; color: #666; margin: 0;">
+        Have a wonderful birthday! 🎈
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+      `.trim()
+    }
     default:
       throw new Error(`No HTML template defined for email type: ${emailType}`)
   }
@@ -95,6 +166,49 @@ You'll receive daily prompts to spark conversations and create lasting memories.
 Get started by opening the app and responding to today's prompt!
 
 Thanks for being part of the Good Times community! 🎉
+
+- The Good Times Team
+      `.trim()
+    }
+    case "birthday_card": {
+      const userName = templateData.user_name || "there"
+      const groupType = templateData.group_type || "friends" // "friends" or "family"
+      const contributorNames = templateData.contributor_names || []
+      const cardLink = templateData.card_link || "#"
+      
+      // Personalize greeting based on group type
+      const groupGreeting = groupType === "family" 
+        ? "your family" 
+        : "your friends"
+      
+      // Format contributor names
+      let contributorsText = ""
+      if (contributorNames.length === 0) {
+        contributorsText = groupType === "family" ? "your family members" : "your friends"
+      } else if (contributorNames.length === 1) {
+        contributorsText = contributorNames[0]
+      } else if (contributorNames.length === 2) {
+        contributorsText = `${contributorNames[0]} and ${contributorNames[1]}`
+      } else {
+        const lastName = contributorNames[contributorNames.length - 1]
+        const otherNames = contributorNames.slice(0, -1).join(", ")
+        contributorsText = `${otherNames}, and ${lastName}`
+      }
+      
+      return `
+Hi ${userName},
+
+🎂 Happy Birthday! 🎉
+
+${contributorNames.length > 0 
+  ? `${contributorsText} wrote you a special birthday card!` 
+  : `You have a special birthday card from ${groupGreeting}!`}
+
+Open the app to see the heartfelt messages ${groupType === "family" ? "your family" : "your friends"} left for you on your special day.
+
+View your card: ${cardLink}
+
+Have a wonderful birthday! 🎈
 
 - The Good Times Team
       `.trim()
@@ -192,10 +306,30 @@ serve(async (req: Request) => {
       throw new Error(`Unknown email_type: ${email_type}`)
     }
 
-    // Generate email content
-    const htmlContent = generateEmailHTML(email_type, finalTemplateData)
-    const textContent = generateEmailText(email_type, finalTemplateData)
-    const subject = EMAIL_TEMPLATES[email_type].subject
+    const templateConfig = EMAIL_TEMPLATES[email_type]
+    const subject = templateConfig.subject
+
+    // Prepare Resend API request body
+    let requestBody: any = {
+      from: FROM_EMAIL,
+      to: [finalRecipientEmail],
+      subject: subject,
+    }
+
+    // Use Resend template if configured, otherwise use inline HTML
+    if (templateConfig.templateId) {
+      // Use Resend template
+      requestBody.template = {
+        id: templateConfig.templateId,
+        variables: finalTemplateData,
+      }
+    } else {
+      // Use inline HTML/text (for welcome email)
+      const htmlContent = generateEmailHTML(email_type, finalTemplateData)
+      const textContent = generateEmailText(email_type, finalTemplateData)
+      requestBody.html = htmlContent
+      requestBody.text = textContent
+    }
 
     // Call Resend API
     const resendResponse = await fetch(RESEND_API_URL, {
@@ -204,13 +338,7 @@ serve(async (req: Request) => {
         "Authorization": `Bearer ${RESEND_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        from: FROM_EMAIL,
-        to: [finalRecipientEmail],
-        subject: subject,
-        html: htmlContent,
-        text: textContent,
-      }),
+      body: JSON.stringify(requestBody),
     })
 
     if (!resendResponse.ok) {

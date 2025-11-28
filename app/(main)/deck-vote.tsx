@@ -22,6 +22,8 @@ import { typography, spacing } from "../../lib/theme"
 import { getDeckDetails, getDeckQuestions, castVote, getVoteStatus, getUserVote, getGroupMembers, getCollectionDetails, getGroupActiveDecks } from "../../lib/db"
 import { supabase } from "../../lib/supabase"
 import { Button } from "../../components/Button"
+import { usePostHog } from "posthog-react-native"
+import { safeCapture } from "../../lib/posthog"
 
 export default function DeckVote() {
   const router = useRouter()
@@ -34,6 +36,7 @@ export default function DeckVote() {
   const [selectedVote, setSelectedVote] = useState<"yes" | "no" | null>(null)
   const [helpModalVisible, setHelpModalVisible] = useState(false)
   const queryClient = useQueryClient()
+  const posthog = usePostHog()
 
   useEffect(() => {
     async function loadUser() {
@@ -116,7 +119,17 @@ export default function DeckVote() {
       if (!groupId || !deckId || !userId) throw new Error("Missing required params")
       await castVote(groupId, deckId, userId, vote)
     },
-    onSuccess: () => {
+    onSuccess: (_, vote) => {
+      // Track cast_deck_vote event
+      safeCapture(posthog, "cast_deck_vote", {
+        deck_id: deckId,
+        deck_name: deck?.name,
+        collection_id: deck?.collection_id,
+        collection_name: collection?.name,
+        group_id: groupId,
+        vote: vote,
+      })
+      
       queryClient.invalidateQueries({ queryKey: ["voteStatus", groupId, deckId] })
       queryClient.invalidateQueries({ queryKey: ["userVote", groupId, deckId, userId] })
       queryClient.invalidateQueries({ queryKey: ["groupActiveDecks", groupId] })

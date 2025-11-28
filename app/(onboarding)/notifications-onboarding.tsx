@@ -65,69 +65,17 @@ export default function NotificationsOnboarding() {
         // If has completed onboarding OR is existing user, check for pending group join before redirecting
         // Prioritize hasCompletedPostAuth check (more reliable)
         if (hasCompletedPostAuth || isExistingUser) {
+          // Profile and group joining are handled in auth.tsx immediately after authentication
+          // This screen is just for UI - check if there's a pending group to focus on
           const pendingGroupId = await AsyncStorage.getItem(PENDING_GROUP_KEY)
           if (pendingGroupId) {
-            // Try to join the group
-            try {
-              // CRITICAL: Ensure user has a profile before joining group
-              const { data: existingProfile } = await supabase
-                .from("users")
-                .select("id")
-                .eq("id", user.id)
-                .maybeSingle()
-
-              if (!existingProfile) {
-                console.log("[notifications-onboarding] User profile not found, creating profile...")
-                const { error: profileError } = await supabase
-                  .from("users")
-                  .insert({
-                    id: user.id,
-                    email: user.email || "",
-                  } as any)
-
-                if (profileError) {
-                  console.error("[notifications-onboarding] Failed to create user profile:", profileError)
-                  // Continue anyway
-                } else {
-                  console.log("[notifications-onboarding] User profile created successfully")
-                }
-              }
-
-              const { data: existingMember } = await supabase
-                .from("group_members")
-                .select("id")
-                .eq("group_id", pendingGroupId)
-                .eq("user_id", user.id)
-                .maybeSingle()
-
-              if (!existingMember) {
-                const { error: joinError } = await supabase
-                  .from("group_members")
-                  .insert({
-                    group_id: pendingGroupId,
-                    user_id: user.id,
-                    role: "member",
-                  } as any)
-
-                if (!joinError) {
-                  await AsyncStorage.removeItem(PENDING_GROUP_KEY)
-                  router.replace({
-                    pathname: "/(main)/home",
-                    params: { focusGroupId: pendingGroupId },
-                  })
-                  return
-                }
-              } else {
-                await AsyncStorage.removeItem(PENDING_GROUP_KEY)
-                router.replace({
-                  pathname: "/(main)/home",
-                  params: { focusGroupId: pendingGroupId },
-                })
-                return
-              }
-            } catch (error) {
-              console.error("[notifications-onboarding] Error joining group:", error)
-            }
+            // Clear pending and navigate to home with focus
+            await AsyncStorage.removeItem(PENDING_GROUP_KEY)
+            router.replace({
+              pathname: "/(main)/home",
+              params: { focusGroupId: pendingGroupId },
+            })
+            return
           }
           router.replace("/(main)/home")
           return
@@ -185,79 +133,18 @@ export default function NotificationsOnboarding() {
     const onboardingKey = getPostAuthOnboardingKey(user.id)
     await AsyncStorage.setItem(onboardingKey, "true")
     
-    // Check if user is joining a group via invite link
-    const pendingGroupId = await AsyncStorage.getItem(PENDING_GROUP_KEY)
-    if (pendingGroupId) {
-      console.log("[notifications-onboarding] Joining group from invite link:", pendingGroupId)
-      try {
-        // CRITICAL: Ensure user has a profile before joining group
-        // Check if user profile exists
-        const { data: existingProfile } = await supabase
-          .from("users")
-          .select("id")
-          .eq("id", user.id)
-          .maybeSingle()
-
-        if (!existingProfile) {
-          console.log("[notifications-onboarding] User profile not found, creating profile...")
-          // Create minimal profile with email
-          const { error: profileError } = await supabase
-            .from("users")
-            .insert({
-              id: user.id,
-              email: user.email || "",
-            } as any)
-
-          if (profileError) {
-            console.error("[notifications-onboarding] Failed to create user profile:", profileError)
-            // Continue anyway - user can complete profile later
-          } else {
-            console.log("[notifications-onboarding] User profile created successfully")
-          }
+        // Profile and group joining are handled in auth.tsx immediately after authentication
+        // This screen is just for UI - check if there's a pending group to focus on
+        const pendingGroupId = await AsyncStorage.getItem(PENDING_GROUP_KEY)
+        if (pendingGroupId) {
+          // Clear pending and navigate to home with focus
+          await AsyncStorage.removeItem(PENDING_GROUP_KEY)
+          router.replace({
+            pathname: "/(main)/home",
+            params: { focusGroupId: pendingGroupId },
+          })
+          return
         }
-
-        // Check if user is already a member
-        const { data: existingMember } = await supabase
-          .from("group_members")
-          .select("id")
-          .eq("group_id", pendingGroupId)
-          .eq("user_id", user.id)
-          .maybeSingle()
-
-        if (!existingMember) {
-          // Join the group
-          const { error: joinError } = await supabase
-            .from("group_members")
-            .insert({
-              group_id: pendingGroupId,
-              user_id: user.id,
-              role: "member",
-            } as any)
-
-          if (joinError) {
-            console.error("[notifications-onboarding] Failed to join group:", joinError)
-            // Continue to home even if join fails - user can try again later
-          } else {
-            console.log("[notifications-onboarding] Successfully joined group")
-          }
-        } else {
-          console.log("[notifications-onboarding] User already a member of group")
-        }
-
-        // Clear pending group join
-        await AsyncStorage.removeItem(PENDING_GROUP_KEY)
-        
-        // Navigate to home with focus on the joined group
-        router.replace({
-          pathname: "/(main)/home",
-          params: { focusGroupId: pendingGroupId },
-        })
-        return
-      } catch (error) {
-        console.error("[notifications-onboarding] Error joining group:", error)
-        // Continue to home even if join fails
-      }
-    }
     
     // Navigate to home (no pending group join)
     router.replace("/(main)/home")

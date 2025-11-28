@@ -108,6 +108,58 @@ serve(async (req) => {
 
       console.log(`[activate-deck] Deck ${deck_id} activated for group ${group_id}`)
 
+      // Track deck_activated event in PostHog
+      try {
+        // Get deck and collection details for event properties
+        const { data: deckData } = await supabaseClient
+          .from("decks")
+          .select("name, collection_id")
+          .eq("id", deck_id)
+          .single()
+
+        let collectionName: string | undefined
+        if (deckData?.collection_id) {
+          const { data: collectionData } = await supabaseClient
+            .from("collections")
+            .select("name")
+            .eq("id", deckData.collection_id)
+            .single()
+          collectionName = collectionData?.name
+        }
+
+        // Send event to PostHog HTTP API
+        const posthogApiKey = Deno.env.get("POSTHOG_API_KEY")
+        const posthogHost = Deno.env.get("POSTHOG_HOST") || "https://us.i.posthog.com"
+        
+        if (posthogApiKey) {
+          await fetch(`${posthogHost}/capture/`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              api_key: posthogApiKey,
+              event: "deck_activated",
+              properties: {
+                deck_id: deck_id,
+                deck_name: deckData?.name,
+                collection_id: deckData?.collection_id,
+                collection_name: collectionName,
+                group_id: group_id,
+                yes_votes: yesVotes,
+                no_votes: noVotes,
+                total_members: totalMembers,
+              },
+              distinct_id: `group_${group_id}`, // Use group as distinct_id for server-side events
+            }),
+          })
+          console.log(`[activate-deck] Tracked deck_activated event in PostHog`)
+        }
+      } catch (posthogError) {
+        console.error(`[activate-deck] Error tracking PostHog event:`, posthogError)
+        // Don't throw - activation succeeded
+      }
+
       // Regenerate queue to include the new deck
       try {
         const { error: regenerateError } = await supabaseClient.functions.invoke("regenerate-queue-with-packs", {
@@ -177,6 +229,58 @@ serve(async (req) => {
       if (updateError) throw updateError
 
       console.log(`[activate-deck] Deck ${deck_id} rejected for group ${group_id}`)
+
+      // Track deck_rejected event in PostHog
+      try {
+        // Get deck and collection details for event properties
+        const { data: deckData } = await supabaseClient
+          .from("decks")
+          .select("name, collection_id")
+          .eq("id", deck_id)
+          .single()
+
+        let collectionName: string | undefined
+        if (deckData?.collection_id) {
+          const { data: collectionData } = await supabaseClient
+            .from("collections")
+            .select("name")
+            .eq("id", deckData.collection_id)
+            .single()
+          collectionName = collectionData?.name
+        }
+
+        // Send event to PostHog HTTP API
+        const posthogApiKey = Deno.env.get("POSTHOG_API_KEY")
+        const posthogHost = Deno.env.get("POSTHOG_HOST") || "https://us.i.posthog.com"
+        
+        if (posthogApiKey) {
+          await fetch(`${posthogHost}/capture/`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              api_key: posthogApiKey,
+              event: "deck_rejected",
+              properties: {
+                deck_id: deck_id,
+                deck_name: deckData?.name,
+                collection_id: deckData?.collection_id,
+                collection_name: collectionName,
+                group_id: group_id,
+                yes_votes: yesVotes,
+                no_votes: noVotes,
+                total_members: totalMembers,
+              },
+              distinct_id: `group_${group_id}`, // Use group as distinct_id for server-side events
+            }),
+          })
+          console.log(`[activate-deck] Tracked deck_rejected event in PostHog`)
+        }
+      } catch (posthogError) {
+        console.error(`[activate-deck] Error tracking PostHog event:`, posthogError)
+        // Don't throw - rejection succeeded
+      }
 
       return new Response(
         JSON.stringify({

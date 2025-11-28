@@ -1,5 +1,5 @@
 import { supabase } from "./supabase"
-import type { User, Group, GroupMember, Prompt, DailyPrompt, Entry, Memorial, Reaction, Comment, CustomQuestion, CustomQuestionRotation, GroupActivityTracking, Collection, Deck, GroupDeckVote, GroupActiveDeck } from "./types"
+import type { User, Group, GroupMember, Prompt, DailyPrompt, Entry, Memorial, Reaction, Comment, CustomQuestion, CustomQuestionRotation, GroupActivityTracking, Collection, Deck, GroupDeckVote, GroupActiveDeck, BirthdayCard, BirthdayCardEntry } from "./types"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "./prompts"
 
 // User queries
@@ -1910,14 +1910,19 @@ export async function getPendingVotes(groupId: string, userId: string): Promise<
   const deckIds = votingDecks.map((vd: any) => vd.deck_id)
 
   // Get decks where user has voted
-  const { data: userVotes, error: votesError } = await supabase
-    .from("group_deck_votes")
-    .select("deck_id")
-    .eq("group_id", groupId)
-    .eq("user_id", userId)
-    .in("deck_id", deckIds)
+  // Only query if we have deck IDs to check
+  let userVotes: any[] = []
+  if (deckIds.length > 0) {
+    const { data: votesData, error: votesError } = await supabase
+      .from("group_deck_votes")
+      .select("deck_id")
+      .eq("group_id", groupId)
+      .eq("user_id", userId)
+      .in("deck_id", deckIds)
 
-  if (votesError) throw votesError
+    if (votesError) throw votesError
+    userVotes = votesData || []
+  }
 
   const votedDeckIds = new Set((userVotes || []).map((v: any) => v.deck_id))
   const pendingDeckIds = deckIds.filter((id: string) => !votedDeckIds.has(id))
@@ -1966,4 +1971,281 @@ export async function getDeckQuestionsLeftCount(groupId: string, deckId: string)
   const askedCount = await getDeckQuestionsAskedCount(groupId, deckId)
 
   return Math.max(0, totalQuestions - askedCount)
+}
+
+// Birthday Card Functions
+
+// Get upcoming birthday cards user needs to contribute to
+export async function getUpcomingBirthdayCards(
+  groupId: string,
+  userId: string,
+  todayDate: string
+): Promise<BirthdayCard[]> {
+  const today = new Date(todayDate)
+  const sevenDaysFromNow = new Date(today)
+  sevenDaysFromNow.setDate(today.getDate() + 7)
+  const sevenDaysFromNowStr = sevenDaysFromNow.toISOString().split("T")[0]
+  
+  console.log(`[getUpcomingBirthdayCards] Querying for group ${groupId}, user ${userId}, today: ${todayDate}, range: ${todayDate} to ${sevenDaysFromNowStr}`)
+  
+  // Get cards where:
+  // - group_id matches
+  // - birthday_user_id != userId (not their own birthday)
+  // - status = 'draft'
+  // - birthday_date is within next 7 days
+  // - user hasn't contributed yet
+  
+  const { data: cards, error } = await supabase
+    .from("birthday_cards")
+    .select("*, birthday_user:users(id, name, avatar_url)")
+    .eq("group_id", groupId)
+    .eq("status", "draft")
+    .neq("birthday_user_id", userId)
+    .gte("birthday_date", todayDate)
+    .lte("birthday_date", sevenDaysFromNowStr)
+
+  if (error) {
+    console.error(`[getUpcomingBirthdayCards] Error fetching cards:`, error)
+    throw error
+  }
+  
+  console.log(`[getUpcomingBirthdayCards] Found ${cards?.length || 0} cards before filtering contributions`)
+
+  if (!cards) return []
+
+  // Filter out cards where user has already contributed
+  const cardsWithoutContribution: BirthdayCard[] = []
+  
+  for (const card of cards) {
+    const { data: entry } = await supabase
+      .from("birthday_card_entries")
+      .select("id")
+      .eq("card_id", card.id)
+      .eq("contributor_user_id", userId)
+      .maybeSingle()
+
+    if (!entry) {
+      cardsWithoutContribution.push(card)
+    }
+  }
+
+  console.log(`[getUpcomingBirthdayCards] Returning ${cardsWithoutContribution.length} cards without user contribution`)
+  return cardsWithoutContribution
+}
+
+// Get card entries user has written for a specific date
+export async function getMyCardEntriesForDate(
+  groupId: string,
+  userId: string,
+  date: string
+): Promise<BirthdayCardEntry[]> {
+  // Get entries created on this date
+  const dateStart = new Date(date + "T00:00:00Z")
+  const dateEnd = new Date(date + "T23:59:59Z")
+
+  const { data: entries, error } = await supabase
+    .from("birthday_card_entries")
+    .select("*, card:birthday_cards(*, birthday_user:users(id, name, avatar_url))")
+    .eq("contributor_user_id", userId)
+    .gte("created_at", dateStart.toISOString())
+    .lte("created_at", dateEnd.toISOString())
+    .order("created_at", { ascending: true })
+
+  if (error) throw error
+  if (!entries) return []
+
+  // Filter to only entries for cards in this group
+  return entries.filter((entry: any) => entry.card?.group_id === groupId)
+}
+
+// Get user's own birthday card (if it's their birthday)
+export async function getMyBirthdayCard(
+  groupId: string,
+  userId: string,
+  date: string
+): Promise<BirthdayCard | null> {
+  const { data: card, error } = await supabase
+    .from("birthday_cards")
+    .select("*, birthday_user:users(id, name, avatar_url)")
+    .eq("group_id", groupId)
+    .eq("birthday_user_id", userId)
+    .eq("birthday_date", date)
+    .eq("status", "published")
+    .maybeSingle()
+
+  if (error) throw error
+  return card || null
+}
+
+// Check if user has received any birthday cards
+export async function hasReceivedBirthdayCards(
+  groupId: string,
+  userId: string
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("birthday_cards")
+    .select("id")
+    .eq("group_id", groupId)
+    .eq("birthday_user_id", userId)
+    .eq("status", "published")
+    .limit(1)
+
+  if (error) throw error
+  return (data?.length || 0) > 0
+}
+
+// Get user's own birthday cards (only cards where they are the birthday person)
+export async function getMyBirthdayCards(
+  groupId: string,
+  userId: string
+): Promise<BirthdayCard[]> {
+  const { data: cards, error } = await supabase
+    .from("birthday_cards")
+    .select("*, birthday_user:users(id, name, avatar_url)")
+    .eq("group_id", groupId)
+    .eq("birthday_user_id", userId)
+    .eq("status", "published")
+    .order("birthday_date", { ascending: false })
+
+  if (error) throw error
+  return cards || []
+}
+
+// Get card entries for a card
+export async function getBirthdayCardEntries(
+  cardId: string
+): Promise<BirthdayCardEntry[]> {
+  const { data: entries, error } = await supabase
+    .from("birthday_card_entries")
+    .select("*, contributor:users(id, name, avatar_url)")
+    .eq("card_id", cardId)
+    .order("created_at", { ascending: true })
+
+  if (error) throw error
+  return entries || []
+}
+
+// Create birthday card entry
+export async function createBirthdayCardEntry(data: {
+  cardId: string
+  contributorUserId: string
+  textContent?: string
+  mediaUrls?: string[]
+  mediaTypes?: ("photo" | "video" | "audio")[]
+  embeddedMedia?: any[]
+}): Promise<BirthdayCardEntry> {
+  const { data: entry, error } = await supabase
+    .from("birthday_card_entries")
+    .insert({
+      card_id: data.cardId,
+      contributor_user_id: data.contributorUserId,
+      text_content: data.textContent || null,
+      media_urls: data.mediaUrls || null,
+      media_types: data.mediaTypes || null,
+      embedded_media: data.embeddedMedia || null,
+    })
+    .select("*, contributor:users(id, name, avatar_url)")
+    .single()
+
+  if (error) throw error
+  return entry
+}
+
+// Update birthday card entry
+export async function updateBirthdayCardEntry(
+  entryId: string,
+  userId: string,
+  updates: {
+    textContent?: string
+    mediaUrls?: string[]
+    mediaTypes?: ("photo" | "video" | "audio")[]
+    embeddedMedia?: any[]
+  }
+): Promise<BirthdayCardEntry> {
+  const { data: entry, error } = await supabase
+    .from("birthday_card_entries")
+    .update({
+      text_content: updates.textContent !== undefined ? updates.textContent : undefined,
+      media_urls: updates.mediaUrls !== undefined ? updates.mediaUrls : undefined,
+      media_types: updates.mediaTypes !== undefined ? updates.mediaTypes : undefined,
+      embedded_media: updates.embeddedMedia !== undefined ? updates.embeddedMedia : undefined,
+    })
+    .eq("id", entryId)
+    .eq("contributor_user_id", userId)
+    .select("*, contributor:users(id, name, avatar_url)")
+    .single()
+
+  if (error) throw error
+  return entry
+}
+
+// Make card public
+export async function makeBirthdayCardPublic(
+  cardId: string,
+  userId: string
+): Promise<BirthdayCard> {
+  const { data: card, error } = await supabase
+    .from("birthday_cards")
+    .update({
+      status: "public",
+      is_public: true,
+    })
+    .eq("id", cardId)
+    .eq("birthday_user_id", userId)
+    .select("*, birthday_user:users(id, name, avatar_url)")
+    .single()
+
+  if (error) throw error
+  return card
+}
+
+// Get birthday card by ID
+export async function getBirthdayCard(cardId: string): Promise<BirthdayCard | null> {
+  const { data: card, error } = await supabase
+    .from("birthday_cards")
+    .select("*, birthday_user:users(id, name, avatar_url)")
+    .eq("id", cardId)
+    .maybeSingle()
+
+  if (error) throw error
+  return card || null
+}
+
+// Get birthday card entry by ID
+export async function getBirthdayCardEntry(entryId: string): Promise<BirthdayCardEntry | null> {
+  const { data: entry, error } = await supabase
+    .from("birthday_card_entries")
+    .select("*, contributor:users(id, name, avatar_url), card:birthday_cards(*)")
+    .eq("id", entryId)
+    .maybeSingle()
+
+  if (error) throw error
+  return entry || null
+}
+
+// Get public birthday cards for group (for history filter)
+export async function trackBirthdayCardView(cardId: string, userId: string): Promise<void> {
+  const { error } = await supabase.functions.invoke("track-birthday-card-view", {
+    body: { card_id: cardId, user_id: userId },
+  })
+
+  if (error) {
+    console.error("[trackBirthdayCardView] Error tracking view:", error)
+    // Don't throw - tracking failure shouldn't break the UI
+  }
+}
+
+export async function getPublicBirthdayCards(
+  groupId: string
+): Promise<BirthdayCard[]> {
+  const { data: cards, error } = await supabase
+    .from("birthday_cards")
+    .select("*, birthday_user:users(id, name, avatar_url)")
+    .eq("group_id", groupId)
+    .eq("is_public", true)
+    .eq("status", "public")
+    .order("birthday_date", { ascending: false })
+
+  if (error) throw error
+  return cards || []
 }

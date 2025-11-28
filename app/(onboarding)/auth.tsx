@@ -32,10 +32,242 @@ import { captureEvent, identifyUser } from "../../lib/posthog"
 
 type OAuthProvider = "google" | "apple"
 const POST_AUTH_ONBOARDING_KEY_PREFIX = "has_completed_post_auth_onboarding"
+const PENDING_GROUP_KEY = "pending_group_join"
 
 // Helper function to get user-specific onboarding key
 function getPostAuthOnboardingKey(userId: string): string {
   return `${POST_AUTH_ONBOARDING_KEY_PREFIX}_${userId}`
+}
+
+// Track in-flight operations to prevent concurrent calls for same user
+const processingUsers = new Set<string>()
+
+// Helper function to ensure user profile exists and join group if pending
+// This should be called immediately after successful authentication
+async function ensureProfileAndJoinGroup(
+  userId: string,
+  session: any,
+  onboardingData?: { userName?: string; userBirthday?: Date; userPhoto?: string; userEmail?: string }
+): Promise<{ joinedGroup: boolean; groupId?: string }> {
+  console.log(`[ensureProfileAndJoinGroup] Starting for user:`, userId)
+  
+  // Concurrency protection: prevent duplicate calls for same user
+  if (processingUsers.has(userId)) {
+    console.warn(`[ensureProfileAndJoinGroup] Already processing for user ${userId}, waiting for existing operation...`)
+    // Wait a bit and check if profile exists (operation may have completed)
+    await new Promise(resolve => setTimeout(resolve, 500))
+    const { data: existingProfile } = await supabase
+      .from("users")
+      .select("id")
+      .eq("id", userId)
+      .maybeSingle()
+    
+    if (existingProfile) {
+      // Profile exists, check for pending group join
+      const pendingGroupId = await AsyncStorage.getItem(PENDING_GROUP_KEY)
+      if (pendingGroupId) {
+        const { data: existingMember } = await supabase
+          .from("group_members")
+          .select("id")
+          .eq("group_id", pendingGroupId)
+          .eq("user_id", userId)
+          .maybeSingle()
+        
+        if (existingMember) {
+          await AsyncStorage.removeItem(PENDING_GROUP_KEY)
+          return { joinedGroup: true, groupId: pendingGroupId }
+        }
+      }
+    }
+    return { joinedGroup: false }
+  }
+
+  processingUsers.add(userId)
+  
+  try {
+    // Read onboarding data from AsyncStorage if not provided
+    let profileData = onboardingData
+    if (!profileData) {
+      try {
+        const storedData = await AsyncStorage.getItem("onboarding-data-v1")
+        if (storedData) {
+          const parsed = JSON.parse(storedData)
+          profileData = {
+            userName: parsed.userName,
+            userBirthday: parsed.userBirthday ? new Date(parsed.userBirthday) : undefined,
+            userPhoto: parsed.userPhoto,
+            userEmail: parsed.userEmail,
+          }
+        }
+      } catch (error) {
+        console.warn("[ensureProfileAndJoinGroup] Failed to read onboarding data:", error)
+      }
+    }
+
+    // CRITICAL: Always use email from session (most reliable source)
+    // Fallback to onboarding data only if session email is missing
+    const emailFromSession = session?.user?.email ?? profileData?.userEmail
+    
+    if (!emailFromSession) {
+      console.error("[ensureProfileAndJoinGroup] ❌ No email available from session or onboarding data")
+      console.error("[ensureProfileAndJoinGroup] Session email:", session?.user?.email)
+      console.error("[ensureProfileAndJoinGroup] Onboarding email:", profileData?.userEmail)
+      throw new Error("Cannot create profile: no email available")
+    }
+
+    // Check if profile already exists
+    const { data: existingProfile } = await supabase
+      .from("users")
+      .select("id, email, name, birthday, avatar_url")
+      .eq("id", userId)
+      .maybeSingle()
+
+    // Only update profile if:
+    // 1. Profile doesn't exist (new user), OR
+    // 2. We have onboarding data to update with
+    const hasOnboardingData = !!(profileData?.userName || profileData?.userBirthday || profileData?.userPhoto)
+    
+    if (!existingProfile) {
+      // New user - create profile with available data
+      const birthday = profileData?.userBirthday 
+        ? profileData.userBirthday.toISOString().split("T")[0]
+        : null
+
+      console.log(`[ensureProfileAndJoinGroup] Creating new profile:`, {
+        userId,
+        email: emailFromSession,
+        name: profileData?.userName?.trim() || null,
+        birthday,
+        hasPhoto: !!profileData?.userPhoto,
+      })
+
+      const { error: profileError } = await supabase
+        .from("users")
+        .insert({
+          id: userId,
+          email: emailFromSession,
+          name: profileData?.userName?.trim() || null,
+          birthday: birthday,
+          avatar_url: profileData?.userPhoto || null,
+        } as any)
+
+      if (profileError) {
+        console.error("[ensureProfileAndJoinGroup] ❌ Profile creation failed:", profileError)
+        throw new Error(`Failed to create profile: ${profileError.message}`)
+      }
+      
+      console.log("[ensureProfileAndJoinGroup] ✅ Profile created successfully")
+    } else if (hasOnboardingData) {
+      // Existing user with onboarding data - update only provided fields
+      // Don't overwrite existing data with null values
+      const updateData: any = {}
+      
+      // Only update email if it's different (shouldn't happen, but be safe)
+      if (emailFromSession !== existingProfile.email) {
+        updateData.email = emailFromSession
+      }
+      
+      // Only update fields that are provided in onboarding data
+      if (profileData?.userName?.trim()) {
+        updateData.name = profileData.userName.trim()
+      }
+      
+      if (profileData?.userBirthday) {
+        updateData.birthday = profileData.userBirthday.toISOString().split("T")[0]
+      }
+      
+      if (profileData?.userPhoto) {
+        updateData.avatar_url = profileData.userPhoto
+      }
+
+      if (Object.keys(updateData).length > 0) {
+        console.log(`[ensureProfileAndJoinGroup] Updating existing profile:`, updateData)
+        
+        const { error: profileError } = await supabase
+          .from("users")
+          .update(updateData)
+          .eq("id", userId)
+
+        if (profileError) {
+          console.error("[ensureProfileAndJoinGroup] ❌ Profile update failed:", profileError)
+          // Non-critical - profile exists, continue
+        } else {
+          console.log("[ensureProfileAndJoinGroup] ✅ Profile updated successfully")
+        }
+      } else {
+        console.log("[ensureProfileAndJoinGroup] No profile updates needed")
+      }
+    } else {
+      // Existing user, no onboarding data - profile already exists, nothing to update
+      console.log("[ensureProfileAndJoinGroup] Existing user profile found, no updates needed")
+    }
+
+    // Check for pending group join
+    const pendingGroupId = await AsyncStorage.getItem(PENDING_GROUP_KEY)
+    if (!pendingGroupId) {
+      console.log("[ensureProfileAndJoinGroup] No pending group join")
+      return { joinedGroup: false }
+    }
+
+    console.log(`[ensureProfileAndJoinGroup] Joining group:`, pendingGroupId)
+
+    // Check if user is already a member (idempotency check)
+    // Database has UNIQUE constraint, but we check first to avoid unnecessary errors
+    const { data: existingMember } = await supabase
+      .from("group_members")
+      .select("id")
+      .eq("group_id", pendingGroupId)
+      .eq("user_id", userId)
+      .maybeSingle()
+
+    if (existingMember) {
+      console.log("[ensureProfileAndJoinGroup] User already a member of group")
+      await AsyncStorage.removeItem(PENDING_GROUP_KEY)
+      return { joinedGroup: true, groupId: pendingGroupId }
+    }
+
+    // Join the group
+    // Database UNIQUE constraint will prevent duplicates if concurrent calls slip through
+    const { error: joinError } = await supabase
+      .from("group_members")
+      .insert({
+        group_id: pendingGroupId,
+        user_id: userId,
+        role: "member",
+      } as any)
+
+    if (joinError) {
+      // Check if error is due to duplicate (unique constraint violation)
+      const isDuplicateError = joinError.message?.includes("duplicate") || 
+                               joinError.code === "23505" // PostgreSQL unique violation
+      
+      if (isDuplicateError) {
+        console.log("[ensureProfileAndJoinGroup] Duplicate membership detected (likely concurrent call), treating as success")
+        await AsyncStorage.removeItem(PENDING_GROUP_KEY)
+        return { joinedGroup: true, groupId: pendingGroupId }
+      }
+      
+      console.error("[ensureProfileAndJoinGroup] Failed to join group:", joinError)
+      // Don't clear pending group - let user try again
+      return { joinedGroup: false }
+    }
+
+    console.log("[ensureProfileAndJoinGroup] ✅ Successfully joined group")
+    await AsyncStorage.removeItem(PENDING_GROUP_KEY)
+    return { joinedGroup: true, groupId: pendingGroupId }
+  } catch (error: any) {
+    console.error("[ensureProfileAndJoinGroup] ❌ Error in ensureProfileAndJoinGroup:", error)
+    // Re-throw critical errors (profile creation failures)
+    // But allow group join failures to be non-blocking
+    if (error.message?.includes("Cannot create profile") || error.message?.includes("Failed to create profile")) {
+      throw error
+    }
+    // For group join failures, return false but don't throw
+    return { joinedGroup: false }
+  } finally {
+    // Always remove from processing set
+    processingUsers.delete(userId)
+  }
 }
 
 export default function OnboardingAuth() {
@@ -638,8 +870,51 @@ export default function OnboardingAuth() {
           }
         }
 
-        // Check for pending group join first
-        const pendingGroupId = await AsyncStorage.getItem("pending_group_join")
+        // CRITICAL: Ensure profile exists and join group if pending (must happen immediately after auth)
+        let joinedGroup = false
+        let groupId: string | undefined
+        try {
+          const result = await ensureProfileAndJoinGroup(
+            userId,
+            session,
+            {
+              userName: data.userName,
+              userBirthday: data.userBirthday,
+              userPhoto: data.userPhoto,
+              userEmail: data.userEmail,
+            }
+          )
+          joinedGroup = result.joinedGroup
+          groupId = result.groupId
+        } catch (profileError: any) {
+          // Profile creation failure is critical - cannot proceed
+          console.error("[auth] ❌ Critical: Profile creation failed:", profileError)
+          Alert.alert(
+            "Account Setup Error",
+            "Failed to create your profile. Please try signing in again or contact support if the problem persists.",
+            [{ text: "OK", onPress: () => router.replace("/(onboarding)/auth") }]
+          )
+          return
+        }
+
+        // CRITICAL: If user just joined a group (via invite/deeplink), route to welcome-post-auth
+        // This must be checked FIRST, before other routing logic
+        if (joinedGroup) {
+          console.log("[auth] User just joined group via invite, routing to welcome-post-auth")
+          router.replace("/(onboarding)/welcome-post-auth")
+          return
+        }
+
+        // CRITICAL: Check if this is a NEW user registration flow (has onboarding data)
+        // This check must happen BEFORE checking if user has profile, because
+        // ensureProfileAndJoinGroup may have just created the profile
+        const isNewUserRegistration = !!(data.groupName && data.groupType && data.userName && data.userBirthday)
+        
+        if (isNewUserRegistration) {
+          // New user creating their own group - call persistOnboarding
+          await persistOnboarding(userId, signInData.session)
+          return
+        }
 
         // Check if this is an existing user (has profile and possibly group)
         const { data: user } = await (supabase
@@ -677,9 +952,7 @@ export default function OnboardingAuth() {
             .maybeSingle()
 
           if (membership) {
-            // Sign-in should ALWAYS go to home - never show onboarding screens
-            // Onboarding screens are only shown during registration flow (after group creation)
-            // Check if this is a registration flow (user has onboarding data)
+            // User has group - check if this is registration flow or sign-in
             const isRegistration = !!(data.userName && data.userBirthday)
             
             if (isRegistration) {
@@ -700,28 +973,14 @@ export default function OnboardingAuth() {
             }
             return
           } else {
-            // Existing user without group - if pending group join, go to welcome-post-auth after registration
-            if (pendingGroupId) {
-              router.replace("/(onboarding)/welcome-post-auth")
-            } else {
-              router.replace("/(onboarding)/create-group/name-type")
-            }
+            // Existing user without group - need to create one
+            router.replace("/(onboarding)/create-group/name-type")
             return
           }
         }
 
-        // New user or incomplete profile - continue with onboarding flow
-        // If pending group join, go to welcome-post-auth after completing profile
-        if (pendingGroupId) {
-          // User is joining a group - after registration, go to welcome-post-auth
-          router.replace("/(onboarding)/welcome-post-auth")
-        } else if (data.groupName && data.groupType) {
-          // New user creating their own group
-          await persistOnboarding(userId, signInData.session)
-        } else {
-          // No group data means they need to complete onboarding
-          router.replace("/(onboarding)/about")
-        }
+        // Incomplete profile - user needs to complete onboarding
+        router.replace("/(onboarding)/about")
         return
       }
 
@@ -761,27 +1020,33 @@ export default function OnboardingAuth() {
             // Never let PostHog errors affect account creation
             if (__DEV__) console.error("[auth] Failed to track created_account:", error)
           }
-          // Check for pending group join
-          const pendingGroupId = await AsyncStorage.getItem("pending_group_join")
-          if (pendingGroupId) {
-            // In group join flow - save profile and go to welcome-post-auth after registration
-            const userId = signUpData.session.user.id
-            const birthday = data.userBirthday ? data.userBirthday.toISOString().split("T")[0] : null
-            const emailFromSession = data.userEmail ?? signUpData.session.user.email
-            if (emailFromSession && data.userName) {
-              await (supabase
-                .from("users") as any)
-                .upsert(
-                  {
-                    id: userId,
-                    email: emailFromSession,
-                    name: data.userName.trim(),
-                    birthday,
-                    avatar_url: data.userPhoto,
-                  },
-                  { onConflict: "id" }
-                )
-            }
+          // CRITICAL: Ensure profile exists and join group if pending (must happen immediately after auth)
+          let joinedGroup = false
+          try {
+            const result = await ensureProfileAndJoinGroup(
+              signUpData.session.user.id,
+              signUpData.session,
+              {
+                userName: data.userName,
+                userBirthday: data.userBirthday,
+                userPhoto: data.userPhoto,
+                userEmail: data.userEmail,
+              }
+            )
+            joinedGroup = result.joinedGroup
+          } catch (profileError: any) {
+            // Profile creation failure is critical - cannot proceed
+            console.error("[auth] ❌ Critical: Profile creation failed during sign-up:", profileError)
+            Alert.alert(
+              "Account Setup Error",
+              "Failed to create your profile. Please try signing up again or contact support if the problem persists.",
+              [{ text: "OK", onPress: () => router.replace("/(onboarding)/auth") }]
+            )
+            return
+          }
+
+          if (joinedGroup) {
+            // User just joined a group - go to welcome-post-auth
             router.replace("/(onboarding)/welcome-post-auth")
           } else {
             // Normal onboarding - create group
@@ -1323,6 +1588,31 @@ export default function OnboardingAuth() {
         birthday: userProfile?.birthday
       })
       
+      // CRITICAL: Ensure profile exists and join group if pending (must happen immediately after auth)
+      let joinedGroup = false
+      try {
+        const result = await ensureProfileAndJoinGroup(
+          session.user.id,
+          session,
+          {
+            userName: data.userName,
+            userBirthday: data.userBirthday,
+            userPhoto: data.userPhoto,
+            userEmail: data.userEmail,
+          }
+        )
+        joinedGroup = result.joinedGroup
+      } catch (profileError: any) {
+        // Profile creation failure is critical - cannot proceed
+        console.error("[OAuth] ❌ Critical: Profile creation failed:", profileError)
+        Alert.alert(
+          "Account Setup Error",
+          "Failed to create your profile. Please try signing in again or contact support if the problem persists.",
+          [{ text: "OK", onPress: () => router.replace("/(onboarding)/auth") }]
+        )
+        return
+      }
+
       // If no user profile exists OR query timed out, this is a NEW user
       // They should have already completed About screen (have onboarding data)
       // If they don't have onboarding data, something went wrong - they shouldn't be here
@@ -1355,7 +1645,12 @@ export default function OnboardingAuth() {
         
         // New user should have completed About screen first
         // They should have onboarding data (name, birthday, groupName, groupType)
-        if (data.groupName && data.groupType && data.userName && data.userBirthday) {
+        if (joinedGroup) {
+          // User just joined a group - go to welcome-post-auth
+          console.log(`[OAuth] ✅ User joined group, navigating to welcome-post-auth`)
+          router.replace("/(onboarding)/welcome-post-auth")
+          return
+        } else if (data.groupName && data.groupType && data.userName && data.userBirthday) {
           console.log(`[OAuth] ✅ Has all onboarding data, calling persistOnboarding to create user and group`)
           console.log(`[OAuth] This will create user profile, group, and navigate to invite screen`)
           
@@ -1478,7 +1773,7 @@ export default function OnboardingAuth() {
         groupId: (membership as any)?.group_id
       })
 
-      if (membership) {
+      if (membership || joinedGroup) {
           // OAuth sign-in should ALWAYS go to home - never show onboarding screens
           // Onboarding screens are only shown during registration flow (after group creation)
           // Check if this is a registration flow (user has onboarding data)
@@ -1509,8 +1804,11 @@ export default function OnboardingAuth() {
           }
         } else {
           // Existing user without group
-          console.log(`[OAuth] User has profile but no group. data.groupName: ${data.groupName}, data.groupType: ${data.groupType}`)
-          if (data.groupName && data.groupType) {
+          if (joinedGroup) {
+            // Just joined a group - go to welcome-post-auth
+            console.log(`[OAuth] User just joined group, navigating to welcome-post-auth`)
+            router.replace("/(onboarding)/welcome-post-auth")
+          } else if (data.groupName && data.groupType) {
             console.log(`[OAuth] Has onboarding data, calling persistOnboarding`)
             await persistOnboarding(session.user.id, session)
           } else {

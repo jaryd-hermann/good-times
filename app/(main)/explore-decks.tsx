@@ -22,6 +22,8 @@ import { getCollections, getGroupActiveDecks, getDeckQuestionsLeftCount, getDeck
 import { supabase } from "../../lib/supabase"
 import { useTabBar } from "../../lib/tab-bar-context"
 import type { Collection, GroupActiveDeck } from "../../lib/types"
+import { usePostHog } from "posthog-react-native"
+import { safeCapture } from "../../lib/posthog"
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 const CARD_WIDTH = (SCREEN_WIDTH - spacing.md * 3) / 2 // 2 columns with spacing
@@ -39,6 +41,16 @@ export default function ExploreDecks() {
   const contentPaddingTop = useRef(new Animated.Value(0)).current
   const lastScrollY = useRef(0)
   const { opacity: tabBarOpacity } = useTabBar()
+  const posthog = usePostHog()
+
+  // Track loaded_explore_decks event
+  useEffect(() => {
+    if (currentGroupId) {
+      safeCapture(posthog, "loaded_explore_decks", {
+        group_id: currentGroupId,
+      })
+    }
+  }, [posthog, currentGroupId])
 
   useEffect(() => {
     async function loadUser() {

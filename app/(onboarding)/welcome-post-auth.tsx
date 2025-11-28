@@ -62,98 +62,17 @@ export default function WelcomePostAuth() {
         // If has completed onboarding OR is existing user, check for pending group join before redirecting
         // Prioritize hasCompletedPostAuth check (more reliable)
         if (hasCompletedPostAuth || isExistingUser) {
+          // Profile and group joining are handled in auth.tsx immediately after authentication
+          // This screen is just for UI - check if there's a pending group to focus on
           const pendingGroupId = await AsyncStorage.getItem(PENDING_GROUP_KEY)
           if (pendingGroupId) {
-            // Try to join the group
-            try {
-              // CRITICAL: Ensure user has a profile before joining group
-              const { data: existingProfile } = await supabase
-                .from("users")
-                .select("id")
-                .eq("id", user.id)
-                .maybeSingle()
-
-              if (!existingProfile) {
-                console.log("[welcome-post-auth] User profile not found, creating profile...")
-                const { error: profileError } = await supabase
-                  .from("users")
-                  .insert({
-                    id: user.id,
-                    email: user.email || "",
-                  } as any)
-
-                if (profileError) {
-                  console.error("[welcome-post-auth] Failed to create user profile:", profileError)
-                  // Continue anyway
-                } else {
-                  console.log("[welcome-post-auth] User profile created successfully")
-                }
-              }
-
-              const { data: existingMember } = await supabase
-                .from("group_members")
-                .select("id")
-                .eq("group_id", pendingGroupId)
-                .eq("user_id", user.id)
-                .maybeSingle()
-
-              if (!existingMember) {
-                const { error: joinError, data: joinData } = await supabase
-                  .from("group_members")
-                  .insert({
-                    group_id: pendingGroupId,
-                    user_id: user.id,
-                    role: "member",
-                  } as any)
-                  .select()
-
-                if (joinError) {
-                  console.error("[welcome-post-auth] Failed to join group:", joinError)
-                  Alert.alert(
-                    "Error",
-                    `Failed to join group: ${joinError.message || "Unknown error"}`,
-                    [{ text: "OK" }]
-                  )
-                  // Don't clear pending group - let user try again
-                  return
-                }
-
-                // Verify insert was successful
-                if (!joinData || joinData.length === 0) {
-                  console.error("[welcome-post-auth] Group join returned no data")
-                  Alert.alert(
-                    "Error",
-                    "Failed to join group. Please try again.",
-                    [{ text: "OK" }]
-                  )
-                  return
-                }
-
-                // Success - clear pending and navigate
-                await AsyncStorage.removeItem(PENDING_GROUP_KEY)
-                router.replace({
-                  pathname: "/(main)/home",
-                  params: { focusGroupId: pendingGroupId },
-                })
-                return
-              } else {
-                // Already a member - clear pending and navigate
-                await AsyncStorage.removeItem(PENDING_GROUP_KEY)
-                router.replace({
-                  pathname: "/(main)/home",
-                  params: { focusGroupId: pendingGroupId },
-                })
-                return
-              }
-            } catch (error) {
-              console.error("[welcome-post-auth] Error joining group:", error)
-              Alert.alert(
-                "Error",
-                `Failed to join group: ${error instanceof Error ? error.message : "Unknown error"}`,
-                [{ text: "OK" }]
-              )
-              return
-            }
+            // Clear pending and navigate to home with focus
+            await AsyncStorage.removeItem(PENDING_GROUP_KEY)
+            router.replace({
+              pathname: "/(main)/home",
+              params: { focusGroupId: pendingGroupId },
+            })
+            return
           }
           router.replace("/(main)/home")
           return

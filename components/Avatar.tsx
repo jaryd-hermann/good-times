@@ -4,14 +4,16 @@ import { useTheme } from "../lib/theme-context"
 
 interface AvatarProps {
   uri?: string
-  name: string
+  name?: string | null
   size?: number
 }
 
 export function Avatar({ uri, name, size = 40 }: AvatarProps) {
   const { colors } = useTheme()
   
-  const initials = name
+  // Handle null/undefined names gracefully
+  const displayName = name || "User"
+  const initials = displayName
     .split(" ")
     .map((n) => n[0])
     .join("")
