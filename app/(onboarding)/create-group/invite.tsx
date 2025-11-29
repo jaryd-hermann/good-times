@@ -67,7 +67,8 @@ export default function Invite() {
       const userName = currentUser?.name || "me"
       
       const inviteLink = `https://thegoodtimes.app/join/${groupId}`
-      const inviteMessage = `I've created a group for us on this new app, Good Times. Join ${userName} here: ${inviteLink}`
+      // For Share.share, don't include URL in message to avoid duplication (platform adds it)
+      const inviteMessage = `I've created a group for us on this new app, Good Times. Join ${userName} here:`
       
       // Track took_invite_action and shared_invite_link events
       try {
@@ -189,7 +190,8 @@ export default function Invite() {
     const userName = currentUser?.name || "me"
     
     const inviteLink = `https://thegoodtimes.app/join/${groupId}`
-    const inviteMessage = `I've created a group for us on this new app, Good Times. Join ${userName} here: ${inviteLink}`
+    // For Share.share, don't include URL in message to avoid duplication (platform adds it)
+    const inviteMessage = `I've created a group for us on this new app, Good Times. Join ${userName} here:`
     
     const selected = contacts.filter((contact) => selectedContacts.includes(contact.id))
     if (selected.length === 0) {

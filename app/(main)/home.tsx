@@ -1175,8 +1175,8 @@ export default function Home() {
       gap: spacing.lg,
       marginTop: -spacing.xl, // Large negative margin to pull entries right up to divider
     },
-    entriesContainerWithVoteBanner: {
-      marginTop: spacing.md, // Add extra padding when vote banner is shown
+    entriesContainerWithBanners: {
+      marginTop: spacing.lg, // Add padding when any banners are shown to prevent overlap
     },
     postingStatusContainer: {
       paddingVertical: spacing.lg,
@@ -1652,7 +1652,14 @@ export default function Home() {
 
         {/* Entries feed */}
         {userEntry ? (
-          <View style={[styles.entriesContainer, pendingVotes.length > 0 && isToday && styles.entriesContainerWithVoteBanner]}>
+          <View style={[
+            styles.entriesContainer, 
+            (pendingVotes.length > 0 && isToday) || shouldShowCustomQuestionBanner || 
+            (myBirthdayCard && myBirthdayCard.birthday_date === selectedDate) ||
+            upcomingBirthdayCards.length > 0 || myCardEntries.length > 0
+              ? styles.entriesContainerWithBanners 
+              : null
+          ]}>
             {entries.map((entry, entryIndex) => (
               <EntryCard
                 key={entry.id}

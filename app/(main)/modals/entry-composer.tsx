@@ -16,6 +16,8 @@ import {
   ActivityIndicator,
   Keyboard,
   AppState,
+  PanResponder,
+  Animated,
 } from "react-native"
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
 import * as ImagePicker from "expo-image-picker"
@@ -86,11 +88,18 @@ export default function EntryComposer() {
   const textInputRef = useRef<TextInput>(null)
   const scrollViewRef = useRef<ScrollView>(null)
   const inputContainerRef = useRef<View>(null)
+  const mediaCarouselRef = useRef<View>(null)
+  const previousMediaCountRef = useRef<number>(0)
+  const mediaCarouselYRef = useRef<number | null>(null)
+  const inputContainerYRef = useRef<number | null>(null)
   const [showSuccessModal, setShowSuccessModal] = useState(false)
   const [keyboardHeight, setKeyboardHeight] = useState(0)
   const [uploadingMedia, setUploadingMedia] = useState<Record<string, boolean>>({})
   const [showUploadingModal, setShowUploadingModal] = useState(false)
   const [showFileSizeModal, setShowFileSizeModal] = useState(false)
+  const [draggedItemId, setDraggedItemId] = useState<string | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+  const dragPosition = useRef(new Animated.ValueXY()).current
   const posthog = usePostHog()
   
   // File size limit: 2GB = 2 * 1024 * 1024 * 1024 bytes
@@ -432,25 +441,8 @@ export default function EntryComposer() {
   }
 
   async function handleGalleryAction() {
-    Alert.alert(
-      "Add Media",
-      "Choose how you'd like to add photos or videos",
-      [
-        {
-          text: "Take Photo/Video",
-          onPress: openCamera,
-        },
-        {
-          text: "Choose from Gallery",
-          onPress: openGallery,
-        },
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-      ],
-      { cancelable: true }
-    )
+    // Open gallery directly (no modal)
+    openGallery()
   }
 
   async function openCamera() {
@@ -763,6 +755,56 @@ export default function EntryComposer() {
     setMediaItems((prev) => prev.filter((item) => item.id !== id))
   }, [])
 
+  // Handle drag and drop reordering
+  function handleDragStart(itemId: string) {
+    setDraggedItemId(itemId)
+  }
+
+  function handleDragEnd() {
+    if (draggedItemId === null || dragOverIndex === null) {
+      setDraggedItemId(null)
+      setDragOverIndex(null)
+      dragPosition.setValue({ x: 0, y: 0 })
+      return
+    }
+
+    // Get photo/video items in their current order (not reversed)
+    const photoVideoItems = mediaItems.filter(item => item.type !== "audio")
+    const draggedIndex = photoVideoItems.findIndex(item => item.id === draggedItemId)
+    
+    if (draggedIndex === -1 || draggedIndex === dragOverIndex) {
+      setDraggedItemId(null)
+      setDragOverIndex(null)
+      dragPosition.setValue({ x: 0, y: 0 })
+      return
+    }
+
+    // Reorder photo/video items
+    const newPhotoVideoItems = [...photoVideoItems]
+    const [removed] = newPhotoVideoItems.splice(draggedIndex, 1)
+    newPhotoVideoItems.splice(dragOverIndex, 0, removed)
+    
+    // Rebuild the full mediaItems array maintaining audio positions
+    const audioItems = mediaItems.filter(item => item.type === "audio")
+    const reorderedItems: MediaItem[] = []
+    let photoVideoIdx = 0
+    let audioIdx = 0
+    
+    // Rebuild array maintaining original structure (audio items stay where they were)
+    for (let i = 0; i < mediaItems.length; i++) {
+      if (mediaItems[i].type === "audio") {
+        reorderedItems.push(audioItems[audioIdx++])
+      } else {
+        reorderedItems.push(newPhotoVideoItems[photoVideoIdx++])
+      }
+    }
+    
+    setMediaItems(reorderedItems)
+    setDraggedItemId(null)
+    setDragOverIndex(null)
+    dragPosition.setValue({ x: 0, y: 0 })
+  }
+
   function exitComposer() {
     // Reset to original prompt when closing (if user didn't post)
     // This ensures that if user shuffles but doesn't answer, they see original prompt next time
@@ -842,7 +884,8 @@ export default function EntryComposer() {
       }
 
       // Upload only new media (local files), keep existing URLs
-      const uploadedMedia = await Promise.all(
+      // Use Promise.allSettled to handle individual failures gracefully
+      const uploadResults = await Promise.allSettled(
         mediaItems.map(async (item) => {
           if (item.uri.startsWith("http")) {
             // Existing URL, keep as-is
@@ -850,6 +893,15 @@ export default function EntryComposer() {
           }
           // New local file, upload it
           try {
+            // Additional validation for videos
+            if (item.type === "video") {
+              const isValid = await checkFileSize(item.uri)
+              if (!isValid) {
+                setUploadingMedia(prev => ({ ...prev, [item.id]: false }))
+                throw new Error("Video file is too large (max 2GB)")
+              }
+            }
+            
             const remoteUrl = await uploadMedia(currentGroupId, storageKey, item.uri, item.type)
             setUploadingMedia(prev => ({ ...prev, [item.id]: false }))
             return { url: remoteUrl, type: item.type }
@@ -857,10 +909,36 @@ export default function EntryComposer() {
             setUploadingMedia(prev => ({ ...prev, [item.id]: false }))
             // Log error but don't throw immediately - let other uploads complete
             console.error(`[entry-composer] Failed to upload ${item.type}:`, error)
-            throw new Error(`Failed to upload ${item.type}: ${error.message || "Unknown error"}`)
+            // Provide more specific error messages
+            const errorMessage = error.message?.includes("too large") 
+              ? error.message 
+              : `Failed to upload ${item.type}: ${error.message || "Unknown error"}`
+            throw new Error(errorMessage)
           }
         }),
       )
+      
+      // Process results and collect any errors
+      const uploadedMedia: Array<{ url: string; type: string }> = []
+      const uploadErrors: string[] = []
+      
+      uploadResults.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          uploadedMedia.push(result.value)
+        } else {
+          uploadErrors.push(result.reason?.message || `Failed to upload media item ${index + 1}`)
+          // Mark this item as failed
+          const item = mediaItems[index]
+          if (item) {
+            setUploadingMedia(prev => ({ ...prev, [item.id]: false }))
+          }
+        }
+      })
+      
+      // If any uploads failed, show error
+      if (uploadErrors.length > 0) {
+        throw new Error(uploadErrors.join("\n"))
+      }
 
       // Prepare embedded media for storage
       const embeddedMediaForStorage = embeddedMedia.map((embed) => ({
@@ -989,12 +1067,52 @@ export default function EntryComposer() {
     }, [])
   )
 
-  // Handle input layout to ensure focus after render
-  const handleInputLayout = useCallback(() => {
+  // Handle input layout to ensure focus after render and capture position
+  const handleInputLayout = useCallback((event: any) => {
+    const { y, height } = event.nativeEvent.layout
+    inputContainerYRef.current = y
     setTimeout(() => {
       textInputRef.current?.focus()
     }, 50)
   }, [])
+
+  // Auto-scroll to keep text input cursor visible when content size changes
+  const handleTextContentSizeChange = useCallback((contentWidth: number, contentHeight: number) => {
+    // When text content size changes (user types/returns), scroll to keep input visible
+    if (inputContainerYRef.current !== null && scrollViewRef.current) {
+      setTimeout(() => {
+        // Scroll to position the input container near the bottom of visible area
+        // Account for keyboard height and some padding
+        const scrollOffset = Math.max(0, inputContainerYRef.current! - 200)
+        scrollViewRef.current?.scrollTo({ y: scrollOffset, animated: true })
+      }, 100)
+    }
+  }, [])
+
+  // Handle media carousel layout to capture its Y position
+  const handleMediaCarouselLayout = useCallback((event: any) => {
+    const { y } = event.nativeEvent.layout
+    mediaCarouselYRef.current = y
+  }, [])
+
+  // Auto-scroll to media carousel when media is added (not removed)
+  useEffect(() => {
+    const photoVideoItems = mediaItems.filter(item => item.type !== "audio")
+    const currentCount = photoVideoItems.length
+    const previousCount = previousMediaCountRef.current
+    
+    // Only scroll if media count increased (new media added) and we have a position
+    if (currentCount > previousCount && currentCount > 0 && mediaCarouselYRef.current !== null) {
+      // Wait for layout to update, then scroll
+      setTimeout(() => {
+        // Scroll to position carousel near top (with offset for header/padding)
+        const scrollOffset = Math.max(0, mediaCarouselYRef.current! - 120)
+        scrollViewRef.current?.scrollTo({ y: scrollOffset, animated: true })
+      }, 300)
+    }
+    
+    previousMediaCountRef.current = currentCount
+  }, [mediaItems.filter(item => item.type !== "audio").length])
 
   // Create dynamic styles based on theme
   const styles = useMemo(() => StyleSheet.create({
@@ -1050,13 +1168,18 @@ export default function EntryComposer() {
       minHeight: 200,
       textAlignVertical: "top",
     },
-    mediaScrollContainer: {
+    mediaCarouselContainer: {
       marginTop: spacing.md,
       marginBottom: spacing.md,
+      height: 140,
+    },
+    mediaScrollContainer: {
+      flex: 1,
     },
     mediaScrollContent: {
       gap: spacing.sm,
       paddingRight: spacing.lg,
+      alignItems: "center",
     },
     mediaThumbnailWrapper: {
       width: 120,
@@ -1066,6 +1189,11 @@ export default function EntryComposer() {
       backgroundColor: colors.gray[900],
       position: "relative",
       marginRight: spacing.sm,
+    },
+    mediaThumbnailDragOver: {
+      borderWidth: 2,
+      borderColor: colors.accent,
+      borderStyle: "dashed",
     },
     mediaThumbnail: {
       width: "100%",
@@ -1420,6 +1548,46 @@ export default function EntryComposer() {
         <Text style={styles.question}>{personalizedQuestion || activePrompt?.question}</Text>
         <Text style={styles.description}>{activePrompt?.description}</Text>
 
+        {/* Media preview carousel - positioned between description and input */}
+        {mediaItems.filter(item => item.type !== "audio").length > 0 && (
+          <View 
+            ref={mediaCarouselRef} 
+            style={styles.mediaCarouselContainer}
+            onLayout={handleMediaCarouselLayout}
+          >
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              style={styles.mediaScrollContainer}
+              contentContainerStyle={styles.mediaScrollContent}
+            >
+              {mediaItems.filter(item => item.type !== "audio").map((item, index) => {
+                const photoVideoItems = mediaItems.filter(item => item.type !== "audio")
+                const itemIndex = photoVideoItems.findIndex(i => i.id === item.id)
+                
+                return (
+                  <DraggableMediaThumbnail
+                    key={item.id}
+                    item={item}
+                    itemIndex={itemIndex}
+                    totalItems={photoVideoItems.length}
+                    draggedItemId={draggedItemId}
+                    dragOverIndex={dragOverIndex}
+                    dragPosition={dragPosition}
+                    uploadingMedia={uploadingMedia}
+                    onDragStart={handleDragStart}
+                    onDragEnd={handleDragEnd}
+                    onSetDragOverIndex={setDragOverIndex}
+                    onRemoveMedia={handleRemoveMedia}
+                    colors={colors}
+                    styles={styles}
+                  />
+                )
+              })}
+            </ScrollView>
+          </View>
+        )}
+
         <View ref={inputContainerRef} onLayout={handleInputLayout}>
           <TextInput
             ref={textInputRef}
@@ -1427,6 +1595,7 @@ export default function EntryComposer() {
             value={text}
             onChangeText={setText}
             onBlur={handleTextBlur}
+            onContentSizeChange={handleTextContentSizeChange}
             placeholder="Start writing..."
             placeholderTextColor={colors.gray[500]}
             multiline
@@ -1509,46 +1678,6 @@ export default function EntryComposer() {
           </View>
         ))}
 
-        {/* Media preview - horizontal scrollable feed (photos/videos only, newest first) */}
-        {mediaItems.filter(item => item.type !== "audio").length > 0 && (
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false}
-            style={styles.mediaScrollContainer}
-            contentContainerStyle={styles.mediaScrollContent}
-          >
-            {[...mediaItems.filter(item => item.type !== "audio")].reverse().map((item) => (
-              <View key={item.id} style={styles.mediaThumbnailWrapper}>
-                {item.type === "photo" ? (
-                  <>
-                    <Image source={{ uri: item.uri }} style={styles.mediaThumbnail} resizeMode="cover" />
-                    {uploadingMedia[item.id] && (
-                      <View style={styles.uploadOverlay}>
-                        <ActivityIndicator size="large" color={colors.white} />
-                        <Text style={styles.uploadText}>Uploading...</Text>
-                      </View>
-                    )}
-                  </>
-                ) : item.type === "video" ? (
-                  <>
-                    <VideoThumbnail uri={item.uri} />
-                    {uploadingMedia[item.id] && (
-                      <View style={styles.uploadOverlay}>
-                        <ActivityIndicator size="large" color={colors.white} />
-                        <Text style={styles.uploadText}>Uploading...</Text>
-                      </View>
-                    )}
-                  </>
-                ) : null}
-                {!uploadingMedia[item.id] && (
-                  <TouchableOpacity style={styles.mediaDelete} onPress={() => handleRemoveMedia(item.id)}>
-                    <FontAwesome name="times" size={12} color={colors.white} />
-                  </TouchableOpacity>
-                )}
-              </View>
-            ))}
-          </ScrollView>
-        )}
       </ScrollView>
       </KeyboardAvoidingView>
 
@@ -1558,6 +1687,9 @@ export default function EntryComposer() {
           <View style={styles.toolCluster}>
             <TouchableOpacity style={styles.iconButton} onPress={handleGalleryAction}>
               <FontAwesome name="image" size={18} color={colors.white} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.iconButton} onPress={openCamera}>
+              <FontAwesome name="camera" size={18} color={colors.white} />
             </TouchableOpacity>
             <TouchableOpacity style={styles.iconButton} onPress={startRecording}>
               <FontAwesome name="microphone" size={18} color={colors.white} />
@@ -1766,6 +1898,133 @@ function formatDuration(totalSeconds: number) {
   const mins = Math.floor(totalSeconds / 60)
   const secs = totalSeconds % 60
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
+}
+
+// Separate component for draggable media thumbnail to avoid hooks violation
+function DraggableMediaThumbnail({
+  item,
+  itemIndex,
+  totalItems,
+  draggedItemId,
+  dragOverIndex,
+  dragPosition,
+  uploadingMedia,
+  onDragStart,
+  onDragEnd,
+  onSetDragOverIndex,
+  onRemoveMedia,
+  colors,
+  styles,
+}: {
+  item: MediaItem
+  itemIndex: number
+  totalItems: number
+  draggedItemId: string | null
+  dragOverIndex: number | null
+  dragPosition: Animated.ValueXY
+  uploadingMedia: Record<string, boolean>
+  onDragStart: (id: string) => void
+  onDragEnd: () => void
+  onSetDragOverIndex: (index: number | null) => void
+  onRemoveMedia: (id: string) => void
+  colors: any
+  styles: any
+}) {
+  const isDragging = draggedItemId === item.id
+  const isDragOver = dragOverIndex === itemIndex && draggedItemId !== item.id
+  
+  // PanResponder for drag and drop - only active when this item is being dragged
+  const panResponder = useMemo(
+    () => {
+      if (draggedItemId !== item.id) {
+        // Return empty pan responder when not dragging this item
+        return PanResponder.create({
+          onStartShouldSetPanResponder: () => false,
+          onMoveShouldSetPanResponder: () => false,
+        })
+      }
+      
+      // Active pan responder for the item being dragged
+      return PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderMove: (_, gestureState) => {
+          dragPosition.setValue({ x: gestureState.dx, y: gestureState.dy })
+          // Calculate which index we're dragging over based on horizontal position
+          const thumbWidth = 120 + spacing.sm
+          const newIndex = Math.round(gestureState.dx / thumbWidth) + itemIndex
+          if (newIndex >= 0 && newIndex < totalItems && newIndex !== itemIndex) {
+            onSetDragOverIndex(newIndex)
+          }
+        },
+        onPanResponderRelease: () => {
+          onDragEnd()
+        },
+      })
+    },
+    [item.id, itemIndex, totalItems, draggedItemId, dragPosition, onSetDragOverIndex, onDragEnd]
+  )
+
+  return (
+    <Animated.View
+      style={[
+        styles.mediaThumbnailWrapper,
+        isDragging && {
+          transform: [{ translateX: dragPosition.x }, { translateY: dragPosition.y }],
+          opacity: 0.7,
+          zIndex: 1000,
+          elevation: 10,
+        },
+        isDragOver && styles.mediaThumbnailDragOver,
+      ]}
+      {...panResponder.panHandlers}
+    >
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onLongPress={() => {
+          if (!draggedItemId && !uploadingMedia[item.id]) {
+            onDragStart(item.id)
+            dragPosition.setValue({ x: 0, y: 0 })
+          }
+        }}
+        delayLongPress={300}
+        style={{ flex: 1 }}
+      >
+        {item.type === "photo" ? (
+          <>
+            <Image source={{ uri: item.uri }} style={styles.mediaThumbnail} resizeMode="cover" />
+            {uploadingMedia[item.id] && (
+              <View style={styles.uploadOverlay}>
+                <ActivityIndicator size="large" color={colors.white} />
+                <Text style={styles.uploadText}>Uploading...</Text>
+              </View>
+            )}
+          </>
+        ) : item.type === "video" ? (
+          <>
+            <VideoThumbnail uri={item.uri} />
+            {uploadingMedia[item.id] && (
+              <View style={styles.uploadOverlay}>
+                <ActivityIndicator size="large" color={colors.white} />
+                <Text style={styles.uploadText}>Uploading...</Text>
+              </View>
+            )}
+          </>
+        ) : null}
+      </TouchableOpacity>
+      {!uploadingMedia[item.id] && (
+        <TouchableOpacity 
+          style={styles.mediaDelete} 
+          onPress={(e) => {
+            e.stopPropagation()
+            onRemoveMedia(item.id)
+          }}
+        >
+          <FontAwesome name="times" size={12} color={colors.white} />
+        </TouchableOpacity>
+      )}
+    </Animated.View>
+  )
 }
 
 // Component to render video thumbnail

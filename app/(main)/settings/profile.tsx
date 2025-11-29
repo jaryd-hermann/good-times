@@ -326,7 +326,17 @@ export default function ProfileSettings() {
           <Text style={styles.fieldLabel}>Birthday</Text>
           <TouchableOpacity onPress={openBirthdayPicker} style={styles.inlineField}>
             <Text style={styles.inlineFieldText}>
-              {birthday ? format(birthday, "MMMM d, yyyy") : "Select your birthday"}
+              {birthday 
+                ? (() => {
+                    // Format using local date components to avoid timezone issues
+                    const monthNames = ["January", "February", "March", "April", "May", "June",
+                      "July", "August", "September", "October", "November", "December"]
+                    const month = monthNames[birthday.getMonth()]
+                    const day = birthday.getDate()
+                    const year = birthday.getFullYear()
+                    return `${month} ${day}, ${year}`
+                  })()
+                : "Select your birthday"}
             </Text>
           </TouchableOpacity>
         </View>

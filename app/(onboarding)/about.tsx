@@ -79,7 +79,10 @@ export default function About() {
     })
 
     if (!result.canceled) {
-      setPhotoUri(result.assets[0].uri)
+      const uri = result.assets[0].uri
+      setPhotoUri(uri)
+      // Immediately save to onboarding provider so it persists
+      setUserPhoto(uri)
     }
   }
 

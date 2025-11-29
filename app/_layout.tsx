@@ -5,7 +5,7 @@
 import { Stack } from "expo-router"
 import { useFonts } from "expo-font"
 import * as SplashScreen from "expo-splash-screen"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { SafeAreaProvider } from "react-native-safe-area-context"
 import { AuthProvider, useAuth } from "../components/AuthProvider"
@@ -41,9 +41,48 @@ SplashScreen.preventAutoHideAsync().catch(() => {})
 function RefreshingOverlay() {
   const { refreshing } = useAuth()
   const [loadingDots, setLoadingDots] = useState(".")
+  const [showOverlay, setShowOverlay] = useState(false)
+  const startTimeRef = useRef<number | null>(null)
+  const minDisplayTimeRef = useRef<NodeJS.Timeout | null>(null)
   
   useEffect(() => {
-    if (!refreshing) return
+    if (refreshing) {
+      // Start showing overlay
+      if (!startTimeRef.current) {
+        startTimeRef.current = Date.now()
+        setShowOverlay(true)
+      }
+    } else {
+      // Refresh completed - ensure minimum 2s display time
+      if (startTimeRef.current) {
+        const elapsed = Date.now() - startTimeRef.current
+        const remainingTime = Math.max(0, 2000 - elapsed)
+        
+        if (remainingTime > 0) {
+          // Set timeout to hide after minimum display time
+          minDisplayTimeRef.current = setTimeout(() => {
+            setShowOverlay(false)
+            startTimeRef.current = null
+            minDisplayTimeRef.current = null
+          }, remainingTime)
+        } else {
+          // Already shown for 2s+, hide immediately
+          setShowOverlay(false)
+          startTimeRef.current = null
+        }
+      }
+    }
+    
+    return () => {
+      if (minDisplayTimeRef.current) {
+        clearTimeout(minDisplayTimeRef.current)
+        minDisplayTimeRef.current = null
+      }
+    }
+  }, [refreshing])
+  
+  useEffect(() => {
+    if (!showOverlay) return
     
     const interval = setInterval(() => {
       setLoadingDots((prev) => {
@@ -54,9 +93,9 @@ function RefreshingOverlay() {
     }, 500)
     
     return () => clearInterval(interval)
-  }, [refreshing])
+  }, [showOverlay])
   
-  if (!refreshing) return null
+  if (!showOverlay) return null
   
   return (
     <View style={styles.refreshingOverlay}>

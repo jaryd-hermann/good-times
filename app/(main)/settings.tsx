@@ -349,6 +349,26 @@ export default function SettingsScreen() {
           </View>
         </TouchableOpacity>
 
+        {/* Latest Changes Card */}
+        <TouchableOpacity 
+          style={styles.profileCard} 
+          onPress={() => router.push("/(main)/settings/latest-changes")} 
+          activeOpacity={0.7}
+        >
+          <View style={styles.profileCardContent}>
+            <View style={styles.profileCardIcon}>
+              <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.gray[800], justifyContent: "center", alignItems: "center" }}>
+                <FontAwesome name="bell" size={20} color={colors.gray[400]} />
+              </View>
+            </View>
+            <View style={styles.profileCardText}>
+              <Text style={styles.profileCardTitle}>Latest changes</Text>
+              <Text style={styles.profileCardSubtitle}>New good things</Text>
+            </View>
+            <FontAwesome name="chevron-right" size={16} color={colors.gray[500]} style={{ marginLeft: spacing.md }} />
+          </View>
+        </TouchableOpacity>
+
         {/* Inline Settings */}
         <View style={styles.settingRow}>
           <View style={styles.settingRowText}>
