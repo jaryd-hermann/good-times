@@ -1,9 +1,9 @@
 "use client"
 
 import { useMemo, useState, useEffect, useRef, useCallback } from "react"
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Modal, ImageBackground, Animated, Dimensions } from "react-native"
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Modal, ImageBackground, Animated, Dimensions, RefreshControl } from "react-native"
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { supabase } from "../../lib/supabase"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { usePostHog } from "posthog-react-native"
@@ -169,12 +169,14 @@ export default function History() {
   const [currentGroupId, setCurrentGroupId] = useState<string>()
   const [userId, setUserId] = useState<string>()
   const [activePeriod, setActivePeriod] = useState<ActivePeriod | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
   const insets = useSafeAreaInsets()
   const scrollY = useRef(new Animated.Value(0)).current
   const headerTranslateY = useRef(new Animated.Value(0)).current
   const contentPaddingTop = useRef(new Animated.Value(0)).current
   const lastScrollY = useRef(0)
   const { opacity: tabBarOpacity } = useTabBar()
+  const queryClient = useQueryClient()
 
   useEffect(() => {
     loadUserAndGroup()
@@ -525,6 +527,14 @@ export default function History() {
   const weekSummaries = useMemo(() => buildPeriodSummaries(entries, "Weeks"), [entries])
   const monthSummaries = useMemo(() => buildPeriodSummaries(entries, "Months"), [entries])
   const yearSummaries = useMemo(() => buildPeriodSummaries(entries, "Years"), [entries])
+
+  async function handleRefresh() {
+    setRefreshing(true)
+    // Invalidate all queries to ensure fresh data
+    await queryClient.invalidateQueries()
+    await queryClient.refetchQueries()
+    setRefreshing(false)
+  }
 
   function handleAnswerToday() {
     if (todayPrompt?.prompt_id && currentGroupId) {
@@ -1257,6 +1267,7 @@ export default function History() {
             paddingTop: contentPaddingTop,
           },
         ]}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.white} />}
         onScroll={handleScroll}
         scrollEventThrottle={16}
       >

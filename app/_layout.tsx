@@ -5,7 +5,7 @@
 import { Stack } from "expo-router"
 import { useFonts } from "expo-font"
 import * as SplashScreen from "expo-splash-screen"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { SafeAreaProvider } from "react-native-safe-area-context"
 import { AuthProvider, useAuth } from "../components/AuthProvider"
@@ -16,7 +16,8 @@ import { router } from "expo-router"
 import { PostHogProvider } from "posthog-react-native"
 import { TabBarProvider } from "../lib/tab-bar-context"
 import { ThemeProvider } from "../lib/theme-context"
-import { View, ActivityIndicator, StyleSheet } from "react-native"
+import { View, ActivityIndicator, StyleSheet, ImageBackground, Text } from "react-native"
+import { typography, colors as themeColors } from "../lib/theme"
 // Import supabase with error handling
 let supabase: any
 try {
@@ -36,14 +37,38 @@ try {
 SplashScreen.preventAutoHideAsync().catch(() => {})
 
 // Refreshing overlay component - shows when session is being refreshed
+// Matches the boot screen design for consistency
 function RefreshingOverlay() {
   const { refreshing } = useAuth()
+  const [loadingDots, setLoadingDots] = useState(".")
+  
+  useEffect(() => {
+    if (!refreshing) return
+    
+    const interval = setInterval(() => {
+      setLoadingDots((prev) => {
+        if (prev === ".") return ".."
+        if (prev === "..") return "..."
+        return "."
+      })
+    }, 500)
+    
+    return () => clearInterval(interval)
+  }, [refreshing])
   
   if (!refreshing) return null
   
   return (
     <View style={styles.refreshingOverlay}>
-      <ActivityIndicator size="large" color="#ffffff" />
+      <ImageBackground
+        source={require("../assets/images/welcome-home.png")}
+        style={styles.backgroundImage}
+        resizeMode="cover"
+      >
+        <View style={styles.loadingOverlay}>
+          <Text style={styles.loadingText}>Loading Good Times{loadingDots}</Text>
+        </View>
+      </ImageBackground>
     </View>
   )
 }
@@ -55,10 +80,21 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.8)",
+    zIndex: 9999,
+  },
+  backgroundImage: {
+    flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    zIndex: 9999,
+  },
+  loadingOverlay: {
+    // No background - text directly over image
+  },
+  loadingText: {
+    ...typography.body,
+    fontSize: 18,
+    color: themeColors.white,
+    textAlign: "center",
   },
 })
 

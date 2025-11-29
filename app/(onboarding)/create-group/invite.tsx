@@ -188,7 +188,7 @@ export default function Invite() {
     const currentUser = await getCurrentUser()
     const userName = currentUser?.name || "me"
     
-    const inviteLink = `goodtimes://join/${groupId}`
+    const inviteLink = `https://thegoodtimes.app/join/${groupId}`
     const inviteMessage = `I've created a group for us on this new app, Good Times. Join ${userName} here: ${inviteLink}`
     
     const selected = contacts.filter((contact) => selectedContacts.includes(contact.id))
@@ -233,7 +233,7 @@ export default function Invite() {
     const currentUser = await getCurrentUser()
     const userName = currentUser?.name || "me"
     
-    const inviteLink = `goodtimes://join/${groupId}`
+    const inviteLink = `https://thegoodtimes.app/join/${groupId}`
     const inviteMessage = `I've created a group for us on this new app, Good Times. Join ${userName} here: ${inviteLink}`
     
     // Track took_invite_action and copied_invite_link events

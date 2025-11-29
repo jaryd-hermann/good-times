@@ -12,6 +12,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Keyboard,
+  Modal,
 } from "react-native"
 import { FontAwesome } from "@expo/vector-icons"
 import * as Linking from "expo-linking"
@@ -24,6 +25,7 @@ import { Button } from "../../components/Button"
 import { OnboardingBack } from "../../components/OnboardingBack"
 import { useOnboarding } from "../../components/OnboardingProvider"
 import { createGroup, createMemorial } from "../../lib/db"
+import { uploadAvatar } from "../../lib/storage"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { saveBiometricCredentials, getBiometricPreference } from "../../lib/biometric"
 import type { User } from "../../lib/types"
@@ -141,6 +143,20 @@ async function ensureProfileAndJoinGroup(
         hasPhoto: !!profileData?.userPhoto,
       })
 
+      // Upload avatar if it's a local file path
+      let avatarUrl = profileData?.userPhoto || null
+      if (avatarUrl && avatarUrl.startsWith("file://")) {
+        try {
+          console.log("[ensureProfileAndJoinGroup] Uploading avatar from local file...")
+          avatarUrl = await uploadAvatar(avatarUrl, userId)
+          console.log("[ensureProfileAndJoinGroup] ✅ Avatar uploaded:", avatarUrl)
+        } catch (error: any) {
+          console.error("[ensureProfileAndJoinGroup] ❌ Failed to upload avatar:", error)
+          // Continue without avatar if upload fails
+          avatarUrl = null
+        }
+      }
+
       const { error: profileError } = await supabase
         .from("users")
         .insert({
@@ -148,7 +164,7 @@ async function ensureProfileAndJoinGroup(
           email: emailFromSession,
           name: profileData?.userName?.trim() || null,
           birthday: birthday,
-          avatar_url: profileData?.userPhoto || null,
+          avatar_url: avatarUrl,
         } as any)
 
       if (profileError) {
@@ -177,7 +193,20 @@ async function ensureProfileAndJoinGroup(
       }
       
       if (profileData?.userPhoto) {
-        updateData.avatar_url = profileData.userPhoto
+        // Upload avatar if it's a local file path
+        let avatarUrl = profileData.userPhoto
+        if (avatarUrl.startsWith("file://")) {
+          try {
+            console.log("[ensureProfileAndJoinGroup] Uploading avatar from local file (update)...")
+            avatarUrl = await uploadAvatar(avatarUrl, userId)
+            console.log("[ensureProfileAndJoinGroup] ✅ Avatar uploaded:", avatarUrl)
+          } catch (error: any) {
+            console.error("[ensureProfileAndJoinGroup] ❌ Failed to upload avatar:", error)
+            // Skip avatar update if upload fails
+            return
+          }
+        }
+        updateData.avatar_url = avatarUrl
       }
 
       if (Object.keys(updateData).length > 0) {
@@ -295,6 +324,7 @@ export default function OnboardingAuth() {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isRegistrationFlow, setIsRegistrationFlow] = useState(false)
+  const [showNoAccountModal, setShowNoAccountModal] = useState(false)
 
   // Check if user is in registration flow (onboarding or invite/join)
   useEffect(() => {
@@ -447,13 +477,48 @@ export default function OnboardingAuth() {
           .upsert(
             {
               id: userId,
-              email: emailFromSession, // Always use current auth session email
-              name: data.userName?.trim() ?? "",
-              birthday,
-              avatar_url: data.userPhoto,
-            },
-            { onConflict: "id" }
-          )
+            email: emailFromSession, // Always use current auth session email
+            name: data.userName?.trim() ?? "",
+            birthday,
+            avatar_url: null, // Will be set after upload if needed
+          },
+          { onConflict: "id" }
+        )
+
+        // Upload avatar if it's a local file path
+        if (data.userPhoto) {
+          let avatarUrl = data.userPhoto
+          if (avatarUrl.startsWith("file://")) {
+            try {
+              console.log("[persistOnboarding] Uploading avatar from local file...")
+              avatarUrl = await uploadAvatar(avatarUrl, userId)
+              console.log("[persistOnboarding] ✅ Avatar uploaded:", avatarUrl)
+              
+              // Update profile with uploaded avatar URL
+              const { error: avatarUpdateError } = await supabase
+                .from("users")
+                .update({ avatar_url: avatarUrl })
+                .eq("id", userId)
+              
+              if (avatarUpdateError) {
+                console.error("[persistOnboarding] ❌ Failed to update avatar URL:", avatarUpdateError)
+              }
+            } catch (error: any) {
+              console.error("[persistOnboarding] ❌ Failed to upload avatar:", error)
+              // Continue without avatar if upload fails
+            }
+          } else {
+            // Already a URL (shouldn't happen in onboarding, but handle it)
+            const { error: avatarUpdateError } = await supabase
+              .from("users")
+              .update({ avatar_url: avatarUrl })
+              .eq("id", userId)
+            
+            if (avatarUpdateError) {
+              console.error("[persistOnboarding] ❌ Failed to update avatar URL:", avatarUpdateError)
+            }
+          }
+        }
         
         const profileTimeoutPromise = new Promise<{ error: { message: string, timeout: boolean } }>((resolve) => {
           setTimeout(() => {
@@ -985,8 +1050,18 @@ export default function OnboardingAuth() {
       }
 
       if (signInError && signInError.message?.toLowerCase().includes("invalid login")) {
-        // Validate passwords match before sign-up (only if in registration flow)
-        if (isRegistrationFlow && password !== confirmPassword) {
+        // CRITICAL: If user is trying to SIGN IN (not registration), don't auto-create account
+        // Show modal instead to guide them to either join via invite or start onboarding
+        if (!isRegistrationFlow) {
+          console.log("[auth] Sign-in failed for non-existent account - showing no account modal")
+          setContinueLoading(false) // Clear loading state
+          setShowNoAccountModal(true)
+          return
+        }
+        
+        // Only auto-create account if in registration flow (with password confirmation)
+        // Validate passwords match before sign-up
+        if (password !== confirmPassword) {
           Alert.alert("Passwords don't match", "Please make sure both passwords are the same.")
           return
         }
@@ -2022,6 +2097,49 @@ export default function OnboardingAuth() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* No Account Modal - shown when user tries to sign in with non-existent email */}
+      <Modal
+        visible={showNoAccountModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowNoAccountModal(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalContent, { paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.xl }]}>
+            <TouchableOpacity
+              onPress={() => {
+                setShowNoAccountModal(false)
+                router.replace("/(onboarding)/welcome-1")
+              }}
+              style={styles.modalCloseButton}
+            >
+              <FontAwesome name="times" size={24} color={colors.white} />
+            </TouchableOpacity>
+
+            <View style={styles.modalTextContainer}>
+              <Text style={styles.modalTitle}>No Account Found</Text>
+              <Text style={styles.modalMessage}>
+                It looks like you're trying to login, but you don't have an account or group yet.
+              </Text>
+              <Text style={styles.modalSubmessage}>
+                If you're looking to make a new group, tap below. If you're joining a group, ask a member for an invite link.
+              </Text>
+            </View>
+
+            <View style={styles.modalActions}>
+              <Button
+                title="Start Creating a Group →"
+                onPress={() => {
+                  setShowNoAccountModal(false)
+                  router.replace("/(onboarding)/welcome-2")
+                }}
+                style={styles.modalCTA}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   )
 }
@@ -2212,6 +2330,63 @@ const styles = StyleSheet.create({
   eyeButton: {
     padding: spacing.xs,
     marginLeft: spacing.xs,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.9)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: spacing.lg,
+  },
+  modalContent: {
+    backgroundColor: colors.black,
+    borderRadius: 16,
+    padding: spacing.xl,
+    width: "100%",
+    maxWidth: 400,
+    borderWidth: 1,
+    borderColor: colors.white,
+    position: "relative",
+  },
+  modalCloseButton: {
+    position: "absolute",
+    top: spacing.lg,
+    right: spacing.lg,
+    padding: spacing.sm,
+    zIndex: 1,
+  },
+  modalTextContainer: {
+    marginTop: spacing.md,
+    marginBottom: spacing.xl,
+  },
+  modalTitle: {
+    fontFamily: "LibreBaskerville-Bold",
+    fontSize: 28,
+    color: colors.white,
+    marginBottom: spacing.md,
+    textAlign: "center",
+  },
+  modalMessage: {
+    fontFamily: "Roboto-Regular",
+    fontSize: 16,
+    lineHeight: 24,
+    color: colors.white,
+    marginBottom: spacing.md,
+    textAlign: "center",
+  },
+  modalSubmessage: {
+    fontFamily: "Roboto-Regular",
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.gray[400],
+    textAlign: "center",
+  },
+  modalActions: {
+    marginTop: spacing.lg,
+  },
+  modalCTA: {
+    backgroundColor: colors.accent,
+    minHeight: 56,
   },
 })
 

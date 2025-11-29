@@ -800,25 +800,35 @@ export default function Home() {
 
   async function handleRefresh() {
     setRefreshing(true)
-    // Aggressively clear all caches and refetch for current group
-    if (currentGroupId) {
-      // Clear all queries for current group to ensure fresh data
-      queryClient.removeQueries({ 
-        queryKey: ["dailyPrompt", currentGroupId],
-        exact: false 
-      })
-      queryClient.removeQueries({ 
-        queryKey: ["entries", currentGroupId],
-        exact: false 
-      })
-      queryClient.removeQueries({ 
-        queryKey: ["userEntry", currentGroupId],
-        exact: false 
-      })
+    try {
+      // Ensure session is valid before refreshing data
+      const { ensureValidSession } = await import("../../lib/auth")
+      await ensureValidSession()
+      
+      // Aggressively clear all caches and refetch for current group
+      if (currentGroupId) {
+        // Clear all queries for current group to ensure fresh data
+        queryClient.removeQueries({ 
+          queryKey: ["dailyPrompt", currentGroupId],
+          exact: false 
+        })
+        queryClient.removeQueries({ 
+          queryKey: ["entries", currentGroupId],
+          exact: false 
+        })
+        queryClient.removeQueries({ 
+          queryKey: ["userEntry", currentGroupId],
+          exact: false 
+        })
+      }
+      await queryClient.invalidateQueries()
+      await queryClient.refetchQueries()
+    } catch (error) {
+      console.error("[home] Error during refresh:", error)
+      // Don't block UI if refresh fails
+    } finally {
+      setRefreshing(false)
     }
-    await queryClient.invalidateQueries()
-    await queryClient.refetchQueries()
-    setRefreshing(false)
   }
 
   async function handleShareInvite() {

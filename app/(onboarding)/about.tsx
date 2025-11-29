@@ -16,6 +16,7 @@ import * as ImagePicker from "expo-image-picker"
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker"
 import { Modal } from "react-native"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
+import { FontAwesome } from "@expo/vector-icons"
 import { colors, spacing } from "../../lib/theme"
 import { Input } from "../../components/Input"
 import { Button } from "../../components/Button"
@@ -141,7 +142,7 @@ export default function About() {
             ref={nameInputRef}
             value={name}
             onChangeText={setName}
-            placeholder="Your name"
+            placeholder="Lucy"
             autoCapitalize="words"
             autoFocus={true}
             placeholderTextColor={colors.gray[400]}
@@ -190,7 +191,9 @@ export default function About() {
               {photoUri ? (
                 <Avatar uri={photoUri} name={name || "User"} size={80} />
               ) : (
-                <View style={styles.photoPlaceholder} />
+                <View style={styles.photoPlaceholder}>
+                  <FontAwesome name="plus" size={24} color={colors.gray[400]} />
+                </View>
               )}
             </TouchableOpacity>
           </View>
@@ -290,6 +293,8 @@ const styles = StyleSheet.create({
     height: 80,
     borderRadius: 40,
     backgroundColor: colors.gray[300],
+    justifyContent: "center",
+    alignItems: "center",
   },
   modalBackdrop: {
     flex: 1,

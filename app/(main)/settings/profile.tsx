@@ -20,10 +20,9 @@ import * as ImagePicker from "expo-image-picker"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker"
 import { format } from "date-fns"
-import * as FileSystem from "expo-file-system/legacy"
-import { decode } from "base64-arraybuffer"
 import { supabase } from "../../../lib/supabase"
 import { getCurrentUser, updateUser } from "../../../lib/db"
+import { uploadAvatar } from "../../../lib/storage"
 import { spacing, typography } from "../../../lib/theme"
 import { useTheme } from "../../../lib/theme-context"
 import { Button } from "../../../components/Button"
@@ -101,35 +100,7 @@ export default function ProfileSettings() {
     }
   }
 
-  async function uploadAvatar(localUri: string, userId: string) {
-    const base64 = await FileSystem.readAsStringAsync(localUri, {
-      encoding: "base64" as any,
-    })
-
-    if (!base64 || base64.length === 0) {
-      throw new Error("Failed to read image file")
-    }
-
-    const fileExt = localUri.split(".").pop() ?? "jpg"
-    const fileName = `${userId}-${Date.now()}.${fileExt}`
-    const filePath = `${userId}/${fileName}`
-
-    const contentType = `image/${fileExt === "png" ? "png" : fileExt === "webp" ? "webp" : "jpeg"}`
-
-    const { error: uploadError } = await supabase.storage.from("avatars").upload(filePath, decode(base64), {
-      cacheControl: "3600",
-      upsert: true,
-      contentType,
-    })
-
-    if (uploadError) throw uploadError
-
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from("avatars").getPublicUrl(filePath)
-
-    return publicUrl
-  }
+  // Import uploadAvatar from storage.ts instead of defining locally
 
   async function handleSave() {
     if (!profile?.id) return

@@ -62,3 +62,38 @@ export async function deleteMedia(url: string): Promise<void> {
     throw error
   }
 }
+
+export async function uploadAvatar(localUri: string, userId: string): Promise<string> {
+  try {
+    const base64 = await FileSystem.readAsStringAsync(localUri, {
+      encoding: "base64" as any,
+    })
+
+    if (!base64 || base64.length === 0) {
+      throw new Error("Failed to read image file")
+    }
+
+    const fileExt = localUri.split(".").pop() ?? "jpg"
+    const fileName = `${userId}-${Date.now()}.${fileExt}`
+    const filePath = `${userId}/${fileName}`
+
+    const contentType = `image/${fileExt === "png" ? "png" : fileExt === "webp" ? "webp" : "jpeg"}`
+
+    const { error: uploadError } = await supabase.storage.from("avatars").upload(filePath, decode(base64), {
+      cacheControl: "3600",
+      upsert: true,
+      contentType,
+    })
+
+    if (uploadError) throw uploadError
+
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from("avatars").getPublicUrl(filePath)
+
+    return publicUrl
+  } catch (error) {
+    console.error("[storage] Error uploading avatar:", error)
+    throw error
+  }
+}

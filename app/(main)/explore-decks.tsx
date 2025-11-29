@@ -518,6 +518,7 @@ export default function ExploreDecks() {
       backgroundColor: colors.gray[800],
       justifyContent: "center",
       alignItems: "center",
+      marginTop: spacing.sm, // Match title's marginTop for alignment
     },
     content: {
       flex: 1,
@@ -637,6 +638,8 @@ export default function ExploreDecks() {
       borderRadius: 12,
       padding: spacing.md,
       marginBottom: spacing.md,
+      minHeight: 200, // Increased height slightly
+      justifyContent: "space-between", // Space between icon, text, and footer
     },
     collectionIcon: {
       width: 70,
@@ -644,28 +647,37 @@ export default function ExploreDecks() {
       borderRadius: 8,
       marginBottom: spacing.sm,
       backgroundColor: colors.gray[700],
+      alignSelf: "center", // Center the icon
+    },
+    collectionTextContainer: {
+      flex: 1, // Take up available space to center content vertically
+      justifyContent: "center", // Center content vertically
+      alignItems: "center", // Center content horizontally
     },
     collectionName: {
       ...typography.bodyBold,
-      fontSize: 16,
+      fontSize: 18,
       color: colors.white,
       marginBottom: spacing.xs,
+      textAlign: "center", // Center align text
     },
     collectionDescription: {
       ...typography.caption,
       fontSize: 12,
       color: colors.gray[400],
-      marginBottom: spacing.sm,
+      textAlign: "center", // Center align text
+    },
+    collectionFooter: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginTop: spacing.sm,
     },
     collectionDecksCount: {
       ...typography.caption,
       fontSize: 12,
       color: colors.gray[300],
-    },
-    chevron: {
-      position: "absolute",
-      top: spacing.sm,
-      right: spacing.sm,
+      flex: 1, // Take up available space
     },
     // Modal styles
     modalBackdrop: {
@@ -835,19 +847,22 @@ export default function ExploreDecks() {
                   resizeMode="cover"
                 />
               )}
-              <Text style={styles.collectionName}>{collection.name}</Text>
-              <Text style={styles.collectionDescription} numberOfLines={2}>
-                {collection.description || ""}
-              </Text>
-              <Text style={styles.collectionDecksCount}>
-                {collectionDeckCounts[collection.id] || 0} unused {collectionDeckCounts[collection.id] === 1 ? 'deck' : 'decks'}
-              </Text>
-              <FontAwesome
-                name="chevron-right"
-                size={12}
-                color={colors.gray[400]}
-                style={styles.chevron}
-              />
+              <View style={styles.collectionTextContainer}>
+                <Text style={styles.collectionName}>{collection.name}</Text>
+                <Text style={styles.collectionDescription} numberOfLines={2}>
+                  {collection.description || ""}
+                </Text>
+              </View>
+              <View style={styles.collectionFooter}>
+                <Text style={styles.collectionDecksCount}>
+                  {collectionDeckCounts[collection.id] || 0} unused {collectionDeckCounts[collection.id] === 1 ? 'deck' : 'decks'}
+                </Text>
+                <FontAwesome
+                  name="chevron-right"
+                  size={12}
+                  color={colors.gray[400]}
+                />
+              </View>
             </TouchableOpacity>
           ))}
         </View>
