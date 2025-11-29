@@ -25,6 +25,82 @@ import { safeCapture } from "../../lib/posthog"
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 const CARD_WIDTH = (SCREEN_WIDTH - spacing.md * 3) / 2 // 2 columns with spacing
 
+// Helper function to get deck image source based on deck name
+function getDeckImageSource(deckName: string | undefined, iconUrl: string | undefined) {
+  if (!deckName) {
+    return require("../../assets/images/deck-icon-default.png")
+  }
+  
+  const nameLower = deckName.toLowerCase()
+  
+  if (nameLower.includes("everyday reflections") || nameLower.includes("reflections")) {
+    return require("../../assets/images/icon-reflections.png")
+  }
+  
+  if (nameLower.includes("past & present") || nameLower.includes("past and present")) {
+    return require("../../assets/images/icon-past.png")
+  }
+  
+  if (nameLower.includes("relationships and connection") || nameLower.includes("relationships")) {
+    return require("../../assets/images/icon-relationships.png")
+  }
+  
+  // Real life routine collection
+  if (nameLower.includes("right now")) {
+    return require("../../assets/images/icon-rightnow.png")
+  }
+  
+  if (nameLower.includes("home") && !nameLower.includes("homemade") && !nameLower.includes("homework")) {
+    return require("../../assets/images/icon-home.png")
+  }
+  
+  if (nameLower.includes("daily joys")) {
+    return require("../../assets/images/icon-daily.png")
+  }
+  
+  // Raw truths collection
+  if (nameLower.includes("mayhem")) {
+    return require("../../assets/images/icon-mayhem.png")
+  }
+  
+  if (nameLower.includes("hot takes only") || nameLower.includes("hot takes")) {
+    return require("../../assets/images/icon-hottakes.png")
+  }
+  
+  if (nameLower.includes("night out energy") || nameLower.includes("night out")) {
+    return require("../../assets/images/icon-nightout.png")
+  }
+  
+  // Nostalgia collection
+  if (nameLower.includes("old photos")) {
+    return require("../../assets/images/icon-oldphotos.png")
+  }
+  
+  if (nameLower.includes("childhood")) {
+    return require("../../assets/images/icon-childhood.png")
+  }
+  
+  if (nameLower.includes("milestones")) {
+    return require("../../assets/images/icon-milestones.png")
+  }
+  
+  // Memorial collection
+  if (nameLower.includes("shared memories")) {
+    return require("../../assets/images/icon-sharedmemories.png")
+  }
+  
+  if (nameLower.includes("their legacy") || nameLower.includes("legacy")) {
+    return require("../../assets/images/icon-legacy.png")
+  }
+  
+  // Fallback to icon_url if available, otherwise default
+  if (iconUrl) {
+    return { uri: iconUrl }
+  }
+  
+  return require("../../assets/images/deck-icon-default.png")
+}
+
 export default function CollectionDetail() {
   const router = useRouter()
   const params = useLocalSearchParams()
@@ -128,24 +204,28 @@ export default function CollectionDetail() {
       borderWidth: 1,
       borderColor: colors.white,
       borderRadius: 0, // Square edges
-      padding: spacing.md,
       marginBottom: spacing.md,
-      alignItems: "center", // Centered content
-      justifyContent: "center",
-      minHeight: 180, // Vertical card
+      alignItems: "stretch", // Stretch to fill width
+      overflow: "hidden", // Ensure image doesn't overflow
     },
     deckIcon: {
-      width: 70,
-      height: 115,
+      width: CARD_WIDTH,
+      height: CARD_WIDTH, // Square, matches width
       borderRadius: 0, // Square edges
-      marginBottom: spacing.sm,
       backgroundColor: colors.gray[700],
+    },
+    deckCardContent: {
+      padding: spacing.md,
+      paddingBottom: spacing.lg, // Extra padding at bottom for chevron
+      alignItems: "center",
+      position: "relative",
+      minHeight: 80, // Ensure minimum height so chevron stays at bottom
+      justifyContent: "flex-start", // Align content to top
     },
     deckName: {
       ...typography.bodyBold,
       fontSize: 16,
       color: colors.white,
-      marginBottom: spacing.xs,
       textAlign: "center", // Centered text
     },
     deckDescription: {
@@ -156,8 +236,8 @@ export default function CollectionDetail() {
     },
     chevron: {
       position: "absolute",
-      top: spacing.sm,
-      right: spacing.sm,
+      bottom: spacing.md,
+      right: spacing.md,
     },
   })
 
@@ -195,28 +275,19 @@ export default function CollectionDetail() {
                 }}
               >
                 <Image
-                  source={deck.icon_url ? { uri: deck.icon_url } : require("../../assets/images/deck-icon-default.png")}
+                  source={getDeckImageSource(deck.name, deck.icon_url)}
                   style={styles.deckIcon}
                   resizeMode="cover"
                 />
-                <Text style={styles.deckName}>{deck.name}</Text>
-                <Text style={styles.deckDescription} numberOfLines={2}>
-                  {deck.description || ""}
-                </Text>
-                {isUsed && groupDeck && (
-                  <Text style={{ ...styles.deckDescription, marginTop: spacing.xs, color: colors.gray[500] }}>
-                    {groupDeck.status === "voting" && "Voting"}
-                    {groupDeck.status === "active" && "Active"}
-                    {groupDeck.status === "finished" && "Finished"}
-                    {groupDeck.status === "rejected" && "Not interested"}
-                  </Text>
-                )}
-                <FontAwesome
-                  name="chevron-right"
-                  size={12}
-                  color={colors.gray[400]}
-                  style={styles.chevron}
-                />
+                <View style={styles.deckCardContent}>
+                  <Text style={styles.deckName}>{deck.name}</Text>
+                  <FontAwesome
+                    name="chevron-right"
+                    size={12}
+                    color={colors.gray[400]}
+                    style={styles.chevron}
+                  />
+                </View>
               </TouchableOpacity>
             )
           })}

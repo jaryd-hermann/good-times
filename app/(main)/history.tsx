@@ -344,25 +344,47 @@ export default function History() {
   const { data: categories = [] } = useQuery({
     queryKey: ["history-categories", currentGroupId, group?.type, memorials.length],
     queryFn: async () => {
-      const prompts = await getAllPrompts()
-      const unique = new Set<string>()
-      prompts.forEach((prompt) => {
-        if (prompt.category) unique.add(prompt.category)
+      if (!currentGroupId || !group) return []
+      
+      // Fetch entries to get categories that are actually used
+      const { data: entriesData } = await supabase
+        .from("entries")
+        .select("prompt:prompts(category, is_custom)")
+        .eq("group_id", currentGroupId)
+        .limit(1000) // Get enough entries to cover all categories
+      
+      // Get categories from actual entries in this group
+      const entryCategories = new Set<string>()
+      entriesData?.forEach((entry: any) => {
+        if (entry.prompt) {
+          const isCustom = entry.prompt.is_custom === true
+          const category = isCustom ? "Custom" : (entry.prompt.category ?? "")
+          if (category) {
+            entryCategories.add(category)
+          }
+        }
       })
       
-      let filteredCategories = Array.from(unique)
+      // Get group NSFW status (may not be in TypeScript type but exists in DB)
+      const groupWithNSFW = group as any
+      const enableNSFW = groupWithNSFW?.enable_nsfw === true
       
-      // Filter based on group type
-      if (group?.type === "family") {
+      // Start with categories from entries
+      let filteredCategories = Array.from(entryCategories)
+      
+      // Filter based on group type and NSFW status
+      if (group.type === "family") {
         // Family groups: exclude "Edgy/NSFW", "Friends", "Seasonal"
         filteredCategories = filteredCategories.filter(
           (cat) => cat !== "Edgy/NSFW" && cat !== "Friends" && cat !== "Seasonal"
         )
-      } else if (group?.type === "friends") {
-        // Friends groups: exclude "Family", "Seasonal"
-        filteredCategories = filteredCategories.filter(
-          (cat) => cat !== "Family" && cat !== "Seasonal"
-        )
+      } else if (group.type === "friends") {
+        // Friends groups: exclude "Family", "Seasonal", and "Edgy/NSFW" unless NSFW is enabled
+        filteredCategories = filteredCategories.filter((cat) => {
+          if (cat === "Family" || cat === "Seasonal") return false
+          if (cat === "Edgy/NSFW" && !enableNSFW) return false
+          return true
+        })
       } else {
         // No group yet: exclude "Seasonal"
         filteredCategories = filteredCategories.filter((cat) => cat !== "Seasonal")
@@ -373,12 +395,7 @@ export default function History() {
         filteredCategories = filteredCategories.filter((cat) => cat !== "Remembering")
       }
       
-      // Add "Custom" option for both group types (only if not already present)
-      if (!filteredCategories.includes("Custom")) {
-        filteredCategories.push("Custom")
-      }
-      
-      return filteredCategories
+      return filteredCategories.sort()
     },
     enabled: !!currentGroupId && !!group,
   })

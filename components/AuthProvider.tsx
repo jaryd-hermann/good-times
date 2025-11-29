@@ -37,12 +37,14 @@ try {
 interface AuthContextType {
   user: User | null
   loading: boolean
+  refreshing: boolean // New: indicates session refresh in progress
   signOut: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
+  refreshing: false,
   signOut: async () => {},
 })
 
@@ -53,6 +55,7 @@ export function useAuth() {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false) // Track session refresh state
   
   // Get PostHog instance (PostHogProvider is always rendered in _layout.tsx)
   // posthog will be null/undefined if PostHog is not configured or initialization failed
@@ -173,24 +176,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Small delay to ensure app is fully active
         refreshTimeout = setTimeout(async () => {
           try {
-            // Only refresh if we have a user (session exists)
-            if (user) {
-              const refreshed = await ensureValidSession()
-              if (refreshed) {
-                console.log("[AuthProvider] Session refreshed on app resume")
-                // Reload user data to ensure it's fresh
-                const { data: { session } } = await supabase.auth.getSession()
-                if (session?.user) {
-                  await loadUser(session.user.id)
+            // ✅ Always check session directly, not user state (fixes race condition)
+            const { data: { session } } = await supabase.auth.getSession()
+            
+            if (session) {
+              // Session exists - refresh it to ensure it's valid
+              setRefreshing(true) // Show refreshing state
+              try {
+                const refreshed = await ensureValidSession()
+                if (refreshed) {
+                  console.log("[AuthProvider] Session refreshed on app resume")
+                  // Reload user data to ensure it's fresh
+                  const { data: { session: freshSession } } = await supabase.auth.getSession()
+                  if (freshSession?.user) {
+                    await loadUser(freshSession.user.id)
+                  }
+                } else {
+                  console.warn("[AuthProvider] Failed to refresh session on app resume")
+                  // Check if session still exists (might be valid despite refresh failure)
+                  const { data: { session: currentSession } } = await supabase.auth.getSession()
+                  if (!currentSession) {
+                    // No session - clear user
+                    setUser(null)
+                  }
                 }
-              } else {
-                console.warn("[AuthProvider] Failed to refresh session on app resume")
+              } finally {
+                setRefreshing(false) // Clear refreshing state
               }
+            } else {
+              // No session - clear user
+              console.log("[AuthProvider] No session found on app resume")
+              setUser(null)
             }
           } catch (error) {
             console.error("[AuthProvider] Error refreshing session on app resume:", error)
+            setRefreshing(false) // Clear refreshing state on error
+            // Try to get current session as fallback
+            try {
+              const { data: { session } } = await supabase.auth.getSession()
+              if (!session) {
+                setUser(null)
+              }
+            } catch (fallbackError) {
+              console.error("[AuthProvider] Fallback session check failed:", fallbackError)
+              // If we can't even check session, assume logged out
+              setUser(null)
+            }
           }
-        }, 500) // 500ms delay
+        }, 300) // Reduced delay - app should be ready faster
       }
       
       lastAppState = nextAppState
@@ -204,7 +237,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearTimeout(refreshTimeout)
       }
     }
-  }, [user])
+  }, []) // ✅ No dependency on user state - fixes race condition
 
   async function loadUser(userId: string) {
     try {
@@ -335,5 +368,5 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }
 
-  return <AuthContext.Provider value={{ user, loading, signOut: handleSignOut }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={{ user, loading, refreshing, signOut: handleSignOut }}>{children}</AuthContext.Provider>
 }

@@ -315,6 +315,25 @@ export default function DeckDetail() {
       ...typography.caption,
       color: colors.gray[400],
     },
+    activeStatusContainer: {
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
+      backgroundColor: colors.gray[900],
+      borderRadius: 12,
+      marginBottom: spacing.md,
+      marginHorizontal: spacing.md,
+    },
+    activeStatusText: {
+      ...typography.body,
+      color: colors.white,
+      marginBottom: spacing.xs,
+      textAlign: "center",
+    },
+    activeStatusSubtext: {
+      ...typography.caption,
+      color: colors.gray[400],
+      textAlign: "center",
+    },
     // Modal styles (bottom slide-up)
     modalBackdrop: {
       flex: 1,
@@ -395,9 +414,9 @@ export default function DeckDetail() {
         )}
 
         {isActive && (
-          <View style={styles.voteStatusContainer}>
-            <Text style={styles.voteStatusText}>✓ This deck is active</Text>
-            <Text style={styles.voteStatusSubtext}>
+          <View style={styles.activeStatusContainer}>
+            <Text style={styles.activeStatusText}>This deck is active</Text>
+            <Text style={styles.activeStatusSubtext}>
               Questions from this deck are being included in your daily rotation
             </Text>
           </View>

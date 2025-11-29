@@ -1,14 +1,13 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, KeyboardAvoidingView, Platform, Modal } from "react-native"
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { colors, spacing, typography } from "../../../lib/theme"
 import { Input } from "../../../components/Input"
 import { Button } from "../../../components/Button"
 import { OnboardingBack } from "../../../components/OnboardingBack"
 import { useOnboarding } from "../../../components/OnboardingProvider"
-import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { usePostHog } from "posthog-react-native"
 import { captureEvent } from "../../../lib/posthog"
 
@@ -19,11 +18,8 @@ export default function CreateGroupNameType() {
   const { setGroupName, setGroupType, setEnableNSFW, data } = useOnboarding()
   const [groupName, setLocalGroupName] = useState(data.groupName || "")
   const [groupType, setLocalGroupType] = useState<"family" | "friends">(data.groupType || "family")
-  const [enableNSFW, setLocalEnableNSFW] = useState(data.enableNSFW || false)
-  const [showNSFWModal, setShowNSFWModal] = useState(false)
   const scrollViewRef = useRef<ScrollView>(null)
   const inputRef = useRef<any>(null)
-  const insets = useSafeAreaInsets()
 
   const posthog = usePostHog()
 
@@ -57,7 +53,7 @@ export default function CreateGroupNameType() {
 
     setGroupName(groupName.trim())
     setGroupType(groupType)
-    setEnableNSFW(enableNSFW)
+    setEnableNSFW(false) // NSFW removed - users can add via decks instead
     router.push({
       pathname: "/(onboarding)/memorial",
       params: mode ? { mode } : undefined,
@@ -66,11 +62,6 @@ export default function CreateGroupNameType() {
 
   function handleGroupTypeChange(type: "family" | "friends") {
     setLocalGroupType(type)
-    // Reset NSFW when switching to family
-    if (type === "family") {
-      setLocalEnableNSFW(false)
-      setEnableNSFW(false)
-    }
   }
 
   return (
@@ -132,62 +123,7 @@ export default function CreateGroupNameType() {
             <Text style={[styles.typeText, groupType === "friends" && styles.typeTextActive]}>Friends</Text>
           </TouchableOpacity>
         </View>
-
-        {groupType === "friends" && (
-          <View style={styles.nsfwSection}>
-            <View style={styles.nsfwRow}>
-              <TouchableOpacity
-                style={styles.checkboxContainer}
-                onPress={() => {
-                  const newValue = !enableNSFW
-                  setLocalEnableNSFW(newValue)
-                  setEnableNSFW(newValue)
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.checkbox, enableNSFW && styles.checkboxChecked]}>
-                  {enableNSFW && <Text style={styles.checkmark}>✓</Text>}
-                </View>
-                <Text style={styles.checkboxLabel}>Include NSFW questions</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setShowNSFWModal(true)}
-                style={styles.meaningLink}
-              >
-                <Text style={styles.meaningLinkText}>Meaning?</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
       </View>
-
-      <Modal
-        transparent
-        animationType="fade"
-        visible={showNSFWModal}
-        onRequestClose={() => setShowNSFWModal(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalBackdrop}
-          activeOpacity={1}
-          onPress={() => setShowNSFWModal(false)}
-        >
-          <View 
-            style={[styles.modalContent, { paddingBottom: insets.bottom + spacing.lg }]}
-            onStartShouldSetResponder={() => true}
-          >
-            <Text style={styles.modalTitle}>NSFW Questions</Text>
-            <Text style={styles.modalText}>
-              These are a little more spicy questions designed for close friend groups to have some riskier fun. Nothing crazy embarassing or explicit, and all still in the spirit of bonding.{"\n\n"}You can turn these questions on or off, or change the frequency of them, anytime in your group settings.
-            </Text>
-            <Button
-              title="Got it"
-              onPress={() => setShowNSFWModal(false)}
-              style={styles.modalButton}
-            />
-          </View>
-        </TouchableOpacity>
-      </Modal>
 
       <View style={styles.buttonContainer}>
         <Button
@@ -288,77 +224,5 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     fontSize: 32,
-  },
-  nsfwSection: {
-    marginTop: spacing.lg,
-  },
-  nsfwRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  checkboxContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderWidth: 2,
-    borderColor: colors.black,
-    marginRight: spacing.sm,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  checkboxChecked: {
-    backgroundColor: colors.black,
-  },
-  checkmark: {
-    color: colors.white,
-    fontSize: 16,
-    fontFamily: "Roboto-Bold",
-  },
-  checkboxLabel: {
-    ...typography.body,
-    fontSize: 16,
-    color: colors.black,
-  },
-  meaningLink: {
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-  },
-  meaningLinkText: {
-    ...typography.body,
-    fontSize: 16,
-    color: colors.black,
-    textDecorationLine: "underline",
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "flex-end",
-  },
-  modalContent: {
-    backgroundColor: colors.black,
-    padding: spacing.lg,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    gap: spacing.md,
-  },
-  modalTitle: {
-    ...typography.h2,
-    fontSize: 24,
-    color: colors.white,
-    marginBottom: spacing.sm,
-  },
-  modalText: {
-    ...typography.body,
-    fontSize: 16,
-    lineHeight: 24,
-    color: colors.gray[300],
-  },
-  modalButton: {
-    marginTop: spacing.md,
   },
 })
