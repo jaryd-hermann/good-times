@@ -12,21 +12,99 @@ import {
   Dimensions,
   Animated,
 } from "react-native"
-import { useRouter, useLocalSearchParams } from "expo-router"
-import { useQuery } from "@tanstack/react-query"
+import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { FontAwesome } from "@expo/vector-icons"
 import { useTheme } from "../../lib/theme-context"
 import { typography, spacing } from "../../lib/theme"
-import { getCollections, getGroupActiveDecks, getDeckQuestionsLeftCount, getDecksByCollection, getCurrentUser, getVoteStatus } from "../../lib/db"
+import { getCollections, getGroupActiveDecks, getDeckQuestionsLeftCount, getDecksByCollection, getCurrentUser, getVoteStatus, getUserGroups } from "../../lib/db"
 import { supabase } from "../../lib/supabase"
 import { useTabBar } from "../../lib/tab-bar-context"
 import type { Collection, GroupActiveDeck } from "../../lib/types"
 import { usePostHog } from "posthog-react-native"
 import { safeCapture } from "../../lib/posthog"
+import AsyncStorage from "@react-native-async-storage/async-storage"
+import { useCallback } from "react"
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 const CARD_WIDTH = (SCREEN_WIDTH - spacing.md * 3) / 2 // 2 columns with spacing
+
+// Helper function to get deck image source based on deck name
+function getDeckImageSource(deckName: string | undefined, iconUrl: string | undefined) {
+  if (!deckName) {
+    return require("../../assets/images/deck-icon-default.png")
+  }
+  
+  const nameLower = deckName.toLowerCase()
+  
+  if (nameLower.includes("everyday reflections") || nameLower.includes("reflections")) {
+    return require("../../assets/images/icon-reflections.png")
+  }
+  
+  if (nameLower.includes("past & present") || nameLower.includes("past and present")) {
+    return require("../../assets/images/icon-past.png")
+  }
+  
+  if (nameLower.includes("relationships and connection") || nameLower.includes("relationships")) {
+    return require("../../assets/images/icon-relationships.png")
+  }
+  
+  // Real life routine collection
+  if (nameLower.includes("right now")) {
+    return require("../../assets/images/icon-rightnow.png")
+  }
+  
+  if (nameLower.includes("home") && !nameLower.includes("homemade") && !nameLower.includes("homework")) {
+    return require("../../assets/images/icon-home.png")
+  }
+  
+  if (nameLower.includes("daily joys")) {
+    return require("../../assets/images/icon-daily.png")
+  }
+  
+  // Raw truths collection
+  if (nameLower.includes("mayhem")) {
+    return require("../../assets/images/icon-mayhem.png")
+  }
+  
+  if (nameLower.includes("hot takes only") || nameLower.includes("hot takes")) {
+    return require("../../assets/images/icon-hottakes.png")
+  }
+  
+  if (nameLower.includes("night out energy") || nameLower.includes("night out")) {
+    return require("../../assets/images/icon-nightout.png")
+  }
+  
+  // Nostalgia collection
+  if (nameLower.includes("old photos")) {
+    return require("../../assets/images/icon-oldphotos.png")
+  }
+  
+  if (nameLower.includes("childhood")) {
+    return require("../../assets/images/icon-childhood.png")
+  }
+  
+  if (nameLower.includes("milestones")) {
+    return require("../../assets/images/icon-milestones.png")
+  }
+  
+  // Memorial collection
+  if (nameLower.includes("shared memories")) {
+    return require("../../assets/images/icon-sharedmemories.png")
+  }
+  
+  if (nameLower.includes("their legacy") || nameLower.includes("legacy")) {
+    return require("../../assets/images/icon-legacy.png")
+  }
+  
+  // Fallback to icon_url if available, otherwise default
+  if (iconUrl) {
+    return { uri: iconUrl }
+  }
+  
+  return require("../../assets/images/deck-icon-default.png")
+}
 
 export default function ExploreDecks() {
   const router = useRouter()
@@ -42,6 +120,7 @@ export default function ExploreDecks() {
   const lastScrollY = useRef(0)
   const { opacity: tabBarOpacity } = useTabBar()
   const posthog = usePostHog()
+  const queryClient = useQueryClient()
 
   // Track loaded_explore_decks event
   useEffect(() => {
@@ -52,23 +131,131 @@ export default function ExploreDecks() {
     }
   }, [posthog, currentGroupId])
 
-  useEffect(() => {
-    async function loadUser() {
+  const focusGroupId = params.focusGroupId as string | undefined
+  const paramGroupId = params.groupId as string | undefined
+
+  async function loadUser() {
+    try {
       const {
         data: { user },
       } = await supabase.auth.getUser()
       if (user) {
         setUserId(user.id)
-        // Get user's groups and use first one (or from params)
-        const { getUserGroups } = await import("../../lib/db")
+        // Get user's groups
         const groups = await getUserGroups(user.id)
         if (groups.length > 0) {
-          setCurrentGroupId(params.groupId as string || groups[0].id)
+          // Priority order:
+          // 1. focusGroupId param (highest priority - explicit group switch)
+          // 2. groupId param (from URL)
+          // 3. Default group ID from AsyncStorage (if user has multiple groups)
+          // 4. Persisted group ID from AsyncStorage
+          // 5. Current state (if already set)
+          // 6. First group (fallback)
+          
+          if (focusGroupId && groups.some((group) => group.id === focusGroupId)) {
+            setCurrentGroupId(focusGroupId)
+            await AsyncStorage.setItem("current_group_id", focusGroupId)
+          } else if (paramGroupId && groups.some((group) => group.id === paramGroupId)) {
+            setCurrentGroupId(paramGroupId)
+            await AsyncStorage.setItem("current_group_id", paramGroupId)
+          } else {
+            // Check for default group first (only if user has multiple groups)
+            const defaultGroupId = groups.length > 1 
+              ? await AsyncStorage.getItem("default_group_id")
+              : null
+            
+            if (defaultGroupId && groups.some((group) => group.id === defaultGroupId)) {
+              setCurrentGroupId(defaultGroupId)
+              await AsyncStorage.setItem("current_group_id", defaultGroupId)
+            } else {
+              // Try to restore from AsyncStorage
+              const persistedGroupId = await AsyncStorage.getItem("current_group_id")
+              if (persistedGroupId && groups.some((group) => group.id === persistedGroupId)) {
+                setCurrentGroupId(persistedGroupId)
+              } else {
+                // Fallback to first group
+                setCurrentGroupId(groups[0].id)
+                await AsyncStorage.setItem("current_group_id", groups[0].id)
+              }
+            }
+          }
         }
       }
+    } catch (error) {
+      console.error("[explore-decks] Error loading user:", error)
     }
+  }
+
+  useEffect(() => {
     loadUser()
-  }, [params.groupId])
+  }, [])
+
+  // Reload group context when screen comes into focus (e.g., returning from group switch)
+  useFocusEffect(
+    useCallback(() => {
+      async function reloadGroupContext() {
+        try {
+          const {
+            data: { user },
+          } = await supabase.auth.getUser()
+          if (user) {
+            const groups = await getUserGroups(user.id)
+            if (groups.length === 0) return
+
+            // Always check AsyncStorage for current group (group switching updates this)
+            const persistedGroupId = await AsyncStorage.getItem("current_group_id")
+            
+            // Priority order:
+            // 1. focusGroupId param (explicit group switch)
+            // 2. persistedGroupId from AsyncStorage (most recent group - this is the key!)
+            // 3. First group (fallback)
+            
+            let newGroupId: string | undefined
+            
+            if (focusGroupId && groups.some((group) => group.id === focusGroupId)) {
+              newGroupId = focusGroupId
+            } else if (persistedGroupId && groups.some((group) => group.id === persistedGroupId)) {
+              newGroupId = persistedGroupId
+            } else {
+              newGroupId = groups[0].id // Fallback to first group
+            }
+            
+            // Always update to ensure we're in sync with AsyncStorage
+            if (newGroupId) {
+              // Use functional update to get current state
+              setCurrentGroupId((prevGroupId) => {
+                const groupChanged = newGroupId !== prevGroupId
+                
+                // If group changed, invalidate all group-related queries to force refetch
+                if (groupChanged && newGroupId) {
+                  queryClient.invalidateQueries({ queryKey: ["groupActiveDecks"] })
+                  queryClient.invalidateQueries({ queryKey: ["collectionDeckCounts"] })
+                  queryClient.invalidateQueries({ queryKey: ["deckQuestionsLeft"] })
+                  queryClient.invalidateQueries({ queryKey: ["voteStatuses"] })
+                }
+                
+                return newGroupId
+              })
+            }
+          }
+        } catch (error) {
+          console.error("[explore-decks] Error reloading group context:", error)
+        }
+      }
+      reloadGroupContext()
+    }, [focusGroupId, queryClient])
+  )
+
+  // Invalidate queries when currentGroupId changes (handles group switches)
+  useEffect(() => {
+    if (currentGroupId) {
+      // Invalidate all queries that depend on groupId
+      queryClient.invalidateQueries({ queryKey: ["groupActiveDecks", currentGroupId] })
+      queryClient.invalidateQueries({ queryKey: ["collectionDeckCounts"] })
+      queryClient.invalidateQueries({ queryKey: ["deckQuestionsLeft", currentGroupId] })
+      queryClient.invalidateQueries({ queryKey: ["voteStatuses", currentGroupId] })
+    }
+  }, [currentGroupId, queryClient])
 
   const { data: collections = [] } = useQuery({
     queryKey: ["collections"],
@@ -151,10 +338,68 @@ export default function ExploreDecks() {
 
   // Sort active decks: voting -> active -> finished -> rejected
   // Filter to show all statuses (voting, active, finished, rejected)
-  const sortedActiveDecks = [...(activeDecks || [])].sort((a, b) => {
-    const order = { voting: 0, active: 1, finished: 2, rejected: 3 }
-    return (order[a.status] || 99) - (order[b.status] || 99)
-  })
+  // Voting decks should always appear first for visibility
+  const sortedActiveDecks = useMemo(() => {
+    if (!activeDecks || activeDecks.length === 0) return []
+    
+    // Normalize status to lowercase for comparison
+    const normalizeStatus = (status: string) => (status || "").toLowerCase().trim()
+    
+    // Define priority order: voting first, then active, then finished, then rejected
+    const order: Record<string, number> = { 
+      voting: 0, 
+      active: 1, 
+      finished: 2, 
+      rejected: 3 
+    }
+    
+    // Create a copy and sort it
+    const sorted = [...activeDecks].sort((a, b) => {
+      const aStatus = normalizeStatus(a.status)
+      const bStatus = normalizeStatus(b.status)
+      
+      const aOrder = order[aStatus] ?? 99
+      const bOrder = order[bStatus] ?? 99
+      
+      // Primary sort: by status priority (voting=0 should come before active=1)
+      const statusComparison = aOrder - bOrder
+      if (statusComparison !== 0) {
+        return statusComparison
+      }
+      
+      // Secondary sort: within voting decks, sort by total votes (most votes first)
+      if (aStatus === "voting" && bStatus === "voting") {
+        const aVotes = voteStatuses[a.deck_id] 
+          ? (voteStatuses[a.deck_id].yes_votes + voteStatuses[a.deck_id].no_votes)
+          : 0
+        const bVotes = voteStatuses[b.deck_id]
+          ? (voteStatuses[b.deck_id].yes_votes + voteStatuses[b.deck_id].no_votes)
+          : 0
+        return bVotes - aVotes // Descending order (most votes first)
+      }
+      
+      // For same status (non-voting), maintain original order
+      return 0
+    })
+    
+    // Debug logging in development
+    if (__DEV__) {
+      console.log("[explore-decks] Original decks:", activeDecks.map(d => ({ 
+        name: d.deck?.name, 
+        status: d.status,
+        normalized: normalizeStatus(d.status),
+        order: order[normalizeStatus(d.status)] ?? 99
+      })))
+      console.log("[explore-decks] Sorted decks:", sorted.map(d => ({ 
+        name: d.deck?.name, 
+        status: d.status,
+        normalized: normalizeStatus(d.status),
+        order: order[normalizeStatus(d.status)] ?? 99
+      })))
+    }
+    
+    return sorted
+  }, [activeDecks, voteStatuses])
 
   // Calculate header height
   // Header structure:
@@ -257,6 +502,7 @@ export default function ExploreDecks() {
       ...typography.h1,
       fontSize: 32,
       color: colors.white,
+      marginTop: spacing.sm, // More padding above title
       marginBottom: spacing.md, // More padding below title
     },
     subtitle: {
@@ -295,6 +541,10 @@ export default function ExploreDecks() {
     carousel: {
       flexDirection: "row",
     },
+    carouselContent: {
+      flexDirection: "row",
+      alignItems: "stretch", // Stretch items to same height
+    },
     deckCard: {
       width: CARD_WIDTH, // Match collection card width
       marginRight: spacing.md,
@@ -304,6 +554,13 @@ export default function ExploreDecks() {
       alignItems: "center", // Center content
       borderWidth: 1,
       borderColor: colors.white,
+      justifyContent: "flex-start", // Align content to top
+    },
+    deckCardContent: {
+      width: "100%",
+      flex: 1, // Take up available space to ensure consistent height
+      justifyContent: "flex-start", // Align content to top
+      minHeight: 210, // Reduced minimum height to minimize empty space
     },
     deckCardHeader: {
       flexDirection: "row",
@@ -341,8 +598,8 @@ export default function ExploreDecks() {
       color: colors.white,
     },
     deckIcon: {
-      width: 70,
-      height: 115,
+      width: 120,
+      height: 120,
       borderRadius: 8,
       marginBottom: spacing.sm,
       backgroundColor: colors.gray[700],
@@ -359,6 +616,7 @@ export default function ExploreDecks() {
       ...typography.caption,
       fontSize: 12,
       color: colors.gray[300],
+      textAlign: "center", // Center align stats text
     },
     collectionsTitle: {
       fontFamily: "Roboto-Bold",
@@ -481,7 +739,12 @@ export default function ExploreDecks() {
         {sortedActiveDecks.length > 0 && (
           <View style={styles.carouselSection}>
             <Text style={styles.carouselTitle}>Your decks</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.carousel}>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false} 
+              style={styles.carousel}
+              contentContainerStyle={styles.carouselContent}
+            >
               {sortedActiveDecks.map((deck) => {
                 const questionsLeft = deckQuestionsLeft[deck.deck_id] || 0
                 const isFinished = deck.status === "finished" || questionsLeft === 0
@@ -498,55 +761,57 @@ export default function ExploreDecks() {
                       }
                     }}
                   >
-                    <View style={styles.deckCardHeader}>
-                      <View style={styles.statusBadgeContainer}>
-                        <View
-                          style={[
-                            styles.statusBadge,
-                            deck.status === "voting" && styles.statusBadgeVoting,
-                            deck.status === "active" && styles.statusBadgeActive,
-                            deck.status === "finished" && styles.statusBadgeFinished,
-                            deck.status === "rejected" && styles.statusBadgeRejected,
-                          ]}
-                        >
-                          <Text style={styles.statusText}>
-                            {deck.status === "voting" && "Voting"}
-                            {deck.status === "active" && "Live"}
-                            {deck.status === "finished" && "Deck finished"}
-                            {deck.status === "rejected" && "Verdict: Not interested"}
-                          </Text>
+                    <View style={styles.deckCardContent}>
+                      <View style={styles.deckCardHeader}>
+                        <View style={styles.statusBadgeContainer}>
+                          <View
+                            style={[
+                              styles.statusBadge,
+                              deck.status === "voting" && styles.statusBadgeVoting,
+                              deck.status === "active" && styles.statusBadgeActive,
+                              deck.status === "finished" && styles.statusBadgeFinished,
+                              deck.status === "rejected" && styles.statusBadgeRejected,
+                            ]}
+                          >
+                            <Text style={styles.statusText}>
+                              {deck.status === "voting" && "Voting"}
+                              {deck.status === "active" && "Live"}
+                              {deck.status === "finished" && "Deck finished"}
+                              {deck.status === "rejected" && "Verdict: Not interested"}
+                            </Text>
+                          </View>
                         </View>
+                        <FontAwesome 
+                          name="chevron-right" 
+                          size={12} 
+                          color={colors.gray[400]}
+                          style={{ position: "absolute", top: 0, right: 0 }}
+                        />
                       </View>
-                      <FontAwesome 
-                        name="chevron-right" 
-                        size={12} 
-                        color={colors.gray[400]}
-                        style={{ position: "absolute", top: 0, right: 0 }}
+                      
+                      <Image
+                        source={getDeckImageSource(deck.deck?.name, deck.deck?.icon_url)}
+                        style={styles.deckIcon}
+                        resizeMode="cover"
                       />
+                      
+                      <Text style={styles.deckName}>{deck.deck?.name || "Unknown Deck"}</Text>
+                      
+                      {/* Stats - only show for voting (with vote counts) or active (with questions left) or finished */}
+                      {deck.status === "voting" && voteStatuses[deck.deck_id] && (
+                        <Text style={styles.deckStats}>
+                          {voteStatuses[deck.deck_id].yes_votes} Yes • {voteStatuses[deck.deck_id].no_votes} No
+                        </Text>
+                      )}
+                      {deck.status === "active" && !isFinished && (
+                        <Text style={styles.deckStats}>
+                          {questionsLeft} questions left
+                        </Text>
+                      )}
+                      {deck.status === "finished" && (
+                        <Text style={styles.deckStats}>All questions answered</Text>
+                      )}
                     </View>
-                    
-                    <Image
-                      source={deck.deck?.icon_url ? { uri: deck.deck.icon_url } : require("../../assets/images/deck-icon-default.png")}
-                      style={styles.deckIcon}
-                      resizeMode="cover"
-                    />
-                    
-                    <Text style={styles.deckName}>{deck.deck?.name || "Unknown Deck"}</Text>
-                    
-                    {/* Stats - only show for voting (with vote counts) or active (with questions left) or finished */}
-                    {deck.status === "voting" && voteStatuses[deck.deck_id] && (
-                      <Text style={styles.deckStats}>
-                        {voteStatuses[deck.deck_id].yes_votes} Yes • {voteStatuses[deck.deck_id].no_votes} No
-                      </Text>
-                    )}
-                    {deck.status === "active" && !isFinished && (
-                      <Text style={styles.deckStats}>
-                        {questionsLeft} questions left
-                      </Text>
-                    )}
-                    {deck.status === "finished" && (
-                      <Text style={styles.deckStats}>All questions answered</Text>
-                    )}
                   </TouchableOpacity>
                 )
               })}
@@ -614,7 +879,7 @@ export default function ExploreDecks() {
               onPress={() => setHelpModalVisible(false)}
               style={styles.modalButton}
             >
-              <Text style={{ ...typography.bodyBold, color: colors.white }}>Got it</Text>
+              <Text style={{ ...typography.bodyBold, color: colors.white, textAlign: "center" }}>Got it</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>

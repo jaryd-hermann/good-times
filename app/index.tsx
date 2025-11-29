@@ -186,19 +186,57 @@ export default function Index() {
             const { ensureValidSession } = await import("../lib/auth")
             const refreshed = await ensureValidSession()
             if (!refreshed) {
-              console.warn("[boot] Failed to refresh expired session, user may need to sign in again")
-              // Continue anyway - AuthProvider will handle auth state changes
+              console.warn("[boot] Failed to refresh expired session after retries")
+              // Check if session still exists in storage (might be valid despite refresh failure)
+              const { data: { session: storedSession } } = await supabase.auth.getSession()
+              if (storedSession) {
+                // Session exists - check if it's still valid
+                const expiresAt = storedSession.expires_at
+                if (expiresAt) {
+                  const expiresIn = expiresAt - Math.floor(Date.now() / 1000)
+                  if (expiresIn > 0) {
+                    console.log("[boot] Stored session is still valid, continuing with it")
+                    session = storedSession
+                  } else {
+                    console.log("[boot] Stored session is expired, clearing it")
+                    await supabase.auth.signOut()
+                    await clearBiometricCredentials()
+                    session = null
+                  }
+                } else {
+                  // No expiry info - assume valid and continue
+                  console.log("[boot] Stored session has no expiry, continuing")
+                  session = storedSession
+                }
+              } else {
+                // No session found - clear everything
+                console.log("[boot] No session found, clearing credentials")
+                await clearBiometricCredentials()
+                session = null
+              }
             } else {
-              // Get fresh session after refresh
+              // Refresh succeeded - get fresh session
               const { data: { session: freshSession } } = await supabase.auth.getSession()
               if (freshSession) {
                 session = freshSession
-                console.log("[boot] Session refreshed, using fresh session")
+                console.log("[boot] Session refreshed successfully")
               }
             }
           } catch (error: any) {
             console.error("[boot] Session refresh check failed:", error.message)
-            // Continue anyway - don't block boot if refresh fails
+            // Check stored session as fallback
+            try {
+              const { data: { session: storedSession } } = await supabase.auth.getSession()
+              if (storedSession) {
+                console.log("[boot] Using stored session as fallback")
+                session = storedSession
+              } else {
+                session = null
+              }
+            } catch (fallbackError) {
+              console.error("[boot] Fallback session check failed:", fallbackError)
+              session = null
+            }
           }
         }
 

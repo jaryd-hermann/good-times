@@ -57,6 +57,82 @@ import { BirthdayCardYourCardBanner } from "../../components/BirthdayCardYourCar
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 
+// Helper function to get deck image source based on deck name
+function getDeckImageSource(deckName: string | undefined, iconUrl: string | undefined) {
+  if (!deckName) {
+    return require("../../assets/images/deck-icon-default.png")
+  }
+  
+  const nameLower = deckName.toLowerCase()
+  
+  if (nameLower.includes("everyday reflections") || nameLower.includes("reflections")) {
+    return require("../../assets/images/icon-reflections.png")
+  }
+  
+  if (nameLower.includes("past & present") || nameLower.includes("past and present")) {
+    return require("../../assets/images/icon-past.png")
+  }
+  
+  if (nameLower.includes("relationships and connection") || nameLower.includes("relationships")) {
+    return require("../../assets/images/icon-relationships.png")
+  }
+  
+  // Real life routine collection
+  if (nameLower.includes("right now")) {
+    return require("../../assets/images/icon-rightnow.png")
+  }
+  
+  if (nameLower.includes("home") && !nameLower.includes("homemade") && !nameLower.includes("homework")) {
+    return require("../../assets/images/icon-home.png")
+  }
+  
+  if (nameLower.includes("daily joys")) {
+    return require("../../assets/images/icon-daily.png")
+  }
+  
+  // Raw truths collection
+  if (nameLower.includes("mayhem")) {
+    return require("../../assets/images/icon-mayhem.png")
+  }
+  
+  if (nameLower.includes("hot takes only") || nameLower.includes("hot takes")) {
+    return require("../../assets/images/icon-hottakes.png")
+  }
+  
+  if (nameLower.includes("night out energy") || nameLower.includes("night out")) {
+    return require("../../assets/images/icon-nightout.png")
+  }
+  
+  // Nostalgia collection
+  if (nameLower.includes("old photos")) {
+    return require("../../assets/images/icon-oldphotos.png")
+  }
+  
+  if (nameLower.includes("childhood")) {
+    return require("../../assets/images/icon-childhood.png")
+  }
+  
+  if (nameLower.includes("milestones")) {
+    return require("../../assets/images/icon-milestones.png")
+  }
+  
+  // Memorial collection
+  if (nameLower.includes("shared memories")) {
+    return require("../../assets/images/icon-sharedmemories.png")
+  }
+  
+  if (nameLower.includes("their legacy") || nameLower.includes("legacy")) {
+    return require("../../assets/images/icon-legacy.png")
+  }
+  
+  // Fallback to icon_url if available, otherwise default
+  if (iconUrl) {
+    return { uri: iconUrl }
+  }
+  
+  return require("../../assets/images/deck-icon-default.png")
+}
+
 function getDayIndex(dateString: string, groupId?: string) {
   const base = new Date(dateString)
   const start = new Date("2020-01-01")
@@ -1445,7 +1521,7 @@ export default function Home() {
                 {/* Deck image on the left */}
                 <View style={styles.voteBannerIconContainer}>
                   <Image
-                    source={pendingVotes[0].deck?.icon_url ? { uri: pendingVotes[0].deck.icon_url } : require("../../assets/images/deck-icon-default.png")}
+                    source={getDeckImageSource(pendingVotes[0].deck?.name, pendingVotes[0].deck?.icon_url)}
                     style={styles.voteBannerIcon}
                     resizeMode="cover"
                   />

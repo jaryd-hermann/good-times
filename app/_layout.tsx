@@ -8,7 +8,7 @@ import * as SplashScreen from "expo-splash-screen"
 import { useEffect } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { SafeAreaProvider } from "react-native-safe-area-context"
-import { AuthProvider } from "../components/AuthProvider"
+import { AuthProvider, useAuth } from "../components/AuthProvider"
 import { ErrorBoundary } from "../components/ErrorBoundary"
 import * as Linking from "expo-linking"
 import * as Notifications from "expo-notifications"
@@ -16,6 +16,7 @@ import { router } from "expo-router"
 import { PostHogProvider } from "posthog-react-native"
 import { TabBarProvider } from "../lib/tab-bar-context"
 import { ThemeProvider } from "../lib/theme-context"
+import { View, ActivityIndicator, StyleSheet } from "react-native"
 // Import supabase with error handling
 let supabase: any
 try {
@@ -33,6 +34,33 @@ try {
 }
 
 SplashScreen.preventAutoHideAsync().catch(() => {})
+
+// Refreshing overlay component - shows when session is being refreshed
+function RefreshingOverlay() {
+  const { refreshing } = useAuth()
+  
+  if (!refreshing) return null
+  
+  return (
+    <View style={styles.refreshingOverlay}>
+      <ActivityIndicator size="large" color="#ffffff" />
+    </View>
+  )
+}
+
+const styles = StyleSheet.create({
+  refreshingOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0, 0, 0, 0.8)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 9999,
+  },
+})
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -274,6 +302,7 @@ export default function RootLayout() {
       >
         <SafeAreaProvider>
           <AuthProvider>
+            <RefreshingOverlay />
             <ThemeProvider>
             <QueryClientProvider client={queryClient}>
                 <TabBarProvider>
