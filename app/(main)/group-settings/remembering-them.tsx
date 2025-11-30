@@ -10,6 +10,7 @@ import * as FileSystem from "expo-file-system/legacy"
 import { decode } from "base64-arraybuffer"
 import { supabase } from "../../../lib/supabase"
 import { getMemorials, createMemorial, deleteMemorial, updateMemorial, isGroupAdmin, getQuestionCategoryPreferences, updateQuestionCategoryPreference, clearQuestionCategoryPreference } from "../../../lib/db"
+import { uploadMemorialPhoto, isLocalFileUri } from "../../../lib/storage"
 import { spacing, typography } from "../../../lib/theme"
 import { useTheme } from "../../../lib/theme-context"
 import { FontAwesome } from "@expo/vector-icons"
@@ -135,10 +136,10 @@ export default function RememberingThemSettings() {
 
       // Upload photo if provided
       let photoUrl: string | undefined = undefined
-      if (newMemorialPhotoUri && newMemorialPhotoUri.startsWith("file")) {
+      if (newMemorialPhotoUri && isLocalFileUri(newMemorialPhotoUri)) {
         setUploadingPhoto(true)
         try {
-          photoUrl = await uploadMemorialPhoto(newMemorialPhotoUri, memorial.id)
+          photoUrl = await uploadMemorialPhoto(newMemorialPhotoUri, userId, groupId)
           // Update memorial with photo URL
           await updateMemorial(memorial.id, { photo_url: photoUrl }, userId)
         } catch (error: any) {
@@ -179,7 +180,7 @@ export default function RememberingThemSettings() {
 
     setUploadingPhoto(true)
     try {
-      const photoUrl = await uploadMemorialPhoto(result.assets[0].uri, memorialId)
+      const photoUrl = await uploadMemorialPhoto(result.assets[0].uri, userId, groupId)
       await updateMemorial(memorialId, { photo_url: photoUrl }, userId)
       await queryClient.invalidateQueries({ queryKey: ["memorials", groupId] })
       Alert.alert("Success", "Photo updated successfully")

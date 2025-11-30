@@ -1,5 +1,6 @@
 import { supabase } from "./supabase"
 import { createGroup, createMemorial, updateQuestionCategoryPreference } from "./db"
+import { uploadMemorialPhoto, isLocalFileUri } from "./storage"
 import type { OnboardingData } from "../components/OnboardingProvider"
 
 export async function createGroupFromOnboarding(data: OnboardingData) {
@@ -57,14 +58,26 @@ export async function createGroupFromOnboarding(data: OnboardingData) {
   }
 
   // Create all memorials (after group is created)
-
-  // Create all memorials
   for (const memorial of memorialsToSave) {
+    // Upload memorial photo if it's a local file path
+    let photoUrl = memorial.photo
+    if (photoUrl && isLocalFileUri(photoUrl)) {
+      try {
+        console.log(`[onboarding-actions] Uploading memorial photo for ${memorial.name}...`)
+        photoUrl = await uploadMemorialPhoto(photoUrl, user.id, group.id)
+        console.log(`[onboarding-actions] ✅ Memorial photo uploaded:`, photoUrl)
+      } catch (error: any) {
+        console.error(`[onboarding-actions] ❌ Failed to upload memorial photo:`, error)
+        // Continue without photo if upload fails
+        photoUrl = undefined
+      }
+    }
+    
     await createMemorial({
       user_id: user.id,
       group_id: group.id,
       name: memorial.name,
-      photo_url: memorial.photo,
+      photo_url: photoUrl,
     })
   }
 

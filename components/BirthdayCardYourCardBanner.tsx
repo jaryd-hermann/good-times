@@ -95,7 +95,7 @@ export function BirthdayCardYourCardBanner({
           padding: spacing.md,
           borderRadius: 0, // Square edges
           borderWidth: 1,
-          borderColor: "#ffffff",
+          borderColor: isDark ? "#ffffff" : "#000000", // White in dark mode, black in light mode
           marginHorizontal: spacing.lg,
           marginTop: spacing.xs,
           marginBottom: spacing.lg,

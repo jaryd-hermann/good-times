@@ -61,7 +61,7 @@ export function CustomQuestionBanner({ groupId, date, onPress, reduceSpacing = f
       paddingVertical: 0, // No vertical padding - icon touches top/bottom
       borderRadius: 0, // Square edges
       borderWidth: 1,
-      borderColor: "#ffffff", // White border
+      borderColor: isDark ? "#ffffff" : "#000000", // White in dark mode, black in light mode
       marginHorizontal: spacing.lg,
       marginTop: spacing.xs,
       marginBottom: 0, // No bottom margin on banner itself - handled by wrapper
@@ -120,6 +120,7 @@ export function CustomQuestionBanner({ groupId, date, onPress, reduceSpacing = f
               source={require("../assets/images/custom-question.png")}
               style={styles.icon}
               resizeMode="contain"
+              tintColor={isDark ? undefined : "#000000"} // Black in light mode, default (white) in dark mode
             />
           </View>
           <View style={styles.textContainer}>

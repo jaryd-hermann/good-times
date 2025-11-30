@@ -22,6 +22,10 @@ const EMAIL_TEMPLATES = {
     subject: "Your birthday card is ready! 🎂",
     templateId: "birthday-card-email", // Resend template ID
   },
+  deck_suggestion: {
+    subject: "Deck Suggestion from Good Times",
+    templateId: null, // Uses inline HTML
+  },
 } as const
 
 type EmailType = keyof typeof EMAIL_TEMPLATES
@@ -138,6 +142,55 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
 </html>
       `.trim()
     }
+    case "deck_suggestion": {
+      // Escape HTML to prevent XSS
+      const escapeHtml = (text: string) => {
+        return String(text)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;")
+      }
+      
+      const userName = escapeHtml(templateData.user_name || "User")
+      const userEmail = escapeHtml(templateData.user_email || "No email")
+      const groupName = escapeHtml(templateData.group_name || "Unknown Group")
+      const groupId = escapeHtml(templateData.group_id || "Unknown")
+      const suggestion = escapeHtml(templateData.suggestion || "")
+      const sampleQuestion = escapeHtml(templateData.sample_question || "None provided")
+      
+      return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deck Suggestion</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background-color: #000; color: #fff; padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
+    <h1 style="margin: 0; font-size: 28px;">Deck Suggestion</h1>
+  </div>
+  <div style="background-color: #f9f9f9; padding: 40px; border-radius: 0 0 8px 8px;">
+    <p style="font-size: 16px; margin-bottom: 20px;">
+      <strong>User:</strong> ${userName}<br>
+      <strong>Email:</strong> ${userEmail}<br>
+      <strong>Group:</strong> ${groupName} (ID: ${groupId})
+    </p>
+    <div style="background-color: #fff; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #de2f08;">
+      <p style="font-size: 16px; margin: 0 0 10px 0;"><strong>Suggestion:</strong></p>
+      <p style="font-size: 16px; margin: 0; white-space: pre-wrap;">${suggestion}</p>
+    </div>
+    <div style="background-color: #fff; padding: 20px; border-radius: 8px; border-left: 4px solid #666;">
+      <p style="font-size: 16px; margin: 0 0 10px 0;"><strong>Sample Question:</strong></p>
+      <p style="font-size: 16px; margin: 0; white-space: pre-wrap;">${sampleQuestion}</p>
+    </div>
+  </div>
+</body>
+</html>
+      `.trim()
+    }
     default:
       throw new Error(`No HTML template defined for email type: ${emailType}`)
   }
@@ -211,6 +264,28 @@ View your card: ${cardLink}
 Have a wonderful birthday! 🎈
 
 - The Good Times Team
+      `.trim()
+    }
+    case "deck_suggestion": {
+      const userName = templateData.user_name || "User"
+      const userEmail = templateData.user_email || "No email"
+      const groupName = templateData.group_name || "Unknown Group"
+      const groupId = templateData.group_id || "Unknown"
+      const suggestion = templateData.suggestion || ""
+      const sampleQuestion = templateData.sample_question || "None provided"
+      
+      return `
+Deck Suggestion
+
+User: ${userName}
+Email: ${userEmail}
+Group: ${groupName} (ID: ${groupId})
+
+Suggestion:
+${suggestion}
+
+Sample Question:
+${sampleQuestion}
       `.trim()
     }
     default:
@@ -297,7 +372,10 @@ serve(async (req: Request) => {
       }
     }
 
-    if (!finalRecipientEmail) {
+    // For deck_suggestion emails, send to hermannjaryd@gmail.com instead of user email
+    if (email_type === "deck_suggestion") {
+      finalRecipientEmail = "hermannjaryd@gmail.com"
+    } else if (!finalRecipientEmail) {
       throw new Error("recipient_email is required or user_id must be provided")
     }
 

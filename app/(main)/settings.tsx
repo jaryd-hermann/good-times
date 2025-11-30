@@ -32,7 +32,6 @@ import {
   saveBiometricPreference,
   authenticateWithBiometric,
 } from "../../lib/biometric"
-import { clearAllAuthState } from "../../lib/dev-auth-reset"
 
 export default function SettingsScreen() {
   const router = useRouter()
@@ -183,31 +182,6 @@ export default function SettingsScreen() {
     await AsyncStorage.setItem("dev_force_custom_question", value ? "true" : "false")
   }
 
-  async function handleDevReset() {
-    Alert.alert(
-      "🧹 Clear All Auth State",
-      "This will clear all authentication data, sessions, and onboarding flags. The app will need to be restarted.\n\nThis is for testing only.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Clear & Restart",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await clearAllAuthState()
-              Alert.alert(
-                "✅ Cleared",
-                "All auth state cleared. Please restart the app manually.",
-                [{ text: "OK" }]
-              )
-            } catch (error: any) {
-              Alert.alert("Error", error.message || "Failed to clear auth state")
-            }
-          },
-        },
-      ]
-    )
-  }
 
   // Create dynamic styles based on theme
   const styles = useMemo(() => StyleSheet.create({
@@ -303,19 +277,20 @@ export default function SettingsScreen() {
       color: colors.gray[300],
     },
     wordmark: {
-      width: 120,
-      height: 40,
+      width: 240, // 2x larger (120 * 2)
+      height: 80, // 2x larger (40 * 2)
       marginTop: spacing.md,
       alignSelf: "center",
       opacity: 0.6,
     },
     memorialText: {
-      ...typography.caption,
+      ...typography.body,
       color: isDark ? colors.gray[600] : "#000000",
       textAlign: "center",
       marginTop: spacing.md,
-      fontSize: 11,
+      fontSize: 12,
       fontStyle: "italic",
+      lineHeight: 12, // 50% reduction from default 24px line height
     },
   }), [colors, isDark])
 
@@ -472,18 +447,14 @@ export default function SettingsScreen() {
           <TouchableOpacity onPress={handleSignOut} style={styles.logoutLink}>
             <Text style={styles.logoutText}>Log out</Text>
           </TouchableOpacity>
-          {__DEV__ && (
-            <TouchableOpacity onPress={handleDevReset} style={[styles.logoutLink, { marginTop: spacing.md }]}>
-              <Text style={[styles.logoutText, { color: colors.accent, fontSize: 12 }]}>
-                🧹 DEV: Clear All Auth State
-              </Text>
-            </TouchableOpacity>
-          )}
-          <Text style={styles.memorialText}>Made in memory of our mom, Amelia. We do remember all the good times.</Text>
+          <Text style={styles.memorialText}>
+            Made in memory of our mom, Amelia.{"\n"}We do remember all the good times.
+          </Text>
           <Image 
             source={require("../../assets/images/wordmark.png")} 
             style={styles.wordmark}
             resizeMode="contain"
+            tintColor={isDark ? undefined : "#000000"} // Black in light mode, default (white) in dark mode
           />
         </View>
       </ScrollView>

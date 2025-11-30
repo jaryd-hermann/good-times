@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState, useEffect, useRef, useCallback } from "react"
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Modal, ImageBackground, Animated, Dimensions, RefreshControl } from "react-native"
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Modal, ImageBackground, Animated, Dimensions, RefreshControl, ActivityIndicator } from "react-native"
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { supabase } from "../../lib/supabase"
@@ -170,6 +170,7 @@ export default function History() {
   const [userId, setUserId] = useState<string>()
   const [activePeriod, setActivePeriod] = useState<ActivePeriod | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [showRefreshIndicator, setShowRefreshIndicator] = useState(false)
   const insets = useSafeAreaInsets()
   const scrollY = useRef(new Animated.Value(0)).current
   const headerTranslateY = useRef(new Animated.Value(0)).current
@@ -530,10 +531,23 @@ export default function History() {
 
   async function handleRefresh() {
     setRefreshing(true)
-    // Invalidate all queries to ensure fresh data
-    await queryClient.invalidateQueries()
-    await queryClient.refetchQueries()
-    setRefreshing(false)
+    // Show spinner immediately when refresh starts
+    setShowRefreshIndicator(true)
+    try {
+      // Invalidate all queries to ensure fresh data
+      await queryClient.invalidateQueries()
+      await queryClient.refetchQueries()
+      
+      // Keep spinner visible for at least 1 second total
+      setTimeout(() => {
+        setShowRefreshIndicator(false)
+      }, 1000)
+    } catch (error) {
+      console.error("[history] Error during refresh:", error)
+      setShowRefreshIndicator(false)
+    } finally {
+      setRefreshing(false)
+    }
   }
 
   function handleAnswerToday() {
@@ -1067,6 +1081,15 @@ export default function History() {
     fontSize: 14,
     color: colors.gray[400],
   },
+  refreshIndicator: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: spacing.md, // Reduced by 50% from spacing.xl (32) to spacing.md (16)
+    paddingBottom: spacing.lg,
+    marginBottom: spacing.sm,
+    minHeight: 60,
+    width: "100%",
+  },
   }), [colors, isDark])
 
   return (
@@ -1271,6 +1294,13 @@ export default function History() {
         onScroll={handleScroll}
         scrollEventThrottle={16}
       >
+        {/* Refresh Indicator */}
+        {showRefreshIndicator && (
+          <View style={styles.refreshIndicator}>
+            <ActivityIndicator size="small" color={colors.gray[400]} />
+          </View>
+        )}
+        
         {entriesLoading ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyTitle}>Loading...</Text>

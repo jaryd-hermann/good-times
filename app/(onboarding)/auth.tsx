@@ -25,7 +25,7 @@ import { Button } from "../../components/Button"
 import { OnboardingBack } from "../../components/OnboardingBack"
 import { useOnboarding } from "../../components/OnboardingProvider"
 import { createGroup, createMemorial } from "../../lib/db"
-import { uploadAvatar } from "../../lib/storage"
+import { uploadAvatar, uploadMemorialPhoto, isLocalFileUri } from "../../lib/storage"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { saveBiometricCredentials, getBiometricPreference } from "../../lib/biometric"
 import type { User } from "../../lib/types"
@@ -143,17 +143,36 @@ async function ensureProfileAndJoinGroup(
         hasPhoto: !!profileData?.userPhoto,
       })
 
-      // Upload avatar if it's a local file path
-      let avatarUrl = profileData?.userPhoto || null
-      if (avatarUrl && avatarUrl.startsWith("file://")) {
-        try {
-          console.log("[ensureProfileAndJoinGroup] Uploading avatar from local file...")
-          avatarUrl = await uploadAvatar(avatarUrl, userId)
-          console.log("[ensureProfileAndJoinGroup] ✅ Avatar uploaded:", avatarUrl)
-        } catch (error: any) {
-          console.error("[ensureProfileAndJoinGroup] ❌ Failed to upload avatar:", error)
-          // Continue without avatar if upload fails
-          avatarUrl = null
+      // Upload avatar FIRST if it's a local file path
+      // CRITICAL: Upload BEFORE creating profile so we can include avatar_url in the initial insert
+      let finalAvatarUrl: string | null = null
+      if (profileData?.userPhoto) {
+        let avatarUrl = profileData.userPhoto
+        
+        if (isLocalFileUri(avatarUrl)) {
+          try {
+            console.log("[ensureProfileAndJoinGroup] 📤 Uploading avatar from local file...")
+            avatarUrl = await uploadAvatar(avatarUrl, userId)
+            console.log("[ensureProfileAndJoinGroup] ✅ Avatar uploaded:", avatarUrl)
+            finalAvatarUrl = avatarUrl
+          } catch (error: any) {
+            console.error("[ensureProfileAndJoinGroup] ❌ Failed to upload avatar:", error)
+            // Continue without avatar if upload fails
+            finalAvatarUrl = null
+          }
+        } else if (avatarUrl.startsWith("http://") || avatarUrl.startsWith("https://")) {
+          // Already a valid URL
+          finalAvatarUrl = avatarUrl
+        } else {
+          // Unknown format - try to upload anyway (defensive)
+          console.warn("[ensureProfileAndJoinGroup] ⚠️ Photo URI format not recognized, attempting upload")
+          try {
+            avatarUrl = await uploadAvatar(avatarUrl, userId)
+            finalAvatarUrl = avatarUrl
+          } catch (error: any) {
+            console.error("[ensureProfileAndJoinGroup] ❌ Upload failed for unrecognized format:", error)
+            finalAvatarUrl = null
+          }
         }
       }
 
@@ -164,7 +183,7 @@ async function ensureProfileAndJoinGroup(
           email: emailFromSession,
           name: profileData?.userName?.trim() || null,
           birthday: birthday,
-          avatar_url: avatarUrl,
+          avatar_url: finalAvatarUrl, // Use uploaded URL if available, null otherwise
         } as any)
 
       if (profileError) {
@@ -195,14 +214,24 @@ async function ensureProfileAndJoinGroup(
       if (profileData?.userPhoto) {
         // Upload avatar if it's a local file path
         let avatarUrl = profileData.userPhoto
-        if (avatarUrl.startsWith("file://")) {
+        if (isLocalFileUri(avatarUrl)) {
           try {
-            console.log("[ensureProfileAndJoinGroup] Uploading avatar from local file (update)...")
+            console.log("[ensureProfileAndJoinGroup] 📤 Uploading avatar from local file (update)...")
             avatarUrl = await uploadAvatar(avatarUrl, userId)
             console.log("[ensureProfileAndJoinGroup] ✅ Avatar uploaded:", avatarUrl)
           } catch (error: any) {
             console.error("[ensureProfileAndJoinGroup] ❌ Failed to upload avatar:", error)
             // Skip avatar update if upload fails
+            return
+          }
+        } else if (!avatarUrl.startsWith("http://") && !avatarUrl.startsWith("https://")) {
+          // Unknown format - try to upload anyway (defensive)
+          console.warn("[ensureProfileAndJoinGroup] ⚠️ Photo URI format not recognized, attempting upload")
+          try {
+            avatarUrl = await uploadAvatar(avatarUrl, userId)
+            console.log("[ensureProfileAndJoinGroup] ✅ Upload succeeded for unrecognized format:", avatarUrl)
+          } catch (error: any) {
+            console.error("[ensureProfileAndJoinGroup] ❌ Upload failed for unrecognized format:", error)
             return
           }
         }
@@ -469,9 +498,62 @@ export default function OnboardingAuth() {
 
         const profileStartTime = Date.now()
         
+        // Upload avatar FIRST if it's a local file path
+        // CRITICAL: Upload BEFORE creating profile so we can include avatar_url in the initial insert
+        // This prevents race conditions and ensures avatar_url is never NULL when a photo exists
+        let finalAvatarUrl: string | null = null
+        if (data.userPhoto) {
+          console.log("[persistOnboarding] Processing user photo:", {
+            hasPhoto: !!data.userPhoto,
+            photoUri: data.userPhoto.substring(0, 50) + "...",
+            isLocalFile: isLocalFileUri(data.userPhoto)
+          })
+          
+          let avatarUrl = data.userPhoto
+          
+          // Check if it's a local file that needs uploading
+          if (isLocalFileUri(avatarUrl)) {
+            try {
+              console.log("[persistOnboarding] 📤 Uploading avatar from local file...")
+              avatarUrl = await uploadAvatar(avatarUrl, userId)
+              console.log("[persistOnboarding] ✅ Avatar uploaded successfully:", avatarUrl)
+              finalAvatarUrl = avatarUrl
+            } catch (error: any) {
+              console.error("[persistOnboarding] ❌ Failed to upload avatar:", error)
+              console.error("[persistOnboarding] Error details:", {
+                message: error?.message,
+                code: error?.code,
+                stack: error?.stack
+              })
+              // Set to null if upload fails - user can add photo later
+              finalAvatarUrl = null
+              Alert.alert("Photo Upload Failed", "Your profile was created but the photo couldn't be uploaded. You can add it later in settings.")
+            }
+          } else if (avatarUrl.startsWith("http://") || avatarUrl.startsWith("https://")) {
+            // Already a valid URL (shouldn't happen in onboarding, but handle it)
+            console.log("[persistOnboarding] Photo is already a URL, using directly:", avatarUrl.substring(0, 50))
+            finalAvatarUrl = avatarUrl
+          } else {
+            // Unknown format - try to upload anyway (defensive)
+            // This handles edge cases where our detection might miss a local file
+            console.warn("[persistOnboarding] ⚠️ Photo URI format not recognized, attempting upload:", avatarUrl.substring(0, 50))
+            try {
+              avatarUrl = await uploadAvatar(avatarUrl, userId)
+              console.log("[persistOnboarding] ✅ Upload succeeded for unrecognized format:", avatarUrl)
+              finalAvatarUrl = avatarUrl
+            } catch (error: any) {
+              console.error("[persistOnboarding] ❌ Upload failed for unrecognized format:", error)
+              finalAvatarUrl = null
+            }
+          }
+        } else {
+          console.log("[persistOnboarding] No user photo provided")
+        }
+        
         // Add timeout protection - wrap the entire upsert in a timeout
         // Use upsert with onConflict: "id" to update existing profiles
         // This ensures email is always synced with auth session
+        // CRITICAL: Include avatar_url in initial insert if we have it (uploaded above)
         const profileUpsertPromise = (supabase
           .from("users") as any)
           .upsert(
@@ -480,45 +562,10 @@ export default function OnboardingAuth() {
             email: emailFromSession, // Always use current auth session email
             name: data.userName?.trim() ?? "",
             birthday,
-            avatar_url: null, // Will be set after upload if needed
+            avatar_url: finalAvatarUrl, // Use uploaded URL if available, null otherwise
           },
           { onConflict: "id" }
         )
-
-        // Upload avatar if it's a local file path
-        if (data.userPhoto) {
-          let avatarUrl = data.userPhoto
-          if (avatarUrl.startsWith("file://")) {
-            try {
-              console.log("[persistOnboarding] Uploading avatar from local file...")
-              avatarUrl = await uploadAvatar(avatarUrl, userId)
-              console.log("[persistOnboarding] ✅ Avatar uploaded:", avatarUrl)
-              
-              // Update profile with uploaded avatar URL
-              const { error: avatarUpdateError } = await supabase
-                .from("users")
-                .update({ avatar_url: avatarUrl })
-                .eq("id", userId)
-              
-              if (avatarUpdateError) {
-                console.error("[persistOnboarding] ❌ Failed to update avatar URL:", avatarUpdateError)
-              }
-            } catch (error: any) {
-              console.error("[persistOnboarding] ❌ Failed to upload avatar:", error)
-              // Continue without avatar if upload fails
-            }
-          } else {
-            // Already a URL (shouldn't happen in onboarding, but handle it)
-            const { error: avatarUpdateError } = await supabase
-              .from("users")
-              .update({ avatar_url: avatarUrl })
-              .eq("id", userId)
-            
-            if (avatarUpdateError) {
-              console.error("[persistOnboarding] ❌ Failed to update avatar URL:", avatarUpdateError)
-            }
-          }
-        }
         
         const profileTimeoutPromise = new Promise<{ error: { message: string, timeout: boolean } }>((resolve) => {
           setTimeout(() => {
@@ -605,11 +652,25 @@ export default function OnboardingAuth() {
         // Create all memorials (after group is created)
         console.log(`[persistOnboarding] 📝 Step 5: Creating ${memorialsToSave.length} memorials...`)
         for (const memorial of memorialsToSave) {
+          // Upload memorial photo if it's a local file path
+          let photoUrl = memorial.photo
+          if (photoUrl && isLocalFileUri(photoUrl)) {
+            try {
+              console.log(`[persistOnboarding] Uploading memorial photo for ${memorial.name}...`)
+              photoUrl = await uploadMemorialPhoto(photoUrl, userId, group.id)
+              console.log(`[persistOnboarding] ✅ Memorial photo uploaded:`, photoUrl)
+            } catch (error: any) {
+              console.error(`[persistOnboarding] ❌ Failed to upload memorial photo:`, error)
+              // Continue without photo if upload fails
+              photoUrl = undefined
+            }
+          }
+          
           await createMemorial({
             user_id: userId,
             group_id: group.id,
             name: memorial.name,
-            photo_url: memorial.photo,
+            photo_url: photoUrl,
           })
         }
         console.log(`[persistOnboarding] ✅ Step 5 complete: Memorials created`)

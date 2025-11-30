@@ -98,6 +98,15 @@ function getDeckImageSource(deckName: string | undefined, iconUrl: string | unde
     return require("../../assets/images/icon-legacy.png")
   }
   
+  // Mindset & Growth collection
+  if (nameLower.includes("little lessons")) {
+    return require("../../assets/images/icon-littlelessons.png")
+  }
+  
+  if (nameLower.includes("personal philosophies")) {
+    return require("../../assets/images/icon-lifephilosophies.png")
+  }
+  
   // Fallback to icon_url if available, otherwise default
   if (iconUrl) {
     return { uri: iconUrl }
@@ -118,6 +127,7 @@ export default function ExploreDecks() {
   const headerTranslateY = useRef(new Animated.Value(0)).current
   const contentPaddingTop = useRef(new Animated.Value(0)).current
   const lastScrollY = useRef(0)
+  const isResettingScroll = useRef(false)
   const { opacity: tabBarOpacity } = useTabBar()
   const posthog = usePostHog()
   const queryClient = useQueryClient()
@@ -421,9 +431,54 @@ export default function ExploreDecks() {
     contentPaddingTop.setValue(initialPadding)
   }, [headerHeight])
 
+  const scrollViewRef = useRef<ScrollView>(null)
+
+  // Reset animated values and scroll position when screen comes into focus (fixes content cut off when navigating back)
+  useFocusEffect(
+    useCallback(() => {
+      // Set flag to prevent scroll handler from interfering
+      isResettingScroll.current = true
+      
+      // Reset all animated values to initial state
+      Animated.parallel([
+        Animated.timing(headerTranslateY, {
+          toValue: 0,
+          duration: 0, // Instant reset
+          useNativeDriver: true,
+        }),
+        Animated.timing(contentPaddingTop, {
+          toValue: headerHeight,
+          duration: 0, // Instant reset
+          useNativeDriver: false,
+        }),
+        Animated.timing(tabBarOpacity, {
+          toValue: 1,
+          duration: 0, // Instant reset
+          useNativeDriver: true,
+        }),
+      ]).start()
+      
+      // Reset scroll tracking
+      lastScrollY.current = 0
+      scrollY.setValue(0)
+      
+      // Reset scroll position to top
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo({ y: 0, animated: false })
+        // Re-enable scroll handler after a brief delay
+        setTimeout(() => {
+          isResettingScroll.current = false
+        }, 100)
+      }, 0)
+    }, [headerHeight, scrollY])
+  )
+
   const handleScroll = Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
     useNativeDriver: false, // Need false for paddingTop animation
     listener: (event: any) => {
+      // Skip scroll handling during reset
+      if (isResettingScroll.current) return
+      
       const currentScrollY = event.nativeEvent.contentOffset.y
       const scrollDiff = currentScrollY - lastScrollY.current
       lastScrollY.current = currentScrollY
@@ -630,7 +685,24 @@ export default function ExploreDecks() {
       flexDirection: "row",
       flexWrap: "wrap",
       justifyContent: "space-between",
-      paddingBottom: spacing.xxl * 2,
+      paddingBottom: spacing.xl,
+    },
+    suggestDeckButton: {
+      marginHorizontal: spacing.md,
+      marginTop: spacing.lg,
+      marginBottom: spacing.xxl * 2,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.lg,
+      borderRadius: 0, // Square border
+      borderWidth: 1,
+      borderColor: isDark ? colors.white : colors.black,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    suggestDeckButtonText: {
+      ...typography.bodyBold,
+      fontSize: 16,
+      color: isDark ? colors.white : colors.black,
     },
     collectionCard: {
       width: CARD_WIDTH,
@@ -736,6 +808,7 @@ export default function ExploreDecks() {
 
       {/* Content */}
       <Animated.ScrollView
+        ref={scrollViewRef}
         style={styles.content}
         contentContainerStyle={[
           styles.contentContainer,
@@ -866,6 +939,14 @@ export default function ExploreDecks() {
             </TouchableOpacity>
           ))}
         </View>
+
+        {/* Suggest a deck button */}
+        <TouchableOpacity
+          style={styles.suggestDeckButton}
+          onPress={() => router.push(`/(main)/modals/suggest-deck?groupId=${currentGroupId}&returnTo=/(main)/explore-decks`)}
+        >
+          <Text style={styles.suggestDeckButtonText}>Suggest a deck</Text>
+        </TouchableOpacity>
       </Animated.ScrollView>
 
       {/* Help Modal */}

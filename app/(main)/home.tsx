@@ -16,6 +16,7 @@ import {
   AppState,
   Platform,
   Image,
+  ActivityIndicator,
 } from "react-native"
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -125,6 +126,15 @@ function getDeckImageSource(deckName: string | undefined, iconUrl: string | unde
     return require("../../assets/images/icon-legacy.png")
   }
   
+  // Mindset & Growth collection
+  if (nameLower.includes("little lessons")) {
+    return require("../../assets/images/icon-littlelessons.png")
+  }
+  
+  if (nameLower.includes("personal philosophies")) {
+    return require("../../assets/images/icon-lifephilosophies.png")
+  }
+  
   // Fallback to icon_url if available, otherwise default
   if (iconUrl) {
     return { uri: iconUrl }
@@ -153,6 +163,7 @@ export default function Home() {
   const [userAvatarUrl, setUserAvatarUrl] = useState<string | undefined>()
   const [userName, setUserName] = useState<string>("User")
   const [refreshing, setRefreshing] = useState(false)
+  const [showRefreshIndicator, setShowRefreshIndicator] = useState(false)
   const insets = useSafeAreaInsets()
   const [groupPickerVisible, setGroupPickerVisible] = useState(false)
   const [isGroupSwitching, setIsGroupSwitching] = useState(false)
@@ -160,6 +171,8 @@ export default function Home() {
   const headerTranslateY = useRef(new Animated.Value(0)).current
   const contentPaddingTop = useRef(new Animated.Value(0)).current
   const lastScrollY = useRef(0)
+  const scrollViewRef = useRef<ScrollView>(null)
+  const isResettingScroll = useRef(false)
   const { opacity: tabBarOpacity } = useTabBar()
   const posthog = usePostHog()
 
@@ -800,6 +813,8 @@ export default function Home() {
 
   async function handleRefresh() {
     setRefreshing(true)
+    // Show spinner immediately when refresh starts
+    setShowRefreshIndicator(true)
     try {
       // Ensure session is valid before refreshing data
       const { ensureValidSession } = await import("../../lib/auth")
@@ -823,9 +838,15 @@ export default function Home() {
       }
       await queryClient.invalidateQueries()
       await queryClient.refetchQueries()
+      
+      // Keep spinner visible for at least 1 second total
+      setTimeout(() => {
+        setShowRefreshIndicator(false)
+      }, 1000)
     } catch (error) {
       console.error("[home] Error during refresh:", error)
       // Don't block UI if refresh fails
+      setShowRefreshIndicator(false)
     } finally {
       setRefreshing(false)
     }
@@ -952,9 +973,54 @@ export default function Home() {
     contentPaddingTop.setValue(reducedPadding)
   }, [headerHeight])
 
+  // Reset animated values and scroll position when screen comes into focus (fixes content cut off when navigating back)
+  useFocusEffect(
+    useCallback(() => {
+      const reducedPadding = headerHeight - spacing.lg
+      
+      // Set flag to prevent scroll handler from interfering
+      isResettingScroll.current = true
+      
+      // Reset all animated values to initial state
+      Animated.parallel([
+        Animated.timing(headerTranslateY, {
+          toValue: 0,
+          duration: 0, // Instant reset
+          useNativeDriver: true,
+        }),
+        Animated.timing(contentPaddingTop, {
+          toValue: reducedPadding,
+          duration: 0, // Instant reset
+          useNativeDriver: false,
+        }),
+        Animated.timing(tabBarOpacity, {
+          toValue: 1,
+          duration: 0, // Instant reset
+          useNativeDriver: true,
+        }),
+      ]).start()
+      
+      // Reset scroll tracking
+      lastScrollY.current = 0
+      scrollY.setValue(0)
+      
+      // Reset scroll position to top
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo({ y: 0, animated: false })
+        // Re-enable scroll handler after a brief delay
+        setTimeout(() => {
+          isResettingScroll.current = false
+        }, 100)
+      }, 0)
+    }, [headerHeight, scrollY])
+  )
+
   const handleScroll = Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
     useNativeDriver: false, // Need false for paddingTop animation
     listener: (event: any) => {
+      // Skip scroll handling during reset
+      if (isResettingScroll.current) return
+      
       const currentScrollY = event.nativeEvent.contentOffset.y
       const scrollDiff = currentScrollY - lastScrollY.current
       lastScrollY.current = currentScrollY
@@ -1286,7 +1352,7 @@ export default function Home() {
       paddingVertical: spacing.sm, // Reduced vertical padding (50% of md)
       borderRadius: 0, // Square edges
       borderWidth: 1,
-      borderColor: "#ffffff",
+      borderColor: isDark ? "#ffffff" : "#000000", // White in dark mode, black in light mode
       marginHorizontal: spacing.lg,
       marginTop: spacing.xs,
       flexDirection: "row",
@@ -1327,6 +1393,15 @@ export default function Home() {
     voteBannerChevron: {
       marginLeft: spacing.md,
       alignSelf: "center", // Center chevron vertically
+    },
+    refreshIndicator: {
+      alignItems: "center",
+      justifyContent: "center",
+      paddingTop: spacing.md, // Reduced by 50% from spacing.xl (32) to spacing.md (16)
+      paddingBottom: spacing.lg,
+      marginBottom: spacing.sm,
+      minHeight: 60,
+      width: "100%",
     },
   }), [colors, isDark])
 
@@ -1403,6 +1478,7 @@ export default function Home() {
 
       {/* Content */}
       <Animated.ScrollView
+        ref={scrollViewRef}
         style={styles.content}
         contentContainerStyle={[
           styles.contentContainer,
@@ -1414,6 +1490,13 @@ export default function Home() {
         onScroll={handleScroll}
         scrollEventThrottle={16}
       >
+        {/* Refresh Indicator */}
+        {showRefreshIndicator && (
+          <View style={styles.refreshIndicator}>
+            <ActivityIndicator size="small" color={colors.gray[400]} />
+          </View>
+        )}
+        
         {/* Custom Question Banner */}
         {shouldShowCustomQuestionBanner && (
           <CustomQuestionBanner

@@ -105,6 +105,40 @@ export async function deleteMedia(url: string): Promise<void> {
   }
 }
 
+// Helper function to check if a URI is a local file path
+// This detects local file paths that need to be uploaded to storage
+export function isLocalFileUri(uri: string | undefined): boolean {
+  if (!uri) return false
+  
+  // If it's already an HTTPS/HTTP URL, it's not a local file
+  if (uri.startsWith("http://") || uri.startsWith("https://")) {
+    return false
+  }
+  
+  // Check for various local file URI formats:
+  // - file:// (standard on iOS/Android)
+  // - file:/ (iOS sometimes uses this)
+  // - Starts with / (absolute path on iOS simulator or Android)
+  // - Starts with file: (any file: protocol)
+  // - Starts with content:// (Android content URI)
+  // - Starts with ph:// (iOS Photo Library identifier - needs to be converted)
+  const isLocalFile = (
+    uri.startsWith("file://") ||
+    uri.startsWith("file:/") ||
+    (uri.startsWith("/") && !uri.startsWith("//")) || // Absolute path but not // (which is http)
+    uri.startsWith("file:") ||
+    uri.startsWith("content://") ||
+    uri.startsWith("ph://") ||
+    uri.startsWith("assets-library://") // Legacy iOS format
+  )
+  
+  if (isLocalFile) {
+    console.log(`[storage] Detected local file URI: ${uri.substring(0, 50)}...`)
+  }
+  
+  return isLocalFile
+}
+
 export async function uploadAvatar(localUri: string, userId: string): Promise<string> {
   try {
     const base64 = await FileSystem.readAsStringAsync(localUri, {
@@ -136,6 +170,43 @@ export async function uploadAvatar(localUri: string, userId: string): Promise<st
     return publicUrl
   } catch (error) {
     console.error("[storage] Error uploading avatar:", error)
+    throw error
+  }
+}
+
+export async function uploadMemorialPhoto(localUri: string, userId: string, groupId: string): Promise<string> {
+  try {
+    const base64 = await FileSystem.readAsStringAsync(localUri, {
+      encoding: "base64" as any,
+    })
+
+    if (!base64 || base64.length === 0) {
+      throw new Error("Failed to read image file")
+    }
+
+    const fileExt = localUri.split(".").pop() ?? "jpg"
+    const fileName = `${groupId}-${Date.now()}.${fileExt}`
+    const filePath = `${groupId}/${fileName}`
+
+    const contentType = `image/${fileExt === "png" ? "png" : fileExt === "webp" ? "webp" : "jpeg"}`
+
+    // Upload to avatars bucket (reusing existing bucket for simplicity)
+    // Alternatively, could create a separate memorials bucket
+    const { error: uploadError } = await supabase.storage.from("avatars").upload(filePath, decode(base64), {
+      cacheControl: "3600",
+      upsert: true,
+      contentType,
+    })
+
+    if (uploadError) throw uploadError
+
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from("avatars").getPublicUrl(filePath)
+
+    return publicUrl
+  } catch (error) {
+    console.error("[storage] Error uploading memorial photo:", error)
     throw error
   }
 }

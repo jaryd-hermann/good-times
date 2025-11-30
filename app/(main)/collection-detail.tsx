@@ -93,6 +93,15 @@ function getDeckImageSource(deckName: string | undefined, iconUrl: string | unde
     return require("../../assets/images/icon-legacy.png")
   }
   
+  // Mindset & Growth collection
+  if (nameLower.includes("little lessons")) {
+    return require("../../assets/images/icon-littlelessons.png")
+  }
+  
+  if (nameLower.includes("personal philosophies")) {
+    return require("../../assets/images/icon-lifephilosophies.png")
+  }
+  
   // Fallback to icon_url if available, otherwise default
   if (iconUrl) {
     return { uri: iconUrl }
@@ -151,7 +160,7 @@ export default function CollectionDetail() {
     header: {
       paddingTop: insets.top + spacing.md,
       paddingHorizontal: spacing.md,
-      paddingBottom: spacing.md,
+      paddingBottom: spacing.xl,
       alignItems: "center", // Centered
     },
     backButton: {
