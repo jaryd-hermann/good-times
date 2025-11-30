@@ -74,6 +74,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let sessionInitialized = false
     let initialSessionTimeout: NodeJS.Timeout | null = null
+    let maxTimeout: NodeJS.Timeout | null = null
+
+    // CRITICAL: Maximum timeout to prevent infinite loading state
+    // If we haven't initialized within 10 seconds, force loading to false
+    maxTimeout = setTimeout(() => {
+      if (!sessionInitialized) {
+        console.warn("[AuthProvider] Maximum timeout reached - forcing loading to false")
+        setLoading(false)
+        sessionInitialized = true
+      }
+    }, 10000) // 10 second maximum
 
     // Listen for auth changes - this fires immediately with current session
     // This is the PRIMARY way to get session state (non-blocking, event-driven)
@@ -88,6 +99,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (initialSessionTimeout) {
           clearTimeout(initialSessionTimeout)
           initialSessionTimeout = null
+        }
+        if (maxTimeout) {
+          clearTimeout(maxTimeout)
+          maxTimeout = null
         }
       }
 
@@ -147,10 +162,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setLoading(false)
           }
           sessionInitialized = true
+          if (maxTimeout) {
+            clearTimeout(maxTimeout)
+            maxTimeout = null
+          }
         } catch (error) {
           console.error("[AuthProvider] Fallback getSession failed:", error)
           setLoading(false)
           sessionInitialized = true
+          if (maxTimeout) {
+            clearTimeout(maxTimeout)
+            maxTimeout = null
+          }
         }
       }
     }, 2000) // Wait 2 seconds for onAuthStateChange to fire
@@ -160,6 +183,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (initialSessionTimeout) {
         clearTimeout(initialSessionTimeout)
       }
+      if (maxTimeout) {
+        clearTimeout(maxTimeout)
+      }
     }
   }, [posthog])
 
@@ -167,23 +193,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let lastAppState: AppStateStatus = AppState.currentState
     let refreshTimeout: NodeJS.Timeout | null = null
+    let backgroundTime: number | null = null
 
     const handleAppStateChange = async (nextAppState: AppStateStatus) => {
+      // Track when app goes to background
+      if (nextAppState.match(/inactive|background/)) {
+        backgroundTime = Date.now()
+        console.log("[AuthProvider] App went to background/inactive")
+      }
+      
       // App came to foreground from background/inactive
       if (lastAppState.match(/inactive|background/) && nextAppState === "active") {
-        console.log("[AuthProvider] App came to foreground, checking session...")
+        const timeInBackground = backgroundTime ? Date.now() - backgroundTime : 0
+        const wasBackgroundedLongTime = timeInBackground > 30 * 60 * 1000 // 30 minutes
+        
+        console.log("[AuthProvider] App came to foreground, checking session...", {
+          timeInBackground: Math.round(timeInBackground / 1000 / 60),
+          wasBackgroundedLongTime
+        })
+        
+        // If app was backgrounded for a long time, add timeout protection
+        const sessionCheckTimeout = wasBackgroundedLongTime ? 8000 : 5000
         
         // Small delay to ensure app is fully active
         refreshTimeout = setTimeout(async () => {
           try {
             // ✅ Always check session directly, not user state (fixes race condition)
-            const { data: { session } } = await supabase.auth.getSession()
+            // Add timeout protection for long background periods
+            const getSessionPromise = supabase.auth.getSession()
+            const timeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error("getSession timeout")), sessionCheckTimeout)
+            )
+            
+            const result: any = await Promise.race([getSessionPromise, timeoutPromise])
+            const { data: { session } } = result
             
             if (session) {
               // Session exists - refresh it to ensure it's valid
               setRefreshing(true) // Show refreshing state
               try {
-                const refreshed = await ensureValidSession()
+                // Add timeout for session refresh on long background periods
+                const refreshPromise = ensureValidSession()
+                const refreshTimeoutPromise = new Promise((_, reject) => 
+                  setTimeout(() => reject(new Error("refresh timeout")), 10000)
+                )
+                
+                const refreshed = await Promise.race([refreshPromise, refreshTimeoutPromise]) as boolean
+                
                 if (refreshed) {
                   console.log("[AuthProvider] Session refreshed on app resume")
                   // Reload user data to ensure it's fresh
@@ -200,6 +256,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     setUser(null)
                   }
                 }
+              } catch (refreshError: any) {
+                console.error("[AuthProvider] Session refresh error on app resume:", refreshError.message)
+                // On timeout or error, check if we have a valid session anyway
+                try {
+                  const { data: { session: currentSession } } = await supabase.auth.getSession()
+                  if (currentSession?.user) {
+                    // Session exists - use it even if refresh failed
+                    await loadUser(currentSession.user.id)
+                  } else {
+                    setUser(null)
+                  }
+                } catch (checkError) {
+                  console.error("[AuthProvider] Session check failed:", checkError)
+                  setUser(null)
+                }
               } finally {
                 setRefreshing(false) // Clear refreshing state
               }
@@ -208,12 +279,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               console.log("[AuthProvider] No session found on app resume")
               setUser(null)
             }
-          } catch (error) {
-            console.error("[AuthProvider] Error refreshing session on app resume:", error)
+          } catch (error: any) {
+            console.error("[AuthProvider] Error refreshing session on app resume:", error.message)
             setRefreshing(false) // Clear refreshing state on error
             // Try to get current session as fallback
             try {
-              const { data: { session } } = await supabase.auth.getSession()
+              const getSessionPromise = supabase.auth.getSession()
+              const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error("timeout")), 3000)
+              )
+              const result: any = await Promise.race([getSessionPromise, timeoutPromise])
+              const { data: { session } } = result
               if (!session) {
                 setUser(null)
               }

@@ -45,6 +45,12 @@ export function getWeekDates(): { date: string; day: string; dayNum: number }[] 
   return dates
 }
 
+export function getPreviousDay(dateString: string): string {
+  const date = new Date(dateString)
+  date.setDate(date.getDate() - 1)
+  return format(date, "yyyy-MM-dd")
+}
+
 export function truncateText(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text
   return text.slice(0, maxLength) + "..."

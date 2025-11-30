@@ -38,7 +38,7 @@ import {
   getMyBirthdayCard,
   getBirthdayCardEntries,
 } from "../../lib/db"
-import { getTodayDate, getWeekDates } from "../../lib/utils"
+import { getTodayDate, getWeekDates, getPreviousDay } from "../../lib/utils"
 import { typography, spacing } from "../../lib/theme"
 import { useTheme } from "../../lib/theme-context"
 import { Avatar } from "../../components/Avatar"
@@ -549,6 +549,24 @@ export default function Home() {
     enabled: !!currentGroupId && !!userId,
   })
 
+  // Get previous day's date
+  const previousDate = useMemo(() => getPreviousDay(selectedDate), [selectedDate])
+
+  // Query for previous day's entries (always fetch on boot/refresh)
+  const { data: previousDayEntries = [] } = useQuery({
+    queryKey: ["entries", currentGroupId, previousDate],
+    queryFn: () => (currentGroupId ? getEntriesForDate(currentGroupId, previousDate) : []),
+    enabled: !!currentGroupId, // Enable as soon as group is available
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+  })
+
+  // Check if user answered previous day (always fetch on boot/refresh)
+  const { data: previousDayUserEntry } = useQuery({
+    queryKey: ["userEntry", currentGroupId, userId, previousDate],
+    queryFn: () => (currentGroupId && userId ? getUserEntryForDate(currentGroupId, userId, previousDate) : null),
+    enabled: !!currentGroupId && !!userId, // Enable as soon as group and user are available
+  })
+
   // Fetch user entries for all week dates to show check marks
   const weekDatesList = getWeekDates().map((d) => d.date)
   const { data: userEntriesForWeek = [] } = useQuery({
@@ -810,6 +828,28 @@ export default function Home() {
     
     return question
   }, [fallbackPrompt?.question, memorials, groupMembersForVariables])
+
+  // Check if CTA should show (load immediately, not waiting for scroll)
+  // Only show when viewing today's date
+  const shouldShowCTA = isToday &&
+                       userEntry && 
+                       !previousDayUserEntry && 
+                       previousDayEntries.length > 0 && 
+                       previousDayEntries.some(e => e.user_id !== userId)
+
+  // Format names for CTA text
+  const getPreviousDayCTAText = () => {
+    if (!shouldShowCTA) return ""
+    
+    const otherUsersEntries = previousDayEntries.filter(e => e.user_id !== userId)
+    const uniqueUsers = Array.from(new Set(otherUsersEntries.map(e => e.user?.name).filter(Boolean)))
+    
+    if (uniqueUsers.length === 0) return "See what others said yesterday."
+    if (uniqueUsers.length === 1) return `See what ${uniqueUsers[0]} said yesterday.`
+    if (uniqueUsers.length === 2) return `See what ${uniqueUsers[0]} and ${uniqueUsers[1]} said yesterday.`
+    // 3 or more
+    return `See what ${uniqueUsers.slice(0, -1).join(", ")}, and ${uniqueUsers[uniqueUsers.length - 1]} said yesterday.`
+  }
 
   async function handleRefresh() {
     setRefreshing(true)
@@ -1403,6 +1443,26 @@ export default function Home() {
       minHeight: 60,
       width: "100%",
     },
+    previousDayCTA: {
+      marginTop: spacing.sm,
+      marginBottom: spacing.lg + spacing.md, // Extra padding below CTA
+      marginHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
+      paddingLeft: spacing.md,
+      paddingRight: spacing.md,
+      backgroundColor: isDark ? colors.gray[900] : colors.gray[800], // Light gray in light mode
+      borderRadius: 0,
+      alignItems: "center",
+      justifyContent: "center",
+      flexDirection: "row",
+      minHeight: 80,
+    },
+    previousDayCTAText: {
+      ...typography.body,
+      color: isDark ? "#ffffff" : "#000000",
+      fontSize: 14,
+      textAlign: "center",
+    },
   }), [colors, isDark])
 
   return (
@@ -1761,15 +1821,53 @@ export default function Home() {
               
               if (allMembersPosted) {
                 return (
-                  <View style={styles.postingStatusContainer}>
-                    <Text style={styles.postingStatusText}>Everyone in the group posted today.</Text>
-                  </View>
+                  <>
+                    {/* Only show "Everyone in the group posted today" if CTA is not showing */}
+                    {!shouldShowCTA && (
+                      <View style={styles.postingStatusContainer}>
+                        <Text style={styles.postingStatusText}>Everyone in the group posted today.</Text>
+                      </View>
+                    )}
+                    {/* Previous Day CTA */}
+                    {shouldShowCTA && (
+                      <TouchableOpacity
+                        style={styles.previousDayCTA}
+                        onPress={() => {
+                          setSelectedDate(previousDate)
+                        }}
+                      >
+                        <FontAwesome name="history" size={16} color={isDark ? "#ffffff" : "#000000"} style={{ marginRight: spacing.sm }} />
+                        <Text style={styles.previousDayCTAText}>
+                          {getPreviousDayCTAText()}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </>
                 )
               } else if (someMembersPosted) {
                 return (
-                  <View style={styles.postingStatusContainer}>
-                    <Text style={styles.postingStatusText}>Come back later to see what the others said</Text>
-                  </View>
+                  <>
+                    {/* Only show "Come back later" if CTA is not showing */}
+                    {!shouldShowCTA && (
+                      <View style={styles.postingStatusContainer}>
+                        <Text style={styles.postingStatusText}>Come back later to see what the others said</Text>
+                      </View>
+                    )}
+                    {/* Previous Day CTA */}
+                    {shouldShowCTA && (
+                      <TouchableOpacity
+                        style={styles.previousDayCTA}
+                        onPress={() => {
+                          setSelectedDate(previousDate)
+                        }}
+                      >
+                        <FontAwesome name="history" size={16} color={isDark ? "#ffffff" : "#000000"} style={{ marginRight: spacing.sm }} />
+                        <Text style={styles.previousDayCTAText}>
+                          {getPreviousDayCTAText()}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </>
                 )
               }
               return null

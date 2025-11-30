@@ -868,7 +868,7 @@ export async function getEntriesForDate(groupId: string, date: string): Promise<
     .select("*, user:users(*), prompt:prompts(*)")
     .eq("group_id", groupId)
     .eq("date", date)
-    .order("created_at", { ascending: true })
+    .order("created_at", { ascending: false })
 
   if (error) throw error
   return data || []

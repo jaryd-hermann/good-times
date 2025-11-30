@@ -18,6 +18,18 @@ interface ChangeEntry {
 
 const CHANGES: ChangeEntry[] = [
   {
+    date: "2024-11-30",
+    title: "Sunday, November 30th",
+    subtitle: "Release notes",
+    timestamp: "10:08am",
+    items: [
+      "Improved recency sorting so you see the latest first",
+      "Hopefully fixed the video audio button not working",
+      "Fingers crossed, no black screens when opening the app after long periods",
+      "Made it easier to see if you missed a previous days answers",
+    ],
+  },
+  {
     date: "2024-11-29",
     title: "Saturday, November 29th",
     subtitle: "Release notes",
@@ -162,9 +174,9 @@ export default function LatestChanges() {
       gap: spacing.md,
     },
     avatarImage: {
-      width: 28,
-      height: 28,
-      borderRadius: 14,
+      width: 40,
+      height: 40,
+      borderRadius: 20,
     },
     avatarName: {
       ...typography.bodyBold,

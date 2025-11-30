@@ -828,6 +828,20 @@ function VideoPlayer({
   ).current
   
   useEffect(() => {
+    // Configure audio session for video playback
+    async function setupAudioSession() {
+      try {
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+        })
+      } catch (error) {
+        console.error("[VideoPlayer] Error setting up audio session:", error)
+      }
+    }
+    
+    setupAudioSession()
+    
     // Autoplay when component mounts
     const timer = setTimeout(() => {
       handlePlayPause()
@@ -870,12 +884,23 @@ function VideoPlayer({
     }
   }
   
-  function handleToggleMute() {
+  async function handleToggleMute() {
     if (!videoRef.current) return
-    setIsMuted(prev => {
-      videoRef.current?.setIsMutedAsync(!prev).catch(() => {})
-      return !prev
-    })
+    const newMutedState = !isMuted
+    
+    try {
+      // Configure audio session when unmuting (important for iOS devices)
+      if (!newMutedState) {
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+        })
+      }
+      await videoRef.current.setIsMutedAsync(newMutedState)
+      setIsMuted(newMutedState)
+    } catch (error) {
+      console.error("[VideoPlayer] Error toggling mute:", error)
+    }
   }
   
   function formatTime(ms: number) {

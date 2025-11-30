@@ -1,7 +1,7 @@
 // app/index.tsx
-import { useEffect, useState } from "react";
-import { View, ActivityIndicator, Text, Pressable, Alert, ImageBackground, StyleSheet } from "react-native";
-import { useRouter, Link } from "expo-router";
+import { useEffect, useState, useRef } from "react";
+import { View, ActivityIndicator, Text, Pressable, Alert, ImageBackground, StyleSheet, AppState, AppStateStatus } from "react-native";
+import { useRouter, Link, useSegments } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { typography, colors as themeColors } from "../lib/theme";
 
@@ -53,9 +53,116 @@ type MaybeUser = { name?: string | null; birthday?: string | null } | null;
 
 export default function Index() {
   const router = useRouter();
+  const segments = useSegments();
   const [booting, setBooting] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [loadingDots, setLoadingDots] = useState(".");
+  const lastAppStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const bootTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Detect black screen scenario: if booting takes too long, force navigation
+  // Keep booting screen visible during recovery attempts
+  useEffect(() => {
+    // Set a maximum boot timeout of 15 seconds
+    bootTimeoutRef.current = setTimeout(() => {
+      if (booting) {
+        console.warn("[boot] Boot timeout reached - forcing navigation recovery");
+        // Keep booting screen visible during recovery
+        setBooting(true);
+        // Try to get session and navigate
+        (async () => {
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+              // Check if we have a valid route
+              const currentSegments = segments;
+              if (!currentSegments || currentSegments.length === 0) {
+                // No active route - force navigation to home
+                console.log("[boot] No active route detected, navigating to home");
+                router.replace("/(main)/home");
+              } else {
+                // Route exists, booting can complete
+                setBooting(false);
+              }
+            } else {
+              router.replace("/(onboarding)/welcome-1");
+            }
+          } catch (error) {
+            console.error("[boot] Recovery navigation failed:", error);
+            // Keep booting screen visible and try welcome screen
+            setBooting(true);
+            setTimeout(() => {
+              router.replace("/(onboarding)/welcome-1");
+            }, 500);
+          }
+        })();
+      }
+    }, 15000);
+
+    return () => {
+      if (bootTimeoutRef.current) {
+        clearTimeout(bootTimeoutRef.current);
+      }
+    };
+  }, [booting, router, segments]);
+
+  // Handle app state changes to detect long background periods
+  useEffect(() => {
+    let backgroundTime: number | null = null;
+
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      // Track when app goes to background
+      if (nextAppState.match(/inactive|background/)) {
+        backgroundTime = Date.now();
+      }
+
+      // App came to foreground - check if it was backgrounded for a long time
+      if (lastAppStateRef.current.match(/inactive|background/) && nextAppState === "active") {
+        const timeInBackground = backgroundTime ? Date.now() - backgroundTime : 0;
+        const wasBackgroundedLongTime = timeInBackground > 30 * 60 * 1000; // 30 minutes
+
+        if (wasBackgroundedLongTime) {
+          console.log("[boot] App resumed after long background period, checking navigation state");
+          // Check if we have a valid route
+          const currentSegments = segments;
+          if (!currentSegments || currentSegments.length === 0) {
+            // No active route - might be black screen scenario
+            console.warn("[boot] No active route after long background - showing booting screen");
+            // Show booting screen immediately to prevent black screen
+            setBooting(true);
+            // Trigger navigation recovery
+            setTimeout(() => {
+              (async () => {
+                try {
+                  const { data: { session } } = await supabase.auth.getSession();
+                  if (session) {
+                    router.replace("/(main)/home");
+                  } else {
+                    router.replace("/(onboarding)/welcome-1");
+                  }
+                } catch (error) {
+                  console.error("[boot] Recovery navigation failed:", error);
+                  // Keep booting screen visible and try welcome screen
+                  setBooting(true);
+                  setTimeout(() => {
+                    router.replace("/(onboarding)/welcome-1");
+                  }, 500);
+                }
+              })();
+            }, 500);
+          }
+        }
+      }
+
+      lastAppStateRef.current = nextAppState;
+    };
+
+    const subscription = AppState.addEventListener("change", handleAppStateChange);
+
+    return () => {
+      subscription.remove();
+    };
+  }, [router, segments]);
 
   useEffect(() => {
     let cancelled = false;
@@ -345,18 +452,29 @@ export default function Index() {
           [{ text: "OK" }]
         );
       } finally {
-        if (!cancelled) setBooting(false);
+        if (!cancelled) {
+          setBooting(false);
+          // Clear boot timeout since we completed successfully
+          if (bootTimeoutRef.current) {
+            clearTimeout(bootTimeoutRef.current);
+            bootTimeoutRef.current = null;
+          }
+        }
       }
     })();
 
     return () => {
       cancelled = true;
+      if (bootTimeoutRef.current) {
+        clearTimeout(bootTimeoutRef.current);
+      }
     };
   }, [router]);
 
-  // Animate loading dots
+  // Animate loading dots - keep animating if booting OR if no route (showing booting screen)
   useEffect(() => {
-    if (!booting) return;
+    const shouldAnimate = booting || (!err && segments.length === 0);
+    if (!shouldAnimate) return;
 
     const interval = setInterval(() => {
       setLoadingDots((prev) => {
@@ -367,11 +485,15 @@ export default function Index() {
     }, 500); // Change every 500ms
 
     return () => clearInterval(interval);
-  }, [booting]);
+  }, [booting, err, segments.length]);
 
+  // Always show booting screen if booting is true OR if there's no active route (prevents black screen)
+  // Only show error screen if there's an actual error AND we're not booting
+  const shouldShowBooting = booting || (!err && segments.length === 0);
+  
   return (
     <View style={{ flex: 1, backgroundColor: colors.black }}>
-      {booting ? (
+      {shouldShowBooting ? (
         <ImageBackground
           source={require("../assets/images/welcome-home.png")}
           style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
