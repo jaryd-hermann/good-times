@@ -53,7 +53,7 @@ export function Button({ title, onPress, variant = "primary", disabled, loading,
       activeOpacity={0.7}
     >
       {loading ? (
-        <ActivityIndicator color={variant === "primary" ? "#ffffff" : colors.accent} />
+        <ActivityIndicator color={variant === "primary" ? "#ffffff" : variant === "ghost" ? "#ffffff" : colors.accent} />
       ) : (
         <Text
           style={[

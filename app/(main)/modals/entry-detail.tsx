@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "../../../lib/prompts"
 import { usePostHog } from "posthog-react-native"
 import { captureEvent } from "../../../lib/posthog"
+import { PhotoLightbox } from "../../../components/PhotoLightbox"
 
 export default function EntryDetail() {
   const router = useRouter()
@@ -53,6 +54,8 @@ export default function EntryDetail() {
   const [audioLoading, setAudioLoading] = useState<Record<string, boolean>>({})
   const [imageDimensions, setImageDimensions] = useState<Record<number, { width: number; height: number }>>({})
   const [keyboardHeight, setKeyboardHeight] = useState(0)
+  const [lightboxVisible, setLightboxVisible] = useState(false)
+  const [lightboxIndex, setLightboxIndex] = useState(0)
   const insets = useSafeAreaInsets()
   const posthog = usePostHog()
 
@@ -795,22 +798,37 @@ export default function EntryDetail() {
                             aspectRatio: dimensions.width / dimensions.height,
                           }
                         : styles.mediaImage
+                      
+                      // Get all photo URLs for lightbox
+                      const photoUrls = entry.media_urls
+                        .map((u, i) => entry.media_types?.[i] === "photo" ? u : null)
+                        .filter((u): u is string => u !== null)
+                      const photoIndex = photoUrls.indexOf(url)
+                      
                       return (
-                        <Image
+                        <TouchableOpacity
                           key={index}
-                          source={{ uri: url }}
-                          style={imageStyle}
-                          resizeMode="contain"
-                          onLoad={(e) => {
-                            const { width, height } = e.nativeEvent.source
-                            if (width && height) {
-                              setImageDimensions((prev) => ({
-                                ...prev,
-                                [index]: { width, height },
-                              }))
-                            }
+                          activeOpacity={0.9}
+                          onPress={() => {
+                            setLightboxIndex(photoIndex >= 0 ? photoIndex : 0)
+                            setLightboxVisible(true)
                           }}
-                        />
+                        >
+                          <Image
+                            source={{ uri: url }}
+                            style={imageStyle}
+                            resizeMode="contain"
+                            onLoad={(e) => {
+                              const { width, height } = e.nativeEvent.source
+                              if (width && height) {
+                                setImageDimensions((prev) => ({
+                                  ...prev,
+                                  [index]: { width, height },
+                                }))
+                              }
+                            }}
+                          />
+                        </TouchableOpacity>
                       )
                     }
                     if (mediaType === "video") {
@@ -913,6 +931,20 @@ export default function EntryDetail() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Photo Lightbox */}
+      {entry && (
+        <PhotoLightbox
+          visible={lightboxVisible}
+          photos={
+            entry.media_urls
+              ?.map((url, index) => (entry.media_types?.[index] === "photo" ? url : null))
+              .filter((url): url is string => url !== null) || []
+          }
+          initialIndex={lightboxIndex}
+          onClose={() => setLightboxVisible(false)}
+        />
+      )}
     </KeyboardAvoidingView>
   )
 }
