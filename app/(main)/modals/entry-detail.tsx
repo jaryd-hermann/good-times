@@ -483,7 +483,7 @@ export default function EntryDetail() {
     },
     userName: {
       ...typography.bodyBold,
-      fontSize: 14,
+      fontSize: 16, // Match EntryCard size
       color: colors.white,
     },
     editLink: {

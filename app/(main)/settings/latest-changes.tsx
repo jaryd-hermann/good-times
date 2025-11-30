@@ -13,6 +13,7 @@ interface ChangeEntry {
   title: string
   subtitle: string
   items: string[]
+  timestamp?: string
 }
 
 const CHANGES: ChangeEntry[] = [
@@ -20,6 +21,16 @@ const CHANGES: ChangeEntry[] = [
     date: "2024-11-29",
     title: "Saturday, November 29th",
     subtitle: "Release notes",
+    timestamp: "10:16pm",
+    items: [
+      "You can now open images in full view, and save them to your phone.",
+    ],
+  },
+  {
+    date: "2024-11-29",
+    title: "Saturday, November 29th",
+    subtitle: "Release notes",
+    timestamp: "3:32pm",
     items: [
       "Made it easier for you to see multiple photos at once",
       "Made it easier for you to watch videos",
@@ -89,7 +100,7 @@ export default function LatestChanges() {
     dateHeader: {
       flexDirection: "row",
       alignItems: "baseline",
-      marginBottom: spacing.sm,
+      marginBottom: spacing.lg, // Increased padding below date
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.lg,
     },
@@ -111,7 +122,7 @@ export default function LatestChanges() {
       color: colors.gray[400],
     },
     changeList: {
-      marginTop: spacing.md,
+      marginTop: spacing.xs, // Reduced padding above bullets
       gap: spacing.sm,
     },
     changeItem: {
@@ -160,6 +171,12 @@ export default function LatestChanges() {
       color: colors.white,
       fontSize: 14,
     },
+    timestamp: {
+      ...typography.caption,
+      color: colors.gray[400],
+      fontSize: 12,
+      marginTop: 2,
+    },
   }), [colors, isDark])
 
   return (
@@ -182,32 +199,49 @@ export default function LatestChanges() {
             <Text style={styles.emptyText}>No changes to display yet.</Text>
           </View>
         ) : (
-          CHANGES.map((change, index) => (
-            <View key={index} style={styles.changeSection}>
-              <View style={styles.dateHeader}>
-                <Text style={styles.dateTitle}>{change.title}</Text>
-              </View>
-              <View style={styles.divider} />
-              <View style={styles.changeContent}>
-                <View style={styles.avatarSection}>
-                  <Image 
-                    source={require("../../../assets/images/jaryd-pic.png")} 
-                    style={styles.avatarImage}
-                  />
-                  <Text style={styles.avatarName}>Note from Jaryd</Text>
-                </View>
-                <View style={styles.changeList}>
-                  {change.items.map((item, itemIndex) => (
-                    <View key={itemIndex} style={styles.changeItem}>
-                      <Text style={styles.bullet}>•</Text>
-                      <Text style={styles.changeText}>{item}</Text>
+          CHANGES.map((change, index) => {
+            const previousChange = index > 0 ? CHANGES[index - 1] : null
+            const showDateHeader = !previousChange || previousChange.date !== change.date
+            
+            return (
+              <View key={index} style={styles.changeSection}>
+                {showDateHeader && (
+                  <>
+                    <View style={styles.dateHeader}>
+                      <Text style={styles.dateTitle}>{change.title}</Text>
                     </View>
-                  ))}
+                    <View style={styles.divider} />
+                  </>
+                )}
+                <View style={[
+                  styles.changeContent,
+                  !showDateHeader && { paddingTop: spacing.md } // 50% reduction when no date header
+                ]}>
+                  <View style={styles.avatarSection}>
+                    <Image 
+                      source={require("../../../assets/images/jaryd-pic.png")} 
+                      style={styles.avatarImage}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.avatarName}>Note from Jaryd</Text>
+                      {change.timestamp && (
+                        <Text style={styles.timestamp}>{change.timestamp}</Text>
+                      )}
+                    </View>
+                  </View>
+                  <View style={styles.changeList}>
+                    {change.items.map((item, itemIndex) => (
+                      <View key={itemIndex} style={styles.changeItem}>
+                        <Text style={styles.bullet}>•</Text>
+                        <Text style={styles.changeText}>{item}</Text>
+                      </View>
+                    ))}
+                  </View>
                 </View>
+                <View style={styles.divider} />
               </View>
-              <View style={styles.divider} />
-            </View>
-          ))
+            )
+          })
         )}
       </ScrollView>
     </View>

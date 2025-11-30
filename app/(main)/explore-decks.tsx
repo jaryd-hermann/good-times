@@ -30,6 +30,86 @@ import { useCallback } from "react"
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 const CARD_WIDTH = (SCREEN_WIDTH - spacing.md * 3) / 2 // 2 columns with spacing
 
+// Helper function to get collection icon source and dimensions based on collection name
+function getCollectionIconSource(collectionName: string | undefined) {
+  if (!collectionName) {
+    return require("../../assets/images/icon-deeper.png") // Default fallback
+  }
+  
+  const nameLower = collectionName.toLowerCase()
+  
+  if (nameLower.includes("deeper")) {
+    return require("../../assets/images/icon-deeper.png")
+  }
+  
+  if (nameLower.includes("real life routine") || nameLower.includes("routines")) {
+    return require("../../assets/images/icon-routine.png")
+  }
+  
+  if (nameLower.includes("raw truth") || nameLower.includes("truths")) {
+    return require("../../assets/images/icon-truths.png")
+  }
+  
+  if (nameLower.includes("nostalgia")) {
+    return require("../../assets/images/icon-nostalgia.png")
+  }
+  
+  if (nameLower.includes("memorial")) {
+    return require("../../assets/images/icon-memorial.png")
+  }
+  
+  if (nameLower.includes("mindset") || nameLower.includes("growth")) {
+    return require("../../assets/images/icon-mindset.png")
+  }
+  
+  // Default fallback
+  return require("../../assets/images/icon-deeper.png")
+}
+
+// Helper function to get collection icon dimensions based on collection name
+// Returns { width, height } maintaining aspect ratio, scaled to base width of 48
+function getCollectionIconDimensions(collectionName: string | undefined) {
+  if (!collectionName) {
+    // icon-deeper.png: 72x64
+    return { width: 48, height: 43 } // Maintains ~1.125:1 aspect ratio
+  }
+  
+  const nameLower = collectionName.toLowerCase()
+  
+  if (nameLower.includes("deeper")) {
+    // icon-deeper.png: 72x64
+    return { width: 48, height: 43 } // Maintains ~1.125:1 aspect ratio
+  }
+  
+  if (nameLower.includes("real life routine") || nameLower.includes("routines")) {
+    // icon-routine.png: 300x300
+    return { width: 48, height: 48 } // Square
+  }
+  
+  if (nameLower.includes("raw truth") || nameLower.includes("truths")) {
+    // icon-truths.png: 164x173 - 10% larger
+    return { width: 51, height: 53 } // 10% larger (was 46x48), maintains ~0.948:1 aspect ratio
+  }
+  
+  if (nameLower.includes("nostalgia")) {
+    // icon-nostalgia.png: 128x128
+    return { width: 48, height: 48 } // Square
+  }
+  
+  if (nameLower.includes("memorial")) {
+    // icon-memorial.png: 120x120
+    return { width: 48, height: 48 } // Square
+  }
+  
+  if (nameLower.includes("mindset") || nameLower.includes("growth")) {
+    // icon-mindset.png: 138x140
+    return { width: 47, height: 48 } // Maintains ~0.986:1 aspect ratio
+  }
+  
+  // Default fallback (icon-deeper.png)
+  return { width: 48, height: 43 }
+}
+
 // Helper function to get deck image source based on deck name
 function getDeckImageSource(deckName: string | undefined, iconUrl: string | undefined) {
   if (!deckName) {
@@ -706,12 +786,13 @@ export default function ExploreDecks() {
     },
     collectionCard: {
       width: CARD_WIDTH,
+      height: 220, // Fixed height for all cards
       backgroundColor: colors.gray[900],
       borderRadius: 12,
       padding: spacing.md,
       marginBottom: spacing.md,
-      minHeight: 200, // Increased height slightly
-      justifyContent: "space-between", // Space between icon, text, and footer
+      flexDirection: "column",
+      justifyContent: "space-between", // Space between content and footer
     },
     collectionIcon: {
       width: 70,
@@ -722,9 +803,13 @@ export default function ExploreDecks() {
       alignSelf: "center", // Center the icon
     },
     collectionTextContainer: {
-      flex: 1, // Take up available space to center content vertically
-      justifyContent: "center", // Center content vertically
       alignItems: "center", // Center content horizontally
+      flexShrink: 0, // Don't shrink
+      paddingTop: spacing.md, // More padding between top of card and icon
+    },
+    collectionNameIcon: {
+      // Width and height are set dynamically via getCollectionIconDimensions()
+      marginBottom: spacing.md, // Increased padding below icon
     },
     collectionName: {
       ...typography.bodyBold,
@@ -732,18 +817,23 @@ export default function ExploreDecks() {
       color: colors.white,
       marginBottom: spacing.xs,
       textAlign: "center", // Center align text
+      minHeight: 22, // Fixed height for name (1 line)
     },
     collectionDescription: {
       ...typography.caption,
       fontSize: 12,
       color: colors.gray[400],
       textAlign: "center", // Center align text
+      lineHeight: 16, // Fixed line height
+      height: 32, // Fixed height for exactly 2 lines (16 * 2)
+      overflow: "hidden", // Hide overflow
     },
     collectionFooter: {
       flexDirection: "row",
       justifyContent: "space-between",
       alignItems: "center",
-      marginTop: spacing.sm,
+      marginTop: spacing.md, // Consistent spacing above footer
+      flexShrink: 0, // Don't shrink
     },
     collectionDecksCount: {
       ...typography.caption,
@@ -913,14 +1003,15 @@ export default function ExploreDecks() {
               style={styles.collectionCard}
               onPress={() => router.push(`/(main)/collection-detail?collectionId=${collection.id}&groupId=${currentGroupId}`)}
             >
-              {collection.icon_url && (
-                <Image
-                  source={{ uri: collection.icon_url }}
-                  style={styles.collectionIcon}
-                  resizeMode="cover"
-                />
-              )}
               <View style={styles.collectionTextContainer}>
+                <Image 
+                  source={getCollectionIconSource(collection.name)} 
+                  style={[
+                    styles.collectionNameIcon,
+                    getCollectionIconDimensions(collection.name)
+                  ]}
+                  resizeMode="contain"
+                />
                 <Text style={styles.collectionName}>{collection.name}</Text>
                 <Text style={styles.collectionDescription} numberOfLines={2}>
                   {collection.description || ""}

@@ -297,7 +297,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   },
   userName: {
     ...typography.bodyBold,
-    fontSize: 14,
+    fontSize: 16, // Increased from 14
       color: colors.white,
   },
   question: {
@@ -521,7 +521,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
         {/* Header */}
         <View style={styles.entryHeader}>
           <View style={styles.entryAuthor}>
-            <Avatar uri={entry.user?.avatar_url} name={entry.user?.name || "User"} size={28} />
+            <Avatar uri={entry.user?.avatar_url} name={entry.user?.name || "User"} size={32} />
             <Text style={styles.userName}>{entry.user?.name}</Text>
           </View>
           <FontAwesome name="chevron-right" size={14} color={colors.gray[400]} style={styles.arrowIcon} />

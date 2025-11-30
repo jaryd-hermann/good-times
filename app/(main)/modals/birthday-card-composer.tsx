@@ -356,25 +356,8 @@ export default function BirthdayCardComposer() {
   }
 
   async function handleGalleryAction() {
-    Alert.alert(
-      "Add Media",
-      "Choose how you'd like to add photos or videos",
-      [
-        {
-          text: "Take Photo/Video",
-          onPress: openCamera,
-        },
-        {
-          text: "Choose from Gallery",
-          onPress: openGallery,
-        },
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-      ],
-      { cancelable: true }
-    )
+    // Open gallery directly (no modal)
+    openGallery()
   }
 
   async function openCamera() {
@@ -901,13 +884,18 @@ export default function BirthdayCardComposer() {
       minHeight: 200,
       textAlignVertical: "top",
     },
-    mediaScrollContainer: {
+    mediaCarouselContainer: {
       marginTop: spacing.md,
       marginBottom: spacing.md,
+      height: 140,
+    },
+    mediaScrollContainer: {
+      flex: 1,
     },
     mediaScrollContent: {
       gap: spacing.sm,
       paddingRight: spacing.lg,
+      alignItems: "center",
     },
     mediaThumbnailWrapper: {
       width: 120,
@@ -1271,6 +1259,49 @@ export default function BirthdayCardComposer() {
         <Text style={styles.question}>Write {birthdayUserName} a birthday card</Text>
         <Text style={styles.description}>Share a special message, memory, or wish for their birthday</Text>
 
+        {/* Media preview carousel - positioned between description and input */}
+        {mediaItems.filter(item => item.type !== "audio").length > 0 && (
+          <View style={styles.mediaCarouselContainer}>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              style={styles.mediaScrollContainer}
+              contentContainerStyle={styles.mediaScrollContent}
+            >
+              {mediaItems.filter(item => item.type !== "audio").map((item) => (
+                <View key={item.id} style={styles.mediaThumbnailWrapper}>
+                  {item.type === "photo" ? (
+                    <>
+                      <Image source={{ uri: item.uri }} style={styles.mediaThumbnail} resizeMode="cover" />
+                      {uploadingMedia[item.id] && (
+                        <View style={styles.uploadOverlay}>
+                          <ActivityIndicator size="large" color={colors.white} />
+                          <Text style={styles.uploadText}>Uploading...</Text>
+                        </View>
+                      )}
+                    </>
+                  ) : item.type === "video" ? (
+                    <>
+                      <VideoThumbnail uri={item.uri} />
+                      {uploadingMedia[item.id] && (
+                        <View style={styles.uploadOverlay}>
+                          <ActivityIndicator size="large" color={colors.white} />
+                          <Text style={styles.uploadText}>Uploading...</Text>
+                        </View>
+                      )}
+                    </>
+                  ) : null}
+                  {!uploadingMedia[item.id] && (
+                    <TouchableOpacity style={styles.mediaDelete} onPress={() => handleRemoveMedia(item.id)}>
+                      <FontAwesome name="times" size={12} color={colors.white} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
         <View ref={inputContainerRef} onLayout={handleInputLayout}>
           <TextInput
             ref={textInputRef}
@@ -1360,46 +1391,6 @@ export default function BirthdayCardComposer() {
           </View>
         ))}
 
-        {/* Media preview - horizontal scrollable feed (photos/videos only, newest first) */}
-        {mediaItems.filter(item => item.type !== "audio").length > 0 && (
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false}
-            style={styles.mediaScrollContainer}
-            contentContainerStyle={styles.mediaScrollContent}
-          >
-            {[...mediaItems.filter(item => item.type !== "audio")].reverse().map((item) => (
-              <View key={item.id} style={styles.mediaThumbnailWrapper}>
-                {item.type === "photo" ? (
-                  <>
-                    <Image source={{ uri: item.uri }} style={styles.mediaThumbnail} resizeMode="cover" />
-                    {uploadingMedia[item.id] && (
-                      <View style={styles.uploadOverlay}>
-                        <ActivityIndicator size="large" color={colors.white} />
-                        <Text style={styles.uploadText}>Uploading...</Text>
-                      </View>
-                    )}
-                  </>
-                ) : item.type === "video" ? (
-                  <>
-                    <VideoThumbnail uri={item.uri} />
-                    {uploadingMedia[item.id] && (
-                      <View style={styles.uploadOverlay}>
-                        <ActivityIndicator size="large" color={colors.white} />
-                        <Text style={styles.uploadText}>Uploading...</Text>
-                      </View>
-                    )}
-                  </>
-                ) : null}
-                {!uploadingMedia[item.id] && (
-                  <TouchableOpacity style={styles.mediaDelete} onPress={() => handleRemoveMedia(item.id)}>
-                    <FontAwesome name="times" size={12} color={colors.white} />
-                  </TouchableOpacity>
-                )}
-              </View>
-            ))}
-          </ScrollView>
-        )}
       </ScrollView>
       </KeyboardAvoidingView>
 
@@ -1409,6 +1400,9 @@ export default function BirthdayCardComposer() {
           <View style={styles.toolCluster}>
             <TouchableOpacity style={styles.iconButton} onPress={handleGalleryAction}>
               <FontAwesome name="image" size={18} color={colors.white} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.iconButton} onPress={openCamera}>
+              <FontAwesome name="camera" size={18} color={colors.white} />
             </TouchableOpacity>
             <TouchableOpacity style={styles.iconButton} onPress={startRecording}>
               <FontAwesome name="microphone" size={18} color={colors.white} />
