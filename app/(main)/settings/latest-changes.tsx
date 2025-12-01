@@ -18,6 +18,17 @@ interface ChangeEntry {
 
 const CHANGES: ChangeEntry[] = [
   {
+    date: "2025-12-01",
+    title: "Monday, December 1st",
+    subtitle: "Release notes",
+    timestamp: "2:30pm",
+    items: [
+      "Improved timeline view on Home screen",
+      "Made it easier to see if you missed a previous day",
+      "If you're in multiple groups, made it easier to see what you've missed while in a different group",
+    ],
+  },
+  {
     date: "2024-11-30",
     title: "Sunday, November 30th",
     subtitle: "Release notes",

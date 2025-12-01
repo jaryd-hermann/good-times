@@ -38,7 +38,7 @@ import {
   getMyBirthdayCard,
   getBirthdayCardEntries,
 } from "../../lib/db"
-import { getTodayDate, getWeekDates, getPreviousDay } from "../../lib/utils"
+import { getTodayDate, getWeekDates, getPreviousDay, utcStringToLocalDate, formatDateAsLocalISO } from "../../lib/utils"
 import { typography, spacing } from "../../lib/theme"
 import { useTheme } from "../../lib/theme-context"
 import { Avatar } from "../../components/Avatar"
@@ -250,7 +250,10 @@ export default function Home() {
         }
       }
       reloadProfile()
-    }, [focusGroupId])
+      
+      // Invalidate and refetch unseen count when screen comes into focus
+      queryClient.invalidateQueries({ queryKey: ["groupUnseenCount"] })
+    }, [focusGroupId, queryClient])
   )
 
   // Request push notification permission on first visit to home
@@ -444,7 +447,7 @@ export default function Home() {
     prevGroupIdRef.current = currentGroupId
   }, [currentGroupId, queryClient]) // Only depend on currentGroupId, not selectedDate
 
-  // Check for unseen updates in each group
+  // Check for unseen updates in each group (boolean - for dot indicator)
   const { data: groupUnseenStatus = {} } = useQuery({
     queryKey: ["groupUnseenStatus", groups.map((g) => g.id).join(","), userId],
     queryFn: async () => {
@@ -489,6 +492,66 @@ export default function Home() {
       return status
     },
     enabled: groups.length > 0 && !!userId,
+  })
+
+  // Check for unseen entry counts in each group (for "X new answers" text)
+  const { data: groupUnseenCount = {} } = useQuery({
+    queryKey: ["groupUnseenCount", groups.map((g) => g.id).join(","), userId, currentGroupId],
+    queryFn: async () => {
+      if (groups.length === 0 || !userId) return {}
+      const status: Record<string, { hasNew: boolean; newCount: number }> = {}
+      
+      for (const group of groups) {
+        // Current group is always "seen" - no count
+        if (group.id === currentGroupId) {
+          status[group.id] = { hasNew: false, newCount: 0 }
+          continue
+        }
+        
+        // Get last visit time for this group
+        const lastVisitStr = await AsyncStorage.getItem(`group_visited_${group.id}`)
+        const lastVisit = lastVisitStr ? new Date(lastVisitStr) : null
+
+        if (!lastVisit) {
+          // No last visit - count all entries by others
+          const { count, error } = await supabase
+            .from("entries")
+            .select("*", { count: "exact", head: true })
+            .eq("group_id", group.id)
+            .neq("user_id", userId)
+          
+          if (error) {
+            status[group.id] = { hasNew: false, newCount: 0 }
+          } else {
+            status[group.id] = { hasNew: (count || 0) > 0, newCount: count || 0 }
+          }
+        } else {
+          // Count entries by others since last visit
+          // Use a small buffer (subtract 1 second) to account for timing issues
+          const lastVisitWithBuffer = new Date(lastVisit.getTime() - 1000)
+          
+          const { count, error } = await supabase
+            .from("entries")
+            .select("*", { count: "exact", head: true })
+            .eq("group_id", group.id)
+            .neq("user_id", userId)
+            .gt("created_at", lastVisitWithBuffer.toISOString())
+          
+          if (error) {
+            status[group.id] = { hasNew: false, newCount: 0 }
+          } else {
+            status[group.id] = { hasNew: (count || 0) > 0, newCount: count || 0 }
+          }
+        }
+      }
+      
+      return status
+    },
+    enabled: groups.length > 0 && !!userId,
+    refetchOnMount: true, // Always refetch when component mounts
+    refetchOnWindowFocus: true, // Refetch when window comes into focus
+    staleTime: 0, // Always consider data stale to ensure fresh counts
+    refetchInterval: 30000, // Poll every 30 seconds to check for new entries
   })
 
   const { data: allPrompts = [] } = useQuery({
@@ -549,26 +612,132 @@ export default function Home() {
     enabled: !!currentGroupId && !!userId,
   })
 
-  // Get previous day's date
-  const previousDate = useMemo(() => getPreviousDay(selectedDate), [selectedDate])
+  // Get today's date - call directly to ensure fresh value
+  const todayDate = getTodayDate()
+  
+  // Get previous day's date (yesterday relative to TODAY, not selectedDate)
+  // This ensures CTA logic works correctly when user is viewing today
+  // Calculate directly without memoization to ensure it's always fresh
+  const previousDate = getPreviousDay(todayDate)
+  
+  // Debug: Log the calculation directly
+  if (__DEV__) {
+    console.log("[previousDate calculation]", {
+      todayDate,
+      previousDate,
+      calculated: getPreviousDay(todayDate),
+    })
+  }
 
   // Query for previous day's entries (always fetch on boot/refresh)
-  const { data: previousDayEntries = [] } = useQuery({
-    queryKey: ["entries", currentGroupId, previousDate],
+  // Include todayDate in query key to force refetch when date changes
+  const { data: previousDayEntries = [], isLoading: isLoadingPreviousDayEntries, isFetching: isFetchingPreviousDayEntries } = useQuery({
+    queryKey: ["entries", currentGroupId, previousDate, todayDate],
     queryFn: () => (currentGroupId ? getEntriesForDate(currentGroupId, previousDate) : []),
     enabled: !!currentGroupId, // Enable as soon as group is available
-    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    staleTime: 0, // Always refetch to ensure fresh data when date changes
   })
-
+ 
   // Check if user answered previous day (always fetch on boot/refresh)
-  const { data: previousDayUserEntry } = useQuery({
-    queryKey: ["userEntry", currentGroupId, userId, previousDate],
+  // Include todayDate in query key to force refetch when date changes
+  const { data: previousDayUserEntry, isLoading: isLoadingPreviousDayUserEntry, isFetching: isFetchingPreviousDayUserEntry } = useQuery({
+    queryKey: ["userEntry", currentGroupId, userId, previousDate, todayDate],
     queryFn: () => (currentGroupId && userId ? getUserEntryForDate(currentGroupId, userId, previousDate) : null),
     enabled: !!currentGroupId && !!userId, // Enable as soon as group and user are available
+    staleTime: 0, // Always refetch to ensure fresh data when date changes
   })
 
+  // Only show loading state when actually switching groups, not during normal date navigation
+  const isLoadingGroupData = isGroupSwitching
+
+  const currentGroup = groups.find((g) => g.id === currentGroupId)
+
+  // Derive group creation date (local) and group age in days
+  // Note: todayDate is already defined above for previousDate calculation
+  const createdDateLocal = useMemo(() => {
+    if (!currentGroup?.created_at) return todayDate
+    try {
+      // Convert Supabase UTC timestamp to local calendar date
+      const localFromUtc = utcStringToLocalDate(currentGroup.created_at)
+
+      // Heuristic: if the group was created very recently (within the last 24h),
+      // always treat the creation day as "today" for the timeline, even if the
+      // raw UTC->local conversion would land on "yesterday" due to timezone.
+      const createdAtUtc = new Date(currentGroup.created_at)
+      const now = new Date()
+      const msSinceCreation = now.getTime() - createdAtUtc.getTime()
+      const oneDayMs = 24 * 60 * 60 * 1000
+
+      if (msSinceCreation >= 0 && msSinceCreation < oneDayMs) {
+        return todayDate
+      }
+
+      return localFromUtc
+    } catch {
+      return todayDate
+    }
+  }, [currentGroup?.created_at, todayDate])
+
+  const groupAgeDays = useMemo(() => {
+    try {
+      const created = new Date(createdDateLocal)
+      const today = new Date(todayDate)
+      const createdMidnight = new Date(created); createdMidnight.setHours(0, 0, 0, 0)
+      const todayMidnight = new Date(today); todayMidnight.setHours(0, 0, 0, 0)
+      const diffMs = todayMidnight.getTime() - createdMidnight.getTime()
+      return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)))
+    } catch {
+      return 0
+    }
+  }, [createdDateLocal, todayDate])
+
+  // Build 7-day timeline:
+  // - If groupAgeDays < 7: [startDate .. startDate+6]
+  // - Else: [today-6 .. today]
+  const weekDates = useMemo(() => {
+    const dates: { date: string; day: string; dayNum: number }[] = []
+    if (!currentGroup) {
+      return getWeekDates()
+    }
+
+    // For truly "brand new" groups (no full day of age yet), the timeline
+    // should start at *today* even if created_at/UTC math might suggest
+    // a previous calendar day. After the first full day, we respect
+    // the real creation date.
+    const startDateForTimeline =
+      groupAgeDays === 0 ? todayDate : createdDateLocal
+
+    if (groupAgeDays < 7) {
+      // For very new groups, timeline starts at startDateForTimeline and shows 6 following days
+      let cursor = new Date(`${startDateForTimeline}T00:00:00`)
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(cursor)
+        dates.push({
+          date: formatDateAsLocalISO(d),
+          day: d.toLocaleDateString(undefined, { weekday: "short" }),
+          dayNum: d.getDate(),
+        })
+        cursor.setDate(cursor.getDate() + 1)
+      }
+    } else {
+      // After 7 days, show rolling window: today-6 .. today
+      const today = new Date(`${todayDate}T00:00:00`)
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(today)
+        d.setDate(today.getDate() - i)
+        dates.push({
+          date: formatDateAsLocalISO(d),
+          day: d.toLocaleDateString(undefined, { weekday: "short" }),
+          dayNum: d.getDate(),
+        })
+      }
+    }
+
+    return dates
+  }, [currentGroup, createdDateLocal, groupAgeDays, todayDate])
+
   // Fetch user entries for all week dates to show check marks
-  const weekDatesList = getWeekDates().map((d) => d.date)
+  const weekDatesList = weekDates.map((d) => d.date)
   const { data: userEntriesForWeek = [] } = useQuery({
     queryKey: ["userEntriesForWeek", currentGroupId, userId, weekDatesList.join(",")],
     queryFn: async () => {
@@ -600,7 +769,8 @@ export default function Home() {
   })
 
   // Check for custom question opportunity (only on today's date)
-  const isToday = selectedDate === getTodayDate()
+  const isToday = selectedDate === todayDate
+  const isFuture = selectedDate > todayDate
   const { data: customQuestionOpportunity } = useQuery({
     queryKey: ["customQuestionOpportunity", currentGroupId, selectedDate, userId],
     queryFn: () =>
@@ -666,8 +836,6 @@ export default function Home() {
 
   // Birthday Card Queries
   // Use today's date for upcoming birthday cards (not selectedDate) - banners should show based on actual today
-  const todayDate = getTodayDate()
-  
   // Debug: Log query enablement
   useEffect(() => {
     console.log("[home] Birthday cards query params:", {
@@ -775,12 +943,7 @@ export default function Home() {
       })
     }
   }
-  
-  // Only show loading state when actually switching groups, not during normal date navigation
-  const isLoadingGroupData = isGroupSwitching
 
-  const weekDates = getWeekDates()
-  const currentGroup = groups.find((g) => g.id === currentGroupId)
   const otherEntries = entries.filter((entry) => entry.user_id !== userId)
   const entryIdList = entries.map((item) => item.id)
   const basePrompt = dailyPrompt?.prompt ?? entries[0]?.prompt
@@ -896,11 +1059,56 @@ export default function Home() {
 
   // Check if CTA should show (load immediately, not waiting for scroll)
   // Only show when viewing today's date
-  const shouldShowCTA = isToday &&
+  // Wait for queries to complete before evaluating (check both isLoading and isFetching)
+  // Also verify previousDayUserEntry actually belongs to current user (safety check)
+  const hasPreviousDayUserEntry = previousDayUserEntry && previousDayUserEntry.user_id === userId
+  const shouldShowCTA = !isLoadingPreviousDayEntries &&
+                       !isFetchingPreviousDayEntries &&
+                       !isLoadingPreviousDayUserEntry &&
+                       !isFetchingPreviousDayUserEntry &&
+                       isToday &&
                        userEntry && 
-                       !previousDayUserEntry && 
+                       !hasPreviousDayUserEntry && 
                        previousDayEntries.length > 0 && 
                        previousDayEntries.some(e => e.user_id !== userId)
+
+  // Debug logging (remove after fixing)
+  useEffect(() => {
+    if (__DEV__ && isToday) {
+      console.log("[CTA Debug]", {
+        isLoadingPreviousDayEntries,
+        isFetchingPreviousDayEntries,
+        isLoadingPreviousDayUserEntry,
+        isFetchingPreviousDayUserEntry,
+        isToday,
+        selectedDate,
+        todayDate,
+        hasUserEntry: !!userEntry,
+        hasPreviousDayUserEntry: !!previousDayUserEntry,
+        previousDayUserEntry: previousDayUserEntry ? {
+          id: previousDayUserEntry.id,
+          user_id: previousDayUserEntry.user_id,
+          date: previousDayUserEntry.date,
+          created_at: previousDayUserEntry.created_at,
+        } : null,
+        hasPreviousDayUserEntryCheck: hasPreviousDayUserEntry,
+        currentUserId: userId,
+        previousDayEntriesCount: previousDayEntries.length,
+        previousDayEntries: previousDayEntries.map(e => ({ id: e.id, user_id: e.user_id, date: e.date })),
+        previousDate,
+        hasOtherUsersEntries: previousDayEntries.some(e => e.user_id !== userId),
+        shouldShowCTA,
+        conditionBreakdown: {
+          queriesLoaded: !isLoadingPreviousDayEntries && !isFetchingPreviousDayEntries && !isLoadingPreviousDayUserEntry && !isFetchingPreviousDayUserEntry,
+          isToday,
+          hasUserEntry: !!userEntry,
+          noPreviousDayUserEntry: !hasPreviousDayUserEntry,
+          hasPreviousDayEntries: previousDayEntries.length > 0,
+          hasOtherUsersEntries: previousDayEntries.some(e => e.user_id !== userId),
+        },
+      })
+    }
+  }, [isLoadingPreviousDayEntries, isFetchingPreviousDayEntries, isLoadingPreviousDayUserEntry, isFetchingPreviousDayUserEntry, isToday, selectedDate, todayDate, userEntry, previousDayUserEntry, previousDayEntries, previousDate, userId, shouldShowCTA, hasPreviousDayUserEntry])
 
   // Format names for CTA text
   const getPreviousDayCTAText = () => {
@@ -1052,10 +1260,19 @@ export default function Home() {
     setGroupPickerVisible(false)
   }
 
-  // Mark current group as visited when component mounts or group changes
+  // Track previous group ID to detect actual switches (not initial load)
+  const visitedGroupRef = useRef<string | undefined>(undefined)
+
+  // Mark current group as visited when it becomes active (only on explicit switches)
   useEffect(() => {
     if (currentGroupId) {
+      // Only set timestamp if this is an actual group switch (not initial load)
+      if (visitedGroupRef.current !== undefined && visitedGroupRef.current !== currentGroupId) {
+        // User switched from one group to another
       AsyncStorage.setItem(`group_visited_${currentGroupId}`, new Date().toISOString())
+      }
+      // Update ref for next comparison
+      visitedGroupRef.current = currentGroupId
     }
   }, [currentGroupId])
 
@@ -1077,6 +1294,46 @@ export default function Home() {
     const reducedPadding = headerHeight - spacing.lg // Remove extra bottom spacing
     contentPaddingTop.setValue(reducedPadding)
   }, [headerHeight])
+
+  // Reset scroll position and header when selectedDate changes (e.g., clicking CTA to view previous day)
+  useEffect(() => {
+    const reducedPadding = headerHeight - spacing.lg
+    
+    // Set flag to prevent scroll handler from interfering
+    isResettingScroll.current = true
+    
+    // Reset all animated values to initial state
+    Animated.parallel([
+      Animated.timing(headerTranslateY, {
+        toValue: 0,
+        duration: 0, // Instant reset
+        useNativeDriver: true,
+      }),
+      Animated.timing(contentPaddingTop, {
+        toValue: reducedPadding,
+        duration: 0, // Instant reset
+        useNativeDriver: false,
+      }),
+      Animated.timing(tabBarOpacity, {
+        toValue: 1,
+        duration: 0, // Instant reset
+        useNativeDriver: true,
+      }),
+    ]).start()
+    
+    // Reset scroll tracking
+    lastScrollY.current = 0
+    scrollY.setValue(0)
+    
+    // Reset scroll position to top
+    setTimeout(() => {
+      scrollViewRef.current?.scrollTo({ y: 0, animated: false })
+      // Re-enable scroll handler after a brief delay
+      setTimeout(() => {
+        isResettingScroll.current = false
+      }, 100)
+    }, 0)
+  }, [selectedDate, headerHeight, scrollY])
 
   // Reset animated values and scroll position when screen comes into focus (fixes content cut off when navigating back)
   useFocusEffect(
@@ -1252,6 +1509,9 @@ export default function Home() {
       borderRadius: 4,
       borderColor: colors.white,
     },
+    dayButtonFuture: {
+      opacity: 0.5,
+    },
     dayText: {
       ...typography.caption,
       fontSize: 12,
@@ -1261,6 +1521,9 @@ export default function Home() {
     dayTextSelected: {
       color: colors.white,
     },
+    dayTextFuture: {
+      color: colors.gray[400],
+    },
     dayNum: {
       ...typography.bodyBold,
       fontSize: 16,
@@ -1268,6 +1531,9 @@ export default function Home() {
     },
     dayNumSelected: {
       color: colors.white,
+    },
+    dayNumFuture: {
+      color: colors.gray[500],
     },
     content: {
       flex: 1,
@@ -1289,6 +1555,18 @@ export default function Home() {
     promptCard: {
       backgroundColor: colors.black,
       padding: spacing.lg,
+    },
+    futureImage: {
+      width: "100%",
+      height: 120,
+      marginBottom: spacing.md,
+      alignSelf: "center",
+    },
+    futurePromptQuestion: {
+      textAlign: "center",
+    },
+    futurePromptDescription: {
+      textAlign: "center",
     },
     promptQuestion: {
       ...typography.h3,
@@ -1434,6 +1712,13 @@ export default function Home() {
       backgroundColor: colors.accent,
       marginLeft: spacing.sm,
     },
+    newAnswersText: {
+      ...typography.body,
+      color: colors.gray[400],
+      fontSize: 14,
+      marginLeft: spacing.sm,
+      marginRight: spacing.md, // Extra padding between text and end of button
+    },
     createGroupButton: {
       paddingVertical: spacing.md,
       alignItems: "center",
@@ -1571,10 +1856,15 @@ export default function Home() {
           {weekDates.map((day) => {
             const hasEntry = userEntryDates.has(day.date)
             const isSelected = day.date === selectedDate
+            const isFutureDay = day.date > todayDate
             return (
               <TouchableOpacity
                 key={day.date}
-                style={[styles.dayButton, isSelected && styles.dayButtonSelected]}
+                style={[
+                  styles.dayButton,
+                  isSelected && styles.dayButtonSelected,
+                  !isSelected && isFutureDay && styles.dayButtonFuture,
+                ]}
                 onPress={() => {
                   const oldDate = selectedDate
                   setSelectedDate(day.date)
@@ -1589,11 +1879,27 @@ export default function Home() {
                   }
                 }}
               >
-                <Text style={[styles.dayText, isSelected && styles.dayTextSelected]}>{day.day}</Text>
+                <Text
+                  style={[
+                    styles.dayText,
+                    isSelected && styles.dayTextSelected,
+                    !isSelected && isFutureDay && styles.dayTextFuture,
+                  ]}
+                >
+                  {day.day}
+                </Text>
                 {hasEntry ? (
                   <FontAwesome name="check" size={12} color={colors.gray[400]} style={{ marginTop: spacing.xs }} />
                 ) : (
-                  <Text style={[styles.dayNum, isSelected && styles.dayNumSelected]}>{day.dayNum}</Text>
+                  <Text
+                    style={[
+                      styles.dayNum,
+                      isSelected && styles.dayNumSelected,
+                      !isSelected && isFutureDay && styles.dayNumFuture,
+                    ]}
+                  >
+                    {day.dayNum}
+                  </Text>
                 )}
               </TouchableOpacity>
             )
@@ -1622,8 +1928,8 @@ export default function Home() {
           </View>
         )}
         
-        {/* Custom Question Banner */}
-        {shouldShowCustomQuestionBanner && (
+        {/* Custom Question Banner (today only, not for future days) */}
+        {shouldShowCustomQuestionBanner && !isFuture && (
           <CustomQuestionBanner
             groupId={currentGroupId!}
             date={selectedDate}
@@ -1637,9 +1943,9 @@ export default function Home() {
           />
         )}
         
-        {/* Birthday Card Banners */}
+        {/* Birthday Card Banners (only for non-future days) */}
         {/* 1. Your Card Banner (highest priority - if it's user's birthday) */}
-        {myBirthdayCard && myBirthdayCard.birthday_date === selectedDate && (
+        {myBirthdayCard && myBirthdayCard.birthday_date === selectedDate && !isFuture && (
           <BirthdayCardYourCardBanner
             groupId={currentGroupId!}
             cardId={myBirthdayCard.id}
@@ -1662,8 +1968,8 @@ export default function Home() {
           />
         )}
 
-        {/* 2. Upcoming Birthday Banners (stacked vertically) */}
-        {upcomingBirthdayCards.map((card) => {
+        {/* 2. Upcoming Birthday Banners (stacked vertically, non-future days only) */}
+        {!isFuture && upcomingBirthdayCards.map((card) => {
           const birthdayUser = (card as any).birthday_user
           return (
             <BirthdayCardUpcomingBanner
@@ -1690,8 +1996,8 @@ export default function Home() {
           )
         })}
 
-        {/* 3. Edit Banners (for entries written on selectedDate) */}
-        {myCardEntries.map((entry) => {
+        {/* 3. Edit Banners (for entries written on selectedDate, non-future days only) */}
+        {!isFuture && myCardEntries.map((entry) => {
           const card = (entry as any).card
           const birthdayUser = card?.birthday_user
           return (
@@ -1721,8 +2027,8 @@ export default function Home() {
           )
         })}
 
-        {/* Pending Vote Banner */}
-        {pendingVotes.length > 0 && isToday && (
+        {/* Pending Vote Banner (today only, not for future days) */}
+        {pendingVotes.length > 0 && isToday && !isFuture && (
           <View style={styles.voteBannerWrapper}>
             <TouchableOpacity
               style={styles.voteBanner}
@@ -1762,7 +2068,7 @@ export default function Home() {
           </View>
         )}
         {/* Notice above daily question - mutually exclusive messages */}
-        {!userEntry && (
+        {!userEntry && !isFuture && (
           <>
             {otherEntries.length === 0 ? (
               <View style={styles.notice}>
@@ -1776,8 +2082,34 @@ export default function Home() {
             )}
           </>
         )}
+        {/* Future day empty state */}
+        {!userEntry && isFuture && (
+          <View style={styles.promptCardWrapper}>
+            <View style={styles.promptCard}>
+              <Image
+                source={require("../../assets/images/future.png")}
+                style={styles.futureImage}
+                resizeMode="contain"
+              />
+              <Text style={[styles.promptQuestion, styles.futurePromptQuestion]}>
+                This question isn't available for the group yet.
+              </Text>
+              <Text style={[styles.promptDescription, styles.futurePromptDescription]}>
+                {(() => {
+                  const selected = new Date(`${selectedDate}T00:00:00`)
+                  const today = new Date(`${todayDate}T00:00:00`)
+                  const diffMs = selected.getTime() - today.getTime()
+                  const daysAhead = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)))
+                  const unit = daysAhead === 1 ? "day" : "days"
+                  return `Come back in ${daysAhead} ${unit} to answer it.`
+                })()}
+              </Text>
+            </View>
+          </View>
+        )}
+
         {/* Daily prompt */}
-        {!userEntry && (
+        {!userEntry && !isFuture && (
           <View style={styles.promptCardWrapper}>
             <View style={styles.promptDivider} />
             <View style={styles.promptCard}>
@@ -1958,9 +2290,20 @@ export default function Home() {
                   >
                     <View style={styles.groupRowContent}>
                       <Text style={styles.groupRowText}>{group.name}</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center" }}>
                       {groupUnseenStatus[group.id] && (
                         <View style={styles.unseenDot} />
                       )}
+                        {/* Only show count for non-current groups with multiple groups */}
+                        {groups.length > 1 && 
+                         group.id !== currentGroupId && 
+                         groupUnseenCount[group.id]?.hasNew && 
+                         groupUnseenCount[group.id]?.newCount > 0 && (
+                          <Text style={styles.newAnswersText}>
+                            {groupUnseenCount[group.id].newCount} new {groupUnseenCount[group.id].newCount === 1 ? "answer" : "answers"}
+                          </Text>
+                        )}
+                      </View>
                     </View>
                   </TouchableOpacity>
                   <TouchableOpacity

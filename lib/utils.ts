@@ -45,8 +45,28 @@ export function getWeekDates(): { date: string; day: string; dayNum: number }[] 
   return dates
 }
 
+// Format a Date as local yyyy-MM-dd without timezone shifting.
+// This uses the Date's local components instead of ISO/UTC conversions.
+export function formatDateAsLocalISO(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+// Helper to convert a UTC timestamp string (e.g. from Supabase `created_at`)
+// into a local calendar date string in yyyy-MM-dd format.
+// This is used to anchor timelines to the group creation date in the user's local time.
+export function utcStringToLocalDate(utcString: string): string {
+  const date = new Date(utcString)
+  return format(date, "yyyy-MM-dd")
+}
+
 export function getPreviousDay(dateString: string): string {
-  const date = new Date(dateString)
+  // Parse date string as local date (not UTC) to avoid timezone issues
+  // Format: "yyyy-MM-dd" -> create Date object in local timezone
+  const [year, month, day] = dateString.split("-").map(Number)
+  const date = new Date(year, month - 1, day) // month is 0-indexed
   date.setDate(date.getDate() - 1)
   return format(date, "yyyy-MM-dd")
 }
