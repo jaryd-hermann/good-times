@@ -9,6 +9,7 @@ try {
 
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { createClient } from "@supabase/supabase-js"
+import type { Database } from "../types/supabase"
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || ""
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || ""
@@ -29,12 +30,12 @@ For EAS Build, set secrets with:
   console.error("[supabase]", errorMsg)
 }
 
-let supabase: ReturnType<typeof createClient>
+let supabase: ReturnType<typeof createClient<Database>>
 
 try {
   if (!hasValidConfig) {
     // Create a dummy client that will fail gracefully
-    supabase = createClient("https://placeholder.supabase.co", "placeholder-key", {
+    supabase = createClient<Database>("https://placeholder.supabase.co", "placeholder-key", {
       auth: {
         storage: AsyncStorage,
         autoRefreshToken: false,
@@ -44,7 +45,7 @@ try {
     })
     console.warn("[supabase] Using placeholder client - app will not work until env vars are set")
   } else {
-    supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
       auth: {
         storage: AsyncStorage,
         autoRefreshToken: true,
@@ -56,14 +57,14 @@ try {
 } catch (error) {
   console.error("[supabase] Failed to create client:", error)
   // Create minimal fallback client
-  supabase = createClient("https://placeholder.supabase.co", "placeholder-key", {
-    auth: {
-      storage: AsyncStorage,
-      autoRefreshToken: false,
-      persistSession: false,
-      detectSessionInUrl: false,
-    },
-  })
+  supabase = createClient<Database>("https://placeholder.supabase.co", "placeholder-key", {
+      auth: {
+        storage: AsyncStorage,
+        autoRefreshToken: false,
+        persistSession: false,
+        detectSessionInUrl: false,
+      },
+    })
 }
 
 // Export a function to check if Supabase is configured
