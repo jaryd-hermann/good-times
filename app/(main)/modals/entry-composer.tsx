@@ -1546,7 +1546,9 @@ export default function EntryComposer() {
           keyboardShouldPersistTaps="handled"
         >
         <Text style={styles.question}>{personalizedQuestion || activePrompt?.question}</Text>
-        <Text style={styles.description}>{activePrompt?.description}</Text>
+        {activePrompt?.description && (
+          <Text style={styles.description}>{activePrompt.description}</Text>
+        )}
 
         {/* Media preview carousel - positioned between description and input */}
         {mediaItems.filter(item => item.type !== "audio").length > 0 && (

@@ -1231,7 +1231,7 @@ export default function History() {
   refreshIndicator: {
     alignItems: "center",
     justifyContent: "center",
-    paddingTop: spacing.md, // Reduced by 50% from spacing.xl (32) to spacing.md (16)
+    paddingTop: spacing.xs, // Minimal padding above indicator
     paddingBottom: spacing.lg,
     marginBottom: spacing.sm,
     minHeight: 60,

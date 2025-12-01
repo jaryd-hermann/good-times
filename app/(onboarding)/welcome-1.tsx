@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect } from "react"
-import { View, Text, StyleSheet, ImageBackground, Dimensions, TouchableOpacity } from "react-native"
+import { useEffect, useState } from "react"
+import { View, Text, StyleSheet, ImageBackground, Dimensions, TouchableOpacity, Modal, Animated } from "react-native"
 import { LinearGradient } from "expo-linear-gradient"
 import { useRouter } from "expo-router"
 import { colors, typography, spacing } from "../../lib/theme"
@@ -26,6 +26,10 @@ export default function Welcome1() {
   const router = useRouter()
   const { clear } = useOnboarding()
   const posthog = usePostHog()
+  const [showModal, setShowModal] = useState(false)
+  const [showJoinInfo, setShowJoinInfo] = useState(false)
+  const slideAnim = useState(new Animated.Value(height))[0]
+  const overlayOpacity = useState(new Animated.Value(0))[0]
 
   // Track onboarding_started event
   useEffect(() => {
@@ -62,6 +66,80 @@ export default function Welcome1() {
     await new Promise(resolve => setTimeout(resolve, 100))
     router.push("/(onboarding)/auth")
   }
+
+  function handleMainCTA() {
+    setShowJoinInfo(false)
+    // Reset animations to initial state before showing modal
+    slideAnim.setValue(height)
+    overlayOpacity.setValue(0)
+    // Set modal visible first, then animate
+    setShowModal(true)
+    // Use requestAnimationFrame to ensure modal is rendered before animating
+    requestAnimationFrame(() => {
+      // Animate overlay and content together
+      Animated.parallel([
+        Animated.timing(overlayOpacity, {
+          toValue: 1,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 65,
+          friction: 11,
+        }),
+      ]).start()
+    })
+  }
+
+  function handleCreateGroup() {
+    closeModal()
+    router.push("/(onboarding)/welcome-2")
+  }
+
+  function handleJoinGroup() {
+    setShowJoinInfo(true)
+  }
+
+  function handleGotIt() {
+    closeModal()
+  }
+
+  function closeModal() {
+    // Animate overlay and content together, then hide modal
+    Animated.parallel([
+      Animated.timing(overlayOpacity, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: height,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      // Only hide modal after animation completes to prevent flash
+      // Use a small delay to ensure animation is fully complete
+      setTimeout(() => {
+        setShowModal(false)
+        setShowJoinInfo(false)
+        // Reset to initial state for next open
+        slideAnim.setValue(height)
+        overlayOpacity.setValue(0)
+      }, 50)
+    })
+  }
+
+  // Reset animations when modal closes
+  useEffect(() => {
+    if (!showModal) {
+      // Reset to initial state when modal is hidden
+      slideAnim.setValue(height)
+      overlayOpacity.setValue(0)
+    }
+  }, [showModal])
 
   // Phase 4: FaceID should trigger at login screens (welcome-1 is a login screen)
   // Phase 7: Enhanced navigation with success check
@@ -155,12 +233,80 @@ export default function Welcome1() {
           </View>
           <Button
             title="→"
-            onPress={() => router.push("/(onboarding)/welcome-2")}
+            onPress={handleMainCTA}
             style={styles.button}
             textStyle={styles.buttonText}
           />
         </View>
       </View>
+
+      <Modal
+        visible={showModal}
+        transparent={true}
+        animationType="none"
+        onRequestClose={closeModal}
+      >
+        <View style={styles.modalContainer}>
+          <Animated.View
+            style={[
+              styles.modalOverlay,
+              {
+                opacity: overlayOpacity,
+              },
+            ]}
+          >
+            <TouchableOpacity
+              style={StyleSheet.absoluteFill}
+              activeOpacity={1}
+              onPress={closeModal}
+            />
+          </Animated.View>
+          <Animated.View
+            style={[
+              styles.modalContent,
+              {
+                transform: [{ translateY: slideAnim }],
+              },
+            ]}
+            onStartShouldSetResponder={() => true}
+          >
+              {!showJoinInfo ? (
+                <>
+                  <Text style={styles.modalTitle}>
+                    Are you creating a new group, or joining an existing one?
+                  </Text>
+                  <View style={styles.modalButtons}>
+                    <Button
+                      title="Create Group"
+                      onPress={handleCreateGroup}
+                      style={styles.modalButton}
+                      textStyle={styles.modalButtonText}
+                    />
+                    <Button
+                      title="Join Group"
+                      onPress={handleJoinGroup}
+                      variant="secondary"
+                      style={styles.modalButton}
+                      textStyle={styles.modalButtonText}
+                    />
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.modalTitle}>
+                    To join a group, follow the invite link shared with you. If you don't have one, ask anyone in your group
+                  </Text>
+                  <Button
+                    title="Got it"
+                    onPress={handleGotIt}
+                    style={styles.modalButton}
+                    textStyle={styles.modalButtonText}
+                  />
+                </>
+              )}
+          </Animated.View>
+        </View>
+      </Modal>
     </ImageBackground>
   )
 }
@@ -226,5 +372,39 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     fontSize: 32,
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  modalOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0, 0, 0, 0.75)",
+  },
+  modalContent: {
+    backgroundColor: colors.black,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: spacing.lg,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.xxl,
+    width: "100%",
+  },
+  modalTitle: {
+    ...typography.body,
+    fontSize: 18,
+    lineHeight: 26,
+    color: colors.white,
+    marginBottom: spacing.xl,
+    textAlign: "center",
+  },
+  modalButtons: {
+    gap: spacing.md,
+  },
+  modalButton: {
+    width: "100%",
+  },
+  modalButtonText: {
+    fontSize: 16,
   },
 })

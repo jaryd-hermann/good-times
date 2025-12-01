@@ -173,7 +173,7 @@ serve(async (req) => {
       throw new Error("group_id and group_type are required")
     }
 
-    // Get group details including ice-breaker completion status
+    // Get group details including created_at and ice-breaker completion status
     const { data: groupData, error: groupError } = await supabaseClient
       .from("groups")
       .select("type, created_at, ice_breaker_queue_completed_date")
@@ -184,6 +184,9 @@ serve(async (req) => {
     if (!groupData) throw new Error("Group not found")
 
     const groupType = groupData.type as "family" | "friends"
+    // Use group.created_at as the anchor date for the initial queue.
+    // We treat created_at as UTC and take the calendar date portion.
+    const groupCreatedDateStr = new Date(groupData.created_at).toISOString().split("T")[0]
     const isIceBreakerInitialization = !groupData.ice_breaker_queue_completed_date
     const groupCategory = groupType === "friends" ? "Friends" : "Family" // Used for ice-breaker queries
     
@@ -508,14 +511,16 @@ serve(async (req) => {
       console.log(`[initialize-group-queue] No existing prompts found, proceeding with fresh initialization`)
     }
 
-    // Generate dates: 7 days past + today + 7 days future (15 days total)
-    // For ice-breaker mode, we'll extend this if birthdays are inserted
+    // Generate dates for the initial queue.
+    // NEW BEHAVIOR: We ONLY schedule from the group's creation date forward.
+    // Create 15 days starting at the group creation date (day 0 .. day 14).
+    // This avoids showing prompts for days before the group existed.
     const baseDates: string[] = []
-    const todayDate = new Date(today)
+    const createdDate = new Date(groupCreatedDateStr)
     
-    for (let i = -7; i <= 7; i++) {
-      const date = new Date(todayDate)
-      date.setDate(date.getDate() + i)
+    for (let i = 0; i < 15; i++) {
+      const date = new Date(createdDate)
+      date.setDate(createdDate.getDate() + i)
       baseDates.push(date.toISOString().split("T")[0])
     }
 

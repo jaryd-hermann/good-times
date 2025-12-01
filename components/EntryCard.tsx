@@ -865,16 +865,32 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
       {comments.length > 0 && (
         <View style={styles.commentsContainer}>
           {comments.slice(0, 2).map((comment: any) => (
-            <View key={comment.id} style={styles.commentPreviewItem}>
+            <TouchableOpacity
+              key={comment.id}
+              style={styles.commentPreviewItem}
+              onPress={(e) => {
+                e.stopPropagation()
+                handleEntryPress(true) // Scroll to comments
+              }}
+              activeOpacity={0.7}
+            >
               <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={20} />
               <Text style={styles.commentPreviewUser}>{comment.user?.name}: </Text>
               <Text style={styles.commentPreviewText} numberOfLines={1}>
                 {comment.text}
               </Text>
-            </View>
+            </TouchableOpacity>
           ))}
           {comments.length > 2 && (
-            <Text style={styles.commentPreviewMore}>+{comments.length - 2} more</Text>
+            <TouchableOpacity
+              onPress={(e) => {
+                e.stopPropagation()
+                handleEntryPress(true) // Scroll to comments
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.commentPreviewMore}>+{comments.length - 2} more</Text>
+            </TouchableOpacity>
           )}
         </View>
       )}
