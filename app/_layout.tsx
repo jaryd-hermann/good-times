@@ -157,13 +157,26 @@ const queryClient = new QueryClient({
 
 export default function RootLayout() {
   // 1️⃣ Load fonts (keep this active)
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     "LibreBaskerville-Regular": require("../assets/fonts/LibreBaskerville-Regular.ttf"),
     "LibreBaskerville-Bold": require("../assets/fonts/LibreBaskerville-Bold.ttf"),
     "Roboto-Regular": require("../assets/fonts/Roboto-Regular.ttf"),
     "Roboto-Medium": require("../assets/fonts/Roboto-Medium.ttf"),
     "Roboto-Bold": require("../assets/fonts/Roboto-Bold.ttf"),
   })
+  
+  // Option 4: Add font loading timeout - proceed without fonts if they don't load within 5 seconds
+  const [fontsTimedOut, setFontsTimedOut] = useState(false)
+  useEffect(() => {
+    const fontTimeout = setTimeout(() => {
+      if (!fontsLoaded && !fontError) {
+        console.warn("[_layout] Font loading timeout - proceeding without custom fonts")
+        setFontsTimedOut(true)
+      }
+    }, 5000) // 5 second timeout
+    
+    return () => clearTimeout(fontTimeout)
+  }, [fontsLoaded, fontError])
 
   // Handle notification clicks
   useEffect(() => {
@@ -330,14 +343,16 @@ export default function RootLayout() {
   // 2️⃣ SplashScreen logic (safe timeout fallback)
   useEffect(() => {
     const timer = setTimeout(() => SplashScreen.hideAsync().catch(() => {}), 1500)
-    if (fontsLoaded) SplashScreen.hideAsync().catch(() => {})
+    // Option 4: Hide splash screen when fonts load OR timeout occurs
+    if (fontsLoaded || fontsTimedOut) SplashScreen.hideAsync().catch(() => {})
     return () => clearTimeout(timer)
-  }, [fontsLoaded])
+  }, [fontsLoaded, fontsTimedOut])
 
   // 3️⃣ Render the app normally
-  // Add error boundary for crashes
-  if (!fontsLoaded) {
-    return null // Keep splash screen visible while fonts load
+  // Option 4: Proceed with app even if fonts haven't loaded (after timeout or error)
+  // System fonts will be used as fallback
+  if (!fontsLoaded && !fontsTimedOut && !fontError) {
+    return null // Keep splash screen visible while fonts load (up to 5 seconds)
   }
 
   // PostHog configuration

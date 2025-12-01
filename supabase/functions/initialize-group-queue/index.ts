@@ -337,67 +337,62 @@ serve(async (req) => {
       
       console.log(`[initialize-group-queue] Found ${iceBreakerPrompts.length} ice-breaker questions (filtered from ${iceBreakerPromptsRaw?.length || 0} total)`)
       
-      // If we have fewer than 15 ice-breaker questions, fill with fallback
+      // ICE-BREAKER PERIOD: Use ONLY ice-breaker questions, no fallback
+      // If we have fewer than 15, we still use only ice-breaker questions (repeat if needed)
+      // This ensures groups always get ice-breaker questions during the ice-breaker period
       if ((iceBreakerPrompts?.length || 0) < 15) {
-        const needed = 15 - (iceBreakerPrompts?.length || 0)
-        console.log(`[initialize-group-queue] Need ${needed} more questions, fetching fallback questions`)
-        
-        // Fallback: FRIEND/FAMILY + Fun category, excluding Edgy/NSFW, A Bit Deeper
-        const fallbackCategories = [groupCategory, "Fun"]
-        const { data: fallbackPromptsRaw, error: fallbackError } = await supabaseClient
-          .from("prompts")
-          .select("*")
-          .in("category", fallbackCategories)
-          .not("category", "eq", "Edgy/NSFW")
-          .not("category", "eq", "A Bit Deeper")
-          .is("birthday_type", null)
-          .neq("category", "Remembering")
-          .eq("ice_breaker", false) // Don't double-count ice-breaker questions
-        
-        if (fallbackError) throw fallbackError
-        
-        // Filter out dynamic variables and exclude already-selected ice-breaker prompts
-        const iceBreakerIds = new Set(iceBreakerPrompts.map((p: any) => p.id))
-        const fallbackPrompts = (fallbackPromptsRaw || []).filter((p: any) => {
-          const hasDynamicVars = p.dynamic_variables && 
-            Array.isArray(p.dynamic_variables) && 
-            p.dynamic_variables.length > 0
-          return !hasDynamicVars && !iceBreakerIds.has(p.id)
-        })
-        
-        // Combine ice-breaker + fallback, limit to needed amount
-        const fallbackToAdd = fallbackPrompts.slice(0, needed)
-        allPrompts = [...iceBreakerPrompts, ...fallbackToAdd]
-        console.log(`[initialize-group-queue] Combined ${iceBreakerPrompts.length} ice-breaker + ${fallbackToAdd.length} fallback = ${allPrompts.length} total`)
+        console.warn(`[initialize-group-queue] Only ${iceBreakerPrompts.length} ice-breaker questions available (need 15). Using only ice-breaker questions and will repeat as needed.`)
+        // Use all available ice-breaker questions, they'll be repeated if needed
+        allPrompts = iceBreakerPrompts
       } else {
-        // Use only ice-breaker questions (take first 15 if more exist)
+        // Use first 15 ice-breaker questions
         allPrompts = iceBreakerPrompts.slice(0, 15)
         console.log(`[initialize-group-queue] Using ${allPrompts.length} ice-breaker questions`)
       }
       
-      // Full fallback: If no ice-breaker questions exist, use all FRIEND/FAMILY + Fun
+      // CRITICAL: If no ice-breaker questions exist, this is an error condition
+      // Use ONLY the group category (Friends/Family) as fallback, NO other categories
       if (allPrompts.length === 0) {
-        console.log(`[initialize-group-queue] No ice-breaker questions found, using full fallback`)
-        const fallbackCategories = [groupCategory, "Fun"]
-        const { data: fullFallbackPromptsRaw, error: fullFallbackError } = await supabaseClient
+        console.error(`[initialize-group-queue] No ice-breaker questions found for ${groupCategory}. Using ${groupCategory} category ONLY as emergency fallback.`)
+        const { data: emergencyFallbackRaw, error: emergencyFallbackError } = await supabaseClient
           .from("prompts")
           .select("*")
-          .in("category", fallbackCategories)
-          .not("category", "eq", "Edgy/NSFW")
-          .not("category", "eq", "A Bit Deeper")
+          .eq("category", groupCategory) // ONLY group category, no Fun category
           .is("birthday_type", null)
           .neq("category", "Remembering")
+          .eq("ice_breaker", true) // Still prefer ice-breaker questions even in emergency
         
-        if (fullFallbackError) throw fullFallbackError
+        if (emergencyFallbackError) throw emergencyFallbackError
         
         // Filter out dynamic variables
-        allPrompts = (fullFallbackPromptsRaw || []).filter((p: any) => {
+        allPrompts = (emergencyFallbackRaw || []).filter((p: any) => {
           const hasDynamicVars = p.dynamic_variables && 
             Array.isArray(p.dynamic_variables) && 
             p.dynamic_variables.length > 0
           return !hasDynamicVars
         })
-        console.log(`[initialize-group-queue] Full fallback found ${allPrompts.length} questions`)
+        
+        // If still no prompts, use non-ice-breaker from group category ONLY
+        if (allPrompts.length === 0) {
+          console.error(`[initialize-group-queue] No ice-breaker questions in ${groupCategory}. Using non-ice-breaker ${groupCategory} questions as last resort.`)
+          const { data: lastResortRaw, error: lastResortError } = await supabaseClient
+            .from("prompts")
+            .select("*")
+            .eq("category", groupCategory) // ONLY group category
+            .is("birthday_type", null)
+            .neq("category", "Remembering")
+          
+          if (lastResortError) throw lastResortError
+          
+          allPrompts = (lastResortRaw || []).filter((p: any) => {
+            const hasDynamicVars = p.dynamic_variables && 
+              Array.isArray(p.dynamic_variables) && 
+              p.dynamic_variables.length > 0
+            return !hasDynamicVars
+          })
+        }
+        
+        console.log(`[initialize-group-queue] Emergency fallback found ${allPrompts.length} questions from ${groupCategory} category only`)
       }
     } else {
       // NORMAL INITIALIZATION: Use existing logic

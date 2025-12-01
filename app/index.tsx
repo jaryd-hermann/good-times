@@ -1,26 +1,19 @@
 // app/index.tsx
+// Phase 2: Simplified boot flow - only routes based on AuthProvider state
+// Phase 5: In-app vs cold start logic
+// Phase 6: Black screen prevention
+
 import { useEffect, useState, useRef } from "react";
-import { View, ActivityIndicator, Text, Pressable, Alert, ImageBackground, StyleSheet, AppState, AppStateStatus } from "react-native";
-import { useRouter, Link, useSegments } from "expo-router";
+import { View, ActivityIndicator, Text, Pressable, Alert, ImageBackground, StyleSheet } from "react-native";
+import { useRouter, useSegments } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { typography, colors as themeColors } from "../lib/theme";
-
-// Global error handler for uncaught errors
-if (typeof global !== 'undefined') {
-  const originalError = console.error;
-  console.error = (...args: any[]) => {
-    originalError(...args);
-    // In development, show alert for critical errors
-    if (__DEV__) {
-      const errorMsg = args.map(arg => 
-        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
-      ).join(' ');
-      if (errorMsg.includes('Error') || errorMsg.includes('Failed') || errorMsg.includes('undefined')) {
-        Alert.alert('Debug Error', errorMsg.substring(0, 200));
-      }
-    }
-  };
-}
+import { useAuth } from "../components/AuthProvider";
+import {
+  isColdStart,
+  recordSessionStart,
+  recordSuccessfulNavigation,
+} from "../lib/session-lifecycle";
 
 // Import supabase safely to prevent crashes
 let supabase: any
@@ -29,148 +22,69 @@ try {
   supabase = supabaseModule.supabase
 } catch (error) {
   console.error("[index] Failed to import supabase:", error)
-  // Create a minimal fallback to prevent crash
   supabase = {
     auth: {
       getSession: () => Promise.resolve({ data: { session: null }, error: null }),
-      refreshSession: () => Promise.resolve({ data: { session: null }, error: null }),
     },
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: () => Promise.resolve({ data: null, error: null }),
+        }),
+      }),
+    }),
   }
 }
-import {
-  getBiometricPreference,
-  authenticateWithBiometric,
-  getBiometricRefreshToken,
-  getBiometricUserId,
-  clearBiometricCredentials,
-} from "../lib/biometric";
-import { registerForPushNotifications, savePushToken } from "../lib/notifications";
 
 const colors = { black: "#000", accent: "#de2f08", white: "#fff" };
 const PENDING_GROUP_KEY = "pending_group_join";
 
-type MaybeUser = { name?: string | null; birthday?: string | null } | null;
-
 export default function Index() {
   const router = useRouter();
   const segments = useSegments();
+  const { user, loading: authLoading } = useAuth();
   const [booting, setBooting] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [loadingDots, setLoadingDots] = useState(".");
-  const lastAppStateRef = useRef<AppStateStatus>(AppState.currentState);
-  const bootTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [shouldShowBootScreen, setShouldShowBootScreen] = useState(true);
+  const hasNavigatedRef = useRef(false);
 
-  // Detect black screen scenario: if booting takes too long, force navigation
-  // Keep booting screen visible during recovery attempts
+  // Phase 5: Determine if boot screen should show based on cold start
   useEffect(() => {
-    // Set a maximum boot timeout of 15 seconds
-    bootTimeoutRef.current = setTimeout(() => {
-      if (booting) {
-        console.warn("[boot] Boot timeout reached - forcing navigation recovery");
-        // Keep booting screen visible during recovery
-        setBooting(true);
-        // Try to get session and navigate
-        (async () => {
-          try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session) {
-              // Check if we have a valid route
-              const currentSegments = segments;
-              if (!currentSegments || currentSegments.length === 0) {
-                // No active route - force navigation to home
-                console.log("[boot] No active route detected, navigating to home");
-                router.replace("/(main)/home");
-              } else {
-                // Route exists, booting can complete
-                setBooting(false);
-              }
-            } else {
-              router.replace("/(onboarding)/welcome-1");
-            }
-          } catch (error) {
-            console.error("[boot] Recovery navigation failed:", error);
-            // Keep booting screen visible and try welcome screen
-            setBooting(true);
-            setTimeout(() => {
-              router.replace("/(onboarding)/welcome-1");
-            }, 500);
-          }
-        })();
-      }
-    }, 15000);
-
-    return () => {
-      if (bootTimeoutRef.current) {
-        clearTimeout(bootTimeoutRef.current);
-      }
-    };
-  }, [booting, router, segments]);
-
-  // Handle app state changes to detect long background periods
-  useEffect(() => {
-    let backgroundTime: number | null = null;
-
-    const handleAppStateChange = (nextAppState: AppStateStatus) => {
-      // Track when app goes to background
-      if (nextAppState.match(/inactive|background/)) {
-        backgroundTime = Date.now();
-      }
-
-      // App came to foreground - check if it was backgrounded for a long time
-      if (lastAppStateRef.current.match(/inactive|background/) && nextAppState === "active") {
-        const timeInBackground = backgroundTime ? Date.now() - backgroundTime : 0;
-        const wasBackgroundedLongTime = timeInBackground > 30 * 60 * 1000; // 30 minutes
-
-        if (wasBackgroundedLongTime) {
-          console.log("[boot] App resumed after long background period, checking navigation state");
-          // Check if we have a valid route
-          const currentSegments = segments;
-          if (!currentSegments || currentSegments.length === 0) {
-            // No active route - might be black screen scenario
-            console.warn("[boot] No active route after long background - showing booting screen");
-            // Show booting screen immediately to prevent black screen
-            setBooting(true);
-            // Trigger navigation recovery
-            setTimeout(() => {
-              (async () => {
-                try {
-                  const { data: { session } } = await supabase.auth.getSession();
-                  if (session) {
-                    router.replace("/(main)/home");
-                  } else {
-                    router.replace("/(onboarding)/welcome-1");
-                  }
-                } catch (error) {
-                  console.error("[boot] Recovery navigation failed:", error);
-                  // Keep booting screen visible and try welcome screen
-                  setBooting(true);
-                  setTimeout(() => {
-                    router.replace("/(onboarding)/welcome-1");
-                  }, 500);
-                }
-              })();
-            }, 500);
-          }
+    async function checkColdStart() {
+      try {
+        const isCold = await isColdStart();
+        setShouldShowBootScreen(isCold);
+        
+        // Record session start if cold start
+        if (isCold) {
+          await recordSessionStart();
         }
+      } catch (error) {
+        console.error("[index] Failed to check cold start:", error);
+        // On error, show boot screen to be safe
+        setShouldShowBootScreen(true);
       }
+    }
+    
+    checkColdStart();
+  }, []);
 
-      lastAppStateRef.current = nextAppState;
-    };
-
-    const subscription = AppState.addEventListener("change", handleAppStateChange);
-
-    return () => {
-      subscription.remove();
-    };
-  }, [router, segments]);
-
+  // Phase 2: Simplified boot flow - only route based on AuthProvider state
+  // No session checking here - AuthProvider handles all session management
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
       try {
-        console.log("[boot] start");
-        
+        // Wait for AuthProvider to finish loading
+        if (authLoading) {
+          console.log("[boot] Waiting for AuthProvider to load...");
+          return;
+        }
+
+        console.log("[boot] AuthProvider loaded, user:", !!user);
+
         // Check if Supabase is configured
         console.log("[boot] Checking Supabase configuration...");
         let isConfigured = false;
@@ -186,7 +100,7 @@ export default function Index() {
           setBooting(false);
           return;
         }
-        
+
         if (!isConfigured) {
           const errorMsg = "Supabase is not configured. Please set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY as EAS secrets.";
           console.error("[boot]", errorMsg);
@@ -199,222 +113,55 @@ export default function Index() {
         // Check for pending group join (from deep link before auth)
         const pendingGroupId = await AsyncStorage.getItem(PENDING_GROUP_KEY);
 
-        // Check if biometric login is enabled and try to authenticate
-        const biometricEnabled = await getBiometricPreference();
-        let session = null;
-
-        if (biometricEnabled) {
-          console.log("[boot] biometric enabled, attempting biometric login");
-          const refreshToken = await getBiometricRefreshToken();
-          const userId = await getBiometricUserId();
-
-          if (refreshToken && userId) {
-            // Try biometric authentication
-            const authResult = await authenticateWithBiometric("Log in with FaceID");
-            if (authResult.success) {
-              try {
-                // Use refresh token to get new session with timeout
-                const refreshPromise = supabase.auth.refreshSession({
-                  refresh_token: refreshToken,
-                });
-                
-                // Add timeout to prevent infinite hanging
-                const timeoutPromise = new Promise((_, reject) => 
-                  setTimeout(() => reject(new Error("Session refresh timeout")), 10000)
-                );
-                
-                const { data: refreshData, error: refreshError } = await Promise.race([
-                  refreshPromise,
-                  timeoutPromise,
-                ]) as any;
-
-                if (!refreshError && refreshData?.session) {
-                  session = refreshData.session;
-                  console.log("[boot] biometric login successful");
-                } else {
-                  console.log("[boot] refresh token invalid, clearing credentials");
-                  await clearBiometricCredentials();
-                  // If refresh token expired, user needs to log in again
-                  // Don't set session, let it fall through to normal session check
-                }
-              } catch (error: any) {
-                console.log("[boot] biometric refresh failed:", error.message);
-                await clearBiometricCredentials();
-                // If it's a timeout or network error, try normal session check as fallback
-                if (error.message?.includes("timeout") || error.message?.includes("network")) {
-                  console.log("[boot] timeout/network error, trying normal session check");
-                }
-              }
-            } else {
-              console.log("[boot] biometric authentication cancelled/failed:", authResult.error);
-              // User cancelled or failed - fall through to normal session check
-            }
-          }
-        }
-
-        // If no session from biometric, check normal session with timeout protection
-        if (!session) {
-          try {
-            console.log("[boot] Checking normal session with timeout protection...")
-            // Use shorter timeout (5 seconds) since AuthProvider handles initial session via onAuthStateChange
-            const getSessionPromise = supabase.auth.getSession();
-            const timeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error("getSession timeout")), 5000)
-            );
-            
-            const { data: { session: normalSession }, error: sessErr } = await Promise.race([
-              getSessionPromise,
-              timeoutPromise,
-            ]) as any;
-            
-            if (sessErr) {
-              console.error("[boot] getSession error:", sessErr.message);
-              // If session check fails, clear any stale credentials and go to welcome
-              await clearBiometricCredentials();
-              router.replace("/(onboarding)/welcome-1");
-              return;
-            }
-            session = normalSession;
-            console.log("[boot] normal session:", !!session);
-          } catch (error: any) {
-            console.error("[boot] getSession failed:", error.message);
-            // On timeout or error, clear credentials and redirect to welcome
-            // Note: AuthProvider will handle session loading via onAuthStateChange, so this is just for boot routing
-            await clearBiometricCredentials();
-            router.replace("/(onboarding)/welcome-1");
-            return;
-          }
-        }
-
-        // CRITICAL: Refresh session if expired before proceeding
-        if (session) {
-          try {
-            console.log("[boot] Ensuring session is valid before navigation...")
-            const { ensureValidSession } = await import("../lib/auth")
-            const refreshed = await ensureValidSession()
-            if (!refreshed) {
-              console.warn("[boot] Failed to refresh expired session after retries")
-              // Check if session still exists in storage (might be valid despite refresh failure)
-              const { data: { session: storedSession } } = await supabase.auth.getSession()
-              if (storedSession) {
-                // Session exists - check if it's still valid
-                const expiresAt = storedSession.expires_at
-                if (expiresAt) {
-                  const expiresIn = expiresAt - Math.floor(Date.now() / 1000)
-                  if (expiresIn > 0) {
-                    console.log("[boot] Stored session is still valid, continuing with it")
-                    session = storedSession
-                  } else {
-                    console.log("[boot] Stored session is expired, clearing it")
-                    await supabase.auth.signOut()
-                    await clearBiometricCredentials()
-                    session = null
-                  }
-                } else {
-                  // No expiry info - assume valid and continue
-                  console.log("[boot] Stored session has no expiry, continuing")
-                  session = storedSession
-                }
-              } else {
-                // No session found - clear everything
-                console.log("[boot] No session found, clearing credentials")
-                await clearBiometricCredentials()
-                session = null
-              }
-            } else {
-              // Refresh succeeded - get fresh session
-              const { data: { session: freshSession } } = await supabase.auth.getSession()
-              if (freshSession) {
-                session = freshSession
-                console.log("[boot] Session refreshed successfully")
-              }
-            }
-          } catch (error: any) {
-            console.error("[boot] Session refresh check failed:", error.message)
-            // Check stored session as fallback
-            try {
-              const { data: { session: storedSession } } = await supabase.auth.getSession()
-              if (storedSession) {
-                console.log("[boot] Using stored session as fallback")
-                session = storedSession
-              } else {
-                session = null
-              }
-            } catch (fallbackError) {
-              console.error("[boot] Fallback session check failed:", fallbackError)
-              session = null
-            }
-          }
-        }
-
-        if (!session) {
-          console.log("[boot] no session → onboarding/welcome-1");
+        // Phase 2: Route based on AuthProvider state only
+        if (!user) {
+          console.log("[boot] No user → onboarding/welcome-1");
           // Keep pendingGroupId in storage for after auth
-          router.replace("/(onboarding)/welcome-1"); // make sure file exists
-          return;
-        }
-
-        // If there's a pending group join, handle it after checking profile
-        if (pendingGroupId) {
-          await AsyncStorage.removeItem(PENDING_GROUP_KEY);
-          // After auth, redirect to join handler
-          router.replace({
-            pathname: `/join/${pendingGroupId}`,
-          });
-          return;
-        }
-
-        // Save biometric credentials if biometric is enabled and we just logged in
-        if (biometricEnabled && session.refresh_token) {
-          try {
-            const { saveBiometricCredentials } = await import("../lib/biometric");
-            await saveBiometricCredentials(session.refresh_token, session.user.id);
-          } catch (error) {
-            console.warn("[boot] failed to save biometric credentials:", error);
-            // Don't block boot if saving fails
+          if (!hasNavigatedRef.current) {
+            hasNavigatedRef.current = true;
+            router.replace("/(onboarding)/welcome-1");
+            await recordSuccessfulNavigation("/(onboarding)/welcome-1");
           }
+          return;
         }
 
-        // 2) user profile (if your table is 'users'; if it's 'profiles', change this)
-        let user: MaybeUser = null;
+        // User exists - check profile and group membership
         const { data: userData, error: userErr } = await supabase
           .from("users")
           .select("name, birthday")
-          .eq("id", session.user.id)
+          .eq("id", user.id)
           .maybeSingle();
 
         if (userErr) {
           console.log("[boot] users query error:", userErr.message);
-        } else {
-          user = userData as MaybeUser;
         }
-        console.log("[boot] user:", user);
 
-        if (!user?.name || !user?.birthday) {
-          console.log("[boot] ⚠️ Session exists but no user profile - this is an orphaned session");
+        // Check if user has complete profile
+        if (!userData?.name || !userData?.birthday) {
+          console.log("[boot] ⚠️ User exists but no profile - orphaned session");
           console.log("[boot] Clearing orphaned session and redirecting to welcome-1");
           
-          // Clear the orphaned session - user can't use the app without a profile
-          // This happens when OAuth sign-up fails partway through
           try {
             await supabase.auth.signOut();
-            await clearBiometricCredentials();
             console.log("[boot] ✅ Orphaned session cleared");
           } catch (signOutError) {
             console.warn("[boot] Failed to clear orphaned session:", signOutError);
-            // Continue anyway - will redirect to welcome-1
           }
           
-          router.replace("/(onboarding)/welcome-1");
+          if (!hasNavigatedRef.current) {
+            hasNavigatedRef.current = true;
+            router.replace("/(onboarding)/welcome-1");
+            await recordSuccessfulNavigation("/(onboarding)/welcome-1");
+          }
           return;
         }
 
-        // 3) group membership
+        // Check group membership
         console.log("[boot] checking group membership...");
         const { data: membership, error: memErr } = await supabase
           .from("group_members")
           .select("group_id")
-          .eq("user_id", session.user.id)
+          .eq("user_id", user.id)
           .limit(1)
           .maybeSingle();
 
@@ -423,29 +170,51 @@ export default function Index() {
         if (memErr) {
           console.log("[boot] group_members error:", memErr.message);
           console.log("[boot] → onboarding/create-group/name-type");
-          router.replace("/(onboarding)/create-group/name-type"); // make sure file exists
+          
+          if (!hasNavigatedRef.current) {
+            hasNavigatedRef.current = true;
+            router.replace("/(onboarding)/create-group/name-type");
+            await recordSuccessfulNavigation("/(onboarding)/create-group/name-type");
+          }
           return;
         }
 
-        // Push notifications will be requested on first visit to home.tsx
+        // Handle pending group join
+        if (pendingGroupId) {
+          await AsyncStorage.removeItem(PENDING_GROUP_KEY);
+          if (!hasNavigatedRef.current) {
+            hasNavigatedRef.current = true;
+            router.replace({
+              pathname: `/join/${pendingGroupId}`,
+            });
+            await recordSuccessfulNavigation(`/join/${pendingGroupId}`);
+          }
+          return;
+        }
+
+        // Route to appropriate screen based on group membership
         console.log("[boot] routing decision...");
+        
         if (membership?.group_id) {
-          // Boot flow should ALWAYS go to home if user has a group
-          // Onboarding screens are only shown during registration flow (after group creation)
-          // Never show onboarding screens during boot/sign-in
           console.log("[boot] user with group → (main)/home");
-          router.replace("/(main)/home");
+          if (!hasNavigatedRef.current) {
+            hasNavigatedRef.current = true;
+            router.replace("/(main)/home");
+            await recordSuccessfulNavigation("/(main)/home");
+          }
         } else {
           console.log("[boot] no group → onboarding/create-group/name-type");
-          router.replace("/(onboarding)/create-group/name-type");
+          if (!hasNavigatedRef.current) {
+            hasNavigatedRef.current = true;
+            router.replace("/(onboarding)/create-group/name-type");
+            await recordSuccessfulNavigation("/(onboarding)/create-group/name-type");
+          }
         }
-        console.log("[boot] router.replace called");
       } catch (e: any) {
         const msg = e?.message || String(e);
         const stack = e?.stack || '';
         console.error("[boot] FATAL ERROR:", msg, stack);
         setErr(`Boot failed: ${msg}`);
-        // Show alert in both dev and production for critical boot errors
         Alert.alert(
           "App Failed to Start",
           `Error: ${msg}\n\nPlease check your configuration and try again.`,
@@ -454,27 +223,24 @@ export default function Index() {
       } finally {
         if (!cancelled) {
           setBooting(false);
-          // Clear boot timeout since we completed successfully
-          if (bootTimeoutRef.current) {
-            clearTimeout(bootTimeoutRef.current);
-            bootTimeoutRef.current = null;
-          }
         }
       }
     })();
 
     return () => {
       cancelled = true;
-      if (bootTimeoutRef.current) {
-        clearTimeout(bootTimeoutRef.current);
-      }
     };
-  }, [router]);
+  }, [user, authLoading, router]);
 
-  // Animate loading dots - keep animating if booting OR if no route (showing booting screen)
+  // Phase 6: Black screen prevention - always show boot screen if no route
+  // Also show boot screen during AuthProvider loading or if booting
+  const segmentsLength = (segments as string[]).length;
+  const hasNoRoute = segmentsLength === 0;
+  const shouldShowBooting = booting || authLoading || (!err && hasNoRoute) || shouldShowBootScreen;
+
+  // Animate loading dots
   useEffect(() => {
-    const shouldAnimate = booting || (!err && segments.length === 0);
-    if (!shouldAnimate) return;
+    if (!shouldShowBooting) return;
 
     const interval = setInterval(() => {
       setLoadingDots((prev) => {
@@ -482,15 +248,12 @@ export default function Index() {
         if (prev === "..") return "...";
         return ".";
       });
-    }, 500); // Change every 500ms
+    }, 500);
 
     return () => clearInterval(interval);
-  }, [booting, err, segments.length]);
+  }, [shouldShowBooting]);
 
-  // Always show booting screen if booting is true OR if there's no active route (prevents black screen)
-  // Only show error screen if there's an actual error AND we're not booting
-  const shouldShowBooting = booting || (!err && segments.length === 0);
-  
+  // Phase 6: Always show booting screen if no route (prevents black screen)
   return (
     <View style={{ flex: 1, backgroundColor: colors.black }}>
       {shouldShowBooting ? (
@@ -508,11 +271,12 @@ export default function Index() {
           <Text style={{ color: colors.white, textAlign: "center", paddingHorizontal: 24 }}>
             {err ? `Boot error: ${err}` : "No route matched. Use the button below to open onboarding."}
           </Text>
-          <Link href="/(onboarding)/welcome-1" asChild>
-            <Pressable style={{ paddingVertical: 12, paddingHorizontal: 16, borderWidth: 1, borderColor: colors.white, borderRadius: 8 }}>
-              <Text style={{ color: colors.white }}>Go to Onboarding</Text>
-            </Pressable>
-          </Link>
+          <Pressable 
+            style={{ paddingVertical: 12, paddingHorizontal: 16, borderWidth: 1, borderColor: colors.white, borderRadius: 8 }}
+            onPress={() => router.replace("/(onboarding)/welcome-1")}
+          >
+            <Text style={{ color: colors.white }}>Go to Onboarding</Text>
+          </Pressable>
         </>
       )}
     </View>

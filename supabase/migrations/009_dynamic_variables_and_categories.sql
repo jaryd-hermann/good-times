@@ -32,10 +32,16 @@ CREATE POLICY "Group members can view name usage"
     )
   );
 
--- RLS Policy: System can insert usage records (via service role)
-CREATE POLICY "System can insert name usage"
+-- RLS Policy: Group members can insert usage records
+CREATE POLICY "Group members can insert name usage"
   ON prompt_name_usage FOR INSERT
-  WITH CHECK (true);
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM group_members
+      WHERE group_members.group_id = prompt_name_usage.group_id
+      AND group_members.user_id = auth.uid()
+    )
+  );
 
 -- Add constraint to prompts table to ensure Edgy/NSFW category exists
 -- Note: This will be enforced at application level, but we document it here

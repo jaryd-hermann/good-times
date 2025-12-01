@@ -142,18 +142,140 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     enabled: !!entry.group_id && !!entry.prompt?.question?.match(/\{.*memorial_name.*\}/i),
   })
 
+  // Fetch prompt_name_usage to determine which memorial was actually used
+  // Include entry.date in query key to ensure cache is date-specific and fresh
+  const { data: memorialNameUsage = [] } = useQuery({
+    queryKey: ["memorialNameUsage", entry.group_id, entry.date],
+    queryFn: async () => {
+      if (!entry.group_id) return []
+      const { data, error } = await supabase
+        .from("prompt_name_usage")
+        .select("prompt_id, date_used, name_used, created_at")
+        .eq("group_id", entry.group_id)
+        .eq("variable_type", "memorial_name")
+        .order("created_at", { ascending: true }) // Order by creation time - prefer earliest (correct) record
+      if (error) {
+        console.error("[EntryCard] Error fetching memorial name usage:", error)
+        return []
+      }
+      if (__DEV__) {
+        console.log(`[EntryCard] Fetched ${data?.length || 0} memorial name usage records`)
+      }
+      return (data || []) as Array<{ prompt_id: string; date_used: string; name_used: string; created_at: string }>
+    },
+    enabled: !!entry.group_id && !!entry.prompt?.question?.match(/\{.*memorial_name.*\}/i),
+    staleTime: 0, // Always fetch fresh data
+    refetchOnMount: true,
+    gcTime: 0, // Don't cache - always fetch fresh to prevent stale data
+  })
+
+  // Helper function to calculate day index (same logic as in lib/db.ts)
+  const getDayIndex = (dateString: string, groupId: string): number => {
+    const base = new Date(dateString)
+    const start = new Date("2020-01-01")
+    const diff = Math.floor((base.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
+    const groupOffset = groupId ? groupId.length : 0
+    return diff + groupOffset
+  }
+
+  // Create a map of prompt_id + date -> memorial name used
+  // CRITICAL: If multiple records exist for same key (duplicates), prefer the FIRST one encountered
+  // Since we order by created_at ascending, the first one is the earliest (correct) record
+  // This is a safety measure in case duplicate records exist in the database
+  const memorialUsageMap = useMemo(() => {
+    const map = new Map<string, string>()
+    memorialNameUsage.forEach((usage) => {
+      const normalizedDate = usage.date_used.split('T')[0]
+      const key = `${usage.prompt_id}-${normalizedDate}`
+      
+      // Only set if key doesn't exist - this means we prefer the FIRST record (earliest created_at)
+      // This ensures we use the correct memorial even if duplicates exist
+      if (!map.has(key)) {
+        map.set(key, usage.name_used)
+      } else {
+        // Duplicate detected - log warning but keep the first one (which is correct)
+        if (__DEV__) {
+          console.warn(`[EntryCard] Duplicate prompt_name_usage detected for ${key}. Using first record: ${map.get(key)} instead of ${usage.name_used}`)
+        }
+      }
+    })
+    return map
+  }, [memorialNameUsage])
+
+  // Function to determine which memorial was used for this prompt on this date
+  const getMemorialForPrompt = useMemo(() => {
+    return (promptId: string, date: string, groupId: string): string | null => {
+      // First check if we have usage data
+      const normalizedDate = date.split('T')[0]
+      const usageKey = `${promptId}-${normalizedDate}`
+      const memorialNameUsed = memorialUsageMap.get(usageKey)
+      if (memorialNameUsed) {
+        return memorialNameUsed
+      }
+
+      // Fallback: calculate which memorial would have been used using the same logic
+      if (memorials.length === 0) return null
+
+      const recentUsage = memorialNameUsage
+        .filter(u => u.prompt_id === promptId)
+        .sort((a, b) => {
+          const dateA = new Date(a.date_used).getTime()
+          const dateB = new Date(b.date_used).getTime()
+          return dateB - dateA
+        })
+        .slice(0, memorials.length)
+        .map(u => u.name_used)
+      
+      const usedNames = new Set(recentUsage)
+      const unusedMemorials = memorials.filter((m) => !usedNames.has(m.name))
+      const availableMemorials = unusedMemorials.length > 0 ? unusedMemorials : memorials
+      
+      const dayIndex = getDayIndex(date, groupId)
+      const memorialIndex = dayIndex % availableMemorials.length
+      const selectedMemorial = availableMemorials[memorialIndex]
+      
+      return selectedMemorial.name
+    }
+  }, [memorials, memorialNameUsage, memorialUsageMap])
+
   // Personalize prompt question if it has placeholders
   const personalizedQuestion = useMemo(() => {
     if (!entry.prompt?.question) return entry.prompt?.question
     let question = entry.prompt.question
     
-    // Check for memorial_name placeholder
-    if (question.match(/\{.*memorial_name.*\}/i) && memorials.length > 0) {
-      question = personalizeMemorialPrompt(question, memorials[0].name)
+    // Check for memorial_name placeholder - use the CORRECT memorial that was actually used
+    if (question.match(/\{.*memorial_name.*\}/i) && entry.group_id && entry.prompt_id && entry.date) {
+      const memorialNameUsed = getMemorialForPrompt(entry.prompt_id, entry.date, entry.group_id)
+      
+      // Debug logging
+      if (__DEV__) {
+        console.log(`[EntryCard] Personalizing question:`, {
+          promptId: entry.prompt_id,
+          date: entry.date,
+          groupId: entry.group_id,
+          memorialNameUsed,
+          memorialUsageMapSize: memorialUsageMap.size,
+          memorialNameUsageCount: memorialNameUsage.length,
+        })
+      }
+      
+      if (memorialNameUsed) {
+        question = personalizeMemorialPrompt(question, memorialNameUsed)
+        if (__DEV__) {
+          console.log(`[EntryCard] Personalized with: ${memorialNameUsed}`)
+        }
+      } else if (memorials.length > 0) {
+        // Fallback if we can't determine (shouldn't happen, but safety)
+        console.warn(`[EntryCard] Could not determine memorial for prompt ${entry.prompt_id} on ${entry.date}, using first memorial`)
+        question = personalizeMemorialPrompt(question, memorials[0].name)
+      }
+    } else if (question.includes("Gumbo") || question.includes("Amelia")) {
+      // CRITICAL: If the question already has a name in it (shouldn't happen, but if it does, log it)
+      console.error(`[EntryCard] Question already contains a name! Question: ${question.substring(0, 100)}`)
     }
     
     return question
-  }, [entry.prompt?.question, memorials])
+  }, [entry.prompt?.question, entry.group_id, entry.prompt_id, entry.date, memorials, getMemorialForPrompt, memorialUsageMap, memorialNameUsage])
 
   // Fetch reactions
   const { data: reactions = [] } = useQuery({

@@ -785,20 +785,33 @@ export default function Home() {
   const entryIdList = entries.map((item) => item.id)
   const basePrompt = dailyPrompt?.prompt ?? entries[0]?.prompt
 
-  const fallbackPrompt =
-    basePrompt ??
-    (allPrompts.length > 0
-      ? allPrompts[Math.abs(getDayIndex(selectedDate, currentGroupId)) % allPrompts.length]
-      : undefined)
-
-  const promptId = dailyPrompt?.prompt_id ?? entries[0]?.prompt_id ?? fallbackPrompt?.id
-
-  // Fetch memorials and members for variable replacement
+  // Fetch memorials ALWAYS (needed to filter fallback prompts)
   const { data: memorials = [] } = useQuery({
     queryKey: ["memorials", currentGroupId],
     queryFn: () => (currentGroupId ? getMemorials(currentGroupId) : []),
-    enabled: !!currentGroupId && !!(fallbackPrompt?.question?.match(/\{.*memorial_name.*\}/i)),
+    enabled: !!currentGroupId,
   })
+
+  // Filter fallback prompts to exclude Remembering category for groups without memorials
+  const availableFallbackPrompts = useMemo(() => {
+    if (!allPrompts.length) return []
+    
+    // If group has memorials, all prompts are available
+    // If group doesn't have memorials, filter out Remembering category
+    if (memorials.length === 0) {
+      return allPrompts.filter((p: any) => p.category !== "Remembering")
+    }
+    
+    return allPrompts
+  }, [allPrompts, memorials])
+
+  const fallbackPrompt =
+    basePrompt ??
+    (availableFallbackPrompts.length > 0
+      ? availableFallbackPrompts[Math.abs(getDayIndex(selectedDate, currentGroupId)) % availableFallbackPrompts.length]
+      : undefined)
+
+  const promptId = dailyPrompt?.prompt_id ?? entries[0]?.prompt_id ?? fallbackPrompt?.id
 
   const { data: groupMembersForVariables = [] } = useQuery({
     queryKey: ["membersForVariables", currentGroupId],
@@ -810,13 +823,65 @@ export default function Home() {
   const personalizedPromptQuestion = useMemo(() => {
     if (!fallbackPrompt?.question) return fallbackPrompt?.question
     
+    // CRITICAL FIX: If this prompt came from getDailyPrompt, it's ALREADY personalized correctly
+    // NEVER re-personalize it - this prevents switching memorial names after user answers
+    // getDailyPrompt selects the correct memorial based on prompt_name_usage and deterministic logic
+    // Re-personalizing here would overwrite the correct name with the wrong one
+    
+    // BULLETPROOF CHECK: If dailyPrompt exists, use its question directly - never re-personalize
+    // This is the single most important safeguard against memorial name switching
+    if (dailyPrompt?.prompt?.question) {
+      // Check if the question is already personalized (no variables)
+      const hasVariables = dailyPrompt.prompt.question.match(/\{.*memorial_name.*\}/i) || 
+                          dailyPrompt.prompt.question.match(/\{.*member_name.*\}/i)
+      
+      if (!hasVariables) {
+        // Already personalized correctly by getDailyPrompt - use it EXACTLY as-is
+        // This prevents ANY possibility of name switching
+        return dailyPrompt.prompt.question
+      } else {
+        // This is a bug in getDailyPrompt - it should have personalized but didn't
+        // Log error but still use the question from getDailyPrompt (don't re-personalize)
+        console.error(`[home] CRITICAL: getDailyPrompt returned unpersonalized question with variables. This is a bug in getDailyPrompt.`)
+        // Still return the question from getDailyPrompt - don't re-personalize here
+        // The bug needs to be fixed in getDailyPrompt, not worked around here
+        return dailyPrompt.prompt.question
+      }
+    }
+    
+    // Only reach here if dailyPrompt doesn't exist (fallback prompt scenario)
+    
+    // Only personalize if this is a fallback prompt (not from getDailyPrompt)
     let question = fallbackPrompt.question
     const variables: Record<string, string> = {}
     
-    // Handle memorial_name variable
-    if (question.match(/\{.*memorial_name.*\}/i) && memorials.length > 0) {
-      // Use first memorial (or could cycle based on date)
-      question = personalizeMemorialPrompt(question, memorials[0].name)
+    // Handle memorial_name variable (only for fallback prompts)
+    if (question.match(/\{.*memorial_name.*\}/i)) {
+      if (memorials.length > 0) {
+        // CRITICAL: Use the SAME deterministic logic as getDailyPrompt to select memorial
+        // This ensures consistency - never use memorials[0] which could be wrong person
+        // Match the exact logic from lib/db.ts getDailyPrompt function
+        const dayIndex = getDayIndex(selectedDate, currentGroupId || "")
+        
+        // For fallback prompts, we don't have prompt_name_usage data easily accessible
+        // So we use a simplified version: cycle through memorials based on date
+        // This is deterministic and will match getDailyPrompt's selection if no usage data exists
+        const memorialIndex = dayIndex % memorials.length
+        const selectedMemorialName = memorials[memorialIndex]?.name
+        
+        if (selectedMemorialName) {
+          question = personalizeMemorialPrompt(question, selectedMemorialName)
+        } else {
+          // This should never happen, but safety fallback
+          console.error(`[home] Memorial selection failed - no memorials available`)
+          return "Share a moment that made you smile today."
+        }
+      } else {
+        // SAFETY CHECK: If we somehow have a memorial_name prompt but no memorials,
+        // don't show the raw variable - return a fallback message
+        console.warn(`[home] Found memorial_name prompt but group has no memorials. Showing fallback.`)
+        return "Share a moment that made you smile today."
+      }
     }
     
     // Handle member_name variable
@@ -827,7 +892,7 @@ export default function Home() {
     }
     
     return question
-  }, [fallbackPrompt?.question, memorials, groupMembersForVariables])
+  }, [fallbackPrompt?.question, memorials, groupMembersForVariables, dailyPrompt, currentGroupId, selectedDate])
 
   // Check if CTA should show (load immediately, not waiting for scroll)
   // Only show when viewing today's date

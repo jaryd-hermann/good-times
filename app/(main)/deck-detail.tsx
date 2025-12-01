@@ -132,15 +132,15 @@ export default function DeckDetail() {
       return
     }
 
-    // Check if group has 4+ members (unless dev override is enabled)
+    // Check if group has 3+ members (unless dev override is enabled)
     if (!__DEV__ || !devOverrideMemberLimit) {
       const { data: members } = await supabase
         .from("group_members")
         .select("user_id")
         .eq("group_id", groupId)
 
-      if (!members || members.length < 4) {
-        alert("Your group needs at least 4 members to vote on decks")
+      if (!members || members.length < 3) {
+        alert("Your group needs at least 3 members to vote on decks")
         return
       }
     }
@@ -512,15 +512,15 @@ export default function DeckDetail() {
                   return
                 }
 
-                // Check if group has 4+ members (unless dev override is enabled)
+                // Check if group has 3+ members (unless dev override is enabled)
                 if (!__DEV__ || !devOverrideMemberLimit) {
                   const { data: members } = await supabase
                     .from("group_members")
                     .select("user_id")
                     .eq("group_id", groupId)
 
-                  if (!members || members.length < 4) {
-                    alert("Your group needs at least 4 members to vote on decks")
+                  if (!members || members.length < 3) {
+                    alert("Your group needs at least 3 members to vote on decks")
                     return
                   }
                 }
@@ -564,12 +564,12 @@ export default function DeckDetail() {
                   const newValue = currentValue === "true" ? "false" : "true"
                   await AsyncStorage.setItem("dev_override_deck_member_limit", newValue)
                   setDevOverrideMemberLimit(newValue === "true")
-                  alert(`Dev override: ${newValue === "true" ? "ENABLED" : "DISABLED"}\n\n4-member limit ${newValue === "true" ? "bypassed" : "enforced"}`)
+                  alert(`Dev override: ${newValue === "true" ? "ENABLED" : "DISABLED"}\n\n3-member limit ${newValue === "true" ? "bypassed" : "enforced"}`)
                 }}
                 style={{ marginTop: spacing.md, padding: spacing.sm }}
               >
                 <Text style={{ ...typography.caption, color: colors.gray[500], textAlign: "center", fontSize: 10 }}>
-                  [DEV] Override 4-member limit: {devOverrideMemberLimit ? "ON" : "OFF"}
+                  [DEV] Override 3-member limit: {devOverrideMemberLimit ? "ON" : "OFF"}
                 </Text>
               </TouchableOpacity>
             )}

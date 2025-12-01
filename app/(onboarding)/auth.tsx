@@ -2218,20 +2218,9 @@ const EmailInput = memo(({ value, onChangeText, style }: { value: string; onChan
   // On iOS, batch parent updates using requestAnimationFrame to prevent glitch
   const handleChangeText = useCallback((text: string) => {
     setLocalValue(text) // Update local state immediately for responsive UI
-    
-    if (Platform.OS === "ios") {
-      // Cancel pending update
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current)
-      }
-      
-      // Batch parent update on next frame
-      rafRef.current = requestAnimationFrame(() => {
-        onChangeText(text)
-        rafRef.current = null
-      })
-    } else {
-      // Android: immediate update
+    // On iOS we now update parent ONLY on blur to avoid flicker while typing.
+    // On Android we keep immediate updates.
+    if (Platform.OS !== "ios") {
       onChangeText(text)
     }
   }, [onChangeText])
@@ -2240,6 +2229,12 @@ const EmailInput = memo(({ value, onChangeText, style }: { value: string; onChan
     <TextInput
       value={localValue}
       onChangeText={handleChangeText}
+      onBlur={() => {
+        // iOS: sync final value to parent when user leaves the field.
+        if (Platform.OS === "ios") {
+          onChangeText(localValue)
+        }
+      }}
       placeholder="you@email.com"
       placeholderTextColor="rgba(255,255,255,0.6)"
       autoCapitalize="none"

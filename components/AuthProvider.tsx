@@ -73,8 +73,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let sessionInitialized = false
-    let initialSessionTimeout: NodeJS.Timeout | null = null
-    let maxTimeout: NodeJS.Timeout | null = null
+    let initialSessionTimeout: ReturnType<typeof setTimeout> | null = null
+    let maxTimeout: ReturnType<typeof setTimeout> | null = null
 
     // CRITICAL: Maximum timeout to prevent infinite loading state
     // If we haven't initialized within 10 seconds, force loading to false
@@ -189,131 +189,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [posthog])
 
-  // Refresh session when app comes to foreground
+  // Phase 3: Remove AppState-based session refresh
+  // Session refresh is now handled explicitly when needed, not on every foreground
+  // This prevents race conditions and unnecessary refreshes
+  // AppState listener is kept only for tracking app close (for session lifecycle)
   useEffect(() => {
-    let lastAppState: AppStateStatus = AppState.currentState
-    let refreshTimeout: NodeJS.Timeout | null = null
-    let backgroundTime: number | null = null
-
     const handleAppStateChange = async (nextAppState: AppStateStatus) => {
-      // Track when app goes to background
+      // Track when app goes to background - record app close for session lifecycle
       if (nextAppState.match(/inactive|background/)) {
-        backgroundTime = Date.now()
-        console.log("[AuthProvider] App went to background/inactive")
+        try {
+          const { recordAppClose } = await import("../lib/session-lifecycle")
+          await recordAppClose()
+        } catch (error) {
+          console.error("[AuthProvider] Failed to record app close:", error)
+        }
       }
-      
-      // App came to foreground from background/inactive
-      if (lastAppState.match(/inactive|background/) && nextAppState === "active") {
-        const timeInBackground = backgroundTime ? Date.now() - backgroundTime : 0
-        const wasBackgroundedLongTime = timeInBackground > 30 * 60 * 1000 // 30 minutes
-        
-        console.log("[AuthProvider] App came to foreground, checking session...", {
-          timeInBackground: Math.round(timeInBackground / 1000 / 60),
-          wasBackgroundedLongTime
-        })
-        
-        // If app was backgrounded for a long time, add timeout protection
-        const sessionCheckTimeout = wasBackgroundedLongTime ? 8000 : 5000
-        
-        // Small delay to ensure app is fully active
-        refreshTimeout = setTimeout(async () => {
-          try {
-            // ✅ Always check session directly, not user state (fixes race condition)
-            // Add timeout protection for long background periods
-            const getSessionPromise = supabase.auth.getSession()
-            const timeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error("getSession timeout")), sessionCheckTimeout)
-            )
-            
-            const result: any = await Promise.race([getSessionPromise, timeoutPromise])
-            const { data: { session } } = result
-            
-            if (session) {
-              // Session exists - refresh it to ensure it's valid
-              setRefreshing(true) // Show refreshing state
-              try {
-                // Add timeout for session refresh on long background periods
-                const refreshPromise = ensureValidSession()
-                const refreshTimeoutPromise = new Promise((_, reject) => 
-                  setTimeout(() => reject(new Error("refresh timeout")), 10000)
-                )
-                
-                const refreshed = await Promise.race([refreshPromise, refreshTimeoutPromise]) as boolean
-                
-                if (refreshed) {
-                  console.log("[AuthProvider] Session refreshed on app resume")
-                  // Reload user data to ensure it's fresh
-                  const { data: { session: freshSession } } = await supabase.auth.getSession()
-                  if (freshSession?.user) {
-                    await loadUser(freshSession.user.id)
-                  }
-                } else {
-                  console.warn("[AuthProvider] Failed to refresh session on app resume")
-                  // Check if session still exists (might be valid despite refresh failure)
-                  const { data: { session: currentSession } } = await supabase.auth.getSession()
-                  if (!currentSession) {
-                    // No session - clear user
-                    setUser(null)
-                  }
-                }
-              } catch (refreshError: any) {
-                console.error("[AuthProvider] Session refresh error on app resume:", refreshError.message)
-                // On timeout or error, check if we have a valid session anyway
-                try {
-                  const { data: { session: currentSession } } = await supabase.auth.getSession()
-                  if (currentSession?.user) {
-                    // Session exists - use it even if refresh failed
-                    await loadUser(currentSession.user.id)
-                  } else {
-                    setUser(null)
-                  }
-                } catch (checkError) {
-                  console.error("[AuthProvider] Session check failed:", checkError)
-                  setUser(null)
-                }
-              } finally {
-                setRefreshing(false) // Clear refreshing state
-              }
-            } else {
-              // No session - clear user
-              console.log("[AuthProvider] No session found on app resume")
-              setUser(null)
-            }
-          } catch (error: any) {
-            console.error("[AuthProvider] Error refreshing session on app resume:", error.message)
-            setRefreshing(false) // Clear refreshing state on error
-            // Try to get current session as fallback
-            try {
-              const getSessionPromise = supabase.auth.getSession()
-              const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error("timeout")), 3000)
-              )
-              const result: any = await Promise.race([getSessionPromise, timeoutPromise])
-              const { data: { session } } = result
-              if (!session) {
-                setUser(null)
-              }
-            } catch (fallbackError) {
-              console.error("[AuthProvider] Fallback session check failed:", fallbackError)
-              // If we can't even check session, assume logged out
-              setUser(null)
-            }
-          }
-        }, 300) // Reduced delay - app should be ready faster
-      }
-      
-      lastAppState = nextAppState
     }
 
     const subscription = AppState.addEventListener("change", handleAppStateChange)
 
     return () => {
       subscription.remove()
-      if (refreshTimeout) {
-        clearTimeout(refreshTimeout)
-      }
     }
-  }, []) // ✅ No dependency on user state - fixes race condition
+  }, [])
 
   async function loadUser(userId: string) {
     try {

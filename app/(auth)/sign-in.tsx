@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useMemo } from "react"
+import { useState, useRef, useMemo, useEffect } from "react"
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from "react-native"
 import { useRouter } from "expo-router"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
@@ -11,6 +11,14 @@ import { Input } from "../../components/Input"
 import { Button } from "../../components/Button"
 import { usePostHog } from "posthog-react-native"
 import { captureEvent, identifyUser } from "../../lib/posthog"
+import {
+  isBiometricAvailable,
+  getBiometricPreference,
+  getBiometricRefreshToken,
+  getBiometricUserId,
+  authenticateWithBiometric,
+  clearBiometricCredentials,
+} from "../../lib/biometric"
 
 export default function SignIn() {
   console.log("[sign-in] Component rendering - TOP OF FUNCTION")
@@ -20,9 +28,96 @@ export default function SignIn() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
+  const [biometricAttempted, setBiometricAttempted] = useState(false)
   const posthog = usePostHog()
   const emailInputRef = useRef<any>(null)
   const passwordInputRef = useRef<any>(null)
+
+  // Phase 4: FaceID should trigger at login screens
+  // Attempt biometric login when screen mounts (if enabled)
+  useEffect(() => {
+    async function attemptBiometricLogin() {
+      // Only attempt once per mount
+      if (biometricAttempted) return
+      
+      try {
+        // Check if biometric is available and enabled
+        const biometricAvailable = await isBiometricAvailable()
+        if (!biometricAvailable) {
+          setBiometricAttempted(true)
+          return
+        }
+
+        const biometricEnabled = await getBiometricPreference()
+        if (!biometricEnabled) {
+          setBiometricAttempted(true)
+          return
+        }
+
+        // Check if we have stored credentials
+        const refreshToken = await getBiometricRefreshToken()
+        const userId = await getBiometricUserId()
+        if (!refreshToken || !userId) {
+          setBiometricAttempted(true)
+          return
+        }
+
+        setBiometricAttempted(true)
+
+        // Attempt biometric authentication
+        const authResult = await authenticateWithBiometric("Authenticate to log in")
+        if (!authResult.success) {
+          // User cancelled or failed - allow manual login
+          return
+        }
+
+        // Use refresh token to get new session
+        const { data, error } = await supabase.auth.refreshSession({
+          refresh_token: refreshToken,
+        })
+
+        if (error || !data.session) {
+          console.warn("[sign-in] Failed to refresh session with biometric:", error)
+          // Clear invalid credentials
+          await clearBiometricCredentials()
+          return
+        }
+
+        // Successfully authenticated - navigate to home
+        // Check if user has completed profile
+        const { data: user } = await supabase.from("users").select("name, birthday").eq("id", data.session.user.id).single()
+
+        if ((user as any)?.name && (user as any)?.birthday) {
+          // Check if user is in a group
+          const { data: membership } = await supabase
+            .from("group_members")
+            .select("group_id")
+            .eq("user_id", data.session.user.id)
+            .limit(1)
+            .maybeSingle()
+
+          if (membership) {
+            router.replace("/(main)/home")
+          } else {
+            router.replace("/(onboarding)/create-group/name-type")
+          }
+        } else {
+          router.replace("/(onboarding)/about")
+        }
+      } catch (error) {
+        // Silently fail - user can still log in manually
+        console.warn("[sign-in] Biometric login error:", error)
+        setBiometricAttempted(true)
+      }
+    }
+
+    // Attempt biometric login after a short delay to allow screen to render
+    const timeout = setTimeout(() => {
+      attemptBiometricLogin()
+    }, 500)
+
+    return () => clearTimeout(timeout)
+  }, [router, biometricAttempted])
 
   async function handleEmailSignIn() {
     if (!email || !password) {
@@ -54,6 +149,26 @@ export default function SignIn() {
         if (__DEV__) console.error("[sign-in] Failed to track signed_in:", error)
       }
 
+      // Phase 7: Add navigation success check and fallback
+      const navigateToRoute = async (route: string) => {
+        try {
+          router.replace(route as any)
+          
+          // Check if navigation succeeded after a short delay
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          
+          // If navigation failed, try again with explicit navigation
+          // Note: We can't directly check if navigation succeeded, so we rely on timeout fallback
+          setTimeout(() => {
+            router.replace(route as any)
+          }, 2000)
+        } catch (error) {
+          console.error("[sign-in] Navigation error:", error)
+          // Fallback: try again
+          router.replace(route as any)
+        }
+      }
+
       // Check if user has completed profile
       const { data: user } = await supabase.from("users").select("name, birthday").eq("id", data.user.id).single()
 
@@ -64,17 +179,17 @@ export default function SignIn() {
           .select("group_id")
           .eq("user_id", data.user.id)
           .limit(1)
-          .single()
+          .maybeSingle()
 
         if (membership) {
           // Sign-in should ALWAYS go to home - never show onboarding screens
           // Onboarding screens are only shown during registration flow
-          router.replace("/(main)/home")
+          await navigateToRoute("/(main)/home")
         } else {
-          router.replace("/(onboarding)/create-group/name-type")
+          await navigateToRoute("/(onboarding)/create-group/name-type")
         }
       } else {
-        router.replace("/(onboarding)/about")
+        await navigateToRoute("/(onboarding)/about")
       }
     } catch (error: any) {
       Alert.alert("Error", error.message)

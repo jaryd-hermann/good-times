@@ -11,7 +11,8 @@ import {
   getBiometricPreference, 
   getBiometricRefreshToken, 
   getBiometricUserId,
-  authenticateWithBiometric 
+  authenticateWithBiometric,
+  clearBiometricCredentials,
 } from "../../lib/biometric"
 import { supabase } from "../../lib/supabase"
 import AsyncStorage from "@react-native-async-storage/async-storage"
@@ -62,6 +63,8 @@ export default function Welcome1() {
     router.push("/(onboarding)/auth")
   }
 
+  // Phase 4: FaceID should trigger at login screens (welcome-1 is a login screen)
+  // Phase 7: Enhanced navigation with success check
   useEffect(() => {
     async function attemptBiometricLogin() {
       try {
@@ -88,11 +91,32 @@ export default function Welcome1() {
 
         if (error || !data.session) {
           console.warn("[welcome-1] Failed to refresh session with biometric:", error)
+          // Clear invalid credentials
+          await clearBiometricCredentials()
           return
         }
 
+        // Phase 7: Enhanced navigation with success check
+        const navigateToHome = async () => {
+          try {
+            router.replace("/(main)/home")
+            
+            // Check if navigation succeeded after a short delay
+            await new Promise(resolve => setTimeout(resolve, 1000))
+            
+            // Fallback: try again if navigation failed
+            setTimeout(() => {
+              router.replace("/(main)/home")
+            }, 2000)
+          } catch (error) {
+            console.error("[welcome-1] Navigation error:", error)
+            // Fallback: try again
+            router.replace("/(main)/home")
+          }
+        }
+
         // Successfully authenticated - navigate to home
-        router.replace("/(main)/home")
+        await navigateToHome()
       } catch (error) {
         // Silently fail - user can still log in manually
         console.warn("[welcome-1] Biometric login error:", error)

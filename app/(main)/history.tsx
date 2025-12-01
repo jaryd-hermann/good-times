@@ -300,6 +300,94 @@ export default function History() {
     },
   })
 
+  // Fetch prompt_name_usage to determine which memorial was actually used for each entry
+  // Only fetch for entries that have memorial_name variable
+  const entriesWithMemorialVariable = useMemo(() => {
+    return entries.filter((entry: any) => {
+      const prompt = entry.prompt
+      return prompt?.dynamic_variables?.includes("memorial_name") || 
+             (prompt?.question && /\{.*memorial_name.*\}/i.test(prompt.question))
+    })
+  }, [entries])
+
+  const { data: memorialNameUsage = [] } = useQuery({
+    queryKey: ["memorialNameUsage", currentGroupId],
+    queryFn: async () => {
+      if (!currentGroupId) return []
+      
+      // Fetch ALL prompt_name_usage records for this group with memorial_name variable
+      // Order by created_at to prefer earliest (correct) records if duplicates exist
+      const { data, error } = await supabase
+        .from("prompt_name_usage")
+        .select("prompt_id, date_used, name_used, created_at")
+        .eq("group_id", currentGroupId)
+        .eq("variable_type", "memorial_name")
+        .order("created_at", { ascending: true }) // Prefer earliest records (correct ones)
+      
+      if (error) {
+        console.error("[history] Error fetching memorial name usage:", error)
+        return []
+      }
+      
+      return (data || []) as Array<{ prompt_id: string; date_used: string; name_used: string; created_at: string }>
+    },
+    enabled: !!currentGroupId,
+  })
+
+  // Helper function to calculate day index (same logic as in lib/db.ts)
+  const getDayIndex = (dateString: string, groupId: string): number => {
+    const base = new Date(dateString)
+    const start = new Date("2020-01-01")
+    const diff = Math.floor((base.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
+    const groupOffset = groupId ? groupId.length : 0
+    return diff + groupOffset
+  }
+
+  // Function to determine which memorial would have been used for a prompt on a given date
+  // Uses the same logic as getDailyPrompt in lib/db.ts
+  const getMemorialForPrompt = useCallback((promptId: string, date: string, groupId: string): string | null => {
+    // First check if we have usage data
+    const normalizedDate = date.split('T')[0]
+    const usageKey = `${promptId}-${normalizedDate}`
+    const memorialNameUsed = memorialUsageMap.get(usageKey)
+    if (memorialNameUsed) {
+      return memorialNameUsed
+    }
+
+    // Fallback: calculate which memorial would have been used using the same logic
+    // This matches the logic in lib/db.ts getDailyPrompt
+    // If memorials haven't loaded yet, return null (will be recalculated when they load)
+    if (memorials.length === 0) return null
+
+    // Get recently used memorial names for this prompt (from usage data we have)
+    // Match the logic in lib/db.ts: order by date_used descending and limit to memorials.length
+    const recentUsage = memorialNameUsage
+      .filter(u => u.prompt_id === promptId)
+      .sort((a, b) => {
+        // Sort by date_used descending (most recent first)
+        const dateA = new Date(a.date_used).getTime()
+        const dateB = new Date(b.date_used).getTime()
+        return dateB - dateA
+      })
+      .slice(0, memorials.length) // Limit to memorials.length (same as lib/db.ts)
+      .map(u => u.name_used)
+    
+    const usedNames = new Set(recentUsage)
+    
+    // Find unused memorials first
+    const unusedMemorials = memorials.filter((m) => !usedNames.has(m.name))
+    
+    // If all have been used, reset and start fresh
+    const availableMemorials = unusedMemorials.length > 0 ? unusedMemorials : memorials
+    
+    // Select next memorial (cycle through) - same logic as lib/db.ts
+    const dayIndex = getDayIndex(date, groupId)
+    const memorialIndex = dayIndex % availableMemorials.length
+    const selectedMemorial = availableMemorials[memorialIndex]
+    
+    return selectedMemorial.name
+  }, [memorials, memorialNameUsage, memorialUsageMap])
+
   const { data: members = [] } = useQuery({
     queryKey: ["history-members", currentGroupId],
     queryFn: () => (currentGroupId ? getGroupMembers(currentGroupId) : []),
@@ -440,6 +528,31 @@ export default function History() {
     })
   }, [entries, activePeriod])
 
+  // Create a map of prompt_id + date -> memorial name used
+  // Normalize dates to ensure matching (both should be YYYY-MM-DD format)
+  // CRITICAL: If multiple records exist for same key (duplicates), prefer the FIRST one encountered
+  // Since we order by created_at ascending, the first one is the earliest (correct) record
+  const memorialUsageMap = useMemo(() => {
+    const map = new Map<string, string>()
+    memorialNameUsage.forEach((usage) => {
+      // Normalize date to YYYY-MM-DD format (remove time if present)
+      const normalizedDate = usage.date_used.split('T')[0]
+      const key = `${usage.prompt_id}-${normalizedDate}`
+      
+      // Only set if key doesn't exist - this means we prefer the FIRST record (earliest created_at)
+      // This ensures we use the correct memorial even if duplicates exist
+      if (!map.has(key)) {
+        map.set(key, usage.name_used)
+      } else {
+        // Duplicate detected - log warning but keep the first one (which is correct)
+        if (__DEV__) {
+          console.warn(`[history] Duplicate prompt_name_usage detected for ${key}. Using first record: ${map.get(key)} instead of ${usage.name_used}`)
+        }
+      }
+    })
+    return map
+  }, [memorialNameUsage])
+
   const filteredEntries = useMemo(
     () =>
       entriesWithinPeriod.filter((entry) => {
@@ -461,24 +574,58 @@ export default function History() {
         if (selectedMembers.length > 0 && !selectedMembers.includes(entry.user_id)) {
           return false
         }
-        // Filter by memorial: show entries where prompt has memorial_name variable or contains memorial name
-        if (selectedMemorials.length > 0) {
+        
+        // Filter by memorial: check which memorial was actually used for this entry
+        if (selectedMemorials.length > 0 && currentGroupId) {
           const entryQuestion = entry.prompt?.question || ""
-          // Check if prompt has memorial_name variable (memorial-related prompts)
-          const hasMemorialVariable = entryQuestion.match(/\{.*memorial_name.*\}/i)
-          // Check if question directly contains any selected memorial's name
-          const containsMemorialName = selectedMemorials.some((memorialId) => {
-            const memorial = memorials.find((m) => m.id === memorialId)
-            return memorial && entryQuestion.includes(memorial.name)
-          })
-          // Show entry if it has memorial variable OR contains memorial name
-          if (!hasMemorialVariable && !containsMemorialName) {
-            return false
+          const prompt = entry.prompt
+          
+          // Check if prompt has memorial_name variable
+          const hasMemorialVariable = prompt?.dynamic_variables?.includes("memorial_name") || 
+                                      entryQuestion.match(/\{.*memorial_name.*\}/i)
+          
+          if (hasMemorialVariable) {
+            // Determine which memorial was used for this prompt on this date
+            // This uses the same logic as getDailyPrompt to calculate which memorial would have been selected
+            const memorialNameUsed = getMemorialForPrompt(entry.prompt_id, entry.date, currentGroupId)
+            
+            if (memorialNameUsed) {
+              // Check if the memorial name used matches any of the selected memorials
+              const matchesSelectedMemorial = selectedMemorials.some((memorialId) => {
+                const memorial = memorials.find((m) => m.id === memorialId)
+                return memorial && memorial.name === memorialNameUsed
+              })
+              
+              if (!matchesSelectedMemorial) {
+                return false
+              }
+            } else {
+              // If we can't determine which memorial was used (memorials not loaded yet or calculation failed),
+              // don't filter out the entry - let it show until memorials load and we can recalculate
+              // This prevents filtering out entries prematurely when data is still loading
+              if (memorials.length === 0) {
+                // Memorials haven't loaded yet - don't filter, show all entries
+                // The filter will re-run when memorials load
+                return true
+              }
+              // Memorials are loaded but calculation returned null - exclude the entry
+              return false
+            }
+          } else {
+            // For prompts without memorial_name variable, check if question directly contains memorial name
+            const containsMemorialName = selectedMemorials.some((memorialId) => {
+              const memorial = memorials.find((m) => m.id === memorialId)
+              return memorial && entryQuestion.includes(memorial.name)
+            })
+            
+            if (!containsMemorialName) {
+              return false
+            }
           }
         }
         return true
       }),
-    [entriesWithinPeriod, selectedCategories, selectedMembers, selectedMemorials, selectedDecks, memorials],
+    [entriesWithinPeriod, selectedCategories, selectedMembers, selectedMemorials, selectedDecks, memorials, memorialUsageMap, getMemorialForPrompt, currentGroupId],
   )
 
   // Fetch comments for all entries to show previews
