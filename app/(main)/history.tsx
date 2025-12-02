@@ -20,7 +20,7 @@ import {
 } from "date-fns"
 import { typography, spacing } from "../../lib/theme"
 import { useTheme } from "../../lib/theme-context"
-import { getGroupMembers, getAllPrompts, getDailyPrompt, getMemorials, getGroup, getGroupActiveDecks, hasReceivedBirthdayCards, getMyBirthdayCards } from "../../lib/db"
+import { getGroupMembers, getAllPrompts, getDailyPrompt, getMemorials, getGroup, getGroupActiveDecks, hasReceivedBirthdayCards, getMyBirthdayCards, getBirthdayCardEntries } from "../../lib/db"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { Button } from "../../components/Button"
 import { getTodayDate } from "../../lib/utils"
@@ -190,19 +190,47 @@ export default function History() {
         const persistedGroupId = await AsyncStorage.getItem("current_group_id")
         if (persistedGroupId && persistedGroupId !== currentGroupId) {
           console.log(`[history] Syncing group ID from AsyncStorage: ${persistedGroupId}`)
+          const oldGroupId = currentGroupId
           setCurrentGroupId(persistedGroupId)
           // Reset filters when switching groups
           setActivePeriod(null)
           setSelectedCategories([])
           setSelectedMembers([])
+          
+          // Clear birthday card cache for old group
+          if (oldGroupId) {
+            queryClient.removeQueries({ 
+              queryKey: ["myBirthdayCards", oldGroupId],
+              exact: false 
+            })
+            queryClient.removeQueries({ 
+              queryKey: ["hasReceivedBirthdayCards", oldGroupId],
+              exact: false 
+            })
+          }
+          
+          // CRITICAL: Immediately reset birthday card queries to prevent stale data from showing
+          queryClient.setQueryData(["myBirthdayCards", persistedGroupId, userId], [])
+          queryClient.setQueryData(["hasReceivedBirthdayCards", persistedGroupId, userId], false)
+          
+          // Invalidate birthday card queries for new group
+          queryClient.invalidateQueries({ 
+            queryKey: ["myBirthdayCards", persistedGroupId],
+            exact: false 
+          })
+          queryClient.invalidateQueries({ 
+            queryKey: ["hasReceivedBirthdayCards", persistedGroupId],
+            exact: false 
+          })
         }
       }
       syncGroupId()
-    }, [currentGroupId])
+    }, [currentGroupId, queryClient, userId])
   )
 
   useEffect(() => {
     if (focusGroupId && focusGroupId !== currentGroupId) {
+      const oldGroupId = currentGroupId
       setCurrentGroupId(focusGroupId)
       AsyncStorage.setItem("current_group_id", focusGroupId).catch(() => {})
       // Reset filters when switching groups
@@ -212,8 +240,30 @@ export default function History() {
       setSelectedMemorials([])
       setSelectedDecks([])
       setShowBirthdayCards(false)
+      
+      // Clear birthday card cache for old group
+      if (oldGroupId) {
+        queryClient.removeQueries({ 
+          queryKey: ["myBirthdayCards", oldGroupId],
+          exact: false 
+        })
+        queryClient.removeQueries({ 
+          queryKey: ["hasReceivedBirthdayCards", oldGroupId],
+          exact: false 
+        })
+      }
+      
+      // Invalidate birthday card queries for new group
+      queryClient.invalidateQueries({ 
+        queryKey: ["myBirthdayCards", focusGroupId],
+        exact: false 
+      })
+      queryClient.invalidateQueries({ 
+        queryKey: ["hasReceivedBirthdayCards", focusGroupId],
+        exact: false 
+      })
     }
-  }, [focusGroupId, currentGroupId])
+  }, [focusGroupId, currentGroupId, queryClient])
 
   async function loadUserAndGroup() {
     const {
@@ -428,8 +478,41 @@ export default function History() {
   // Get user's birthday cards (only their own) - always fetch to show in feed
   const { data: myBirthdayCards = [] } = useQuery({
     queryKey: ["myBirthdayCards", currentGroupId, userId],
-    queryFn: () => (currentGroupId && userId ? getMyBirthdayCards(currentGroupId, userId) : []),
+    queryFn: async () => {
+      if (!currentGroupId || !userId) return []
+      const cards = await getMyBirthdayCards(currentGroupId, userId)
+      // CRITICAL: Double-check that all cards belong to the current group
+      const filteredCards = cards.filter((card) => card.group_id === currentGroupId)
+      if (filteredCards.length !== cards.length) {
+        console.warn(`[history] ⚠️ Filtered out ${cards.length - filteredCards.length} birthday cards from wrong group`)
+      }
+      return filteredCards
+    },
     enabled: !!currentGroupId && !!userId, // Always fetch, not just when filter is active
+    staleTime: 0, // Always refetch to ensure fresh data when group changes
+    refetchOnMount: true, // Refetch when component mounts to ensure correct group data
+    placeholderData: undefined, // Don't show stale data from previous group
+  })
+
+  // Fetch entries for all birthday cards to check if they have entries
+  const cardIds = useMemo(() => myBirthdayCards.map((card) => card.id), [myBirthdayCards])
+  const { data: allCardEntries = {} } = useQuery<Record<string, any[]>>({
+    queryKey: ["birthdayCardEntriesForHistory", cardIds.join(",")],
+    queryFn: async () => {
+      if (cardIds.length === 0) return {}
+      // Fetch entries for all cards in parallel
+      const entriesPromises = cardIds.map((cardId) => getBirthdayCardEntries(cardId))
+      const entriesArrays = await Promise.all(entriesPromises)
+      // Flatten and group by card_id
+      const entriesByCardId: Record<string, any[]> = {}
+      entriesArrays.forEach((entries, index) => {
+        entriesByCardId[cardIds[index]] = entries
+      })
+      return entriesByCardId
+    },
+    enabled: cardIds.length > 0,
+    staleTime: 0,
+    placeholderData: undefined,
   })
 
   const { data: categories = [] } = useQuery({
@@ -835,10 +918,21 @@ export default function History() {
   // Group entries by date for Days view
   // Always add birthday cards as special entries (mixed with regular entries)
   // When showBirthdayCards filter is active, show ONLY birthday cards
+  // CRITICAL: Only include cards that have entries
   const entriesWithBirthdayCards = useMemo(() => {
+    // Filter birthday cards to only include cards from the current group AND that have entries
+    const filteredBirthdayCards = myBirthdayCards.filter((card) => {
+      // Must belong to current group
+      if (card.group_id !== currentGroupId) return false
+      // Must have entries
+      const cardEntries = allCardEntries[card.id] || []
+      if (cardEntries.length === 0) return false
+      return true
+    })
+    
     // Create a map of birthday cards by date
-    const cardsByDate = new Map<string, typeof myBirthdayCards>()
-    myBirthdayCards.forEach((card) => {
+    const cardsByDate = new Map<string, typeof filteredBirthdayCards>()
+    filteredBirthdayCards.forEach((card) => {
       if (!cardsByDate.has(card.birthday_date)) {
         cardsByDate.set(card.birthday_date, [])
       }
@@ -908,7 +1002,7 @@ export default function History() {
       if (dateCompare !== 0) return dateCompare
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     })
-  }, [filteredEntries, showBirthdayCards, myBirthdayCards])
+  }, [filteredEntries, showBirthdayCards, myBirthdayCards, currentGroupId, allCardEntries])
 
   const entriesByDate = entriesWithBirthdayCards.reduce(
     (acc, entry) => {

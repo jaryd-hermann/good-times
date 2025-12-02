@@ -441,6 +441,21 @@ export default function Home() {
       console.log(`[home] Group changed from ${prevGroupId} to ${currentGroupId}, clearing old group cache`)
       setIsGroupSwitching(true) // Set loading state immediately
       
+      // CRITICAL: Immediately reset birthday card queries to prevent stale data from showing
+      // Reset for ALL possible date combinations to ensure no stale data
+      queryClient.setQueryData(["upcomingBirthdayCards", currentGroupId], undefined)
+      queryClient.setQueryData(["myBirthdayCard", currentGroupId], undefined)
+      queryClient.setQueryData(["myCardEntries", currentGroupId], undefined)
+      
+      // Also explicitly set to null/empty for current date
+      if (userId && todayDate) {
+        queryClient.setQueryData(["upcomingBirthdayCards", currentGroupId, userId, todayDate], [])
+      }
+      if (userId && selectedDate) {
+        queryClient.setQueryData(["myBirthdayCard", currentGroupId, userId, selectedDate], null)
+        queryClient.setQueryData(["myCardEntries", currentGroupId, userId, selectedDate], [])
+      }
+      
       // Remove all queries for the previous group (all dates)
       queryClient.removeQueries({ 
         queryKey: ["dailyPrompt", prevGroupId],
@@ -452,6 +467,18 @@ export default function Home() {
       })
       queryClient.removeQueries({ 
         queryKey: ["userEntry", prevGroupId],
+        exact: false 
+      })
+      queryClient.removeQueries({ 
+        queryKey: ["upcomingBirthdayCards", prevGroupId],
+        exact: false 
+      })
+      queryClient.removeQueries({ 
+        queryKey: ["myBirthdayCard", prevGroupId],
+        exact: false 
+      })
+      queryClient.removeQueries({ 
+        queryKey: ["myCardEntries", prevGroupId],
         exact: false 
       })
       
@@ -469,6 +496,18 @@ export default function Home() {
           queryKey: ["userEntry", currentGroupId],
           exact: false 
         })
+        queryClient.removeQueries({ 
+          queryKey: ["upcomingBirthdayCards", currentGroupId],
+          exact: false 
+        })
+        queryClient.removeQueries({ 
+          queryKey: ["myBirthdayCard", currentGroupId],
+          exact: false 
+        })
+        queryClient.removeQueries({ 
+          queryKey: ["myCardEntries", currentGroupId],
+          exact: false 
+        })
         
         // Invalidate and refetch for new group
         queryClient.invalidateQueries({ 
@@ -477,6 +516,18 @@ export default function Home() {
         })
         queryClient.invalidateQueries({ 
           queryKey: ["entries", currentGroupId],
+          exact: false 
+        })
+        queryClient.invalidateQueries({ 
+          queryKey: ["upcomingBirthdayCards", currentGroupId],
+          exact: false 
+        })
+        queryClient.invalidateQueries({ 
+          queryKey: ["myBirthdayCard", currentGroupId],
+          exact: false 
+        })
+        queryClient.invalidateQueries({ 
+          queryKey: ["myCardEntries", currentGroupId],
           exact: false 
         })
         
@@ -908,14 +959,24 @@ export default function Home() {
       console.log("[home] ✅ Fetching upcoming birthday cards:", { currentGroupId, userId, todayDate })
       try {
         const cards = await getUpcomingBirthdayCards(currentGroupId, userId, todayDate)
-        console.log("[home] ✅ Received upcoming birthday cards:", cards.length, cards)
-        return cards
+        // CRITICAL: Double-check that all cards belong to the current group
+        const filteredCards = cards.filter((card) => card.group_id === currentGroupId)
+        if (filteredCards.length !== cards.length) {
+          console.warn(`[home] ⚠️ Filtered out ${cards.length - filteredCards.length} cards from wrong group`)
+        }
+        console.log("[home] ✅ Received upcoming birthday cards:", filteredCards.length, filteredCards)
+        return filteredCards
       } catch (error) {
         console.error("[home] ❌ Error fetching upcoming birthday cards:", error)
         throw error
       }
     },
     enabled: !!currentGroupId && !!userId && !!todayDate,
+    staleTime: 0, // Always refetch to ensure fresh data when group changes
+    gcTime: 0, // Immediately garbage collect old queries to prevent stale data
+    refetchOnMount: true, // Refetch when component mounts to ensure correct group data
+    placeholderData: undefined, // Don't show stale data from previous group
+    refetchOnWindowFocus: true, // Always refetch on focus
   })
   
   // Log query state
@@ -930,15 +991,65 @@ export default function Home() {
 
   const { data: myCardEntries = [] } = useQuery({
     queryKey: ["myCardEntries", currentGroupId, userId, selectedDate],
-    queryFn: () => (currentGroupId && userId && selectedDate ? getMyCardEntriesForDate(currentGroupId, userId, selectedDate) : []),
+    queryFn: async () => {
+      if (!currentGroupId || !userId || !selectedDate) return []
+      const entries = await getMyCardEntriesForDate(currentGroupId, userId, selectedDate)
+      // CRITICAL: Double-check that all entries belong to cards in the current group
+      const filteredEntries = entries.filter((entry: any) => entry.card?.group_id === currentGroupId)
+      if (filteredEntries.length !== entries.length) {
+        console.warn(`[home] ⚠️ Filtered out ${entries.length - filteredEntries.length} card entries from wrong group`)
+      }
+      return filteredEntries
+    },
     enabled: !!currentGroupId && !!userId && !!selectedDate,
+    staleTime: 0, // Always refetch to ensure fresh data when group changes
+    refetchOnMount: true, // Refetch when component mounts to ensure correct group data
+    placeholderData: undefined, // Don't show stale data from previous group
   })
 
-  const { data: myBirthdayCard } = useQuery({
+  const { data: myBirthdayCardRaw } = useQuery({
     queryKey: ["myBirthdayCard", currentGroupId, userId, selectedDate],
-    queryFn: () => (currentGroupId && userId && selectedDate ? getMyBirthdayCard(currentGroupId, userId, selectedDate) : null),
+    queryFn: async () => {
+      if (!currentGroupId || !userId || !selectedDate) return null
+      const card = await getMyBirthdayCard(currentGroupId, userId, selectedDate)
+      // CRITICAL: Double-check that the card belongs to the current group
+      if (card && card.group_id !== currentGroupId) {
+        console.warn(`[home] ⚠️ Birthday card from wrong group detected, returning null. Card group: ${card.group_id}, Current group: ${currentGroupId}`)
+        return null
+      }
+      return card
+    },
     enabled: !!currentGroupId && !!userId && !!selectedDate,
+    staleTime: 0, // Always refetch to ensure fresh data when group changes
+    gcTime: 0, // Immediately garbage collect old queries to prevent stale data
+    refetchOnMount: true, // Refetch when component mounts to ensure correct group data
+    placeholderData: undefined, // Don't show stale data from previous group
+    // CRITICAL: Don't use any cached data - always fetch fresh
+    refetchOnWindowFocus: true,
   })
+
+  // CRITICAL: Filter out any card that doesn't match current group (defensive check)
+  // This ensures that even if React Query returns stale data, we filter it out
+  const myBirthdayCard = useMemo(() => {
+    // If no currentGroupId, always return null
+    if (!currentGroupId) {
+      if (myBirthdayCardRaw) {
+        console.warn(`[home] ⚠️ No currentGroupId but card exists, returning null`)
+      }
+      return null
+    }
+    
+    // If no card, return null
+    if (!myBirthdayCardRaw) return null
+    
+    // CRITICAL: Always check group_id matches - this is the final safety check
+    if (myBirthdayCardRaw.group_id !== currentGroupId) {
+      console.warn(`[home] ⚠️ Filtered out birthday card from wrong group. Card group: ${myBirthdayCardRaw.group_id}, Current group: ${currentGroupId}, Card ID: ${myBirthdayCardRaw.id}`)
+      return null
+    }
+    
+    return myBirthdayCardRaw
+  }, [myBirthdayCardRaw, currentGroupId])
 
   // Get contributor avatars for "Your Card" banner
   const { data: cardEntries = [] } = useQuery({
@@ -1419,6 +1530,18 @@ export default function Home() {
           queryKey: ["userEntry", oldGroupId],
           exact: false 
         })
+        queryClient.removeQueries({ 
+          queryKey: ["upcomingBirthdayCards", oldGroupId],
+          exact: false 
+        })
+        queryClient.removeQueries({ 
+          queryKey: ["myBirthdayCard", oldGroupId],
+          exact: false 
+        })
+        queryClient.removeQueries({ 
+          queryKey: ["myCardEntries", oldGroupId],
+          exact: false 
+        })
       }
       
       // Switch to new group
@@ -1443,10 +1566,34 @@ export default function Home() {
         queryKey: ["userEntry", groupId],
         exact: false 
       })
+      queryClient.removeQueries({ 
+        queryKey: ["upcomingBirthdayCards", groupId],
+        exact: false 
+      })
+      queryClient.removeQueries({ 
+        queryKey: ["myBirthdayCard", groupId],
+        exact: false 
+      })
+      queryClient.removeQueries({ 
+        queryKey: ["myCardEntries", groupId],
+        exact: false 
+      })
       
       // Force immediate refetch
       queryClient.refetchQueries({ 
         queryKey: ["dailyPrompt", groupId],
+        exact: false 
+      })
+      queryClient.invalidateQueries({ 
+        queryKey: ["upcomingBirthdayCards", groupId],
+        exact: false 
+      })
+      queryClient.invalidateQueries({ 
+        queryKey: ["myBirthdayCard", groupId],
+        exact: false 
+      })
+      queryClient.invalidateQueries({ 
+        queryKey: ["myCardEntries", groupId],
         exact: false 
       })
     }
@@ -2134,8 +2281,9 @@ export default function Home() {
             onPress={handleCustomQuestionPress}
             reduceSpacing={
               // Reduce spacing if any birthday banners will be shown
-              (myBirthdayCard && myBirthdayCard.birthday_date === selectedDate) ||
-              upcomingBirthdayCards.length > 0 ||
+              // CRITICAL: Only count cards that have entries
+              (myBirthdayCard && myBirthdayCard.group_id === currentGroupId && myBirthdayCard.birthday_date === selectedDate && cardEntries.length > 0) ||
+              (upcomingBirthdayCards.filter((card) => card.group_id === currentGroupId).length > 0) ||
               myCardEntries.length > 0
             }
           />
@@ -2143,7 +2291,12 @@ export default function Home() {
         
         {/* Birthday Card Banners (only for non-future days) */}
         {/* 1. Your Card Banner (highest priority - if it's user's birthday) */}
-        {myBirthdayCard && myBirthdayCard.birthday_date === selectedDate && !isFuture && (
+        {/* CRITICAL: Only show banner if card exists AND has entries */}
+        {myBirthdayCard && 
+         myBirthdayCard.group_id === currentGroupId &&
+         myBirthdayCard.birthday_date === selectedDate && 
+         !isFuture &&
+         cardEntries.length > 0 && (
           <BirthdayCardYourCardBanner
             groupId={currentGroupId!}
             cardId={myBirthdayCard.id}
@@ -2167,7 +2320,9 @@ export default function Home() {
         )}
 
         {/* 2. Upcoming Birthday Banners (stacked vertically, non-future days only) */}
-        {!isFuture && upcomingBirthdayCards.map((card) => {
+        {!isFuture && upcomingBirthdayCards
+          .filter((card) => card.group_id === currentGroupId)
+          .map((card) => {
           const birthdayUser = (card as any).birthday_user
           return (
             <BirthdayCardUpcomingBanner
@@ -2393,8 +2548,9 @@ export default function Home() {
           <View style={[
             styles.entriesContainer, 
             (pendingVotes.length > 0 && isToday) || shouldShowCustomQuestionBanner || 
-            (myBirthdayCard && myBirthdayCard.birthday_date === selectedDate) ||
-            upcomingBirthdayCards.length > 0 || myCardEntries.length > 0
+            // CRITICAL: Only count cards that have entries
+            (myBirthdayCard && myBirthdayCard.group_id === currentGroupId && myBirthdayCard.birthday_date === selectedDate && cardEntries.length > 0) ||
+            (upcomingBirthdayCards.filter((card) => card.group_id === currentGroupId).length > 0) || myCardEntries.length > 0
               ? styles.entriesContainerWithBanners 
               : null
           ]}>
