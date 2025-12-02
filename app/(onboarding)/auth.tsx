@@ -2041,7 +2041,13 @@ export default function OnboardingAuth() {
                   <View style={styles.passwordContainer}>
                     <TextInput
                       value={password}
-                      onChangeText={setPassword}
+                      onChangeText={(text) => {
+                        setPassword(text)
+                        // When password has value (including paste), ensure confirm field is visible
+                        if (text.length > 0) {
+                          setPasswordFocused(true)
+                        }
+                      }}
                       placeholder="••••••••"
                       placeholderTextColor="rgba(255,255,255,0.6)"
                       secureTextEntry={!showPassword}
@@ -2051,19 +2057,21 @@ export default function OnboardingAuth() {
                       style={styles.passwordInput}
                       onFocus={() => setPasswordFocused(true)}
                       onBlur={() => {
-                        // Keep password focused if confirm password is focused
+                        // Keep password focused if confirm password is focused OR if password has value
                         // This prevents the confirm password field from disappearing when clicking on it
-                        if (!confirmPasswordFocused) {
+                        // or when pasting a password (which might blur the field)
+                        if (!confirmPasswordFocused && password.length === 0) {
                           // Small delay to check if confirm password will be focused
                           // This handles the case where user clicks from password to confirm password
+                          // Only hide if password is empty (pasted passwords should keep field visible)
                           setTimeout(() => {
-                            // Only hide if confirm password didn't get focused
-                            if (!confirmPasswordFocused) {
+                            // Only hide if confirm password didn't get focused AND password is still empty
+                            if (!confirmPasswordFocused && password.length === 0) {
                               setPasswordFocused(false)
                             }
                           }, 200) // Delay to allow confirm password field to receive focus
                         }
-                        // If confirmPasswordFocused is true, keep passwordFocused true too
+                        // If confirmPasswordFocused is true or password has value, keep passwordFocused true
                       }}
                     />
                     <TouchableOpacity
@@ -2080,7 +2088,7 @@ export default function OnboardingAuth() {
                   </View>
                 </View>
 
-                {(passwordFocused || confirmPasswordFocused) && isRegistrationFlow && (
+                {(passwordFocused || confirmPasswordFocused || password.length > 0) && isRegistrationFlow && (
                   <View style={styles.fieldGroup}>
                     <Text style={styles.fieldLabel}>Confirm Password</Text>
                     <View style={styles.passwordContainer}>

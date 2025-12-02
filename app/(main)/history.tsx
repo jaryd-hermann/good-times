@@ -425,11 +425,11 @@ export default function History() {
     enabled: !!currentGroupId && !!userId,
   })
 
-  // Get user's birthday cards (only their own) - only fetch when filter is active
+  // Get user's birthday cards (only their own) - always fetch to show in feed
   const { data: myBirthdayCards = [] } = useQuery({
     queryKey: ["myBirthdayCards", currentGroupId, userId],
     queryFn: () => (currentGroupId && userId ? getMyBirthdayCards(currentGroupId, userId) : []),
-    enabled: !!currentGroupId && !!userId && showBirthdayCards,
+    enabled: !!currentGroupId && !!userId, // Always fetch, not just when filter is active
   })
 
   const { data: categories = [] } = useQuery({
@@ -785,10 +785,9 @@ export default function History() {
   }
 
   // Group entries by date for Days view
-  // When birthday cards filter is active, add birthday cards as special entries
+  // Always add birthday cards as special entries (mixed with regular entries)
+  // When showBirthdayCards filter is active, show ONLY birthday cards
   const entriesWithBirthdayCards = useMemo(() => {
-    if (!showBirthdayCards) return filteredEntries
-    
     // Create a map of birthday cards by date
     const cardsByDate = new Map<string, typeof myBirthdayCards>()
     myBirthdayCards.forEach((card) => {
@@ -798,7 +797,40 @@ export default function History() {
       cardsByDate.get(card.birthday_date)!.push(card)
     })
     
-    // Add birthday cards as special "entries" for display
+    // If filter is active, show ONLY birthday cards
+    if (showBirthdayCards) {
+      const entries: any[] = []
+      cardsByDate.forEach((cards, date) => {
+        cards.forEach((card) => {
+          // Create a special entry-like object for the birthday card
+          entries.push({
+            id: `birthday-card-${card.id}`,
+            group_id: card.group_id,
+            user_id: card.birthday_user_id,
+            prompt_id: null,
+            date: card.birthday_date,
+            text_content: null,
+            media_urls: null,
+            media_types: null,
+            embedded_media: null,
+            created_at: card.published_at || card.created_at,
+            user: card.birthday_user,
+            prompt: null,
+            is_birthday_card: true, // Flag to identify birthday cards
+            birthday_card_id: card.id,
+          })
+        })
+      })
+      
+      // Sort by date descending, then by created_at descending
+      return entries.sort((a, b) => {
+        const dateCompare = new Date(b.date).getTime() - new Date(a.date).getTime()
+        if (dateCompare !== 0) return dateCompare
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      })
+    }
+    
+    // Otherwise, mix birthday cards with regular entries
     const entries: any[] = [...filteredEntries]
     cardsByDate.forEach((cards, date) => {
       cards.forEach((card) => {
@@ -1420,7 +1452,7 @@ export default function History() {
                   style={[styles.memorialRow, showBirthdayCards && styles.memorialRowActive]}
                   onPress={() => setShowBirthdayCards((prev) => !prev)}
                 >
-                  <Text style={styles.memorialName}>Show my birthday cards</Text>
+                  <Text style={[styles.memorialName, { textAlign: "center", width: "100%" }]}>Show my birthday cards</Text>
                 </TouchableOpacity>
               </>
             )}

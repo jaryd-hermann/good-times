@@ -75,17 +75,36 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
       entryId: entry.id,
       returnTo,
     }
-    if (entryIds && entryIds.length > 0) {
-      params.entryIds = JSON.stringify(entryIds)
-      params.index = String(index)
+    
+    // Check if this is a birthday card entry
+    const isBirthdayCardEntry = (entry as any).isBirthdayCardEntry === true
+    const cardId = (entry as any).cardId
+    
+    if (isBirthdayCardEntry && cardId) {
+      // Navigate to birthday card entry detail
+      if (entryIds && entryIds.length > 0) {
+        params.entryIds = JSON.stringify(entryIds)
+        params.index = String(index)
+      }
+      params.cardId = cardId
+      router.push({
+        pathname: "/(main)/modals/birthday-card-entry-detail",
+        params,
+      })
+    } else {
+      // Regular entry navigation
+      if (entryIds && entryIds.length > 0) {
+        params.entryIds = JSON.stringify(entryIds)
+        params.index = String(index)
+      }
+      if (scrollToComments) {
+        params.scrollToComments = "true"
+      }
+      router.push({
+        pathname: "/(main)/modals/entry-detail",
+        params,
+      })
     }
-    if (scrollToComments) {
-      params.scrollToComments = "true"
-    }
-    router.push({
-      pathname: "/(main)/modals/entry-detail",
-      params,
-    })
   }
 
   // Calculate if text exceeds 14 lines (for fade overlay)

@@ -172,7 +172,10 @@ export default function BirthdayCardEntryDetail() {
 
   function handleNext() {
     if (!effectiveNextEntryId) return
-    const params: Record<string, string> = { entryId: effectiveNextEntryId }
+    const params: Record<string, string> = { 
+      entryId: effectiveNextEntryId,
+      cardId: cardId, // Pass cardId to stay in birthday card flow
+    }
     if (returnTo) params.returnTo = returnTo
     // Use chronological entry IDs for navigation
     if (effectiveEntryIds.length > 0) {
@@ -182,7 +185,7 @@ export default function BirthdayCardEntryDetail() {
       }
     }
     router.replace({
-      pathname: "/(main)/modals/entry-detail",
+      pathname: "/(main)/modals/birthday-card-entry-detail", // Stay in birthday card flow
       params,
     })
   }

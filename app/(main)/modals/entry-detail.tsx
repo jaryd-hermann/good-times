@@ -20,6 +20,8 @@ import { personalizeMemorialPrompt, replaceDynamicVariables } from "../../../lib
 import { usePostHog } from "posthog-react-native"
 import { captureEvent } from "../../../lib/posthog"
 import { PhotoLightbox } from "../../../components/PhotoLightbox"
+import { markEntryAsVisited } from "../../../lib/notifications-in-app"
+import { updateBadgeCount } from "../../../lib/notifications-badge"
 
 export default function EntryDetail() {
   const router = useRouter()
@@ -93,9 +95,15 @@ export default function EntryDetail() {
     }
   }, [entry?.group_id, queryClient])
 
-  // Track viewed_entry event when entry loads
+  // Track viewed_entry event when entry loads and mark as visited
   useEffect(() => {
     if (entry && userId) {
+      // Mark entry as visited (clears reply notifications for this entry)
+      markEntryAsVisited(entry.id).then(() => {
+        // Update badge count after marking entry as visited
+        updateBadgeCount(userId)
+      })
+
       try {
         const isOwnEntry = entry.user_id === userId
         if (posthog) {

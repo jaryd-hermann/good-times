@@ -372,15 +372,17 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
                 variables.member_name = user.name || "them"
                 
                 // Record usage for this date (ignore errors if already exists)
-                await supabase.from("prompt_name_usage").insert({
+                const { error: insertError } = await supabase.from("prompt_name_usage").insert({
                   group_id: groupId,
                   prompt_id: prompt.id,
                   variable_type: "member_name",
                   name_used: variables.member_name,
                   date_used: date,
-                }).catch(() => {
-                  // Ignore duplicate errors - usage already recorded
                 })
+                
+                if (insertError && insertError.code !== '23505') {
+                  console.warn(`[getDailyPrompt] Failed to insert prompt_name_usage for ${prompt.id} on ${date}:`, insertError.message)
+                }
                 break
               }
             }
@@ -427,15 +429,18 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
             variables.member_name = selectedMember.user?.name || "them"
 
             // Record usage for this date (ignore errors if already exists)
-            await supabase.from("prompt_name_usage").insert({
+            const { error: insertError } = await supabase.from("prompt_name_usage").insert({
               group_id: groupId,
               prompt_id: prompt.id,
               variable_type: "member_name",
               name_used: variables.member_name,
               date_used: date,
-            }).catch(() => {
-              // Ignore duplicate errors - usage already recorded
             })
+            
+            if (insertError && insertError.code !== '23505') {
+              // Log non-duplicate errors (23505 is unique violation, which is expected)
+              console.warn(`[getDailyPrompt] Failed to insert prompt_name_usage for ${prompt.id} on ${date}:`, insertError.message)
+            }
           }
         }
       }
@@ -469,15 +474,17 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
         personalizedQuestion = personalizeMemorialPrompt(prompt.question, selectedMemorial.name)
 
         // Record usage
-        await supabase.from("prompt_name_usage").insert({
+        const { error: insertError } = await supabase.from("prompt_name_usage").insert({
           group_id: groupId,
           prompt_id: prompt.id,
           variable_type: "memorial_name",
           name_used: selectedMemorial.name,
           date_used: date,
-        }).catch(() => {
-          // Ignore duplicate errors
         })
+        
+        if (insertError && insertError.code !== '23505') {
+          console.warn(`[getDailyPrompt] Failed to insert prompt_name_usage for ${prompt.id} on ${date}:`, insertError.message)
+        }
       }
     }
 
@@ -727,15 +734,17 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
         variables.memorial_name = selectedMemorial.name
 
         // Record usage
-        await supabase.from("prompt_name_usage").insert({
+        const { error: insertError } = await supabase.from("prompt_name_usage").insert({
           group_id: groupId,
           prompt_id: prompt.id,
           variable_type: "memorial_name",
           name_used: selectedMemorial.name,
           date_used: date,
-        }).catch(() => {
-          // Ignore duplicate errors
         })
+        
+        if (insertError && insertError.code !== '23505') {
+          console.warn(`[getDailyPrompt] Failed to insert prompt_name_usage for ${prompt.id} on ${date}:`, insertError.message)
+        }
       }
 
       // Handle member_name variable
@@ -755,15 +764,17 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
                 variables.member_name = user.name || "them"
                 
                 // Record usage
-                await supabase.from("prompt_name_usage").insert({
+                const { error: insertError } = await supabase.from("prompt_name_usage").insert({
                   group_id: groupId,
                   prompt_id: prompt.id,
                   variable_type: "member_name",
                   name_used: variables.member_name,
                   date_used: date,
-                }).catch(() => {
-                  // Ignore duplicate errors
                 })
+                
+                if (insertError && insertError.code !== '23505') {
+                  console.warn(`[getDailyPrompt] Failed to insert prompt_name_usage for ${prompt.id} on ${date}:`, insertError.message)
+                }
                 break
               }
             }
@@ -801,15 +812,17 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
             variables.member_name = selectedMember.user?.name || "them"
 
             // Record usage
-            await supabase.from("prompt_name_usage").insert({
+            const { error: insertError } = await supabase.from("prompt_name_usage").insert({
               group_id: groupId,
               prompt_id: prompt.id,
               variable_type: "member_name",
               name_used: variables.member_name,
               date_used: date,
-            }).catch(() => {
-              // Ignore duplicate errors
             })
+            
+            if (insertError && insertError.code !== '23505') {
+              console.warn(`[getDailyPrompt] Failed to insert prompt_name_usage for ${prompt.id} on ${date}:`, insertError.message)
+            }
           }
         }
       }
@@ -2261,7 +2274,7 @@ export async function makeBirthdayCardPublic(
 export async function getBirthdayCard(cardId: string): Promise<BirthdayCard | null> {
   const { data: card, error } = await supabase
     .from("birthday_cards")
-    .select("*, birthday_user:users(id, name, avatar_url)")
+    .select("*, birthday_user:users(id, name, avatar_url, birthday)")
     .eq("id", cardId)
     .maybeSingle()
 

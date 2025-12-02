@@ -38,6 +38,7 @@ import { personalizeMemorialPrompt, replaceDynamicVariables } from "../../../lib
 import * as FileSystem from "expo-file-system/legacy"
 import { usePostHog } from "posthog-react-native"
 import { captureEvent, safeCapture } from "../../../lib/posthog"
+import { updateBadgeCount } from "../../../lib/notifications-badge"
 
 type MediaItem = {
   id: string

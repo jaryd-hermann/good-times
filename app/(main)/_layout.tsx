@@ -135,7 +135,8 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
     currentRoute.name === "add-custom-question" ||
     currentRoute.name.startsWith("collection-detail") ||
     currentRoute.name.startsWith("deck-detail") ||
-    currentRoute.name.startsWith("deck-vote")
+    currentRoute.name.startsWith("deck-vote") ||
+    currentRoute.name === "birthday-card-details"
   ) {
     return null
   }

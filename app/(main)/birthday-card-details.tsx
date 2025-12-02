@@ -11,16 +11,15 @@ import {
   Animated,
 } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
-import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { FontAwesome } from "@expo/vector-icons"
 import { useTheme } from "../../lib/theme-context"
 import { typography, spacing } from "../../lib/theme"
-import { getBirthdayCard, getBirthdayCardEntries, makeBirthdayCardPublic, trackBirthdayCardView } from "../../lib/db"
+import { getBirthdayCard, getBirthdayCardEntries, trackBirthdayCardView } from "../../lib/db"
 import { usePostHog } from "posthog-react-native"
 import { captureEvent, safeCapture } from "../../lib/posthog"
 import { EntryCard } from "../../components/EntryCard"
-import { Button } from "../../components/Button"
 import { supabase } from "../../lib/supabase"
 
 export default function BirthdayCardDetails() {
@@ -34,6 +33,9 @@ export default function BirthdayCardDetails() {
   const queryClient = useQueryClient()
   const posthog = usePostHog()
   const fadeAnim = useRef(new Animated.Value(0)).current
+  const scrollY = useRef(new Animated.Value(0)).current
+  const headerTranslateY = useRef(new Animated.Value(0)).current
+  const lastScrollY = useRef(0)
 
   const { data: card } = useQuery({
     queryKey: ["birthdayCard", cardId],
@@ -61,11 +63,11 @@ export default function BirthdayCardDetails() {
     loadUser()
   }, [])
 
-  // Fade-in animation on mount
+  // Slow fade-in animation on mount
   useEffect(() => {
     Animated.timing(fadeAnim, {
       toValue: 1,
-      duration: 300,
+      duration: 800, // Slower fade for more excitement
       useNativeDriver: true,
     }).start()
   }, [])
@@ -95,46 +97,33 @@ export default function BirthdayCardDetails() {
     }
   }, [card, cardId, userId, entries.length, posthog])
 
-  const makePublicMutation = useMutation({
-    mutationFn: () => {
-      if (!card) throw new Error("Card not found")
-      return makeBirthdayCardPublic(cardId, card.birthday_user_id)
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["birthdayCard", cardId] })
-      queryClient.invalidateQueries({ queryKey: ["publicBirthdayCards", groupId] })
-      safeCapture(posthog, "made_birthday_card_public", {
-        card_id: cardId,
-        group_id: groupId,
-      })
-      Alert.alert("Card is now public", "Your birthday card is now visible to everyone in your group in History.")
-    },
-    onError: (error: any) => {
-      Alert.alert("Error", error.message || "Failed to make card public")
-    },
-  })
-
-  function handleMakePublic() {
-    Alert.alert(
-      "Make card public?",
-      "This will make your birthday card visible to everyone in your group in History. You can't undo this.",
-      [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-        {
-          text: "Make Public",
-          style: "destructive",
-          onPress: () => makePublicMutation.mutate(),
-        },
-      ]
-    )
-  }
-
-  function calculateAge(birthdayYear: number, birthdayDate: string): number {
-    const currentYear = new Date(birthdayDate).getFullYear()
-    return currentYear - birthdayYear
+  function calculateAge(userBirthday: string | null | undefined): { age: number | null; ordinal: string } {
+    // Use the user's birthday from the users table
+    if (!userBirthday) {
+      return { age: null, ordinal: "" }
+    }
+    
+    try {
+      const birthdayDate = new Date(userBirthday)
+      if (isNaN(birthdayDate.getTime())) {
+        return { age: null, ordinal: "" }
+      }
+      
+      const birthYear = birthdayDate.getFullYear()
+      const currentYear = new Date().getFullYear()
+      const age = Math.max(0, currentYear - birthYear)
+      
+      // Get ordinal suffix (1st, 2nd, 3rd, 4th, etc.)
+      const getOrdinal = (n: number): string => {
+        const s = ["th", "st", "nd", "rd"]
+        const v = n % 100
+        return s[(v - 20) % 10] || s[v] || s[0]
+      }
+      
+      return { age, ordinal: getOrdinal(age) }
+    } catch {
+      return { age: null, ordinal: "" }
+    }
   }
 
   function handleBack() {
@@ -150,6 +139,8 @@ export default function BirthdayCardDetails() {
   function handleEntryPress(entryId: string) {
     const entryIds = entries.map((e) => e.id)
     const index = entryIds.indexOf(entryId)
+    // Always return to birthday card details page when navigating from within the card
+    const cardReturnTo = `/(main)/birthday-card-details?cardId=${cardId}&groupId=${groupId}`
     router.push({
       pathname: "/(main)/modals/birthday-card-entry-detail",
       params: {
@@ -157,28 +148,94 @@ export default function BirthdayCardDetails() {
         cardId,
         entryIds: JSON.stringify(entryIds),
         index: String(index),
-        returnTo: returnTo || `/(main)/birthday-card-details?cardId=${cardId}&groupId=${groupId}`,
+        returnTo: cardReturnTo, // Always return to birthday card details
       },
     })
   }
 
+  // Define styles before early return to ensure they're always available
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.black,
+    },
+    header: {
+      paddingTop: insets.top + spacing.md,
+      paddingHorizontal: spacing.md,
+      paddingBottom: spacing.md,
+      flexDirection: "row",
+      alignItems: "center",
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      backgroundColor: colors.black,
+      zIndex: 10,
+    },
+    backButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.gray[900],
+      justifyContent: "center",
+      alignItems: "center",
+      marginRight: spacing.md,
+    },
+    headerTitle: {
+      fontFamily: "Roboto-Regular",
+      fontSize: 16,
+      color: colors.gray[400],
+      flex: 1,
+      textAlign: "center",
+    },
+    content: {
+      flex: 1,
+      paddingHorizontal: spacing.md,
+      paddingBottom: spacing.xxl * 2,
+    },
+    contentContainer: {
+      paddingTop: insets.top + spacing.md + spacing.md + 40 + spacing.md, // Account for header height
+    },
+    birthdayText: {
+      ...typography.h1,
+      fontSize: 32,
+      color: colors.white,
+      textAlign: "center",
+      marginBottom: spacing.xl,
+      marginTop: spacing.md,
+    },
+    emptyState: {
+      paddingTop: spacing.xxl * 2,
+      alignItems: "center",
+    },
+    emptyStateText: {
+      ...typography.body,
+      color: colors.gray[400],
+      textAlign: "center",
+    },
+  })
+
   if (!card) {
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={handleBack}>
             <FontAwesome name="arrow-left" size={18} color={colors.white} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Loading...</Text>
+          <View style={{ width: 40 }} />
         </View>
       </View>
     )
   }
 
-  const age = calculateAge(card.birthday_year, card.birthday_date)
+  // Calculate age from user's birthday
+  const userBirthday = (card.birthday_user as any)?.birthday
+  const { age, ordinal } = calculateAge(userBirthday)
   const entryIds = entries.map((e) => e.id)
 
   // Convert birthday card entries to Entry-like format for EntryCard component
+  // Add a flag to identify birthday card entries
   const entryCards = entries.map((entry) => ({
     id: entry.id,
     group_id: card.group_id,
@@ -192,77 +249,66 @@ export default function BirthdayCardDetails() {
     created_at: entry.created_at,
     user: entry.contributor,
     prompt: undefined, // No prompt
+    isBirthdayCardEntry: true, // Flag to identify birthday card entries
+    cardId: cardId, // Pass cardId for navigation
   }))
 
-  const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.black,
-    },
-    header: {
-      paddingTop: insets.top + spacing.md,
-      paddingHorizontal: spacing.md,
-      paddingBottom: spacing.md,
-      flexDirection: "row",
-      alignItems: "center",
-      position: "relative",
-    },
-    backButton: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: colors.gray[900],
-      justifyContent: "center",
-      alignItems: "center",
-      marginRight: spacing.md,
-    },
-    headerTitle: {
-      ...typography.h1,
-      fontSize: 28,
-      color: colors.white,
-      flex: 1,
-      textAlign: "center",
-    },
-    content: {
-      flex: 1,
-      paddingHorizontal: spacing.md,
-      paddingBottom: spacing.xxl * 2,
-    },
-    birthdayText: {
-      ...typography.h1,
-      fontSize: 32,
-      color: colors.white,
-      textAlign: "center",
-      marginBottom: spacing.xl,
-      marginTop: spacing.md,
-    },
-    makePublicButton: {
-      marginTop: spacing.lg,
-      marginBottom: spacing.xl,
-    },
-    emptyState: {
-      paddingTop: spacing.xxl * 2,
-      alignItems: "center",
-    },
-    emptyStateText: {
-      ...typography.body,
-      color: colors.gray[400],
-      textAlign: "center",
+  // Calculate header height for scroll offset
+  const headerHeight = insets.top + spacing.md + spacing.md + 40 + spacing.md
+
+  // Handle scroll for header hiding
+  const handleScroll = Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+    useNativeDriver: false,
+    listener: (event: any) => {
+      const currentScrollY = event.nativeEvent.contentOffset.y
+      const scrollDiff = currentScrollY - lastScrollY.current
+      lastScrollY.current = currentScrollY
+
+      if (scrollDiff > 5 && currentScrollY > 50) {
+        // Scrolling down - hide header
+        Animated.timing(headerTranslateY, {
+          toValue: -(headerHeight + 100),
+          duration: 300,
+          useNativeDriver: true,
+        }).start()
+      } else if (scrollDiff < -5) {
+        // Scrolling up - show header
+        Animated.timing(headerTranslateY, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }).start()
+      }
     },
   })
 
   return (
     <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
-      <View style={styles.header}>
+      <Animated.View
+        style={[
+          styles.header,
+          {
+            transform: [{ translateY: headerTranslateY }],
+          },
+        ]}
+      >
         <TouchableOpacity style={styles.backButton} onPress={handleBack}>
           <FontAwesome name="arrow-left" size={18} color={colors.white} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Birthday Card</Text>
+        <Text style={styles.headerTitle}>Your group card</Text>
         <View style={{ width: 40 }} />
-      </View>
+      </Animated.View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={styles.birthdayText}>Happy {age} Birthday!</Text>
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+      >
+        <Text style={styles.birthdayText}>
+          {age !== null ? `Happy ${age}${ordinal} Birthday!` : "Happy Birthday!"}
+        </Text>
 
         {entries.length === 0 ? (
           <View style={styles.emptyState}>
@@ -270,24 +316,19 @@ export default function BirthdayCardDetails() {
           </View>
         ) : (
           <>
-            {entryCards.map((entry, index) => (
-              <EntryCard
-                key={entry.id}
-                entry={entry}
-                entryIds={entryIds}
-                index={index}
-                returnTo={returnTo || `/(main)/birthday-card-details?cardId=${cardId}&groupId=${groupId}`}
-              />
-            ))}
-
-            {!card.is_public && (
-              <Button
-                title="Make Public"
-                onPress={handleMakePublic}
-                style={styles.makePublicButton}
-                loading={makePublicMutation.isPending}
-              />
-            )}
+            {entryCards.map((entry, index) => {
+              // Always return to birthday card details page when clicking entries
+              const cardReturnTo = `/(main)/birthday-card-details?cardId=${cardId}&groupId=${groupId}`
+              return (
+                <EntryCard
+                  key={entry.id}
+                  entry={entry}
+                  entryIds={entryIds}
+                  index={index}
+                  returnTo={cardReturnTo}
+                />
+              )
+            })}
           </>
         )}
       </ScrollView>

@@ -55,6 +55,10 @@ import { CustomQuestionBanner } from "../../components/CustomQuestionBanner"
 import { BirthdayCardUpcomingBanner } from "../../components/BirthdayCardUpcomingBanner"
 import { BirthdayCardEditBanner } from "../../components/BirthdayCardEditBanner"
 import { BirthdayCardYourCardBanner } from "../../components/BirthdayCardYourCardBanner"
+import { NotificationBell } from "../../components/NotificationBell"
+import { NotificationModal } from "../../components/NotificationModal"
+import { getInAppNotifications, markNotificationsAsChecked, markEntryAsVisited, markGroupAsVisited, type InAppNotification } from "../../lib/notifications-in-app"
+import { updateBadgeCount } from "../../lib/notifications-badge"
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 
@@ -167,6 +171,7 @@ export default function Home() {
   const insets = useSafeAreaInsets()
   const [groupPickerVisible, setGroupPickerVisible] = useState(false)
   const [isGroupSwitching, setIsGroupSwitching] = useState(false)
+  const [notificationModalVisible, setNotificationModalVisible] = useState(false)
   const scrollY = useRef(new Animated.Value(0)).current
   const headerTranslateY = useRef(new Animated.Value(0)).current
   const contentPaddingTop = useRef(new Animated.Value(0)).current
@@ -253,7 +258,14 @@ export default function Home() {
       
       // Invalidate and refetch unseen count when screen comes into focus
       queryClient.invalidateQueries({ queryKey: ["groupUnseenCount"] })
-    }, [focusGroupId, queryClient])
+      
+      // Refetch notifications when screen comes into focus
+      if (userId) {
+        queryClient.invalidateQueries({ queryKey: ["inAppNotifications", userId] })
+        // Update badge count when screen comes into focus
+        updateBadgeCount(userId)
+      }
+    }, [focusGroupId, queryClient, userId])
   )
 
   // Request push notification permission on first visit to home
@@ -344,12 +356,33 @@ export default function Home() {
     staleTime: 0, // Always refetch groups to detect new groups
   })
 
+  // Fetch in-app notifications
+  const { data: notifications = [] } = useQuery({
+    queryKey: ["inAppNotifications", userId],
+    queryFn: () => (userId ? getInAppNotifications(userId) : []),
+    enabled: !!userId,
+    staleTime: 0, // Always refetch to get fresh notifications
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+  })
+
+  const hasNotifications = notifications.length > 0
+
+  // Update badge count when notifications change
+  useEffect(() => {
+    if (userId) {
+      updateBadgeCount(userId)
+    }
+  }, [notifications, userId])
+
   // When groups list changes (new group added), invalidate prompts for all groups
   useEffect(() => {
     if (groups.length > 0 && currentGroupId) {
       // Check if current group is in the list (might be a new group)
       const currentGroup = groups.find((g) => g.id === currentGroupId)
       if (currentGroup) {
+        // Mark group as visited when user views it
+        markGroupAsVisited(currentGroupId)
         // Invalidate prompts for current group to ensure fresh data
         queryClient.invalidateQueries({ 
           queryKey: ["dailyPrompt", currentGroupId],
@@ -1152,6 +1185,11 @@ export default function Home() {
       await queryClient.invalidateQueries()
       await queryClient.refetchQueries()
       
+      // Update badge count after refresh
+      if (userId) {
+        await updateBadgeCount(userId)
+      }
+      
       // Keep spinner visible for at least 1 second total
       setTimeout(() => {
         setShowRefreshIndicator(false)
@@ -1170,13 +1208,102 @@ export default function Home() {
     try {
       const inviteLink = `https://thegoodtimes.app/join/${currentGroupId}`
       const inviteMessage = `I've created a group for us on this new app, Good Times. Join ${userName} here: ${inviteLink}`
-      await Share.share({
-        url: inviteLink,
-        message: inviteMessage,
-        title: "Good Times Invite",
-      })
+      
+      // Platform-specific sharing to prevent duplicate URLs on iOS
+      // iOS: Only use message (URL included in text) to avoid preview card duplication
+      // Android: Use both url and message for better integration
+      if (Platform.OS === "ios") {
+        await Share.share({
+          message: inviteMessage,
+          title: "Invite someone",
+        })
+      } else {
+        await Share.share({
+          url: inviteLink,
+          message: inviteMessage,
+          title: "Invite someone",
+        })
+      }
     } catch (error: any) {
       Alert.alert("Error", error.message)
+    }
+  }
+
+  async function handleNotificationPress(notification: InAppNotification) {
+    // Mark entry as visited if it's a reply notification
+    if (notification.entryId) {
+      await markEntryAsVisited(notification.entryId)
+    }
+
+    // Mark group as visited if it's a new_answers notification
+    if (notification.type === "new_answers") {
+      await markGroupAsVisited(notification.groupId)
+    }
+
+    // Switch group if notification is for a different group
+    if (notification.groupId !== currentGroupId) {
+      setCurrentGroupId(notification.groupId)
+      await AsyncStorage.setItem("current_group_id", notification.groupId)
+      // Invalidate queries for the new group
+      queryClient.invalidateQueries({ queryKey: ["dailyPrompt", notification.groupId] })
+      queryClient.invalidateQueries({ queryKey: ["entries", notification.groupId] })
+    }
+
+    // Handle navigation based on notification type
+    if (notification.type === "new_question") {
+      // Navigate to home (group already switched above)
+      router.replace("/(main)/home")
+    } else if (notification.type === "new_answers") {
+      // Navigate to home (group already switched above)
+      router.replace("/(main)/home")
+    } else if (notification.entryId) {
+      // Navigate to entry detail - get all entries for the group to build navigation list
+      const { data: entries } = await supabase
+        .from("entries")
+        .select("id")
+        .eq("group_id", notification.groupId)
+        .order("date", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(50)
+      
+      const entryIdList = entries?.map((e) => e.id) || []
+      const entryIndex = entryIdList.indexOf(notification.entryId)
+      
+      router.push({
+        pathname: "/(main)/modals/entry-detail",
+        params: {
+          entryId: notification.entryId,
+          entryIds: JSON.stringify(entryIdList),
+          index: entryIndex >= 0 ? String(entryIndex) : undefined,
+          returnTo: "/(main)/home",
+        },
+      })
+    }
+
+    // Refetch notifications after handling to update badge
+    queryClient.invalidateQueries({ queryKey: ["inAppNotifications", userId] })
+    // Update badge count after handling notification
+    if (userId) {
+      await updateBadgeCount(userId)
+    }
+  }
+
+  async function handleNotificationBellPress() {
+    // Show modal immediately for better UX
+    setNotificationModalVisible(true)
+    
+    // Do async work in the background after showing modal
+    // Mark notifications as checked when opening modal
+    markNotificationsAsChecked().catch((error) => {
+      if (__DEV__) console.error("[home] Failed to mark notifications as checked:", error)
+    })
+    // Refetch notifications to clear the badge
+    queryClient.invalidateQueries({ queryKey: ["inAppNotifications", userId] })
+    // Update badge count after marking as checked
+    if (userId) {
+      updateBadgeCount(userId).catch((error) => {
+        if (__DEV__) console.error("[home] Failed to update badge count:", error)
+      })
     }
   }
 
@@ -1453,6 +1580,14 @@ export default function Home() {
       justifyContent: "space-between",
       alignItems: "center",
       marginBottom: spacing.md,
+    },
+    headerRight: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+    },
+    avatarButton: {
+      marginLeft: spacing.sm,
     },
     groupSelector: {
       flexDirection: "row",
@@ -1793,25 +1928,15 @@ export default function Home() {
       minHeight: 60,
       width: "100%",
     },
-    previousDayCTA: {
-      marginTop: spacing.sm,
-      marginBottom: spacing.lg + spacing.md, // Extra padding below CTA
-      marginHorizontal: spacing.lg,
-      paddingVertical: spacing.md,
-      paddingLeft: spacing.md,
-      paddingRight: spacing.md,
-      backgroundColor: isDark ? colors.gray[900] : colors.gray[800], // Light gray in light mode
-      borderRadius: 0,
-      alignItems: "center",
-      justifyContent: "center",
-      flexDirection: "row",
-      minHeight: 80,
-    },
-    previousDayCTAText: {
+    previousDayCTALink: {
       ...typography.body,
-      color: isDark ? "#ffffff" : "#000000",
+      color: colors.white, // In dark mode: white, in light mode: black (colors.white = #000000 in light mode)
       fontSize: 14,
       textAlign: "center",
+      textDecorationLine: "underline",
+      marginTop: spacing.sm,
+      marginBottom: spacing.lg + spacing.md,
+      marginHorizontal: spacing.lg,
     },
   }), [colors, isDark])
 
@@ -1832,9 +1957,16 @@ export default function Home() {
             <Text style={styles.groupName}>{currentGroup?.name || "Loading..."}</Text>
             <Text style={styles.chevron}>▼</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => router.push("/(main)/settings")}>
-            <Avatar uri={userAvatarUrl} name={userName} size={36} />
-          </TouchableOpacity>
+          <View style={styles.headerRight}>
+            <NotificationBell
+              hasNotifications={hasNotifications}
+              onPress={handleNotificationBellPress}
+              size={28}
+            />
+            <TouchableOpacity onPress={() => router.push("/(main)/settings")} style={styles.avatarButton}>
+              <Avatar uri={userAvatarUrl} name={userName} size={36} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Member avatars with + button */}
@@ -2228,13 +2360,12 @@ export default function Home() {
                     {/* Previous Day CTA */}
                     {shouldShowCTA && (
                       <TouchableOpacity
-                        style={styles.previousDayCTA}
                         onPress={() => {
                           setSelectedDate(previousDate)
                         }}
+                        activeOpacity={0.7}
                       >
-                        <FontAwesome name="history" size={16} color={isDark ? "#ffffff" : "#000000"} style={{ marginRight: spacing.sm }} />
-                        <Text style={styles.previousDayCTAText}>
+                        <Text style={styles.previousDayCTALink}>
                           {getPreviousDayCTAText()}
                         </Text>
                       </TouchableOpacity>
@@ -2253,13 +2384,12 @@ export default function Home() {
                     {/* Previous Day CTA */}
                     {shouldShowCTA && (
                       <TouchableOpacity
-                        style={styles.previousDayCTA}
                         onPress={() => {
                           setSelectedDate(previousDate)
                         }}
+                        activeOpacity={0.7}
                       >
-                        <FontAwesome name="history" size={16} color={isDark ? "#ffffff" : "#000000"} style={{ marginRight: spacing.sm }} />
-                        <Text style={styles.previousDayCTAText}>
+                        <Text style={styles.previousDayCTALink}>
                           {getPreviousDayCTAText()}
                         </Text>
                       </TouchableOpacity>
@@ -2327,6 +2457,14 @@ export default function Home() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Notification Modal */}
+      <NotificationModal
+        visible={notificationModalVisible}
+        notifications={notifications}
+        onClose={() => setNotificationModalVisible(false)}
+        onNotificationPress={handleNotificationPress}
+      />
     </View>
   )
 }
