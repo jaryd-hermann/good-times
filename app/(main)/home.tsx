@@ -227,9 +227,19 @@ export default function Home() {
       // Only reload user profile, not group (preserve current group)
       async function reloadProfile() {
         try {
-          // Ensure session is valid before loading data
+          // Ensure session is valid before loading data (with timeout)
           const { ensureValidSession } = await import("../../lib/auth")
-          await ensureValidSession()
+          const sessionPromise = ensureValidSession()
+          const sessionTimeout = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Session refresh timeout")), 5000)
+          )
+          
+          try {
+            await Promise.race([sessionPromise, sessionTimeout])
+          } catch (sessionError: any) {
+            console.warn("[home] Session refresh failed or timed out on focus:", sessionError?.message)
+            // Continue anyway - might still work
+          }
           
           const {
             data: { user },
@@ -265,7 +275,15 @@ export default function Home() {
         // Update badge count when screen comes into focus
         updateBadgeCount(userId)
       }
-    }, [focusGroupId, queryClient, userId])
+      
+      // CRITICAL: Invalidate all data queries when screen comes into focus
+      // This ensures fresh data when app comes to foreground
+      if (currentGroupId) {
+        queryClient.invalidateQueries({ queryKey: ["dailyPrompt", currentGroupId] })
+        queryClient.invalidateQueries({ queryKey: ["entries", currentGroupId] })
+        queryClient.invalidateQueries({ queryKey: ["userEntry", currentGroupId] })
+      }
+    }, [focusGroupId, queryClient, userId, currentGroupId])
   )
 
   // Request push notification permission on first visit to home
@@ -1161,10 +1179,28 @@ export default function Home() {
     setRefreshing(true)
     // Show spinner immediately when refresh starts
     setShowRefreshIndicator(true)
+    
+    // Set a maximum timeout for refresh (10 seconds)
+    const refreshTimeout = setTimeout(() => {
+      console.warn("[home] Refresh timeout - forcing completion")
+      setShowRefreshIndicator(false)
+      setRefreshing(false)
+    }, 10000)
+    
     try {
-      // Ensure session is valid before refreshing data
+      // Ensure session is valid before refreshing data (with timeout)
       const { ensureValidSession } = await import("../../lib/auth")
-      await ensureValidSession()
+      const sessionPromise = ensureValidSession()
+      const sessionTimeout = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Session refresh timeout")), 8000)
+      )
+      
+      try {
+        await Promise.race([sessionPromise, sessionTimeout])
+      } catch (sessionError: any) {
+        console.warn("[home] Session refresh failed or timed out:", sessionError?.message)
+        // Continue with refresh even if session refresh fails - data might still load
+      }
       
       // Aggressively clear all caches and refetch for current group
       if (currentGroupId) {
@@ -1182,23 +1218,53 @@ export default function Home() {
           exact: false 
         })
       }
-      await queryClient.invalidateQueries()
-      await queryClient.refetchQueries()
       
-      // Update badge count after refresh
+      // Invalidate and refetch with timeout
+      const invalidatePromise = queryClient.invalidateQueries()
+      const invalidateTimeout = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Invalidate timeout")), 5000)
+      )
+      
+      try {
+        await Promise.race([invalidatePromise, invalidateTimeout])
+      } catch (invalidateError) {
+        console.warn("[home] Invalidate timed out, continuing...")
+      }
+      
+      // Refetch queries with timeout
+      const refetchPromise = queryClient.refetchQueries()
+      const refetchTimeout = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Refetch timeout")), 5000)
+      )
+      
+      try {
+        await Promise.race([refetchPromise, refetchTimeout])
+      } catch (refetchError) {
+        console.warn("[home] Refetch timed out, continuing...")
+      }
+      
+      // Update badge count after refresh (don't wait for it)
       if (userId) {
-        await updateBadgeCount(userId)
+        updateBadgeCount(userId).catch((error) => {
+          console.warn("[home] Failed to update badge count:", error)
+        })
       }
       
       // Keep spinner visible for at least 1 second total
-      setTimeout(() => {
+      const minDisplayTime = setTimeout(() => {
         setShowRefreshIndicator(false)
       }, 1000)
+      
+      // Clear timeout if we finish early
+      clearTimeout(refreshTimeout)
+      clearTimeout(minDisplayTime)
+      setShowRefreshIndicator(false)
     } catch (error) {
       console.error("[home] Error during refresh:", error)
       // Don't block UI if refresh fails
       setShowRefreshIndicator(false)
     } finally {
+      clearTimeout(refreshTimeout)
       setRefreshing(false)
     }
   }

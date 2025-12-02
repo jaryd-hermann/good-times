@@ -189,29 +189,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [posthog])
 
-  // Phase 3: Remove AppState-based session refresh
-  // Session refresh is now handled explicitly when needed, not on every foreground
-  // This prevents race conditions and unnecessary refreshes
-  // AppState listener is kept only for tracking app close (for session lifecycle)
+  // AppState listener: track app close AND refresh session on foreground
   useEffect(() => {
+    let refreshTimeout: ReturnType<typeof setTimeout> | null = null
+    
     const handleAppStateChange = async (nextAppState: AppStateStatus) => {
-      // Track when app goes to background - record app close for session lifecycle
       if (nextAppState.match(/inactive|background/)) {
+        // Track when app goes to background - record app close for session lifecycle
         try {
           const { recordAppClose } = await import("../lib/session-lifecycle")
           await recordAppClose()
         } catch (error) {
           console.error("[AuthProvider] Failed to record app close:", error)
         }
+      } else if (nextAppState === "active") {
+        // App came to foreground - refresh session if needed
+        // Add small delay to avoid race conditions with initial load
+        refreshTimeout = setTimeout(async () => {
+          try {
+            // Check if session needs refresh (expired or expiring soon)
+            const { isSessionExpired, refreshSession } = await import("../lib/auth")
+            const expired = await isSessionExpired()
+            
+            if (expired && user) {
+              console.log("[AuthProvider] Session expired on foreground, refreshing...")
+              setRefreshing(true)
+              try {
+                await refreshSession()
+                console.log("[AuthProvider] Session refreshed successfully on foreground")
+              } catch (error) {
+                console.error("[AuthProvider] Failed to refresh session on foreground:", error)
+                // Don't set refreshing to false here - let it timeout or handle in finally
+              } finally {
+                setRefreshing(false)
+              }
+            }
+          } catch (error) {
+            console.error("[AuthProvider] Error checking session on foreground:", error)
+          }
+        }, 500) // Small delay to avoid race conditions
       }
     }
 
     const subscription = AppState.addEventListener("change", handleAppStateChange)
 
     return () => {
+      if (refreshTimeout) {
+        clearTimeout(refreshTimeout)
+      }
       subscription.remove()
     }
-  }, [])
+  }, [user])
 
   async function loadUser(userId: string) {
     try {

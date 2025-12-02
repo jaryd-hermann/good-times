@@ -4,7 +4,7 @@
 // Phase 6: Black screen prevention
 
 import { useEffect, useState, useRef } from "react";
-import { View, ActivityIndicator, Text, Pressable, Alert, ImageBackground, StyleSheet } from "react-native";
+import { View, ActivityIndicator, Text, Pressable, Alert, ImageBackground, StyleSheet, AppState } from "react-native";
 import { useRouter, useSegments } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { typography, colors as themeColors } from "../lib/theme";
@@ -50,6 +50,7 @@ export default function Index() {
   const hasNavigatedRef = useRef(false);
 
   // Phase 5: Determine if boot screen should show based on cold start
+  // Also check on app foreground to catch cases where app was backgrounded
   useEffect(() => {
     async function checkColdStart() {
       try {
@@ -68,6 +69,23 @@ export default function Index() {
     }
     
     checkColdStart();
+    
+    // Also check when app comes to foreground (catches cases where app was backgrounded)
+    const subscription = AppState.addEventListener("change", async (nextAppState) => {
+      if (nextAppState === "active") {
+        // App came to foreground - check if we should show boot screen
+        const isCold = await isColdStart();
+        if (isCold) {
+          console.log("[index] App came to foreground after cold start period - showing boot screen");
+          setShouldShowBootScreen(true);
+          await recordSessionStart();
+        }
+      }
+    });
+    
+    return () => {
+      subscription.remove();
+    };
   }, []);
 
   // Phase 2: Simplified boot flow - only route based on AuthProvider state
@@ -190,6 +208,94 @@ export default function Index() {
             await recordSuccessfulNavigation(`/join/${pendingGroupId}`);
           }
           return;
+        }
+
+        // Handle pending notification (from cold start notification click)
+        const pendingNotificationStr = await AsyncStorage.getItem("pending_notification");
+        if (pendingNotificationStr) {
+          try {
+            const pendingNotification = JSON.parse(pendingNotificationStr);
+            const { type, group_id, entry_id, prompt_id, timestamp } = pendingNotification;
+            
+            // Only process if notification is recent (within last 5 minutes)
+            // This prevents stale notifications from being processed
+            const notificationAge = Date.now() - (timestamp || 0);
+            const maxAge = 5 * 60 * 1000; // 5 minutes
+            
+            if (notificationAge < maxAge) {
+              console.log("[boot] Processing pending notification:", type);
+              await AsyncStorage.removeItem("pending_notification");
+              
+              // Ensure session is valid before navigating
+              try {
+                const { ensureValidSession } = await import("../lib/auth");
+                await ensureValidSession();
+              } catch (sessionError) {
+                console.warn("[boot] Session refresh failed for notification navigation:", sessionError);
+              }
+              
+              // Navigate based on notification type
+              if (type === "daily_prompt" && group_id && prompt_id) {
+                if (!hasNavigatedRef.current) {
+                  hasNavigatedRef.current = true;
+                  router.replace({
+                    pathname: "/(main)/modals/entry-composer",
+                    params: {
+                      promptId: prompt_id,
+                      date: new Date().toISOString().split("T")[0],
+                      returnTo: "/(main)/home",
+                    },
+                  });
+                  await recordSuccessfulNavigation("/(main)/modals/entry-composer");
+                }
+                return;
+              } else if (type === "new_entry" && group_id && entry_id) {
+                if (!hasNavigatedRef.current) {
+                  hasNavigatedRef.current = true;
+                  router.replace({
+                    pathname: "/(main)/modals/entry-detail",
+                    params: {
+                      entryId: entry_id,
+                      returnTo: "/(main)/home",
+                    },
+                  });
+                  await recordSuccessfulNavigation("/(main)/modals/entry-detail");
+                }
+                return;
+              } else if (type === "new_comment" && entry_id) {
+                if (!hasNavigatedRef.current) {
+                  hasNavigatedRef.current = true;
+                  router.replace({
+                    pathname: "/(main)/modals/entry-detail",
+                    params: {
+                      entryId: entry_id,
+                      returnTo: "/(main)/home",
+                    },
+                  });
+                  await recordSuccessfulNavigation("/(main)/modals/entry-detail");
+                }
+                return;
+              } else if ((type === "member_joined" || type === "inactivity_reminder") && group_id) {
+                if (!hasNavigatedRef.current) {
+                  hasNavigatedRef.current = true;
+                  router.replace({
+                    pathname: "/(main)/home",
+                    params: { focusGroupId: group_id },
+                  });
+                  await recordSuccessfulNavigation("/(main)/home");
+                }
+                return;
+              }
+            } else {
+              // Notification is stale - remove it
+              console.log("[boot] Pending notification is stale, removing");
+              await AsyncStorage.removeItem("pending_notification");
+            }
+          } catch (notificationError) {
+            console.error("[boot] Error processing pending notification:", notificationError);
+            // Remove invalid notification data
+            await AsyncStorage.removeItem("pending_notification");
+          }
         }
 
         // Route to appropriate screen based on group membership

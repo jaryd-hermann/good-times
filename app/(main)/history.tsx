@@ -680,19 +680,67 @@ export default function History() {
     setRefreshing(true)
     // Show spinner immediately when refresh starts
     setShowRefreshIndicator(true)
+    
+    // Set a maximum timeout for refresh (10 seconds)
+    const refreshTimeout = setTimeout(() => {
+      console.warn("[history] Refresh timeout - forcing completion")
+      setShowRefreshIndicator(false)
+      setRefreshing(false)
+    }, 10000)
+    
     try {
-      // Invalidate all queries to ensure fresh data
-      await queryClient.invalidateQueries()
-      await queryClient.refetchQueries()
+      // Ensure session is valid before refreshing data (with timeout)
+      const { ensureValidSession } = await import("../../lib/auth")
+      const sessionPromise = ensureValidSession()
+      const sessionTimeout = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Session refresh timeout")), 8000)
+      )
+      
+      try {
+        await Promise.race([sessionPromise, sessionTimeout])
+      } catch (sessionError: any) {
+        console.warn("[history] Session refresh failed or timed out:", sessionError?.message)
+        // Continue with refresh even if session refresh fails
+      }
+      
+      // Invalidate and refetch with timeout
+      const invalidatePromise = queryClient.invalidateQueries()
+      const invalidateTimeout = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Invalidate timeout")), 5000)
+      )
+      
+      try {
+        await Promise.race([invalidatePromise, invalidateTimeout])
+      } catch (invalidateError) {
+        console.warn("[history] Invalidate timed out, continuing...")
+      }
+      
+      // Refetch queries with timeout
+      const refetchPromise = queryClient.refetchQueries()
+      const refetchTimeout = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Refetch timeout")), 5000)
+      )
+      
+      try {
+        await Promise.race([refetchPromise, refetchTimeout])
+      } catch (refetchError) {
+        console.warn("[history] Refetch timed out, continuing...")
+      }
       
       // Keep spinner visible for at least 1 second total
-      setTimeout(() => {
+      const minDisplayTime = setTimeout(() => {
         setShowRefreshIndicator(false)
       }, 1000)
+      
+      // Clear timeout if we finish early
+      clearTimeout(refreshTimeout)
+      clearTimeout(minDisplayTime)
+      setShowRefreshIndicator(false)
     } catch (error) {
       console.error("[history] Error during refresh:", error)
       setShowRefreshIndicator(false)
     } finally {
+      clearTimeout(refreshTimeout)
       setRefreshing(false)
     }
   }

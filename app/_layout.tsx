@@ -180,53 +180,102 @@ export default function RootLayout() {
 
   // Handle notification clicks
   useEffect(() => {
-    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+    const subscription = Notifications.addNotificationResponseReceivedListener(async (response) => {
       const data = response.notification.request.content.data
       if (!data) return
 
       const { type, group_id, entry_id, prompt_id } = data
 
-      if (type === "daily_prompt" && group_id && prompt_id) {
-        // Navigate to entry composer with prompt
-        router.push({
-          pathname: "/(main)/modals/entry-composer",
-          params: {
-            promptId: prompt_id,
-            date: new Date().toISOString().split("T")[0],
-            returnTo: "/(main)/home",
-          },
-        })
-      } else if (type === "new_entry" && group_id && entry_id) {
-        // Navigate to entry detail
-        router.push({
-          pathname: "/(main)/modals/entry-detail",
-          params: {
-            entryId: entry_id,
-            returnTo: "/(main)/home",
-          },
-        })
-      } else if (type === "new_comment" && entry_id) {
-        // Navigate to entry detail
-        router.push({
-          pathname: "/(main)/modals/entry-detail",
-          params: {
-            entryId: entry_id,
-            returnTo: "/(main)/home",
-          },
-        })
-      } else if (type === "member_joined" && group_id) {
-        // Navigate to home with group focused
-        router.push({
-          pathname: "/(main)/home",
-          params: { focusGroupId: group_id },
-        })
-      } else if (type === "inactivity_reminder" && group_id) {
-        // Navigate to home with group focused
-        router.push({
-          pathname: "/(main)/home",
-          params: { focusGroupId: group_id },
-        })
+      // CRITICAL: Check if this is a cold start (app was closed for >5 minutes)
+      // If so, store notification data and let boot screen handle navigation after boot completes
+      try {
+        const { isColdStart } = await import("../lib/session-lifecycle")
+        const isCold = await isColdStart()
+        
+        if (isCold) {
+          console.log("[_layout] Cold start detected on notification click - storing notification for post-boot navigation")
+          // Store notification data to be handled after boot screen completes
+          const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default
+          await AsyncStorage.setItem("pending_notification", JSON.stringify({
+            type,
+            group_id,
+            entry_id,
+            prompt_id,
+            timestamp: Date.now(),
+          }))
+          // Boot screen will handle navigation after it completes (see app/index.tsx)
+          return // Don't navigate yet - wait for boot screen
+        }
+      } catch (error) {
+        console.error("[_layout] Error checking cold start on notification:", error)
+        // Continue with navigation if check fails
       }
+
+      // Not a cold start - navigate immediately (with session validation)
+      // CRITICAL: Ensure session is valid before navigating from notification
+      // This prevents black screens when session is stale
+      try {
+        const { ensureValidSession } = await import("../lib/auth")
+        const sessionPromise = ensureValidSession()
+        const sessionTimeout = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error("Session refresh timeout")), 5000)
+        )
+        
+        try {
+          await Promise.race([sessionPromise, sessionTimeout])
+        } catch (sessionError: any) {
+          console.warn("[_layout] Session refresh failed or timed out on notification:", sessionError?.message)
+          // Still try to navigate - might work if session is actually valid
+        }
+      } catch (error) {
+        console.error("[_layout] Error ensuring session on notification:", error)
+        // Continue anyway - navigation might still work
+      }
+
+      // Small delay to ensure app is ready
+      setTimeout(() => {
+        if (type === "daily_prompt" && group_id && prompt_id) {
+          // Navigate to entry composer with prompt
+          router.push({
+            pathname: "/(main)/modals/entry-composer",
+            params: {
+              promptId: prompt_id,
+              date: new Date().toISOString().split("T")[0],
+              returnTo: "/(main)/home",
+            },
+          })
+        } else if (type === "new_entry" && group_id && entry_id) {
+          // Navigate to entry detail
+          router.push({
+            pathname: "/(main)/modals/entry-detail",
+            params: {
+              entryId: entry_id,
+              returnTo: "/(main)/home",
+            },
+          })
+        } else if (type === "new_comment" && entry_id) {
+          // Navigate to entry detail
+          router.push({
+            pathname: "/(main)/modals/entry-detail",
+            params: {
+              entryId: entry_id,
+              returnTo: "/(main)/home",
+            },
+          })
+        } else if (type === "member_joined" && group_id) {
+          // Navigate to home with group focused
+          router.push({
+            pathname: "/(main)/home",
+            params: { focusGroupId: group_id },
+          })
+        } else if (type === "inactivity_reminder" && group_id) {
+          // Navigate to home with group focused
+          router.push({
+            pathname: "/(main)/home",
+            params: { focusGroupId: group_id },
+          })
+        }
+      }, 300) // Small delay to ensure app state is ready
     })
 
     return () => subscription.remove()
