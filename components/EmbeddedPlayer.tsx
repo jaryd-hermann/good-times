@@ -15,8 +15,14 @@ interface EmbeddedPlayerProps {
 export function EmbeddedPlayer({ embed, onRemove, showRemove = false }: EmbeddedPlayerProps) {
   const { colors } = useTheme()
   
-  // Spotify is 152px, Apple Music is similar height
-  const height = embed.platform === "spotify" ? 152 : embed.platform === "apple_music" ? 175 : 152
+  // Spotify is 152px, Apple Music is 175px, Soundcloud is 166px (compact) or 300px (visual)
+  const height = embed.platform === "spotify" 
+    ? 152 
+    : embed.platform === "apple_music" 
+    ? 175 
+    : embed.platform === "soundcloud"
+    ? 166
+    : 152
 
   const dynamicStyles = StyleSheet.create({
     container: {

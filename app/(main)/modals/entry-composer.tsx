@@ -376,7 +376,7 @@ export default function EntryComposer() {
       setSongUrlInput("")
       setShowSongModal(false)
     } else {
-      Alert.alert("Invalid URL", "Please enter a valid Spotify or Apple Music URL.")
+      Alert.alert("Invalid URL", "Please enter a valid Spotify, Apple Music, or Soundcloud URL.")
     }
   }
 
@@ -1744,13 +1744,13 @@ export default function EntryComposer() {
           <View style={styles.voiceSheet}>
             <Text style={styles.voiceTitle}>Add a song</Text>
             <Text style={styles.voiceDescription}>
-              Paste a Spotify or Apple Music link to embed it in your entry
+              Paste a Spotify, Apple Music, or Soundcloud link to embed it in your entry
             </Text>
             <TextInput
               style={styles.songUrlInput}
               value={songUrlInput}
               onChangeText={setSongUrlInput}
-              placeholder="https://open.spotify.com/track/..."
+              placeholder="https://open.spotify.com/track/... or soundcloud.com/..."
               placeholderTextColor={colors.gray[500]}
               autoCapitalize="none"
               autoCorrect={false}

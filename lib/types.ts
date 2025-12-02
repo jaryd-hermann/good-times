@@ -52,7 +52,7 @@ export interface DailyPrompt {
 }
 
 export interface EmbeddedMedia {
-  platform: "spotify" | "apple_music"
+  platform: "spotify" | "apple_music" | "soundcloud"
   url: string
   embedId: string
   embedType: string

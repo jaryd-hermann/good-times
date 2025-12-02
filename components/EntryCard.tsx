@@ -441,6 +441,22 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     fontSize: 16, // Increased from 14
       color: colors.white,
   },
+  songTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    marginLeft: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: isDark ? colors.white : colors.gray[700],
+  },
+  songTagText: {
+    ...typography.caption,
+    fontSize: 12,
+    color: colors.gray[400],
+  },
   question: {
     fontFamily: "Roboto-Regular",
     fontSize: 14,
@@ -664,6 +680,24 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
           <View style={styles.entryAuthor}>
             <Avatar uri={entry.user?.avatar_url} name={entry.user?.name || "User"} size={32} />
             <Text style={styles.userName}>{entry.user?.name}</Text>
+            {entry.embedded_media && entry.embedded_media.length > 0 && (() => {
+              // Get the first platform to determine icon (or use first if multiple)
+              const firstPlatform = entry.embedded_media[0]?.platform
+              let iconName = "music" // fallback
+              if (firstPlatform === "spotify") {
+                iconName = "spotify"
+              } else if (firstPlatform === "apple_music") {
+                iconName = "apple"
+              } else if (firstPlatform === "soundcloud") {
+                iconName = "soundcloud"
+              }
+              return (
+                <View style={styles.songTag}>
+                  <FontAwesome name={iconName as any} size={12} color={colors.gray[400]} />
+                  <Text style={styles.songTagText}>Added a song</Text>
+                </View>
+              )
+            })()}
           </View>
           <FontAwesome name="chevron-right" size={14} color={colors.gray[400]} style={styles.arrowIcon} />
         </View>

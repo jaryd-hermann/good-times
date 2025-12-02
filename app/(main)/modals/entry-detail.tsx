@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard } from "react-native"
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard, Linking } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { supabase } from "../../../lib/supabase"
@@ -652,6 +652,13 @@ export default function EntryDetail() {
       marginBottom: spacing.md,
       color: colors.white, // colors.white is #000000 (black) in light mode, #ffffff (white) in dark mode
     },
+    link: {
+      ...typography.body,
+      fontSize: 14,
+      lineHeight: 22,
+      color: colors.accent,
+      textDecorationLine: "underline",
+    },
     mediaContainer: {
       gap: spacing.xl, // Increased by 150% (from spacing.sm to spacing.xl)
       marginTop: spacing.xs,
@@ -865,9 +872,11 @@ export default function EntryDetail() {
 
               <Text style={styles.question}>{personalizedQuestion || entry.prompt?.question}</Text>
 
-              {entry.text_content && <Text style={styles.text}>{entry.text_content}</Text>}
+              {entry.text_content && (
+                <HyperlinkedText text={entry.text_content} textStyle={styles.text} linkStyle={styles.link} />
+              )}
 
-              {/* Embedded media (Spotify/Soundcloud) */}
+              {/* Embedded media (Spotify/Apple Music/Soundcloud) */}
               {entry.embedded_media && entry.embedded_media.length > 0 && (
                 <View style={styles.embeddedMediaContainer}>
                   {entry.embedded_media.map((embed: EmbeddedMedia, index: number) => (
@@ -1096,4 +1105,78 @@ function formatMillis(ms: number) {
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = totalSeconds % 60
   return `${minutes}:${seconds.toString().padStart(2, "0")}`
+}
+
+// Component to render text with clickable hyperlinks
+function HyperlinkedText({ text, textStyle, linkStyle }: { text: string; textStyle: any; linkStyle: any }) {
+  // URL regex pattern - matches http/https URLs
+  const urlRegex = /(https?:\/\/[^\s]+)/gi
+  
+  const parts: Array<{ text: string; isLink: boolean }> = []
+  let lastIndex = 0
+  let match
+  
+  // Find all URLs in the text
+  while ((match = urlRegex.exec(text)) !== null) {
+    // Add text before the URL
+    if (match.index > lastIndex) {
+      parts.push({
+        text: text.substring(lastIndex, match.index),
+        isLink: false,
+      })
+    }
+    
+    // Add the URL as a link
+    parts.push({
+      text: match[0],
+      isLink: true,
+    })
+    
+    lastIndex = match.index + match[0].length
+  }
+  
+  // Add remaining text after last URL
+  if (lastIndex < text.length) {
+    parts.push({
+      text: text.substring(lastIndex),
+      isLink: false,
+    })
+  }
+  
+  // If no URLs found, return plain text
+  if (parts.length === 0) {
+    return <Text style={textStyle}>{text}</Text>
+  }
+  
+  const handleLinkPress = async (url: string) => {
+    try {
+      const canOpen = await Linking.canOpenURL(url)
+      if (canOpen) {
+        await Linking.openURL(url)
+      } else {
+        Alert.alert("Error", "Cannot open this URL")
+      }
+    } catch (error) {
+      Alert.alert("Error", "Failed to open URL")
+    }
+  }
+  
+  return (
+    <Text style={textStyle}>
+      {parts.map((part, index) => {
+        if (part.isLink) {
+          return (
+            <Text
+              key={index}
+              style={linkStyle}
+              onPress={() => handleLinkPress(part.text)}
+            >
+              {part.text}
+            </Text>
+          )
+        }
+        return <Text key={index}>{part.text}</Text>
+      })}
+    </Text>
+  )
 }

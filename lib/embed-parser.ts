@@ -1,10 +1,11 @@
 /**
- * Utilities for parsing and handling Spotify and Apple Music URLs
+ * Utilities for parsing and handling Spotify, Apple Music, and Soundcloud URLs
  */
 
-export type EmbedPlatform = "spotify" | "apple_music"
+export type EmbedPlatform = "spotify" | "apple_music" | "soundcloud"
 export type SpotifyEmbedType = "track" | "album" | "playlist" | "artist"
 export type AppleMusicEmbedType = "song" | "album" | "playlist" | "artist"
+export type SoundcloudEmbedType = "track"
 
 export interface ParsedEmbed {
   platform: EmbedPlatform
@@ -94,6 +95,63 @@ export function parseAppleMusicUrl(url: string): ParsedEmbed | null {
 }
 
 /**
+ * Parse Soundcloud URL and extract embed information
+ */
+export function parseSoundcloudUrl(url: string): ParsedEmbed | null {
+  // Soundcloud URL patterns:
+  // https://soundcloud.com/{user}/{track}
+  // https://on.soundcloud.com/{shortId} (shortened links)
+  // Also handle URLs with query parameters
+  
+  // Handle shortened links: https://on.soundcloud.com/{shortId}
+  const shortenedRegex = /(?:https?:\/\/)?on\.soundcloud\.com\/([a-zA-Z0-9]+)/i
+  const shortenedMatch = url.match(shortenedRegex)
+  
+  if (shortenedMatch) {
+    const shortId = shortenedMatch[1]
+    // For shortened links, we need to use the full URL for embedding
+    // The embed URL will use the shortened URL itself
+    const normalizedUrl = `https://on.soundcloud.com/${shortId}`
+    const encodedUrl = encodeURIComponent(normalizedUrl)
+    const embedUrl = `https://w.soundcloud.com/player/?url=${encodedUrl}&color=%23ff5500&auto_play=false&hide_related=false&show_comments=true&show_user=true&show_reposts=false&show_teaser=true&visual=true`
+    
+    return {
+      platform: "soundcloud",
+      url: normalizedUrl,
+      embedId: shortId,
+      embedType: "track",
+      embedUrl,
+    }
+  }
+  
+  // Handle regular Soundcloud URLs: https://soundcloud.com/{user}/{track}
+  // Remove query parameters for matching
+  const cleanUrl = url.split('?')[0]
+  const soundcloudRegex = /(?:https?:\/\/)?(?:www\.)?soundcloud\.com\/([^\/]+)\/([^\/\?]+)/i
+  const match = cleanUrl.match(soundcloudRegex)
+  
+  if (match) {
+    const user = match[1]
+    const track = match[2]
+    // Use user/track as embedId for uniqueness
+    const embedId = `${user}/${track}`
+    const normalizedUrl = `https://soundcloud.com/${embedId}`
+    const encodedUrl = encodeURIComponent(normalizedUrl)
+    const embedUrl = `https://w.soundcloud.com/player/?url=${encodedUrl}&color=%23ff5500&auto_play=false&hide_related=false&show_comments=true&show_user=true&show_reposts=false&show_teaser=true&visual=true`
+    
+    return {
+      platform: "soundcloud",
+      url: normalizedUrl,
+      embedId,
+      embedType: "track",
+      embedUrl,
+    }
+  }
+  
+  return null
+}
+
+/**
  * Detect and parse any supported embed URL
  */
 export function parseEmbedUrl(url: string): ParsedEmbed | null {
@@ -105,6 +163,10 @@ export function parseEmbedUrl(url: string): ParsedEmbed | null {
   const appleMusic = parseAppleMusicUrl(url)
   if (appleMusic) return appleMusic
   
+  // Try Soundcloud
+  const soundcloud = parseSoundcloudUrl(url)
+  if (soundcloud) return soundcloud
+  
   return null
 }
 
@@ -112,7 +174,7 @@ export function parseEmbedUrl(url: string): ParsedEmbed | null {
  * Extract all embed URLs from text
  */
 export function extractEmbedUrls(text: string): ParsedEmbed[] {
-  // URL regex pattern
+  // URL regex pattern - updated to capture Soundcloud URLs
   const urlRegex = /(https?:\/\/[^\s]+|spotify:[^\s]+)/gi
   const matches = text.match(urlRegex) || []
   
