@@ -18,6 +18,19 @@ interface ChangeEntry {
 
 const CHANGES: ChangeEntry[] = [
   {
+    date: "2025-12-02",
+    title: "Tuesday, December 2nd",
+    subtitle: "Release notes",
+    timestamp: "7:15am",
+    items: [
+      "You can now click on comments to open a discussion more easily--thanks Elliot!",
+      "Added a little notification icon in the top right corner to let you know if you missed anything in your group",
+      "Fixed the password glitch during sign up with password generators...sorry Seth & Shishir!",
+      "Removed the double URLs showing in the one invitation flow",
+      "Hopefully found a fix for black screens after inactivity, shouldn't be an issue anymore but let's see",
+    ],
+  },
+  {
     date: "2025-12-01",
     title: "Monday, December 1st",
     subtitle: "Release notes",
