@@ -11,6 +11,7 @@ import {
   Modal,
   Dimensions,
   Animated,
+  Alert,
 } from "react-native"
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -18,10 +19,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { FontAwesome } from "@expo/vector-icons"
 import { useTheme } from "../../lib/theme-context"
 import { typography, spacing } from "../../lib/theme"
-import { getCollections, getGroupActiveDecks, getDeckQuestionsLeftCount, getDecksByCollection, getCurrentUser, getVoteStatus, getUserGroups } from "../../lib/db"
+import { getCollections, getGroupActiveDecks, getDeckQuestionsLeftCount, getDecksByCollection, getCurrentUser, getVoteStatus, getUserGroups, getFeaturedPromptsForCurrentWeek, getGroupFeaturedQuestionCount, addFeaturedQuestionToQueue, isFeaturedPromptInGroupQueue, getFeaturedQuestionAddedBy } from "../../lib/db"
 import { supabase } from "../../lib/supabase"
 import { useTabBar } from "../../lib/tab-bar-context"
-import type { Collection, GroupActiveDeck } from "../../lib/types"
+import type { Collection, GroupActiveDeck, FeaturedPrompt } from "../../lib/types"
 import { usePostHog } from "posthog-react-native"
 import { safeCapture } from "../../lib/posthog"
 import AsyncStorage from "@react-native-async-storage/async-storage"
@@ -203,6 +204,9 @@ export default function ExploreDecks() {
   const [currentGroupId, setCurrentGroupId] = useState<string>()
   const [userId, setUserId] = useState<string>()
   const [helpModalVisible, setHelpModalVisible] = useState(false)
+  const [featuredQuestionModalVisible, setFeaturedQuestionModalVisible] = useState(false)
+  const [selectedFeaturedPrompt, setSelectedFeaturedPrompt] = useState<FeaturedPrompt | null>(null)
+  const [featuredQuestionCarouselIndex, setFeaturedQuestionCarouselIndex] = useState(0)
   const scrollY = useRef(new Animated.Value(0)).current
   const headerTranslateY = useRef(new Animated.Value(0)).current
   const contentPaddingTop = useRef(new Animated.Value(0)).current
@@ -426,6 +430,40 @@ export default function ExploreDecks() {
     enabled: !!currentGroupId && activeDecks.some(d => d.status === "voting"),
   })
 
+  // Get featured prompts for current week
+  const { data: featuredPrompts = [] } = useQuery({
+    queryKey: ["featuredPrompts"],
+    queryFn: getFeaturedPromptsForCurrentWeek,
+  })
+
+  // Get featured question count for current group
+  const { data: featuredQuestionCount = 0, refetch: refetchFeaturedCount } = useQuery({
+    queryKey: ["featuredQuestionCount", currentGroupId],
+    queryFn: () => (currentGroupId ? getGroupFeaturedQuestionCount(currentGroupId) : 0),
+    enabled: !!currentGroupId,
+  })
+
+  // Check which featured prompts are already in queue (for disabling)
+  const { data: featuredPromptsInQueue = [] } = useQuery({
+    queryKey: ["featuredPromptsInQueue", currentGroupId, featuredPrompts.map(p => p.id).join(",")],
+    queryFn: async () => {
+      if (!currentGroupId || featuredPrompts.length === 0) return []
+      const inQueue: string[] = []
+      for (const prompt of featuredPrompts) {
+        try {
+          const isInQueue = await isFeaturedPromptInGroupQueue(currentGroupId, prompt.id)
+          if (isInQueue) {
+            inQueue.push(prompt.id)
+          }
+        } catch (error) {
+          console.warn(`[explore-decks] Error checking if featured prompt ${prompt.id} is in queue:`, error)
+        }
+      }
+      return inQueue
+    },
+    enabled: !!currentGroupId && featuredPrompts.length > 0,
+  })
+
   // Sort active decks: voting -> active -> finished -> rejected
   // Filter to show all statuses (voting, active, finished, rejected)
   // Voting decks should always appear first for visibility
@@ -512,6 +550,7 @@ export default function ExploreDecks() {
   }, [headerHeight])
 
   const scrollViewRef = useRef<ScrollView>(null)
+  const featuredCarouselRef = useRef<ScrollView>(null)
 
   // Reset animated values and scroll position when screen comes into focus (fixes content cut off when navigating back)
   useFocusEffect(
@@ -536,7 +575,10 @@ export default function ExploreDecks() {
           duration: 0, // Instant reset
           useNativeDriver: true,
         }),
-      ]).start()
+      ]).start(() => {
+        // After animation completes, ensure padding is set correctly
+        contentPaddingTop.setValue(headerHeight)
+      })
       
       // Reset scroll tracking
       lastScrollY.current = 0
@@ -545,12 +587,14 @@ export default function ExploreDecks() {
       // Reset scroll position to top
       setTimeout(() => {
         scrollViewRef.current?.scrollTo({ y: 0, animated: false })
+        // Ensure padding is correct after scroll
+        contentPaddingTop.setValue(headerHeight)
         // Re-enable scroll handler after a brief delay
         setTimeout(() => {
           isResettingScroll.current = false
         }, 100)
       }, 0)
-    }, [headerHeight, scrollY])
+    }, [headerHeight, scrollY, contentPaddingTop])
   )
 
   const handleScroll = Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
@@ -582,8 +626,8 @@ export default function ExploreDecks() {
             useNativeDriver: true,
           }),
         ]).start()
-      } else if (scrollDiff < -5) {
-        // Scrolling up - show header and restore padding, show tab bar
+      } else if (scrollDiff < -5 || currentScrollY <= 0) {
+        // Scrolling up or at top - show header and restore padding, show tab bar
         Animated.parallel([
           Animated.timing(headerTranslateY, {
             toValue: 0,
@@ -600,7 +644,12 @@ export default function ExploreDecks() {
             duration: 300,
             useNativeDriver: true,
           }),
-        ]).start()
+        ]).start(() => {
+          // Ensure padding is set correctly after animation completes
+          if (currentScrollY <= 0) {
+            contentPaddingTop.setValue(headerHeight)
+          }
+        })
       }
     },
   })
@@ -869,6 +918,165 @@ export default function ExploreDecks() {
     modalButton: {
       marginTop: spacing.md,
     },
+    modalButtonRow: {
+      flexDirection: "row",
+      gap: spacing.md,
+      marginTop: spacing.md,
+    },
+    modalButtonSecondary: {
+      flex: 1,
+      backgroundColor: colors.gray[800],
+      paddingVertical: spacing.md,
+      borderRadius: 0, // Square edges
+      alignItems: "center",
+    },
+    modalButtonPrimary: {
+      flex: 1,
+      backgroundColor: colors.accent,
+      paddingVertical: spacing.md,
+      borderRadius: 0, // Square edges
+      alignItems: "center",
+    },
+    modalButtonSecondaryText: {
+      ...typography.bodyBold,
+      color: colors.white,
+    },
+    modalButtonPrimaryText: {
+      ...typography.bodyBold,
+      color: colors.white,
+    },
+    // Featured Questions Styles
+    featuredSection: {
+      marginBottom: spacing.xxl + spacing.lg,
+    },
+    featuredTitle: {
+      fontFamily: "Roboto-Bold",
+      fontSize: 24,
+      color: colors.white,
+      marginBottom: spacing.xs,
+      textAlign: "center",
+      fontWeight: "700",
+    },
+    featuredSubtitle: {
+      ...typography.body,
+      fontSize: 14,
+      color: colors.gray[400],
+      marginBottom: spacing.md,
+      textAlign: "center",
+    },
+    featuredStatus: {
+      ...typography.body,
+      fontSize: 14,
+      color: colors.white,
+      marginBottom: spacing.lg,
+      textAlign: "center",
+    },
+    featuredCarousel: {
+      marginBottom: spacing.md,
+    },
+    featuredCarouselContent: {
+      paddingHorizontal: spacing.md,
+    },
+    featuredCard: {
+      width: SCREEN_WIDTH - spacing.md * 2, // Card width matches screen minus padding
+      backgroundColor: colors.gray[900],
+      borderRadius: 12,
+      padding: spacing.lg,
+      paddingTop: spacing.xxl, // Extra padding at top to prevent number cropping
+      marginRight: spacing.md, // Margin between cards
+      borderWidth: 1,
+      borderColor: colors.gray[700],
+      minHeight: 300,
+      overflow: "visible", // Allow number to extend if needed
+    },
+    featuredCardNumber: {
+      ...typography.h1,
+      fontSize: 48,
+      color: colors.white,
+      marginBottom: spacing.md,
+      marginTop: 0,
+      fontWeight: "700",
+      lineHeight: 56, // Ensure proper line height for large number
+    },
+    featuredCardQuestion: {
+      ...typography.bodyBold,
+      fontSize: 20,
+      color: colors.white,
+      marginBottom: spacing.md,
+      lineHeight: 28,
+    },
+    featuredCardDescription: {
+      ...typography.body,
+      fontSize: 14,
+      color: colors.gray[400],
+      marginBottom: spacing.md,
+      lineHeight: 20,
+    },
+    featuredCardBy: {
+      ...typography.caption,
+      fontSize: 12,
+      color: colors.gray[500],
+      fontStyle: "italic",
+      marginTop: "auto",
+    },
+    featuredTag: {
+      alignSelf: "flex-start",
+      backgroundColor: colors.gray[800],
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs,
+      borderRadius: 12,
+      marginTop: spacing.sm,
+    },
+    featuredTagText: {
+      ...typography.caption,
+      fontSize: 11,
+      color: colors.gray[400],
+    },
+    paginationDots: {
+      flexDirection: "row",
+      justifyContent: "center",
+      alignItems: "center",
+      marginBottom: spacing.lg,
+      gap: spacing.xs,
+    },
+    paginationDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: colors.gray[700],
+    },
+    paginationDotActive: {
+      backgroundColor: colors.white,
+    },
+    askQuestionButton: {
+      backgroundColor: colors.accent,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.lg,
+      borderRadius: 0, // Square edges
+      alignItems: "center",
+      marginBottom: spacing.md,
+      marginHorizontal: spacing.md,
+    },
+    askQuestionButtonDisabled: {
+      backgroundColor: colors.gray[700],
+      opacity: 0.5,
+    },
+    askQuestionButtonText: {
+      ...typography.bodyBold,
+      fontSize: 16,
+      color: colors.white,
+    },
+    contributeLink: {
+      alignItems: "center",
+      marginTop: spacing.sm,
+      marginBottom: spacing.lg,
+    },
+    contributeLinkText: {
+      ...typography.body,
+      fontSize: 14,
+      color: colors.gray[400],
+      textDecorationLine: "underline",
+    },
   })
 
   return (
@@ -994,6 +1202,159 @@ export default function ExploreDecks() {
           </View>
         )}
 
+        {/* Featured Questions Carousel */}
+        {featuredPrompts.length > 0 && (
+          <View style={styles.featuredSection}>
+            <Text style={styles.featuredTitle}>This weeks featured questions</Text>
+            <Text style={styles.featuredSubtitle}>Ask a single question to your group</Text>
+            
+            {featuredQuestionCount === 0 && (
+              <Text style={styles.featuredStatus}>
+                You can ask 2 questions this week
+              </Text>
+            )}
+            {featuredQuestionCount === 1 && (
+              <Text style={styles.featuredStatus}>
+                You can ask 1 more question this week
+              </Text>
+            )}
+            {featuredQuestionCount >= 2 && (
+              <Text style={styles.featuredStatus}>
+                You can't ask any more this week
+              </Text>
+            )}
+            
+            <ScrollView
+              ref={featuredCarouselRef}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.featuredCarousel}
+              contentContainerStyle={styles.featuredCarouselContent}
+              pagingEnabled={false}
+              snapToInterval={SCREEN_WIDTH - spacing.md * 2 + spacing.md}
+              snapToAlignment="start"
+              decelerationRate="fast"
+              scrollEventThrottle={16}
+              onScroll={(event) => {
+                // Update index during scroll for pagination dots
+                const cardWidth = SCREEN_WIDTH - spacing.md * 2
+                const scrollX = event.nativeEvent.contentOffset.x
+                const snapInterval = cardWidth + spacing.md
+                const index = Math.round(scrollX / snapInterval)
+                const clampedIndex = Math.max(0, Math.min(index, featuredPrompts.length - 1))
+                if (clampedIndex !== featuredQuestionCarouselIndex && clampedIndex >= 0 && clampedIndex < featuredPrompts.length) {
+                  setFeaturedQuestionCarouselIndex(clampedIndex)
+                }
+              }}
+              onMomentumScrollEnd={(event) => {
+                const cardWidth = SCREEN_WIDTH - spacing.md * 2
+                const scrollX = event.nativeEvent.contentOffset.x
+                const contentWidth = event.nativeEvent.contentSize.width
+                const snapInterval = cardWidth + spacing.md
+                
+                // Calculate which card we're on
+                let index = Math.round(scrollX / snapInterval)
+                index = Math.max(0, Math.min(index, featuredPrompts.length - 1))
+                setFeaturedQuestionCarouselIndex(index)
+                
+                // If we've scrolled past the last card, loop back to the first
+                const maxScrollX = contentWidth - (SCREEN_WIDTH - spacing.md)
+                if (scrollX >= maxScrollX - 10) {
+                  setTimeout(() => {
+                    featuredCarouselRef.current?.scrollTo({ x: 0, animated: false })
+                    setFeaturedQuestionCarouselIndex(0)
+                  }, 100)
+                }
+              }}
+            >
+              {featuredPrompts.map((prompt, index) => {
+                const isInQueue = featuredPromptsInQueue.includes(prompt.id)
+                const isDisabled = isInQueue || featuredQuestionCount >= 2
+                
+                return (
+                  <TouchableOpacity
+                    key={prompt.id}
+                    style={styles.featuredCard}
+                    onPress={() => {
+                      if (!isDisabled) {
+                        setSelectedFeaturedPrompt(prompt)
+                        setFeaturedQuestionModalVisible(true)
+                      }
+                    }}
+                    disabled={isDisabled}
+                    activeOpacity={isDisabled ? 1 : 0.7}
+                  >
+                    <Text style={styles.featuredCardNumber}>{prompt.display_order}</Text>
+                    <Text style={styles.featuredCardQuestion}>{prompt.question}</Text>
+                    {prompt.description && (
+                      <Text style={styles.featuredCardDescription} numberOfLines={4}>
+                        {prompt.description}
+                      </Text>
+                    )}
+                    {prompt.suggested_by && (
+                      <Text style={styles.featuredCardBy}>By {prompt.suggested_by}</Text>
+                    )}
+                    {isInQueue && (
+                      <View style={styles.featuredTag}>
+                        <Text style={styles.featuredTagText}>Someone is asking this already</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                )
+              })}
+            </ScrollView>
+            
+            {/* Pagination dots */}
+            {featuredPrompts.length > 1 && (
+              <View style={styles.paginationDots}>
+                {featuredPrompts.map((_, index) => (
+                  <View
+                    key={index}
+                    style={[
+                      styles.paginationDot,
+                      index === featuredQuestionCarouselIndex && styles.paginationDotActive,
+                    ]}
+                  />
+                ))}
+              </View>
+            )}
+            
+            {/* Ask this question button */}
+            {featuredPrompts.length > 0 && (() => {
+              const currentPrompt = featuredPrompts[featuredQuestionCarouselIndex]
+              const currentIsDisabled = currentPrompt 
+                ? (featuredPromptsInQueue.includes(currentPrompt.id) || featuredQuestionCount >= 2)
+                : true
+              
+              return (
+                <TouchableOpacity
+                  style={[
+                    styles.askQuestionButton,
+                    currentIsDisabled && styles.askQuestionButtonDisabled,
+                  ]}
+                  onPress={() => {
+                    if (currentPrompt && !currentIsDisabled) {
+                      setSelectedFeaturedPrompt(currentPrompt)
+                      setFeaturedQuestionModalVisible(true)
+                    }
+                  }}
+                  disabled={currentIsDisabled}
+                >
+                  <Text style={styles.askQuestionButtonText}>Ask this question</Text>
+                </TouchableOpacity>
+              )
+            })()}
+            
+            {/* Contribute a question link */}
+            <TouchableOpacity
+              style={styles.contributeLink}
+              onPress={() => router.push(`/(main)/modals/contribute-featured-question?groupId=${currentGroupId}&returnTo=/(main)/explore-decks`)}
+            >
+              <Text style={styles.contributeLinkText}>Contribute a question</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Collections grid */}
         <Text style={styles.collectionsTitle}>Collections</Text>
         <View style={styles.collectionsGrid}>
@@ -1039,6 +1400,72 @@ export default function ExploreDecks() {
           <Text style={styles.suggestDeckButtonText}>Suggest a deck</Text>
         </TouchableOpacity>
       </Animated.ScrollView>
+
+      {/* Featured Question Confirmation Modal */}
+      <Modal
+        transparent
+        animationType="slide"
+        visible={featuredQuestionModalVisible}
+        onRequestClose={() => setFeaturedQuestionModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setFeaturedQuestionModalVisible(false)}
+        >
+          <View
+            style={styles.modalContent}
+            onStartShouldSetResponder={() => true}
+          >
+            <Text style={styles.modalTitle}>Add Featured Question</Text>
+            {selectedFeaturedPrompt && (
+              <>
+                <Text style={styles.modalText}>
+                  Are you sure you want to add "{selectedFeaturedPrompt.question}" to your group's question queue?
+                </Text>
+                <View style={styles.modalButtonRow}>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.modalButtonSecondary]}
+                    onPress={() => setFeaturedQuestionModalVisible(false)}
+                  >
+                    <Text style={styles.modalButtonSecondaryText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.modalButtonPrimary]}
+                    onPress={async () => {
+                      if (!selectedFeaturedPrompt || !currentGroupId || !userId) return
+                      
+                      try {
+                        await addFeaturedQuestionToQueue(
+                          currentGroupId,
+                          selectedFeaturedPrompt.id,
+                          userId
+                        )
+                        
+                        // Close modal first
+                        setFeaturedQuestionModalVisible(false)
+                        setSelectedFeaturedPrompt(null)
+                        
+                        // Force immediate refetch to update UI
+                        await Promise.all([
+                          refetchFeaturedCount(),
+                          queryClient.refetchQueries({ queryKey: ["featuredPromptsInQueue", currentGroupId] }),
+                        ])
+                        
+                        Alert.alert("Success", "Featured question added to your group's queue!")
+                      } catch (error: any) {
+                        Alert.alert("Error", error.message || "Failed to add featured question")
+                      }
+                    }}
+                  >
+                    <Text style={styles.modalButtonPrimaryText}>Add to Queue</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Help Modal */}
       <Modal

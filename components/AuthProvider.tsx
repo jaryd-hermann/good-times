@@ -203,19 +203,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.error("[AuthProvider] Failed to record app close:", error)
         }
       } else if (nextAppState === "active") {
-        // App came to foreground - refresh session if needed
+        // CRITICAL: App came to foreground - ALWAYS refresh session to ensure it's valid
+        // This prevents black screens and ensures session is active
         // Add small delay to avoid race conditions with initial load
         refreshTimeout = setTimeout(async () => {
           try {
-            // Check if session needs refresh (expired or expiring soon)
-            const { isSessionExpired, refreshSession } = await import("../lib/auth")
-            const expired = await isSessionExpired()
-            
-            if (expired && user) {
-              console.log("[AuthProvider] Session expired on foreground, refreshing...")
+            if (user) {
+              console.log("[AuthProvider] App came to foreground - refreshing session to ensure validity...")
               setRefreshing(true)
               try {
-                await refreshSession()
+                // Always refresh session on foreground, regardless of expiry status
+                // This ensures session is active and prevents stale session issues
+                const { ensureValidSession } = await import("../lib/auth")
+                await ensureValidSession()
                 console.log("[AuthProvider] Session refreshed successfully on foreground")
               } catch (error) {
                 console.error("[AuthProvider] Failed to refresh session on foreground:", error)
@@ -225,7 +225,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               }
             }
           } catch (error) {
-            console.error("[AuthProvider] Error checking session on foreground:", error)
+            console.error("[AuthProvider] Error refreshing session on foreground:", error)
+            setRefreshing(false)
           }
         }, 500) // Small delay to avoid race conditions
       }

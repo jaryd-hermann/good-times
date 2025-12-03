@@ -741,14 +741,15 @@ export default function EntryDetail() {
       fontSize: 14,
       color: colors.white,
     },
-    commentsSection: {
+    commentsDivider: {
+      width: "100%",
+      height: 1,
+      backgroundColor: colors.gray[800],
       marginTop: spacing.lg,
+      marginBottom: spacing.lg,
     },
-    commentsTitle: {
-      ...typography.h3,
-      fontSize: 18,
-      marginBottom: spacing.md,
-      color: colors.white,
+    commentsSection: {
+      marginTop: 0,
     },
     comment: {
       flexDirection: "row",
@@ -998,24 +999,9 @@ export default function EntryDetail() {
                 </View>
               )}
 
-              {/* Reactions */}
-              <View style={styles.reactionsSection}>
-                <TouchableOpacity
-                  style={[styles.reactionButton, hasLiked && styles.reactionButtonActive]}
-                  onPress={handleToggleReaction}
-                >
-                  <FontAwesome
-                    name={hasLiked ? "heart" : "heart-o"}
-                    size={20}
-                    color={colors.white}
-                  />
-                  <Text style={styles.reactionCount}>{reactions.length}</Text>
-                </TouchableOpacity>
-              </View>
-
               {/* Comments */}
+              <View style={styles.commentsDivider} />
               <View ref={commentsSectionRef} style={styles.commentsSection}>
-                <Text style={styles.commentsTitle}>Comments</Text>
                 {comments.map((comment) => (
                   <View key={comment.id} style={styles.comment}>
                     <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={32} />

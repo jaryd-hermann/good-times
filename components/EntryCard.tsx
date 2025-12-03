@@ -863,23 +863,9 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
           </TouchableOpacity>
         )}
 
-        {/* Heart, Comment Icons, and CTA Button */}
+        {/* Comment Icons, and CTA Button */}
         <View style={styles.actionsRow}>
           <View style={styles.actionsLeft}>
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={handleToggleReaction}
-              disabled={!userId || toggleReactionMutation.isPending}
-              activeOpacity={0.7}
-            >
-              <FontAwesome 
-                name={hasLiked ? "heart" : "heart-o"} 
-                size={20} 
-                color={hasLiked ? colors.white : colors.white}
-                style={hasLiked ? styles.iconSolid : styles.iconOutline}
-              />
-              {reactionCount > 0 && <Text style={styles.actionCount}>{reactionCount}</Text>}
-            </TouchableOpacity>
             <TouchableOpacity
               style={styles.actionButton}
               onPress={(e) => {
@@ -917,33 +903,55 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
       {/* Comments Preview */}
       {comments.length > 0 && (
         <View style={styles.commentsContainer}>
-          {comments.slice(0, 2).map((comment: any) => (
-            <TouchableOpacity
-              key={comment.id}
-              style={styles.commentPreviewItem}
-              onPress={(e) => {
-                e.stopPropagation()
-                handleEntryPress(true) // Scroll to comments
-              }}
-              activeOpacity={0.7}
-            >
-              <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={20} />
-              <Text style={styles.commentPreviewUser}>{comment.user?.name}: </Text>
-              <Text style={styles.commentPreviewText} numberOfLines={1}>
-                {comment.text}
-              </Text>
-            </TouchableOpacity>
-          ))}
-          {comments.length > 2 && (
-            <TouchableOpacity
-              onPress={(e) => {
-                e.stopPropagation()
-                handleEntryPress(true) // Scroll to comments
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.commentPreviewMore}>+{comments.length - 2} more</Text>
-            </TouchableOpacity>
+          {comments.length <= 10 ? (
+            // Show all comments if 10 or fewer
+            comments.map((comment: any) => (
+              <TouchableOpacity
+                key={comment.id}
+                style={styles.commentPreviewItem}
+                onPress={(e) => {
+                  e.stopPropagation()
+                  handleEntryPress(true) // Scroll to comments
+                }}
+                activeOpacity={0.7}
+              >
+                <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={20} />
+                <Text style={styles.commentPreviewUser}>{comment.user?.name}: </Text>
+                <Text style={styles.commentPreviewText} numberOfLines={1}>
+                  {comment.text}
+                </Text>
+              </TouchableOpacity>
+            ))
+          ) : (
+            // Show first 10 comments and "+N comments" if more than 10
+            <>
+              {comments.slice(0, 10).map((comment: any) => (
+                <TouchableOpacity
+                  key={comment.id}
+                  style={styles.commentPreviewItem}
+                  onPress={(e) => {
+                    e.stopPropagation()
+                    handleEntryPress(true) // Scroll to comments
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={20} />
+                  <Text style={styles.commentPreviewUser}>{comment.user?.name}: </Text>
+                  <Text style={styles.commentPreviewText} numberOfLines={1}>
+                    {comment.text}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity
+                onPress={(e) => {
+                  e.stopPropagation()
+                  handleEntryPress(true) // Scroll to comments
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.commentPreviewMore}>+{comments.length - 10} comments</Text>
+              </TouchableOpacity>
+            </>
           )}
         </View>
       )}

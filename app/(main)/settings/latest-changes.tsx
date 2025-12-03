@@ -18,6 +18,19 @@ interface ChangeEntry {
 
 const CHANGES: ChangeEntry[] = [
   {
+    date: "2025-12-03",
+    title: "Wednesday, December 3rd",
+    subtitle: "Release notes",
+    timestamp: "9am",
+    items: [
+      "Add new \"Featured Questions\" in the \"Ask\" secton, allowing your group to select curated questions available for this week only. You can choose up to two, and also, suggest questions for the entire app!",
+      "If you tap someone in your groups pic at the top of the \"Ask\" tab, you'll now see a list of their answers in History. Thanks, Emily!",
+      "Got rid of \"Heart\" reactions, because they seem unproductive. Rather leave the space for discussions.",
+      "Added the ability to embed Soundcloud links to more easily share music (already works for Apple and Spotify).",
+      "Some other bug fixes and little improvements",
+    ],
+  },
+  {
     date: "2025-12-02",
     title: "Tuesday, December 2nd",
     subtitle: "Release notes",

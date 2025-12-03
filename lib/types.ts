@@ -217,3 +217,27 @@ export interface BirthdayCardEntry {
   contributor?: User
   card?: BirthdayCard
 }
+
+export interface FeaturedPrompt {
+  id: string
+  question: string
+  description?: string
+  week_starting: string
+  category: string
+  display_order: number
+  suggested_by?: string | null
+  created_at: string
+}
+
+export interface GroupFeaturedQuestion {
+  id: string
+  group_id: string
+  featured_prompt_id: string
+  added_by: string
+  date_added: string
+  date_scheduled?: string | null
+  prompt_id?: string | null
+  created_at: string
+  user?: User
+  featured_prompt?: FeaturedPrompt
+}

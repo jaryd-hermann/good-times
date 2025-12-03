@@ -143,6 +143,7 @@ export default function History() {
   const router = useRouter()
   const params = useLocalSearchParams()
   const focusGroupId = params.focusGroupId as string | undefined
+  const filterMemberId = params.filterMemberId as string | undefined
   const { colors, isDark } = useTheme()
   const [viewMode, setViewMode] = useState<ViewMode>("Days")
   const [showFilter, setShowFilter] = useState(false)
@@ -162,10 +163,17 @@ export default function History() {
     }
   }, [posthog])
   const [selectedCategories, setSelectedCategories] = useState<string[]>([])
-  const [selectedMembers, setSelectedMembers] = useState<string[]>([])
+  const [selectedMembers, setSelectedMembers] = useState<string[]>(filterMemberId ? [filterMemberId] : [])
   const [selectedMemorials, setSelectedMemorials] = useState<string[]>([])
   const [selectedDecks, setSelectedDecks] = useState<string[]>([])
   const [showBirthdayCards, setShowBirthdayCards] = useState(false)
+
+  // Update selectedMembers when filterMemberId param changes
+  useEffect(() => {
+    if (filterMemberId) {
+      setSelectedMembers([filterMemberId])
+    }
+  }, [filterMemberId])
   const [currentGroupId, setCurrentGroupId] = useState<string>()
   const [userId, setUserId] = useState<string>()
   const [activePeriod, setActivePeriod] = useState<ActivePeriod | null>(null)
@@ -1411,6 +1419,17 @@ export default function History() {
     minHeight: 60,
     width: "100%",
   },
+  clearFiltersContainer: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  clearFiltersLink: {
+    ...typography.body,
+    fontSize: 14,
+    color: colors.white,
+    textDecorationLine: "underline",
+  },
   }), [colors, isDark])
 
   return (
@@ -1619,6 +1638,29 @@ export default function History() {
         {showRefreshIndicator && (
           <View style={styles.refreshIndicator}>
             <ActivityIndicator size="small" color={colors.gray[400]} />
+          </View>
+        )}
+        
+        {/* Clear Filters Link */}
+        {(selectedCategories.length > 0 || 
+          selectedMembers.length > 0 || 
+          selectedMemorials.length > 0 || 
+          selectedDecks.length > 0 || 
+          showBirthdayCards || 
+          activePeriod) && (
+          <View style={styles.clearFiltersContainer}>
+            <TouchableOpacity
+              onPress={() => {
+                setSelectedCategories([])
+                setSelectedMembers([])
+                setSelectedMemorials([])
+                setSelectedDecks([])
+                setShowBirthdayCards(false)
+                setActivePeriod(null)
+              }}
+            >
+              <Text style={styles.clearFiltersLink}>Clear filters</Text>
+            </TouchableOpacity>
           </View>
         )}
         

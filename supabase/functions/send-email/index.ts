@@ -26,6 +26,10 @@ const EMAIL_TEMPLATES = {
     subject: "Deck Suggestion from Good Times",
     templateId: null, // Uses inline HTML
   },
+  featured_question_suggestion: {
+    subject: "Featured Question Suggestion from Good Times",
+    templateId: null, // Uses inline HTML
+  },
 } as const
 
 type EmailType = keyof typeof EMAIL_TEMPLATES
@@ -191,6 +195,66 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
 </html>
       `.trim()
     }
+    case "featured_question_suggestion": {
+      // Escape HTML to prevent XSS
+      const escapeHtml = (text: string) => {
+        return String(text)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;")
+      }
+      
+      const userName = escapeHtml(templateData.user_name || "User")
+      const userEmail = escapeHtml(templateData.user_email || "No email")
+      const groupName = escapeHtml(templateData.group_name || "Unknown Group")
+      const groupId = escapeHtml(templateData.group_id || "Unknown")
+      const questions = Array.isArray(templateData.questions) ? templateData.questions : []
+      
+      const questionsHTML = questions.map((q: string, idx: number) => {
+        const escapedQ = escapeHtml(q)
+        return `
+        <div style="background-color: #fff; padding: 20px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #de2f08;">
+          <p style="font-size: 16px; margin: 0 0 10px 0;"><strong>Question ${idx + 1}:</strong></p>
+          <p style="font-size: 16px; margin: 0; white-space: pre-wrap;">${escapedQ}</p>
+        </div>
+        `
+      }).join("")
+      
+      return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Featured Question Suggestion</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background-color: #000; color: #fff; padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
+    <h1 style="margin: 0; font-size: 28px;">Featured Question Suggestion</h1>
+  </div>
+  <div style="background-color: #f9f9f9; padding: 40px; border-radius: 0 0 8px 8px;">
+    <p style="font-size: 16px; margin-bottom: 20px;">
+      <strong>User:</strong> ${userName}<br>
+      <strong>Email:</strong> ${userEmail}<br>
+      <strong>Group:</strong> ${groupName} (ID: ${groupId})
+    </p>
+    ${questions.length > 0 ? `
+    <div style="margin-top: 20px;">
+      <p style="font-size: 18px; margin-bottom: 15px;"><strong>Suggested Questions:</strong></p>
+      ${questionsHTML}
+    </div>
+    ` : `
+    <div style="background-color: #fff; padding: 20px; border-radius: 8px; border-left: 4px solid #666;">
+      <p style="font-size: 16px; margin: 0; color: #666;">No questions provided.</p>
+    </div>
+    `}
+  </div>
+</body>
+</html>
+      `.trim()
+    }
     default:
       throw new Error(`No HTML template defined for email type: ${emailType}`)
   }
@@ -288,6 +352,28 @@ Sample Question:
 ${sampleQuestion}
       `.trim()
     }
+    case "featured_question_suggestion": {
+      const userName = templateData.user_name || "User"
+      const userEmail = templateData.user_email || "No email"
+      const groupName = templateData.group_name || "Unknown Group"
+      const groupId = templateData.group_id || "Unknown"
+      const questions = Array.isArray(templateData.questions) ? templateData.questions : []
+      
+      const questionsText = questions.length > 0
+        ? questions.map((q: string, idx: number) => `Question ${idx + 1}:\n${q}`).join("\n\n")
+        : "No questions provided."
+      
+      return `
+Featured Question Suggestion
+
+User: ${userName}
+Email: ${userEmail}
+Group: ${groupName} (ID: ${groupId})
+
+Suggested Questions:
+${questionsText}
+      `.trim()
+    }
     default:
       throw new Error(`No text template defined for email type: ${emailType}`)
   }
@@ -372,8 +458,8 @@ serve(async (req: Request) => {
       }
     }
 
-    // For deck_suggestion emails, send to hermannjaryd@gmail.com instead of user email
-    if (email_type === "deck_suggestion") {
+    // For deck_suggestion and featured_question_suggestion emails, send to hermannjaryd@gmail.com instead of user email
+    if (email_type === "deck_suggestion" || email_type === "featured_question_suggestion") {
       finalRecipientEmail = "hermannjaryd@gmail.com"
     } else if (!finalRecipientEmail) {
       throw new Error("recipient_email is required or user_id must be provided")

@@ -186,50 +186,29 @@ export default function RootLayout() {
 
       const { type, group_id, entry_id, prompt_id } = data
 
-      // CRITICAL: Check if this is a cold start (app was closed for >5 minutes)
-      // If so, store notification data and let boot screen handle navigation after boot completes
+      // CRITICAL: Always store notification data and force boot screen to show
+      // Boot screen will ensure session is valid before navigating
+      // This prevents black screens and ensures smooth experience
+      console.log("[_layout] Notification clicked - storing for boot screen to handle")
       try {
-        const { isColdStart } = await import("../lib/session-lifecycle")
-        const isCold = await isColdStart()
-        
-        if (isCold) {
-          console.log("[_layout] Cold start detected on notification click - storing notification for post-boot navigation")
-          // Store notification data to be handled after boot screen completes
-          const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default
-          await AsyncStorage.setItem("pending_notification", JSON.stringify({
-            type,
-            group_id,
-            entry_id,
-            prompt_id,
-            timestamp: Date.now(),
-          }))
-          // Boot screen will handle navigation after it completes (see app/index.tsx)
-          return // Don't navigate yet - wait for boot screen
-        }
+        const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default
+        await AsyncStorage.setItem("pending_notification", JSON.stringify({
+          type,
+          group_id,
+          entry_id,
+          prompt_id,
+          timestamp: Date.now(),
+        }))
+        // CRITICAL: Set flag to force boot screen to show when app opens from notification
+        // This ensures session refresh happens before navigation
+        await AsyncStorage.setItem("notification_clicked", "true")
+        console.log("[_layout] Notification stored, boot screen will be forced to show")
+        // Boot screen will handle navigation after ensuring session is valid (see app/index.tsx)
+        // This ensures we never navigate with a stale session
+        return // Don't navigate yet - wait for boot screen to complete
       } catch (error) {
-        console.error("[_layout] Error checking cold start on notification:", error)
-        // Continue with navigation if check fails
-      }
-
-      // Not a cold start - navigate immediately (with session validation)
-      // CRITICAL: Ensure session is valid before navigating from notification
-      // This prevents black screens when session is stale
-      try {
-        const { ensureValidSession } = await import("../lib/auth")
-        const sessionPromise = ensureValidSession()
-        const sessionTimeout = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("Session refresh timeout")), 5000)
-        )
-        
-        try {
-          await Promise.race([sessionPromise, sessionTimeout])
-        } catch (sessionError: any) {
-          console.warn("[_layout] Session refresh failed or timed out on notification:", sessionError?.message)
-          // Still try to navigate - might work if session is actually valid
-        }
-      } catch (error) {
-        console.error("[_layout] Error ensuring session on notification:", error)
-        // Continue anyway - navigation might still work
+        console.error("[_layout] Error storing notification:", error)
+        // If storage fails, try to navigate immediately (fallback)
       }
 
       // Small delay to ensure app is ready

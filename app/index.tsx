@@ -47,38 +47,96 @@ export default function Index() {
   const [err, setErr] = useState<string | null>(null);
   const [loadingDots, setLoadingDots] = useState(".");
   const [shouldShowBootScreen, setShouldShowBootScreen] = useState(true);
+  const [sessionRefreshing, setSessionRefreshing] = useState(false);
   const hasNavigatedRef = useRef(false);
+  const bootStartTimeRef = useRef<number>(Date.now()); // Initialize immediately
 
-  // Phase 5: Determine if boot screen should show based on cold start
-  // Also check on app foreground to catch cases where app was backgrounded
+  // CRITICAL: Always show boot screen on app open (from any source)
+  // Record session start immediately
   useEffect(() => {
-    async function checkColdStart() {
+    async function initializeBoot() {
       try {
-        const isCold = await isColdStart();
-        setShouldShowBootScreen(isCold);
-        
-        // Record session start if cold start
-        if (isCold) {
-          await recordSessionStart();
+        // Check if app was opened from a notification click
+        const notificationClicked = await AsyncStorage.getItem("notification_clicked");
+        if (notificationClicked === "true") {
+          console.log("[boot] App opened from notification - forcing boot screen and session refresh");
+          // Clear the flag
+          await AsyncStorage.removeItem("notification_clicked");
+          // Force boot screen to show and refresh session
+          setShouldShowBootScreen(true);
+          setSessionRefreshing(true);
+          try {
+            const { ensureValidSession } = await import("../lib/auth");
+            await ensureValidSession();
+            console.log("[boot] Session refreshed after notification click");
+          } catch (error) {
+            console.error("[boot] Failed to refresh session after notification:", error);
+          } finally {
+            setSessionRefreshing(false);
+          }
         }
+        
+        // Always record session start - ensures we track app opens
+        await recordSessionStart();
+        console.log("[boot] Boot screen initialized - always showing boot screen");
+        setShouldShowBootScreen(true);
       } catch (error) {
-        console.error("[index] Failed to check cold start:", error);
-        // On error, show boot screen to be safe
+        console.error("[index] Failed to initialize boot:", error);
+        // On error, still show boot screen to be safe
         setShouldShowBootScreen(true);
       }
     }
     
-    checkColdStart();
+    initializeBoot();
     
-    // Also check when app comes to foreground (catches cases where app was backgrounded)
+    // When app comes to foreground, always refresh session and show boot screen if needed
     const subscription = AppState.addEventListener("change", async (nextAppState) => {
       if (nextAppState === "active") {
-        // App came to foreground - check if we should show boot screen
-        const isCold = await isColdStart();
-        if (isCold) {
-          console.log("[index] App came to foreground after cold start period - showing boot screen");
+        // Check if app was opened from a notification click
+        const notificationClicked = await AsyncStorage.getItem("notification_clicked");
+        const hasPendingNotification = await AsyncStorage.getItem("pending_notification");
+        
+        if (notificationClicked === "true" || hasPendingNotification) {
+          console.log("[boot] App came to foreground from notification - forcing boot screen and session refresh");
+          // Clear the flag
+          if (notificationClicked === "true") {
+            await AsyncStorage.removeItem("notification_clicked");
+          }
+          // Force boot screen to show and refresh session
           setShouldShowBootScreen(true);
-          await recordSessionStart();
+          setSessionRefreshing(true);
+          try {
+            const { ensureValidSession } = await import("../lib/auth");
+            await ensureValidSession();
+            console.log("[boot] Session refreshed after notification click");
+          } catch (error) {
+            console.error("[boot] Failed to refresh session after notification:", error);
+          } finally {
+            setSessionRefreshing(false);
+            // Keep boot screen visible longer for notification opens (2 seconds)
+            setTimeout(() => {
+              setShouldShowBootScreen(false);
+            }, 2000);
+          }
+        } else {
+          console.log("[boot] App came to foreground - refreshing session and showing boot screen");
+          // Always refresh session when app comes to foreground
+          setSessionRefreshing(true);
+          try {
+            const { ensureValidSession } = await import("../lib/auth");
+            await ensureValidSession();
+            console.log("[boot] Session refreshed on foreground");
+          } catch (error) {
+            console.error("[boot] Failed to refresh session on foreground:", error);
+          } finally {
+            setSessionRefreshing(false);
+          }
+          // Show boot screen briefly to ensure smooth transition
+          setShouldShowBootScreen(true);
+          // Hide boot screen after a short delay
+          setTimeout(() => {
+            setShouldShowBootScreen(false);
+          }, 500);
         }
       }
     });
@@ -88,8 +146,8 @@ export default function Index() {
     };
   }, []);
 
-  // Phase 2: Simplified boot flow - only route based on AuthProvider state
-  // No session checking here - AuthProvider handles all session management
+  // CRITICAL: Boot flow with forced session refresh
+  // Always ensure session is valid before navigating
   useEffect(() => {
     let cancelled = false;
 
@@ -102,6 +160,30 @@ export default function Index() {
         }
 
         console.log("[boot] AuthProvider loaded, user:", !!user);
+
+        // CRITICAL: Always refresh session during boot to ensure it's valid
+        // This prevents black screens from stale sessions
+        if (user) {
+          console.log("[boot] User exists - refreshing session to ensure validity...");
+          setSessionRefreshing(true);
+          try {
+            const { ensureValidSession } = await import("../lib/auth");
+            const sessionValid = await ensureValidSession();
+            if (!sessionValid) {
+              console.warn("[boot] Session refresh failed - user may need to sign in again");
+              // Don't navigate if session is invalid
+              setBooting(false);
+              return;
+            }
+            console.log("[boot] Session refreshed successfully");
+          } catch (error: any) {
+            console.error("[boot] Session refresh error:", error?.message);
+            // If session refresh fails, still try to proceed (session might be valid)
+            // But log the error for debugging
+          } finally {
+            setSessionRefreshing(false);
+          }
+        }
 
         // Check if Supabase is configured
         console.log("[boot] Checking Supabase configuration...");
@@ -210,7 +292,7 @@ export default function Index() {
           return;
         }
 
-        // Handle pending notification (from cold start notification click)
+        // Handle pending notification (from notification click)
         const pendingNotificationStr = await AsyncStorage.getItem("pending_notification");
         if (pendingNotificationStr) {
           try {
@@ -226,12 +308,26 @@ export default function Index() {
               console.log("[boot] Processing pending notification:", type);
               await AsyncStorage.removeItem("pending_notification");
               
-              // Ensure session is valid before navigating
+              // CRITICAL: Force session refresh before navigating from notification
+              // This ensures we never navigate with a stale session
+              console.log("[boot] Forcing session refresh before notification navigation...");
+              setSessionRefreshing(true);
+              setShouldShowBootScreen(true); // Ensure boot screen shows during refresh
               try {
                 const { ensureValidSession } = await import("../lib/auth");
-                await ensureValidSession();
+                const sessionValid = await ensureValidSession();
+                if (!sessionValid) {
+                  console.warn("[boot] Session invalid after refresh - skipping notification navigation");
+                  setSessionRefreshing(false);
+                  return; // Don't navigate if session is invalid
+                }
+                console.log("[boot] Session validated successfully for notification navigation");
               } catch (sessionError) {
-                console.warn("[boot] Session refresh failed for notification navigation:", sessionError);
+                console.error("[boot] Session refresh failed for notification navigation:", sessionError);
+                setSessionRefreshing(false);
+                return; // Don't navigate if session refresh fails
+              } finally {
+                setSessionRefreshing(false);
               }
               
               // Navigate based on notification type
@@ -328,7 +424,21 @@ export default function Index() {
         );
       } finally {
         if (!cancelled) {
-          setBooting(false);
+          // Ensure minimum boot screen display time (1 second) for smooth UX
+          const bootElapsed = Date.now() - bootStartTimeRef.current;
+          const remainingTime = Math.max(0, 1000 - bootElapsed);
+          
+          if (remainingTime > 0) {
+            setTimeout(() => {
+              if (!cancelled) {
+                setBooting(false);
+                setShouldShowBootScreen(false);
+              }
+            }, remainingTime);
+          } else {
+            setBooting(false);
+            setShouldShowBootScreen(false);
+          }
         }
       }
     })();
@@ -338,11 +448,21 @@ export default function Index() {
     };
   }, [user, authLoading, router]);
 
-  // Phase 6: Black screen prevention - always show boot screen if no route
-  // Also show boot screen during AuthProvider loading or if booting
+  // CRITICAL: Always show boot screen during boot process
+  // Show boot screen if:
+  // 1. Still booting
+  // 2. AuthProvider is loading
+  // 3. Session is refreshing
+  // 4. No route matched (prevents black screen)
+  // 5. Explicitly set to show boot screen
   const segmentsLength = (segments as string[]).length;
   const hasNoRoute = segmentsLength === 0;
-  const shouldShowBooting = booting || authLoading || (!err && hasNoRoute) || shouldShowBootScreen;
+  const shouldShowBooting = booting || authLoading || sessionRefreshing || (!err && hasNoRoute) || shouldShowBootScreen;
+  
+  // Ensure minimum boot screen display time (1 second) for smooth UX
+  const minBootTime = 1000;
+  const bootElapsed = Date.now() - bootStartTimeRef.current;
+  const shouldForceShowBoot = bootElapsed < minBootTime;
 
   // Animate loading dots
   useEffect(() => {
@@ -359,10 +479,10 @@ export default function Index() {
     return () => clearInterval(interval);
   }, [shouldShowBooting]);
 
-  // Phase 6: Always show booting screen if no route (prevents black screen)
+  // CRITICAL: Always show boot screen during boot to prevent black screens
   return (
     <View style={{ flex: 1, backgroundColor: colors.black }}>
-      {shouldShowBooting ? (
+      {shouldShowBooting || shouldForceShowBoot ? (
         <ImageBackground
           source={require("../assets/images/welcome-home.png")}
           style={{ flex: 1, justifyContent: "center", alignItems: "center" }}

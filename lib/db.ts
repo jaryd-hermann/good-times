@@ -1,5 +1,5 @@
 import { supabase } from "./supabase"
-import type { User, Group, GroupMember, Prompt, DailyPrompt, Entry, Memorial, Reaction, Comment, CustomQuestion, CustomQuestionRotation, GroupActivityTracking, Collection, Deck, GroupDeckVote, GroupActiveDeck, BirthdayCard, BirthdayCardEntry } from "./types"
+import type { User, Group, GroupMember, Prompt, DailyPrompt, Entry, Memorial, Reaction, Comment, CustomQuestion, CustomQuestionRotation, GroupActivityTracking, Collection, Deck, GroupDeckVote, GroupActiveDeck, BirthdayCard, BirthdayCardEntry, FeaturedPrompt, GroupFeaturedQuestion } from "./types"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "./prompts"
 
 // User queries
@@ -2319,4 +2319,224 @@ export async function getPublicBirthdayCards(
 
   if (error) throw error
   return cards || []
+}
+
+// Featured Questions Functions
+
+// Get current week's Monday date
+function getCurrentWeekMonday(): string {
+  const today = new Date()
+  const dayOfWeek = today.getDay() // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+  const monday = new Date(today)
+  monday.setDate(today.getDate() - daysToSubtract)
+  return monday.toISOString().split("T")[0]
+}
+
+// Get featured prompts for current week
+export async function getFeaturedPromptsForCurrentWeek() {
+  const weekMonday = getCurrentWeekMonday()
+  
+  const { data, error } = await supabase
+    .from("featured_prompts")
+    .select("*")
+    .eq("week_starting", weekMonday)
+    .order("display_order", { ascending: true })
+    .limit(10)
+
+  if (error) throw error
+  return data || []
+}
+
+// Get featured question count for a group this week
+export async function getGroupFeaturedQuestionCount(groupId: string): Promise<number> {
+  const weekMonday = getCurrentWeekMonday()
+  
+  const { data, error } = await supabase
+    .from("group_featured_question_count")
+    .select("count")
+    .eq("group_id", groupId)
+    .eq("week_starting", weekMonday)
+    .maybeSingle()
+
+  if (error) throw error
+  return data?.count || 0
+}
+
+// Check if a featured prompt is already in group's queue
+export async function isFeaturedPromptInGroupQueue(
+  groupId: string,
+  featuredPromptId: string
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("group_featured_questions")
+    .select("id")
+    .eq("group_id", groupId)
+    .eq("featured_prompt_id", featuredPromptId)
+    .maybeSingle()
+
+  if (error) throw error
+  return !!data
+}
+
+// Add featured question to group queue
+export async function addFeaturedQuestionToQueue(
+  groupId: string,
+  featuredPromptId: string,
+  userId: string
+): Promise<void> {
+  // Check if already added
+  const alreadyAdded = await isFeaturedPromptInGroupQueue(groupId, featuredPromptId)
+  if (alreadyAdded) {
+    throw new Error("This featured question is already in your group's queue")
+  }
+
+  // Check weekly limit
+  const currentCount = await getGroupFeaturedQuestionCount(groupId)
+  if (currentCount >= 2) {
+    throw new Error("Your group has already added 2 featured questions this week")
+  }
+
+  // Get featured prompt details
+  const { data: featuredPrompt, error: promptError } = await supabase
+    .from("featured_prompts")
+    .select("*")
+    .eq("id", featuredPromptId)
+    .single()
+
+  if (promptError || !featuredPrompt) {
+    throw new Error("Featured prompt not found")
+  }
+
+  // Create prompt entry in prompts table
+  const { data: newPrompt, error: createPromptError } = await supabase
+    .from("prompts")
+    .insert({
+      question: featuredPrompt.question,
+      description: featuredPrompt.description,
+      category: "Featured",
+      featured_prompt_id: featuredPromptId,
+    })
+    .select()
+    .single()
+
+  if (createPromptError) {
+    console.error("[addFeaturedQuestionToQueue] Error creating prompt:", createPromptError)
+    throw new Error(`Failed to create prompt: ${createPromptError.message}`)
+  }
+  
+  if (!newPrompt) {
+    console.error("[addFeaturedQuestionToQueue] No prompt returned from insert")
+    throw new Error("Failed to create prompt: No data returned")
+  }
+
+  // Get current queue to find insertion position
+  // Priority: Birthday > Custom > Featured > Deck > Default (Friends/Family)
+  const { data: queueItems, error: queueError } = await supabase
+    .from("group_prompt_queue")
+    .select("id, position, prompt:prompts(category)")
+    .eq("group_id", groupId)
+    .order("position", { ascending: true })
+
+  if (queueError) throw queueError
+
+  // Find insertion position: after Custom questions, before Deck/Default
+  let insertPosition = 0
+  if (queueItems && queueItems.length > 0) {
+    // Find the last Custom/Birthday question index
+    let lastCustomIndex = -1
+    for (let i = 0; i < queueItems.length; i++) {
+      const item = queueItems[i]
+      const prompt = item.prompt as any
+      if (prompt?.category === "Custom" || prompt?.category === "Birthday") {
+        lastCustomIndex = i
+      }
+    }
+    
+    // Insert after the last Custom/Birthday question, or at position 0
+    insertPosition = lastCustomIndex + 1
+    
+    // Shift all items at or after insertPosition forward by 1
+    // We need to update positions starting from the end to avoid conflicts
+    for (let i = queueItems.length - 1; i >= insertPosition; i--) {
+      const item = queueItems[i]
+      const newPosition = item.position + 1
+      await supabase
+        .from("group_prompt_queue")
+        .update({ position: newPosition })
+        .eq("id", item.id)
+    }
+  }
+
+  // Insert featured question at the calculated position
+  const { error: insertError } = await supabase
+    .from("group_prompt_queue")
+    .insert({
+      group_id: groupId,
+      prompt_id: newPrompt.id,
+      added_by: userId,
+      position: insertPosition,
+    })
+
+  if (insertError) throw insertError
+
+  // Record in group_featured_questions table
+  const weekMonday = getCurrentWeekMonday()
+  const { error: recordError } = await supabase
+    .from("group_featured_questions")
+    .insert({
+      group_id: groupId,
+      featured_prompt_id: featuredPromptId,
+      added_by: userId,
+      prompt_id: newPrompt.id,
+    })
+
+  if (recordError) throw recordError
+
+  // Update or create count record
+  const { data: countRecord } = await supabase
+    .from("group_featured_question_count")
+    .select("id")
+    .eq("group_id", groupId)
+    .eq("week_starting", weekMonday)
+    .maybeSingle()
+
+  if (countRecord) {
+    // Update existing count
+    await supabase
+      .from("group_featured_question_count")
+      .update({ count: currentCount + 1 })
+      .eq("id", countRecord.id)
+  } else {
+    // Create new count record
+    await supabase
+      .from("group_featured_question_count")
+      .insert({
+        group_id: groupId,
+        week_starting: weekMonday,
+        count: 1,
+      })
+  }
+}
+
+// Get user who added a featured question (for display)
+export async function getFeaturedQuestionAddedBy(
+  groupId: string,
+  featuredPromptId: string
+): Promise<{ user_id: string; user_name: string } | null> {
+  const { data, error } = await supabase
+    .from("group_featured_questions")
+    .select("added_by, user:users(id, name)")
+    .eq("group_id", groupId)
+    .eq("featured_prompt_id", featuredPromptId)
+    .maybeSingle()
+
+  if (error) throw error
+  if (!data) return null
+
+  const user = data.user as any
+  return {
+    user_id: data.added_by,
+    user_name: user?.name || "Someone",
+  }
 }

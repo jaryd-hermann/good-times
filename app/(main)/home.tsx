@@ -374,6 +374,25 @@ export default function Home() {
     staleTime: 0, // Always refetch groups to detect new groups
   })
 
+  // Fetch members for all groups to show avatars in switcher
+  const { data: allGroupsMembers = {} } = useQuery({
+    queryKey: ["allGroupsMembers", groups.map((g) => g.id).join(","), userId],
+    queryFn: async () => {
+      if (groups.length === 0 || !userId) return {}
+      const membersByGroup: Record<string, any[]> = {}
+      await Promise.all(
+        groups.map(async (group) => {
+          const members = await getGroupMembers(group.id)
+          // Filter out current user
+          const otherMembers = members.filter((m) => m.user_id !== userId)
+          membersByGroup[group.id] = otherMembers
+        })
+      )
+      return membersByGroup
+    },
+    enabled: groups.length > 0 && !!userId,
+  })
+
   // Fetch in-app notifications
   const { data: notifications = [] } = useQuery({
     queryKey: ["inAppNotifications", userId],
@@ -2038,6 +2057,53 @@ export default function Home() {
       alignItems: "center",
       justifyContent: "space-between",
       flex: 1,
+      gap: spacing.sm,
+      minWidth: 0, // Allow content to shrink
+    },
+    groupRowTextContainer: {
+      flex: 1,
+      marginLeft: spacing.xs, // Add spacing after avatars
+      minWidth: 0, // Allow content to shrink
+    },
+    groupRowText: {
+      ...typography.bodyBold,
+      color: colors.white,
+      fontSize: 18,
+    },
+    newAnswersContainer: {
+      flexDirection: "row",
+      alignItems: "center",
+      marginTop: spacing.xs,
+      gap: spacing.xs,
+    },
+    groupAvatarsContainer: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.gray[800],
+      marginRight: spacing.sm,
+      position: "relative",
+      overflow: "hidden", // Clip to circle
+    },
+    groupAvatarMini: {
+      width: 24,
+      height: 24,
+      borderRadius: 12,
+      borderWidth: 1.5,
+      borderColor: colors.black,
+      overflow: "hidden",
+      backgroundColor: colors.gray[700],
+    },
+    groupAvatarMore: {
+      backgroundColor: colors.gray[600],
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    groupAvatarMoreText: {
+      ...typography.caption,
+      fontSize: 9,
+      color: colors.white,
+      fontWeight: "600",
     },
     groupSettingsButton: {
       width: 40,
@@ -2047,25 +2113,16 @@ export default function Home() {
       justifyContent: "center",
       alignItems: "center",
     },
-    groupRowText: {
-      ...typography.bodyBold,
-      color: colors.white,
-      fontSize: 18,
-      flex: 1,
-    },
     unseenDot: {
       width: 8,
       height: 8,
       borderRadius: 4,
       backgroundColor: colors.accent,
-      marginLeft: spacing.sm,
     },
     newAnswersText: {
       ...typography.body,
       color: colors.gray[400],
       fontSize: 14,
-      marginLeft: spacing.sm,
-      marginRight: spacing.md, // Extra padding between text and end of button
     },
     createGroupButton: {
       paddingVertical: spacing.md,
@@ -2185,9 +2242,21 @@ export default function Home() {
         {/* Member avatars with + button */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.membersScroll}>
           {members.map((member) => (
-            <View key={member.id} style={styles.memberAvatar}>
+            <TouchableOpacity
+              key={member.id}
+              style={styles.memberAvatar}
+              onPress={() => {
+                router.push({
+                  pathname: "/(main)/history",
+                  params: {
+                    focusGroupId: currentGroupId,
+                    filterMemberId: member.user_id,
+                  },
+                })
+              }}
+            >
               <Avatar uri={member.user.avatar_url} name={member.user.name || "User"} size={32} />
-            </View>
+            </TouchableOpacity>
           ))}
           <TouchableOpacity style={styles.addMemberButton} onPress={handleShareInvite}>
             <View style={styles.addMemberCircle}>
@@ -2630,48 +2699,126 @@ export default function Home() {
           <View style={[styles.groupModalSheet, Platform.OS === "android" && { paddingBottom: spacing.lg + insets.bottom }]}>
             <Text style={styles.groupModalTitle}>Switch group</Text>
             <ScrollView contentContainerStyle={styles.groupList}>
-              {groups.map((group) => (
-                <View key={group.id} style={styles.groupRowContainer}>
-                  <TouchableOpacity
-                    style={[
-                      styles.groupRow,
-                      group.id === currentGroupId && styles.groupRowActive,
-                      styles.groupRowFlex,
-                    ]}
-                    onPress={() => handleSelectGroup(group.id)}
-                  >
-                    <View style={styles.groupRowContent}>
-                      <Text style={styles.groupRowText}>{group.name}</Text>
-                      <View style={{ flexDirection: "row", alignItems: "center" }}>
-                      {groupUnseenStatus[group.id] && (
-                        <View style={styles.unseenDot} />
-                      )}
-                        {/* Only show count for non-current groups with multiple groups */}
-                        {groups.length > 1 && 
-                         group.id !== currentGroupId && 
-                         groupUnseenCount[group.id]?.hasNew && 
-                         groupUnseenCount[group.id]?.newCount > 0 && (
-                          <Text style={styles.newAnswersText}>
-                            {groupUnseenCount[group.id].newCount} new {groupUnseenCount[group.id].newCount === 1 ? "answer" : "answers"}
-                          </Text>
+              {groups.map((group) => {
+                const groupMembers = allGroupsMembers[group.id] || []
+                const maxAvatars = 3 // Show max 3 avatars
+                const displayMembers = groupMembers.slice(0, maxAvatars)
+                const remainingCount = Math.max(0, groupMembers.length - maxAvatars)
+                
+                return (
+                  <View key={group.id} style={styles.groupRowContainer}>
+                    <TouchableOpacity
+                      style={[
+                        styles.groupRow,
+                        group.id === currentGroupId && styles.groupRowActive,
+                        styles.groupRowFlex,
+                      ]}
+                      onPress={() => handleSelectGroup(group.id)}
+                    >
+                      <View style={styles.groupRowContent}>
+                        {/* Avatar circles - single circle with mini avatars inside (Apple iMessage style) */}
+                        {displayMembers.length > 0 && (
+                          <View style={styles.groupAvatarsContainer}>
+                            {displayMembers.slice(0, 4).map((member, index) => {
+                              // Calculate position for each avatar within the circle
+                              const total = Math.min(displayMembers.length, 4)
+                              let x = 0, y = 0
+                              
+                              if (total === 1) {
+                                // Single avatar: center
+                                x = 0
+                                y = 0
+                              } else if (total === 2) {
+                                // Two avatars: side by side
+                                x = index === 0 ? -5 : 5
+                                y = 0
+                              } else if (total === 3) {
+                                // Three avatars: triangle arrangement
+                                const angle = (index * 2 * Math.PI) / 3 - Math.PI / 2 // Start from top
+                                const radius = 6
+                                x = Math.cos(angle) * radius
+                                y = Math.sin(angle) * radius
+                              } else {
+                                // Four avatars: square arrangement
+                                const angle = (index * 2 * Math.PI) / 4 - Math.PI / 4 // Rotate 45 degrees
+                                const radius = 6
+                                x = Math.cos(angle) * radius
+                                y = Math.sin(angle) * radius
+                              }
+                              
+                              return (
+                                <View
+                                  key={member.id}
+                                  style={[
+                                    styles.groupAvatarMini,
+                                    {
+                                      position: "absolute",
+                                      left: 20 + x - 12, // Center (20) + offset - half width (12)
+                                      top: 20 + y - 12, // Center (20) + offset - half height (12)
+                                      zIndex: total - index,
+                                    },
+                                  ]}
+                                >
+                                  <Avatar
+                                    uri={member.user?.avatar_url}
+                                    name={member.user?.name || "User"}
+                                    size={total === 1 ? 24 : 20}
+                                  />
+                                </View>
+                              )
+                            })}
+                            {remainingCount > 0 && (
+                              <View
+                                style={[
+                                  styles.groupAvatarMini,
+                                  styles.groupAvatarMore,
+                                  {
+                                    position: "absolute",
+                                    left: 8, // Bottom right corner
+                                    top: 8,
+                                    zIndex: 10,
+                                  },
+                                ]}
+                              >
+                                <Text style={styles.groupAvatarMoreText}>+{remainingCount}</Text>
+                              </View>
+                            )}
+                          </View>
                         )}
+                        <View style={styles.groupRowTextContainer}>
+                          <Text style={styles.groupRowText}>{group.name}</Text>
+                          {/* Only show count for non-current groups with multiple groups */}
+                          {groups.length > 1 && 
+                           group.id !== currentGroupId && 
+                           groupUnseenCount[group.id]?.hasNew && 
+                           groupUnseenCount[group.id]?.newCount > 0 && (
+                            <View style={styles.newAnswersContainer}>
+                              {groupUnseenStatus[group.id] && (
+                                <View style={styles.unseenDot} />
+                              )}
+                              <Text style={styles.newAnswersText}>
+                                {groupUnseenCount[group.id].newCount} new {groupUnseenCount[group.id].newCount === 1 ? "answer" : "answers"}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
                       </View>
-                    </View>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.groupSettingsButton}
-                    onPress={() => {
-                      setGroupPickerVisible(false)
-                      router.push({
-                        pathname: "/(main)/group-settings",
-                        params: { groupId: group.id },
-                      })
-                    }}
-                  >
-                    <FontAwesome name="cog" size={16} color={colors.gray[400]} />
-                  </TouchableOpacity>
-                </View>
-              ))}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.groupSettingsButton}
+                      onPress={() => {
+                        setGroupPickerVisible(false)
+                        router.push({
+                          pathname: "/(main)/group-settings",
+                          params: { groupId: group.id },
+                        })
+                      }}
+                    >
+                      <FontAwesome name="cog" size={16} color={colors.gray[400]} />
+                    </TouchableOpacity>
+                  </View>
+                )
+              })}
             </ScrollView>
             <TouchableOpacity style={styles.createGroupButton} onPress={handleCreateGroupSoon}>
               <Text style={styles.createGroupText}>Create another group</Text>
