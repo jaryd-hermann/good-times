@@ -1,11 +1,11 @@
 import { supabase } from "./supabase"
-import { getUserGroups, getDailyPrompt, getUserEntryForDate, getGroup } from "./db"
+import { getUserGroups, getDailyPrompt, getUserEntryForDate, getGroup, getPendingVotes } from "./db"
 import { getTodayDate } from "./utils"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 
 export interface InAppNotification {
   id: string
-  type: "new_question" | "reply_to_entry" | "reply_to_thread" | "new_answers"
+  type: "new_question" | "reply_to_entry" | "reply_to_thread" | "new_answers" | "deck_vote_requested"
   groupId: string
   groupName: string
   // For new_question
@@ -18,6 +18,10 @@ export interface InAppNotification {
   entryAuthorName?: string
   // For new_answers
   answererNames?: string[] // Array of names who answered
+  // For deck_vote_requested
+  deckId?: string
+  deckName?: string
+  requesterName?: string
   createdAt: string
 }
 
@@ -305,6 +309,35 @@ export async function getInAppNotifications(userId: string): Promise<InAppNotifi
         console.error(`[notifications] Error checking thread replies for entry ${entryId}:`, error)
         // Continue with other entries
       }
+    }
+  }
+
+  // 5. Check for pending deck votes (user hasn't voted yet)
+  for (const group of groups) {
+    try {
+      const pendingVotes = await getPendingVotes(group.id, userId)
+      if (pendingVotes && pendingVotes.length > 0) {
+        // Get the most recent pending vote (first one)
+        const pendingVote = pendingVotes[0]
+        const deck = pendingVote.deck
+        const requester = pendingVote.requested_by_user
+
+        if (deck && requester) {
+          notifications.push({
+            id: `deck_vote_requested_${group.id}_${pendingVote.deck_id}`,
+            type: "deck_vote_requested",
+            groupId: group.id,
+            groupName: group.name,
+            deckId: pendingVote.deck_id,
+            deckName: deck.name,
+            requesterName: requester.name || "Someone",
+            createdAt: pendingVote.created_at || new Date().toISOString(),
+          })
+        }
+      }
+    } catch (error) {
+      console.error(`[notifications] Error checking pending deck votes for group ${group.id}:`, error)
+      // Continue with other groups
     }
   }
 

@@ -1812,19 +1812,77 @@ async function sendDeckVoteNotifications(groupId: string, deckId: string, reques
 
   const deckName = deck?.name || "a deck"
 
-  // Create notifications for all members
-  const notifications = members.map((member) => ({
-    user_id: member.user_id,
-    type: "pack_vote_requested",
-    title: "New Deck Vote",
-    body: `${requesterName} wants to add "${deckName}" to your group's question rotation. Vote now!`,
-    data: {
-      group_id: groupId,
-      deck_id: deckId,
-    },
-  }))
+  // Get group name for notification
+  const { data: group } = await supabase
+    .from("groups")
+    .select("name")
+    .eq("id", groupId)
+    .single()
 
-  await supabase.from("notifications").insert(notifications)
+  const groupName = group?.name || "your group"
+
+  // Prepare notification content
+  const notificationTitle = "New Deck Vote"
+  const notificationBody = `${requesterName} wants to add "${deckName}" to ${groupName}'s question rotation. Vote now!`
+  const notificationData = {
+    type: "deck_vote_requested",
+    group_id: groupId,
+    deck_id: deckId,
+  }
+
+  // Send push notifications and create database notifications for all members
+  for (const member of members) {
+    try {
+      // Get push token for this user
+      const { data: pushTokens, error: tokenError } = await supabase
+        .from("push_tokens")
+        .select("token")
+        .eq("user_id", member.user_id)
+        .limit(1)
+
+      // Send push notification if token exists
+      if (!tokenError && pushTokens && pushTokens.length > 0) {
+        const pushToken = pushTokens[0].token
+        if (pushToken) {
+          try {
+            const message = {
+              to: pushToken,
+              sound: "default",
+              title: notificationTitle,
+              body: notificationBody,
+              data: notificationData,
+            }
+
+            const response = await fetch("https://exp.host/--/api/v2/push/send", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(message),
+            })
+
+            if (!response.ok) {
+              console.error(`[sendDeckVoteNotifications] Failed to send push notification to user ${member.user_id}:`, await response.text())
+            }
+          } catch (error) {
+            console.error(`[sendDeckVoteNotifications] Error sending push notification to user ${member.user_id}:`, error)
+          }
+        }
+      }
+
+      // Create database notification (for in-app notification center)
+      await supabase.from("notifications").insert({
+        user_id: member.user_id,
+        type: "pack_vote_requested",
+        title: notificationTitle,
+        body: notificationBody,
+        data: notificationData,
+      })
+    } catch (error) {
+      console.error(`[sendDeckVoteNotifications] Error processing notification for user ${member.user_id}:`, error)
+      // Continue with other members even if one fails
+    }
+  }
 }
 
 export async function castVote(groupId: string, deckId: string, userId: string, vote: "yes" | "no"): Promise<void> {
@@ -2539,4 +2597,260 @@ export async function getFeaturedQuestionAddedBy(
     user_id: data.added_by,
     user_name: user?.name || "Someone",
   }
+}
+
+// ==================== QUESTION SWIPES FUNCTIONS ====================
+
+// Get swipeable questions for a group (excluding user's swipes and already matched/asked)
+export async function getSwipeableQuestionsForGroup(
+  groupId: string,
+  userId: string
+): Promise<Prompt[]> {
+  // Get group type early for filtering
+  const group = await getGroup(groupId)
+  if (!group) {
+    throw new Error(`Group ${groupId} not found`)
+  }
+
+  // Get user's existing swipes for this group
+  const { data: userSwipes, error: swipesError } = await supabase
+    .from("group_question_swipes")
+    .select("prompt_id")
+    .eq("group_id", groupId)
+    .eq("user_id", userId)
+
+  if (swipesError) throw swipesError
+
+  const swipedPromptIds = new Set((userSwipes || []).map((s: any) => s.prompt_id))
+
+  // Get already matched questions for this group
+  const { data: matches, error: matchesError } = await supabase
+    .from("group_question_matches")
+    .select("prompt_id")
+    .eq("group_id", groupId)
+
+  if (matchesError) throw matchesError
+
+  const matchedPromptIds = new Set((matches || []).map((m: any) => m.prompt_id))
+
+  // Get questions that have been asked (from daily_prompts)
+  const { data: askedPrompts, error: askedError } = await supabase
+    .from("daily_prompts")
+    .select("prompt_id")
+    .eq("group_id", groupId)
+
+  if (askedError) throw askedError
+
+  const askedPromptIds = new Set((askedPrompts || []).map((p: any) => p.prompt_id))
+
+  // Get swipeable questions, excluding user's swipes, matches, and asked questions
+  const excludeIds = Array.from(
+    new Set([...swipedPromptIds, ...matchedPromptIds, ...askedPromptIds])
+  )
+
+  // Get all swipeable questions
+  const { data: allSwipeable, error } = await supabase
+    .from("prompts")
+    .select("*")
+    .eq("swipeable", true)
+
+  if (error) throw error
+
+  // Filter by category based on group type
+  // Family groups only see Family category questions
+  // Friends groups only see Friends category questions
+  let categoryFiltered = allSwipeable || []
+  if (group.type === "family") {
+    categoryFiltered = categoryFiltered.filter((p) => p.category === "Family")
+  } else if (group.type === "friends") {
+    categoryFiltered = categoryFiltered.filter((p) => p.category === "Friends")
+  }
+
+  // Filter out excluded prompts in JavaScript (more reliable than SQL .not() with arrays)
+  const filtered = categoryFiltered.filter((p) => !excludeIds.includes(p.id))
+
+  // Shuffle the results for randomization
+  const shuffled = filtered.sort(() => Math.random() - 0.5)
+
+  return shuffled as Prompt[]
+}
+
+// Record a swipe and check for matches
+export async function recordSwipe(
+  groupId: string,
+  promptId: string,
+  userId: string,
+  response: "yes" | "no"
+): Promise<{ matched: boolean; matchedWithUsers?: string[] }> {
+  // Upsert the swipe (allows updating if user sees question again)
+  const { error: swipeError } = await supabase
+    .from("group_question_swipes")
+    .upsert(
+      {
+        user_id: userId,
+        group_id: groupId,
+        prompt_id: promptId,
+        response,
+        updated_at: new Date().toISOString(),
+      },
+      {
+        onConflict: "user_id,group_id,prompt_id",
+      }
+    )
+
+  if (swipeError) throw swipeError
+
+  // Update prompt swipe counts using database function
+  // This bypasses RLS and ensures atomic increment
+  const { error: countUpdateError } = await supabase.rpc("increment_prompt_swipe_count", {
+    p_prompt_id: promptId,
+    p_response: response,
+  })
+
+  if (countUpdateError) {
+    console.error(`[recordSwipe] Error updating swipe count for prompt ${promptId}:`, countUpdateError)
+    // Don't throw - swipe recording succeeded, count update is secondary
+  } else {
+    console.log(`[recordSwipe] Successfully updated ${response}_swipes_count for prompt ${promptId}`)
+  }
+
+  // Check for matches if response is "yes"
+  if (response === "yes") {
+    // Count yes swipes for this group and prompt
+    const { data: yesSwipes, error: yesError } = await supabase
+      .from("group_question_swipes")
+      .select("user_id, user:users(id, name)")
+      .eq("group_id", groupId)
+      .eq("prompt_id", promptId)
+      .eq("response", "yes")
+
+    if (yesError) throw yesError
+
+    const yesCount = (yesSwipes || []).length
+
+    // If 2+ yes swipes, create match
+    if (yesCount >= 2) {
+      // Check if match already exists
+      const { data: existingMatch } = await supabase
+        .from("group_question_matches")
+        .select("id")
+        .eq("group_id", groupId)
+        .eq("prompt_id", promptId)
+        .maybeSingle()
+
+      if (!existingMatch) {
+        // Create match
+        const { error: matchError } = await supabase
+          .from("group_question_matches")
+          .insert({
+            group_id: groupId,
+            prompt_id: promptId,
+            matched_at: new Date().toISOString(),
+            asked: false,
+          })
+
+        if (matchError) throw matchError
+
+        // Get other users who swiped yes (excluding current user)
+        const matchedWithUsers = (yesSwipes || [])
+          .filter((s: any) => s.user_id !== userId)
+          .map((s: any) => {
+            const user = s.user as any
+            return user?.name || "Someone"
+          })
+
+        return { matched: true, matchedWithUsers }
+      }
+    }
+  }
+
+  return { matched: false }
+}
+
+// Get matched questions for a group (for queue prioritization)
+export async function getMatchedQuestionsForGroup(
+  groupId: string,
+  category: "Friends" | "Family"
+): Promise<string[]> {
+  // Get matched prompt IDs that haven't been asked yet
+  const { data: matches, error } = await supabase
+    .from("group_question_matches")
+    .select("prompt_id, prompt:prompts(category, ice_breaker)")
+    .eq("group_id", groupId)
+    .eq("asked", false)
+
+  if (error) throw error
+
+  // Filter by category and return prompt IDs
+  const matchedIds = (matches || [])
+    .filter((m: any) => {
+      const prompt = m.prompt as any
+      return prompt?.category === category
+    })
+    .map((m: any) => m.prompt_id)
+
+  return matchedIds
+}
+
+// Get members who have participated in swiping (for display)
+export async function getSwipingParticipants(groupId: string, userId: string): Promise<User[]> {
+  // Get distinct users who have swiped in this group (excluding current user)
+  const { data: swipes, error } = await supabase
+    .from("group_question_swipes")
+    .select("user_id, user:users(id, name, avatar_url)")
+    .eq("group_id", groupId)
+    .neq("user_id", userId)
+
+  if (error) throw error
+
+  // Get unique users
+  const userMap = new Map<string, User>()
+  for (const swipe of swipes || []) {
+    const user = swipe.user as any
+    if (user && !userMap.has(user.id)) {
+      userMap.set(user.id, {
+        id: user.id,
+        name: user.name || "Someone",
+        avatar_url: user.avatar_url,
+        email: "", // Not needed for display
+        birthday: "",
+        created_at: "",
+      } as User)
+    }
+  }
+
+  return Array.from(userMap.values())
+}
+
+// Get match info for a prompt (who matched on it)
+export async function getMatchInfo(
+  groupId: string,
+  promptId: string
+): Promise<{ matched: boolean; matchedWithUsers: string[] } | null> {
+  // Check if matched
+  const { data: match } = await supabase
+    .from("group_question_matches")
+    .select("id")
+    .eq("group_id", groupId)
+    .eq("prompt_id", promptId)
+    .maybeSingle()
+
+  if (!match) return null
+
+  // Get users who swiped yes
+  const { data: yesSwipes, error } = await supabase
+    .from("group_question_swipes")
+    .select("user_id, user:users(id, name)")
+    .eq("group_id", groupId)
+    .eq("prompt_id", promptId)
+    .eq("response", "yes")
+
+  if (error) throw error
+
+  const matchedWithUsers = (yesSwipes || []).map((s: any) => {
+    const user = s.user as any
+    return user?.name || "Someone"
+  })
+
+  return { matched: true, matchedWithUsers }
 }

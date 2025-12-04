@@ -18,6 +18,17 @@ interface ChangeEntry {
 
 const CHANGES: ChangeEntry[] = [
   {
+    date: "2025-12-04",
+    title: "Thursday, December 4th",
+    subtitle: "Release notes",
+    timestamp: "9:32am",
+    items: [
+      "New feature, you can now swipe on questions with your group to find ones you like together. Go to \"Ask\" and tap \"Swipe\" to try it",
+      "Added a notification for when someone wants to vote on a deck to shuffle in",
+      "Added hyperlinking to answers to make sharing things easier",
+    ],
+  },
+  {
     date: "2025-12-03",
     title: "Wednesday, December 3rd",
     subtitle: "Release notes",

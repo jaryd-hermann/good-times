@@ -12,6 +12,7 @@ import {
   Dimensions,
   Animated,
   Alert,
+  PanResponder,
 } from "react-native"
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -19,14 +20,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { FontAwesome } from "@expo/vector-icons"
 import { useTheme } from "../../lib/theme-context"
 import { typography, spacing } from "../../lib/theme"
-import { getCollections, getGroupActiveDecks, getDeckQuestionsLeftCount, getDecksByCollection, getCurrentUser, getVoteStatus, getUserGroups, getFeaturedPromptsForCurrentWeek, getGroupFeaturedQuestionCount, addFeaturedQuestionToQueue, isFeaturedPromptInGroupQueue, getFeaturedQuestionAddedBy } from "../../lib/db"
+import { getCollections, getGroupActiveDecks, getDeckQuestionsLeftCount, getDecksByCollection, getCurrentUser, getVoteStatus, getUserGroups, getFeaturedPromptsForCurrentWeek, getGroupFeaturedQuestionCount, addFeaturedQuestionToQueue, isFeaturedPromptInGroupQueue, getFeaturedQuestionAddedBy, getSwipeableQuestionsForGroup, recordSwipe, getSwipingParticipants, getMatchInfo } from "../../lib/db"
 import { supabase } from "../../lib/supabase"
 import { useTabBar } from "../../lib/tab-bar-context"
-import type { Collection, GroupActiveDeck, FeaturedPrompt } from "../../lib/types"
+import type { Collection, GroupActiveDeck, FeaturedPrompt, Prompt, User } from "../../lib/types"
 import { usePostHog } from "posthog-react-native"
 import { safeCapture } from "../../lib/posthog"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { useCallback } from "react"
+import { Avatar } from "../../components/Avatar"
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 const CARD_WIDTH = (SCREEN_WIDTH - spacing.md * 3) / 2 // 2 columns with spacing
@@ -207,6 +209,18 @@ export default function ExploreDecks() {
   const [featuredQuestionModalVisible, setFeaturedQuestionModalVisible] = useState(false)
   const [selectedFeaturedPrompt, setSelectedFeaturedPrompt] = useState<FeaturedPrompt | null>(null)
   const [featuredQuestionCarouselIndex, setFeaturedQuestionCarouselIndex] = useState(0)
+  const [activeTab, setActiveTab] = useState<"decks" | "featured" | "matches">("decks")
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
+  const [matchModalVisible, setMatchModalVisible] = useState(false)
+  const [matchInfo, setMatchInfo] = useState<{ matchedWithUsers: string[] } | null>(null)
+  const [isSwiping, setIsSwiping] = useState(false)
+  // Use refs to track values to avoid stale closure issues
+  const currentQuestionIndexRef = useRef(0)
+  const currentGroupIdRef = useRef<string | undefined>(undefined)
+  const userIdRef = useRef<string | undefined>(undefined)
+  const cardPosition = useRef(new Animated.ValueXY()).current
+  const cardRotation = useRef(new Animated.Value(0)).current
+  const cardOpacity = useRef(new Animated.Value(1)).current
   const scrollY = useRef(new Animated.Value(0)).current
   const headerTranslateY = useRef(new Animated.Value(0)).current
   const contentPaddingTop = useRef(new Animated.Value(0)).current
@@ -335,6 +349,11 @@ export default function ExploreDecks() {
         } catch (error) {
           console.error("[explore-decks] Error reloading group context:", error)
         }
+        
+        // CRITICAL: Always invalidate featured prompts query when screen comes into focus
+        // This ensures the section shows if prompts exist for the current week
+        // This fixes the issue where the section disappears after adding a question
+        queryClient.invalidateQueries({ queryKey: ["featuredPrompts"] })
       }
       reloadGroupContext()
     }, [focusGroupId, queryClient])
@@ -430,11 +449,36 @@ export default function ExploreDecks() {
     enabled: !!currentGroupId && activeDecks.some(d => d.status === "voting"),
   })
 
+  // Get current week Monday for query key (ensures refetch when week changes)
+  // Calculate inline to always get the current week
+  const getCurrentWeekMonday = () => {
+    const today = new Date()
+    const dayOfWeek = today.getDay() // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+    const monday = new Date(today)
+    monday.setDate(today.getDate() - daysToSubtract)
+    return monday.toISOString().split("T")[0]
+  }
+
   // Get featured prompts for current week
-  const { data: featuredPrompts = [] } = useQuery({
-    queryKey: ["featuredPrompts"],
+  // CRITICAL: Include current week Monday in query key so it refetches when week changes
+  // This ensures the section always shows when there are prompts for the current week
+  // The query key changes when the week changes, forcing a refetch
+  const { data: featuredPrompts = [], error: featuredPromptsError } = useQuery({
+    queryKey: ["featuredPrompts", getCurrentWeekMonday()],
     queryFn: getFeaturedPromptsForCurrentWeek,
+    staleTime: 0, // Always consider stale to ensure fresh data
+    refetchOnMount: true, // Always refetch on mount
+    refetchOnWindowFocus: true, // Refetch when screen comes into focus
+    retry: 2, // Retry on failure
   })
+  
+  // Log errors for debugging
+  useEffect(() => {
+    if (featuredPromptsError) {
+      console.error("[explore-decks] Error fetching featured prompts:", featuredPromptsError)
+    }
+  }, [featuredPromptsError])
 
   // Get featured question count for current group
   const { data: featuredQuestionCount = 0, refetch: refetchFeaturedCount } = useQuery({
@@ -442,6 +486,56 @@ export default function ExploreDecks() {
     queryFn: () => (currentGroupId ? getGroupFeaturedQuestionCount(currentGroupId) : 0),
     enabled: !!currentGroupId,
   })
+
+  // Get swipeable questions for matches tab
+  const { data: swipeableQuestionsData = [], refetch: refetchSwipeableQuestions } = useQuery({
+    queryKey: ["swipeableQuestions", currentGroupId, userId],
+    queryFn: () => (currentGroupId && userId ? getSwipeableQuestionsForGroup(currentGroupId, userId) : []),
+    enabled: !!currentGroupId && !!userId && activeTab === "matches",
+  })
+
+  // Get swiping participants
+  const { data: swipingParticipantsData = [] } = useQuery({
+    queryKey: ["swipingParticipants", currentGroupId, userId],
+    queryFn: () => (currentGroupId && userId ? getSwipingParticipants(currentGroupId, userId) : []),
+    enabled: !!currentGroupId && !!userId && activeTab === "matches",
+  })
+
+  // Reset card position and index when new questions load
+  useEffect(() => {
+    if (swipeableQuestionsData.length > 0) {
+      setCurrentQuestionIndex(0)
+      currentQuestionIndexRef.current = 0
+      // Reset card position when new questions load
+      cardPosition.setValue({ x: 0, y: 0 })
+      cardRotation.setValue(0)
+      cardOpacity.setValue(1)
+    }
+  }, [swipeableQuestionsData.length]) // Only depend on length, not the array reference
+
+  // Reset card if groupId or userId changes (to prevent stuck state)
+  useEffect(() => {
+    if (currentGroupId && userId && activeTab === "matches") {
+      // Ensure card is reset when values become available
+      cardPosition.setValue({ x: 0, y: 0 })
+      cardRotation.setValue(0)
+      cardOpacity.setValue(1)
+      setIsSwiping(false)
+    }
+  }, [currentGroupId, userId, activeTab])
+
+  // Keep refs in sync with state
+  useEffect(() => {
+    currentQuestionIndexRef.current = currentQuestionIndex
+  }, [currentQuestionIndex])
+
+  useEffect(() => {
+    currentGroupIdRef.current = currentGroupId
+  }, [currentGroupId])
+
+  useEffect(() => {
+    userIdRef.current = userId
+  }, [userId])
 
   // Check which featured prompts are already in queue (for disabling)
   const { data: featuredPromptsInQueue = [] } = useQuery({
@@ -536,11 +630,14 @@ export default function ExploreDecks() {
   // - 32px (title fontSize)
   // - spacing.md (title marginBottom)
   // - ~50px (subtitle height - estimated for 2-3 lines with lineHeight ~20px)
-  // - spacing.lg (subtitle marginBottom)
+  // - spacing.md (subtitle marginBottom)
+  // - spacing.md (tabContainer marginTop)
+  // - ~40px (tabContainer height - estimated)
+  // - spacing.md (tabContainer marginBottom)
   // - spacing.lg (header paddingBottom)
   // - spacing.lg (extra padding after header divider)
   const headerHeight = useMemo(() => {
-    return insets.top + spacing.md + spacing.sm + 32 + spacing.md + 50 + spacing.lg + spacing.lg + spacing.lg
+    return insets.top + spacing.md + spacing.sm + 32 + spacing.md + 50 + spacing.md + 40 + spacing.md + spacing.lg + spacing.lg
   }, [insets.top])
 
   useEffect(() => {
@@ -654,6 +751,243 @@ export default function ExploreDecks() {
     },
   })
 
+  // Swipe handler function
+  // Use useCallback to ensure we always have the latest state values
+  const handleSwipe = useCallback(async (direction: "yes" | "no") => {
+    // Use refs to get the latest values (avoids stale closure)
+    const questionIndex = currentQuestionIndexRef.current
+    const groupId = currentGroupIdRef.current
+    const user = userIdRef.current
+    const questions = swipeableQuestionsData
+
+    console.log("[explore-decks] handleSwipe called:", {
+      direction,
+      currentGroupId: groupId,
+      userId: user,
+      currentQuestionIndex: questionIndex,
+      questionsLength: questions.length,
+    })
+
+    if (!groupId || !user) {
+      console.warn("[explore-decks] Missing currentGroupId or userId", {
+        groupId,
+        user,
+        currentGroupIdState: currentGroupId,
+        userIdState: userId,
+      })
+      Alert.alert("Error", "Please try again. Missing group or user information.")
+      return
+    }
+
+    if (questionIndex >= questions.length) {
+      console.warn("[explore-decks] Question index out of bounds", { questionIndex, questionsLength: questions.length })
+      return
+    }
+
+    const currentQuestion = questions[questionIndex]
+    if (!currentQuestion) {
+      console.warn("[explore-decks] No current question found")
+      return
+    }
+
+    console.log("[explore-decks] Recording swipe for question:", currentQuestion.id)
+
+    try {
+      // Record swipe
+      const result = await recordSwipe(groupId, currentQuestion.id, user, direction)
+      console.log("[explore-decks] Swipe recorded successfully:", result)
+
+      // Animate card off screen
+      const screenWidth = SCREEN_WIDTH
+      const targetX = direction === "yes" ? screenWidth : -screenWidth
+
+      Animated.parallel([
+        Animated.timing(cardPosition, {
+          toValue: { x: targetX, y: 0 },
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(cardOpacity, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start(async () => {
+        console.log("[explore-decks] Animation completed, moving to next question")
+        
+        // Check for match
+        if (result.matched && result.matchedWithUsers) {
+          setMatchInfo({ matchedWithUsers: result.matchedWithUsers })
+          setMatchModalVisible(true)
+        }
+
+        // Get the latest question index from ref (most up-to-date)
+        const latestIndex = currentQuestionIndexRef.current
+        const latestQuestions = swipeableQuestionsData
+        
+        // Move to next question
+        if (latestIndex + 1 < latestQuestions.length) {
+          const nextIndex = latestIndex + 1
+          console.log("[explore-decks] Moving to next question index:", nextIndex)
+          currentQuestionIndexRef.current = nextIndex
+          setCurrentQuestionIndex(nextIndex)
+          // Reset card position for next question
+          cardPosition.setValue({ x: 0, y: 0 })
+          cardRotation.setValue(0)
+          cardOpacity.setValue(1)
+        } else {
+          // No more questions - refetch
+          console.log("[explore-decks] No more questions, refetching")
+          await refetchSwipeableQuestions()
+          // Reset index after refetch
+          currentQuestionIndexRef.current = 0
+          setCurrentQuestionIndex(0)
+          cardPosition.setValue({ x: 0, y: 0 })
+          cardRotation.setValue(0)
+          cardOpacity.setValue(1)
+        }
+
+        // Refetch participants to update avatars
+        queryClient.invalidateQueries({ queryKey: ["swipingParticipants", groupId, user] })
+      })
+    } catch (error) {
+      console.error("[explore-decks] Error recording swipe:", error)
+      // Reset card position on error
+      Animated.parallel([
+        Animated.spring(cardPosition, {
+          toValue: { x: 0, y: 0 },
+          useNativeDriver: true,
+        }),
+        Animated.spring(cardRotation, {
+          toValue: 0,
+          useNativeDriver: true,
+        }),
+        Animated.timing(cardOpacity, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start()
+      Alert.alert("Error", "Failed to record your swipe. Please try again.")
+    }
+  }, [currentGroupId, userId, swipeableQuestionsData, refetchSwipeableQuestions, queryClient])
+
+  // PanResponder for swipe gestures - recreate when handleSwipe changes
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => {
+          // Only allow swipe if we have necessary values
+          return !!(currentGroupIdRef.current && userIdRef.current)
+        },
+        onStartShouldSetPanResponderCapture: () => false,
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          // Only allow if we have necessary values
+          if (!currentGroupIdRef.current || !userIdRef.current) return false
+          // Prioritize horizontal swipes over vertical scrolling
+          // If horizontal movement is significant, claim the gesture
+          return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 10
+        },
+        onMoveShouldSetPanResponderCapture: (_, gestureState) => {
+          // Only allow if we have necessary values
+          if (!currentGroupIdRef.current || !userIdRef.current) return false
+          // Capture horizontal gestures to prevent ScrollView from handling them
+          return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 10
+        },
+        onPanResponderGrant: () => {
+          // When gesture starts, disable ScrollView scrolling
+          setIsSwiping(true)
+        },
+        onPanResponderMove: (_, gestureState) => {
+          cardPosition.setValue({ x: gestureState.dx, y: gestureState.dy })
+          // Add rotation based on horizontal movement
+          const rotation = gestureState.dx / 20
+          cardRotation.setValue(rotation)
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          setIsSwiping(false)
+          const SWIPE_THRESHOLD = 50 // Reduced threshold for easier swiping
+          const { dx } = gestureState
+
+          // Double-check if we have the necessary values before processing swipe
+          const groupId = currentGroupIdRef.current
+          const userId = userIdRef.current
+          
+          if (!groupId || !userId) {
+            console.warn("[explore-decks] Cannot process swipe - missing groupId or userId", {
+              groupId,
+              userId,
+            })
+            // Return to center immediately
+            Animated.parallel([
+              Animated.spring(cardPosition, {
+                toValue: { x: 0, y: 0 },
+                useNativeDriver: true,
+              }),
+              Animated.spring(cardRotation, {
+                toValue: 0,
+                useNativeDriver: true,
+              }),
+            ]).start()
+            return
+          }
+
+          if (Math.abs(dx) > SWIPE_THRESHOLD) {
+            // Swipe detected
+            const direction = dx > 0 ? "yes" : "no"
+            console.log("[explore-decks] Swipe detected:", direction, "dx:", dx)
+            handleSwipe(direction).catch((error) => {
+              console.error("[explore-decks] Error in handleSwipe:", error)
+              setIsSwiping(false)
+              // Reset card position on error
+              Animated.parallel([
+                Animated.spring(cardPosition, {
+                  toValue: { x: 0, y: 0 },
+                  useNativeDriver: true,
+                }),
+                Animated.spring(cardRotation, {
+                  toValue: 0,
+                  useNativeDriver: true,
+                }),
+                Animated.timing(cardOpacity, {
+                  toValue: 1,
+                  duration: 200,
+                  useNativeDriver: true,
+                }),
+              ]).start()
+            })
+          } else {
+            // Return to center
+            Animated.parallel([
+              Animated.spring(cardPosition, {
+                toValue: { x: 0, y: 0 },
+                useNativeDriver: true,
+              }),
+              Animated.spring(cardRotation, {
+                toValue: 0,
+                useNativeDriver: true,
+              }),
+            ]).start()
+          }
+        },
+        onPanResponderTerminate: () => {
+          setIsSwiping(false)
+          // If gesture is terminated, return to center
+          Animated.parallel([
+            Animated.spring(cardPosition, {
+              toValue: { x: 0, y: 0 },
+              useNativeDriver: true,
+            }),
+            Animated.spring(cardRotation, {
+              toValue: 0,
+              useNativeDriver: true,
+            }),
+          ]).start()
+        },
+      }),
+    [handleSwipe]
+  )
+
   const styles = StyleSheet.create({
     container: {
       flex: 1,
@@ -692,8 +1026,48 @@ export default function ExploreDecks() {
     subtitle: {
       ...typography.body,
       color: colors.gray[400],
-      marginBottom: spacing.lg, // More padding below description
+      marginBottom: spacing.md, // Reduced padding for tabs
       textAlign: "left", // Align left like title
+    },
+    headerParticipantsContainer: {
+      flexDirection: "row",
+      alignItems: "center",
+      marginBottom: spacing.md,
+    },
+    headerParticipantsAvatars: {
+      flexDirection: "row",
+      marginRight: spacing.sm,
+    },
+    headerParticipantAvatar: {
+      borderRadius: 16,
+      borderWidth: 2,
+      borderColor: colors.black,
+    },
+    tabContainer: {
+      flexDirection: "row",
+      gap: spacing.md, // Increased from spacing.xs to spacing.md for more padding between tabs
+      marginTop: spacing.sm,
+      marginBottom: spacing.md,
+    },
+    tab: {
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: isDark ? colors.white : colors.black,
+      backgroundColor: colors.gray[900],
+    },
+    tabActive: {
+      backgroundColor: isDark ? colors.white : colors.black,
+    },
+    tabText: {
+      ...typography.body,
+      fontSize: 14,
+      color: isDark ? colors.white : colors.black,
+    },
+    tabTextActive: {
+      color: isDark ? colors.black : colors.white,
+      fontWeight: "600",
     },
     helpButton: {
       width: 32,
@@ -1077,6 +1451,106 @@ export default function ExploreDecks() {
       color: colors.gray[400],
       textDecorationLine: "underline",
     },
+    swipeContainer: {
+      minHeight: Dimensions.get("window").height - 300, // Ensure enough space
+      justifyContent: "flex-start",
+      alignItems: "center",
+      paddingHorizontal: spacing.md,
+      paddingTop: spacing.xl,
+      paddingBottom: spacing.xxl,
+    },
+    swipePlaceholder: {
+      ...typography.body,
+      color: colors.gray[400],
+      textAlign: "center",
+    },
+    swipeEmptyState: {
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+      paddingVertical: spacing.xxl * 2,
+    },
+    swipeEmptyText: {
+      ...typography.h2,
+      fontSize: 20,
+      color: colors.white,
+      marginBottom: spacing.sm,
+      textAlign: "center",
+    },
+    swipeEmptySubtext: {
+      ...typography.body,
+      color: colors.gray[400],
+      textAlign: "center",
+    },
+    participantsContainer: {
+      flexDirection: "row",
+      alignItems: "center",
+      marginBottom: spacing.lg,
+      paddingHorizontal: spacing.md,
+    },
+    participantsAvatars: {
+      flexDirection: "row",
+      marginRight: spacing.sm,
+    },
+    participantAvatar: {
+      borderRadius: 16,
+      borderWidth: 2,
+      borderColor: colors.black,
+    },
+    participantsText: {
+      ...typography.body,
+      fontSize: 14,
+      color: colors.gray[400],
+      flex: 1,
+    },
+    swipeButtons: {
+      flexDirection: "row",
+      gap: spacing.md,
+      paddingHorizontal: spacing.md,
+      marginTop: spacing.xl,
+      marginBottom: spacing.lg,
+    },
+    swipeButton: {
+      flex: 1,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.lg,
+      borderRadius: 0, // Square edges
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    swipeButtonNo: {
+      backgroundColor: colors.white,
+    },
+    swipeButtonYes: {
+      backgroundColor: colors.accent,
+    },
+    swipeButtonText: {
+      ...typography.bodyBold,
+      fontSize: 16,
+      color: colors.black,
+    },
+    swipeButtonYesText: {
+      color: colors.white,
+    },
+    swipeCard: {
+      width: SCREEN_WIDTH - spacing.md * 2,
+      height: 340, // Reduced from 400 to 340 (15% less height: 400 * 0.85 = 340)
+      backgroundColor: colors.gray[900],
+      borderRadius: 12,
+      padding: spacing.lg,
+      borderWidth: 1,
+      borderColor: colors.gray[700],
+      justifyContent: "center",
+      alignItems: "center",
+      alignSelf: "center",
+    },
+    swipeCardQuestion: {
+      ...typography.h2,
+      fontSize: 24,
+      color: colors.white,
+      textAlign: "center",
+      lineHeight: 32,
+    },
   })
 
   return (
@@ -1092,8 +1566,63 @@ export default function ExploreDecks() {
         ]}
       >
         <View style={styles.headerLeft}>
-          <Text style={styles.title}>Question Decks</Text>
-          <Text style={styles.subtitle}>Explore collections and intentional question decks to add for your group.</Text>
+          <Text style={styles.title}>
+            {activeTab === "decks" && "Question Decks"}
+            {activeTab === "featured" && "Featured"}
+            {activeTab === "matches" && "Swipe and Match"}
+          </Text>
+          {/* Show subtitle or participant info in same position */}
+          {activeTab === "matches" && swipingParticipantsData.length > 0 ? (
+            <View style={styles.headerParticipantsContainer}>
+              <View style={styles.headerParticipantsAvatars}>
+                {swipingParticipantsData.slice(0, 3).map((participant, index) => (
+                  <View
+                    key={participant.id}
+                    style={[
+                      styles.headerParticipantAvatar,
+                      { marginLeft: index > 0 ? -12 : 0, zIndex: 3 - index },
+                    ]}
+                  >
+                    <Avatar uri={participant.avatar_url} name={participant.name} size={32} />
+                  </View>
+                ))}
+              </View>
+              <Text style={styles.subtitle}>
+                {swipingParticipantsData.length === 1
+                  ? `${swipingParticipantsData[0].name} has liked some questions`
+                  : swipingParticipantsData.length === 2
+                  ? `${swipingParticipantsData[0].name} and ${swipingParticipantsData[1].name} have liked some questions`
+                  : `${swipingParticipantsData[0].name} and ${swipingParticipantsData.length - 1} others have liked some questions`}
+              </Text>
+            </View>
+          ) : (
+            <Text style={styles.subtitle}>
+              {activeTab === "decks" && "Explore collections and intentional question decks to add for your group."}
+              {activeTab === "featured" && "Ask a single question to your group"}
+              {activeTab === "matches" && "Find some good questions you like and want the group to answer"}
+            </Text>
+          )}
+          {/* Tab Navigation */}
+          <View style={styles.tabContainer}>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === "decks" && styles.tabActive]}
+              onPress={() => setActiveTab("decks")}
+            >
+              <Text style={[styles.tabText, activeTab === "decks" && styles.tabTextActive]}>Decks</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === "featured" && styles.tabActive]}
+              onPress={() => setActiveTab("featured")}
+            >
+              <Text style={[styles.tabText, activeTab === "featured" && styles.tabTextActive]}>Featured</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === "matches" && styles.tabActive]}
+              onPress={() => setActiveTab("matches")}
+            >
+              <Text style={[styles.tabText, activeTab === "matches" && styles.tabTextActive]}>Swipe</Text>
+            </TouchableOpacity>
+          </View>
         </View>
         <View style={styles.headerRight}>
           <TouchableOpacity
@@ -1117,9 +1646,13 @@ export default function ExploreDecks() {
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
         scrollEventThrottle={16}
+        scrollEnabled={activeTab !== "matches"}
       >
-        {/* Your decks carousel */}
-        {sortedActiveDecks.length > 0 && (
+        {/* Decks Tab Content */}
+        {activeTab === "decks" && (
+          <>
+            {/* Your decks carousel */}
+            {sortedActiveDecks.length > 0 && (
           <View style={styles.carouselSection}>
             <Text style={styles.carouselTitle}>Your decks</Text>
             <ScrollView 
@@ -1202,8 +1735,55 @@ export default function ExploreDecks() {
           </View>
         )}
 
+            {/* Collections grid */}
+            <Text style={styles.collectionsTitle}>Collections</Text>
+            <View style={styles.collectionsGrid}>
+              {collections.map((collection) => (
+                <TouchableOpacity
+                  key={collection.id}
+                  style={styles.collectionCard}
+                  onPress={() => router.push(`/(main)/collection-detail?collectionId=${collection.id}&groupId=${currentGroupId}`)}
+                >
+                  <View style={styles.collectionTextContainer}>
+                    <Image 
+                      source={getCollectionIconSource(collection.name)} 
+                      style={[
+                        styles.collectionNameIcon,
+                        getCollectionIconDimensions(collection.name)
+                      ]}
+                      resizeMode="contain"
+                    />
+                    <Text style={styles.collectionName}>{collection.name}</Text>
+                    <Text style={styles.collectionDescription} numberOfLines={2}>
+                      {collection.description || ""}
+                    </Text>
+                  </View>
+                  <View style={styles.collectionFooter}>
+                    <Text style={styles.collectionDecksCount}>
+                      {collectionDeckCounts[collection.id] || 0} unused {collectionDeckCounts[collection.id] === 1 ? 'deck' : 'decks'}
+                    </Text>
+                    <FontAwesome
+                      name="chevron-right"
+                      size={12}
+                      color={colors.gray[400]}
+                    />
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Suggest a deck button */}
+            <TouchableOpacity
+              style={styles.suggestDeckButton}
+              onPress={() => router.push(`/(main)/modals/suggest-deck?groupId=${currentGroupId}&returnTo=/(main)/explore-decks`)}
+            >
+              <Text style={styles.suggestDeckButtonText}>Suggest a deck</Text>
+            </TouchableOpacity>
+          </>
+        )}
+
         {/* Featured Questions Carousel */}
-        {featuredPrompts.length > 0 && (
+        {activeTab === "featured" && featuredPrompts.length > 0 && (
           <View style={styles.featuredSection}>
             <Text style={styles.featuredTitle}>This weeks featured questions</Text>
             <Text style={styles.featuredSubtitle}>Ask a single question to your group</Text>
@@ -1355,50 +1935,65 @@ export default function ExploreDecks() {
           </View>
         )}
 
-        {/* Collections grid */}
-        <Text style={styles.collectionsTitle}>Collections</Text>
-        <View style={styles.collectionsGrid}>
-          {collections.map((collection) => (
-            <TouchableOpacity
-              key={collection.id}
-              style={styles.collectionCard}
-              onPress={() => router.push(`/(main)/collection-detail?collectionId=${collection.id}&groupId=${currentGroupId}`)}
-            >
-              <View style={styles.collectionTextContainer}>
-                <Image 
-                  source={getCollectionIconSource(collection.name)} 
-                  style={[
-                    styles.collectionNameIcon,
-                    getCollectionIconDimensions(collection.name)
-                  ]}
-                  resizeMode="contain"
-                />
-                <Text style={styles.collectionName}>{collection.name}</Text>
-                <Text style={styles.collectionDescription} numberOfLines={2}>
-                  {collection.description || ""}
-                </Text>
+        {/* Matches Tab Content - Swipe Interface */}
+        {activeTab === "matches" && (
+          <View style={styles.swipeContainer}>
+            {swipeableQuestionsData.length === 0 ? (
+              <View style={styles.swipeEmptyState}>
+                <Text style={styles.swipeEmptyText}>No questions available to swipe</Text>
+                <Text style={styles.swipeEmptySubtext}>Check back later for more questions!</Text>
               </View>
-              <View style={styles.collectionFooter}>
-                <Text style={styles.collectionDecksCount}>
-                  {collectionDeckCounts[collection.id] || 0} unused {collectionDeckCounts[collection.id] === 1 ? 'deck' : 'decks'}
-                </Text>
-                <FontAwesome
-                  name="chevron-right"
-                  size={12}
-                  color={colors.gray[400]}
-                />
-              </View>
-            </TouchableOpacity>
-          ))}
-        </View>
+            ) : (
+              <>
+                {/* Swipe Card */}
+                {currentQuestionIndex < swipeableQuestionsData.length && currentGroupId && userId && (
+                  <Animated.View
+                    style={[
+                      styles.swipeCard,
+                      {
+                        transform: [
+                          { translateX: cardPosition.x },
+                          { translateY: cardPosition.y },
+                          {
+                            rotate: cardRotation.interpolate({
+                              inputRange: [-200, 0, 200],
+                              outputRange: ["-30deg", "0deg", "30deg"],
+                            }),
+                          },
+                        ],
+                        opacity: cardOpacity,
+                      },
+                    ]}
+                    {...panResponder.panHandlers}
+                  >
+                    <Text style={styles.swipeCardQuestion}>
+                      {swipeableQuestionsData[currentQuestionIndex].question}
+                    </Text>
+                  </Animated.View>
+                )}
 
-        {/* Suggest a deck button */}
-        <TouchableOpacity
-          style={styles.suggestDeckButton}
-          onPress={() => router.push(`/(main)/modals/suggest-deck?groupId=${currentGroupId}&returnTo=/(main)/explore-decks`)}
-        >
-          <Text style={styles.suggestDeckButtonText}>Suggest a deck</Text>
-        </TouchableOpacity>
+                {/* Yes/No Buttons */}
+                {currentQuestionIndex < swipeableQuestionsData.length && currentGroupId && userId && (
+                  <View style={styles.swipeButtons}>
+                    <TouchableOpacity
+                      style={[styles.swipeButton, styles.swipeButtonNo]}
+                      onPress={() => handleSwipe("no")}
+                    >
+                      <Text style={styles.swipeButtonText}>No</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.swipeButton, styles.swipeButtonYes]}
+                      onPress={() => handleSwipe("yes")}
+                    >
+                      <Text style={[styles.swipeButtonText, styles.swipeButtonYesText]}>Yes</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </>
+            )}
+          </View>
+        )}
+
       </Animated.ScrollView>
 
       {/* Featured Question Confirmation Modal */}
@@ -1463,6 +2058,38 @@ export default function ExploreDecks() {
                 </View>
               </>
             )}
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Match Modal - Toaster from bottom */}
+      <Modal
+        transparent
+        animationType="slide"
+        visible={matchModalVisible}
+        onRequestClose={() => setMatchModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setMatchModalVisible(false)}
+        >
+          <View
+            style={[styles.modalContent, { marginBottom: insets.bottom + spacing.lg }]}
+            onStartShouldSetResponder={() => true}
+          >
+            <Text style={styles.modalTitle}>Match!</Text>
+            {matchInfo && matchInfo.matchedWithUsers.length > 0 && (
+              <Text style={styles.modalText}>
+                You and {matchInfo.matchedWithUsers.join(", ")} liked this one!
+              </Text>
+            )}
+            <TouchableOpacity
+              style={[styles.modalButton, styles.modalButtonPrimary]}
+              onPress={() => setMatchModalVisible(false)}
+            >
+              <Text style={styles.modalButtonPrimaryText}>Got it</Text>
+            </TouchableOpacity>
           </View>
         </TouchableOpacity>
       </Modal>

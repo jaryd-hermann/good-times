@@ -400,9 +400,32 @@ serve(async (req) => {
           .is("birthday_type", null) // Exclude birthday prompts
           .is("deck_id", null) // Exclude deck prompts (handled separately)
 
+        // Get matched questions for this group's category (Friends or Family)
+        const groupCategory = groupData?.type === "family" ? "Family" : "Friends"
+        const { data: matches } = await supabaseClient
+          .from("group_question_matches")
+          .select("prompt_id, prompt:prompts(id, ice_breaker)")
+          .eq("group_id", group.id)
+          .eq("asked", false)
+        
+        const matchedPromptIds = new Set<string>()
+        const matchedIceBreakerIds = new Set<string>()
+        
+        if (matches) {
+          for (const match of matches) {
+            const prompt = match.prompt as any
+            if (prompt?.id && prompt?.category === groupCategory) {
+              matchedPromptIds.add(prompt.id)
+              if (prompt.ice_breaker) {
+                matchedIceBreakerIds.add(prompt.id)
+              }
+            }
+          }
+        }
+
         // Filter out used prompts and prompts with {member_name} unless group has 3+ members
         const memberCount = members?.length || 0
-        availablePrompts = (allPromptsData || []).filter((p) => {
+        const allFilteredPrompts = (allPromptsData || []).filter((p) => {
           // Exclude used prompts
           if (usedPromptIds.includes(p.id)) return false
           
@@ -415,6 +438,14 @@ serve(async (req) => {
           
           return true
         })
+
+        // Separate matched and non-matched prompts, prioritizing ice_breaker matched
+        const matchedIceBreakerPrompts = allFilteredPrompts.filter((p) => matchedIceBreakerIds.has(p.id))
+        const matchedRegularPrompts = allFilteredPrompts.filter((p) => matchedPromptIds.has(p.id) && !matchedIceBreakerIds.has(p.id))
+        const nonMatchedPrompts = allFilteredPrompts.filter((p) => !matchedPromptIds.has(p.id))
+        
+        // Prioritize: matched ice_breaker > matched regular > non-matched
+        availablePrompts = [...matchedIceBreakerPrompts, ...matchedRegularPrompts, ...nonMatchedPrompts]
 
         if (!availablePrompts || availablePrompts.length === 0) {
           // If all prompts have been used, reset and use all eligible prompts again
@@ -434,12 +465,43 @@ serve(async (req) => {
             return true
           })
 
-          if (!filteredPromptsRaw || filteredPromptsRaw.length === 0) {
+          // Get matched questions for this group's category (Friends or Family) - reset case
+          const groupCategoryReset = groupData?.type === "family" ? "Family" : "Friends"
+          const { data: matchesReset } = await supabaseClient
+            .from("group_question_matches")
+            .select("prompt_id, prompt:prompts(id, ice_breaker, category)")
+            .eq("group_id", group.id)
+            .eq("asked", false)
+          
+          const matchedPromptIdsReset = new Set<string>()
+          const matchedIceBreakerIdsReset = new Set<string>()
+          
+          if (matchesReset) {
+            for (const match of matchesReset) {
+              const prompt = match.prompt as any
+              if (prompt?.id && prompt?.category === groupCategoryReset) {
+                matchedPromptIdsReset.add(prompt.id)
+                if (prompt.ice_breaker) {
+                  matchedIceBreakerIdsReset.add(prompt.id)
+                }
+              }
+            }
+          }
+
+          // Separate matched and non-matched prompts, prioritizing ice_breaker matched
+          const matchedIceBreakerPromptsReset = filteredPromptsRaw.filter((p: any) => matchedIceBreakerIdsReset.has(p.id))
+          const matchedRegularPromptsReset = filteredPromptsRaw.filter((p: any) => matchedPromptIdsReset.has(p.id) && !matchedIceBreakerIdsReset.has(p.id))
+          const nonMatchedPromptsReset = filteredPromptsRaw.filter((p: any) => !matchedPromptIdsReset.has(p.id))
+          
+          // Prioritize: matched ice_breaker > matched regular > non-matched
+          const prioritizedPromptsReset = [...matchedIceBreakerPromptsReset, ...matchedRegularPromptsReset, ...nonMatchedPromptsReset]
+
+          if (!prioritizedPromptsReset || prioritizedPromptsReset.length === 0) {
             results.push({ group_id: group.id, status: "no_prompts_available" })
             continue
           }
 
-          const allPrompts = filteredPromptsRaw
+          const allPrompts = prioritizedPromptsReset
 
           if (allPrompts.length === 0) {
             results.push({ group_id: group.id, status: "no_prompts_available" })
@@ -517,6 +579,13 @@ serve(async (req) => {
       })
 
       if (insertError) throw insertError
+
+      // Mark matched question as asked if it was a match
+      await supabaseClient
+        .from("group_question_matches")
+        .update({ asked: true })
+        .eq("group_id", group.id)
+        .eq("prompt_id", promptId)
 
       // Remove from queue if it was queued
       if (queuedItem) {

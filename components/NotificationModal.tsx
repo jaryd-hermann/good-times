@@ -187,6 +187,9 @@ export function NotificationModal({
                     ? `${names[0]} and ${names[1]}`
                     : `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`
                   notificationText = `${namesText} answered in ${notification.groupName}`
+                } else if (notification.type === "deck_vote_requested") {
+                  notificationText = `${notification.requesterName} wants to add "${notification.deckName}" to ${notification.groupName}`
+                  avatarName = notification.requesterName || "Someone"
                 }
 
                 return (
@@ -202,7 +205,7 @@ export function NotificationModal({
                     }}
                     activeOpacity={0.7}
                   >
-                    {(notification.type === "reply_to_entry" || notification.type === "reply_to_thread") && (
+                    {(notification.type === "reply_to_entry" || notification.type === "reply_to_thread" || notification.type === "deck_vote_requested") && (
                       <Avatar uri={avatarUrl} name={avatarName} size={32} />
                     )}
                     <View style={styles.notificationContent}>

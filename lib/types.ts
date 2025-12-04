@@ -37,6 +37,11 @@ export interface Prompt {
   custom_question_id?: string | null
   deck_id?: string | null
   deck_order?: number | null
+  swipeable?: boolean
+  yes_swipes_count?: number
+  no_swipes_count?: number
+  ice_breaker?: boolean
+  featured_prompt_id?: string | null
   created_at: string
 }
 
@@ -240,4 +245,23 @@ export interface GroupFeaturedQuestion {
   created_at: string
   user?: User
   featured_prompt?: FeaturedPrompt
+}
+
+export interface GroupQuestionSwipe {
+  id: string
+  user_id: string
+  group_id: string
+  prompt_id: string
+  response: "yes" | "no"
+  created_at: string
+  updated_at: string
+}
+
+export interface GroupQuestionMatch {
+  id: string
+  group_id: string
+  prompt_id: string
+  matched_at: string
+  asked: boolean
+  created_at: string
 }

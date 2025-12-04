@@ -1452,6 +1452,14 @@ export default function Home() {
     } else if (notification.type === "new_answers") {
       // Navigate to home (group already switched above)
       router.replace("/(main)/home")
+    } else if (notification.type === "deck_vote_requested") {
+      // Navigate to deck vote page
+      if (notification.deckId) {
+        router.push(`/(main)/deck-vote?deckId=${notification.deckId}&groupId=${notification.groupId}`)
+      } else {
+        // Fallback to explore decks if deckId is missing
+        router.push(`/(main)/explore-decks?groupId=${notification.groupId}`)
+      }
     } else if (notification.entryId) {
       // Navigate to entry detail - get all entries for the group to build navigation list
       const { data: entries } = await supabase
