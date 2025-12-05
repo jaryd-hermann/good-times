@@ -45,6 +45,7 @@ import { Avatar } from "../../components/Avatar"
 import { Button } from "../../components/Button"
 import { EntryCard } from "../../components/EntryCard"
 import { CategoryTag } from "../../components/CategoryTag"
+import { PromptSkeleton } from "../../components/PromptSkeleton"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { FontAwesome } from "@expo/vector-icons"
 import { registerForPushNotifications, savePushToken } from "../../lib/notifications"
@@ -1129,51 +1130,62 @@ export default function Home() {
   const entryIdList = entries.map((item) => item.id)
   const basePrompt = dailyPrompt?.prompt ?? entries[0]?.prompt
 
-  // Fetch memorials ALWAYS (needed to filter fallback prompts)
+  // Fetch memorials (needed for variable replacement if needed)
   const { data: memorials = [] } = useQuery({
     queryKey: ["memorials", currentGroupId],
     queryFn: () => (currentGroupId ? getMemorials(currentGroupId) : []),
     enabled: !!currentGroupId,
   })
 
-  // Filter fallback prompts to exclude Remembering category for groups without memorials
-  const availableFallbackPrompts = useMemo(() => {
-    if (!allPrompts.length) return []
-    
-    // If group has memorials, all prompts are available
-    // If group doesn't have memorials, filter out Remembering category
-    if (memorials.length === 0) {
-      return allPrompts.filter((p: any) => p.category !== "Remembering")
-    }
-    
-    return allPrompts
-  }, [allPrompts, memorials])
-
-  const fallbackPrompt =
-    basePrompt ??
-    (availableFallbackPrompts.length > 0
-      ? availableFallbackPrompts[Math.abs(getDayIndex(selectedDate, currentGroupId)) % availableFallbackPrompts.length]
-      : undefined)
-
-  const promptId = dailyPrompt?.prompt_id ?? entries[0]?.prompt_id ?? fallbackPrompt?.id
+  // Only use actual prompts from dailyPrompt or entries - NO fallback prompts
+  const promptId = dailyPrompt?.prompt_id ?? entries[0]?.prompt_id
 
   const { data: groupMembersForVariables = [] } = useQuery({
     queryKey: ["membersForVariables", currentGroupId],
     queryFn: () => (currentGroupId ? getGroupMembers(currentGroupId) : []),
-    enabled: !!currentGroupId && !!(fallbackPrompt?.question?.match(/\{.*member_name.*\}/i)),
+    enabled: !!currentGroupId && !!basePrompt?.question?.match(/\{.*member_name.*\}/i),
   })
 
+  // Fetch prompt_name_usage for member_name to get the exact name that was stored
+  // CRITICAL: Use the stored name from prompt_name_usage, not recalculate
+  const { data: memberNameUsage = [] } = useQuery({
+    queryKey: ["memberNameUsage", currentGroupId, selectedDate],
+    queryFn: async () => {
+      if (!currentGroupId || !promptId) return []
+      const { data, error } = await supabase
+        .from("prompt_name_usage")
+        .select("prompt_id, date_used, name_used, created_at")
+        .eq("group_id", currentGroupId)
+        .eq("variable_type", "member_name")
+        .order("created_at", { ascending: true })
+      if (error) {
+        console.error("[home] Error fetching member name usage:", error)
+        return []
+      }
+      return (data || []) as Array<{ prompt_id: string; date_used: string; name_used: string; created_at: string }>
+    },
+    enabled: !!currentGroupId && !!promptId && !!basePrompt?.question?.match(/\{.*member_name.*\}/i),
+    staleTime: 0,
+    refetchOnMount: true,
+  })
+
+  // Create a map of prompt_id + date -> member name used
+  const memberUsageMap = useMemo(() => {
+    const map = new Map<string, string>()
+    memberNameUsage.forEach((usage) => {
+      const normalizedDate = usage.date_used.split('T')[0]
+      const key = `${usage.prompt_id}-${normalizedDate}`
+      if (!map.has(key)) {
+        map.set(key, usage.name_used)
+      }
+    })
+    return map
+  }, [memberNameUsage])
+
   // Personalize prompt question with variables
+  // CRITICAL: Only work with actual prompts from dailyPrompt or entries - never fallback prompts
   const personalizedPromptQuestion = useMemo(() => {
-    if (!fallbackPrompt?.question) return fallbackPrompt?.question
-    
-    // CRITICAL FIX: If this prompt came from getDailyPrompt, it's ALREADY personalized correctly
-    // NEVER re-personalize it - this prevents switching memorial names after user answers
-    // getDailyPrompt selects the correct memorial based on prompt_name_usage and deterministic logic
-    // Re-personalizing here would overwrite the correct name with the wrong one
-    
-    // BULLETPROOF CHECK: If dailyPrompt exists, use its question directly - never re-personalize
-    // This is the single most important safeguard against memorial name switching
+    // If we have a prompt from dailyPrompt, use it directly (already personalized by getDailyPrompt)
     if (dailyPrompt?.prompt?.question) {
       // Check if the question is already personalized (no variables)
       const hasVariables = dailyPrompt.prompt.question.match(/\{.*memorial_name.*\}/i) || 
@@ -1181,62 +1193,77 @@ export default function Home() {
       
       if (!hasVariables) {
         // Already personalized correctly by getDailyPrompt - use it EXACTLY as-is
-        // This prevents ANY possibility of name switching
         return dailyPrompt.prompt.question
       } else {
         // This is a bug in getDailyPrompt - it should have personalized but didn't
-        // Log error but still use the question from getDailyPrompt (don't re-personalize)
-        console.error(`[home] CRITICAL: getDailyPrompt returned unpersonalized question with variables. This is a bug in getDailyPrompt.`)
-        // Still return the question from getDailyPrompt - don't re-personalize here
-        // The bug needs to be fixed in getDailyPrompt, not worked around here
-        return dailyPrompt.prompt.question
-      }
-    }
-    
-    // Only reach here if dailyPrompt doesn't exist (fallback prompt scenario)
-    
-    // Only personalize if this is a fallback prompt (not from getDailyPrompt)
-    let question = fallbackPrompt.question
-    const variables: Record<string, string> = {}
-    
-    // Handle memorial_name variable (only for fallback prompts)
-    if (question.match(/\{.*memorial_name.*\}/i)) {
-      if (memorials.length > 0) {
-        // CRITICAL: Use the SAME deterministic logic as getDailyPrompt to select memorial
-        // This ensures consistency - never use memorials[0] which could be wrong person
-        // Match the exact logic from lib/db.ts getDailyPrompt function
-        const dayIndex = getDayIndex(selectedDate, currentGroupId || "")
+        // But we should still check prompt_name_usage to get the correct name
+        let question = dailyPrompt.prompt.question
+        const variables: Record<string, string> = {}
         
-        // For fallback prompts, we don't have prompt_name_usage data easily accessible
-        // So we use a simplified version: cycle through memorials based on date
-        // This is deterministic and will match getDailyPrompt's selection if no usage data exists
-        const memorialIndex = dayIndex % memorials.length
-        const selectedMemorialName = memorials[memorialIndex]?.name
-        
-        if (selectedMemorialName) {
-          question = personalizeMemorialPrompt(question, selectedMemorialName)
-        } else {
-          // This should never happen, but safety fallback
-          console.error(`[home] Memorial selection failed - no memorials available`)
-          return "Share a moment that made you smile today."
+        // Handle member_name variable - check prompt_name_usage first
+        if (question.match(/\{.*member_name.*\}/i) && dailyPrompt.prompt_id && selectedDate) {
+          const normalizedDate = selectedDate.split('T')[0]
+          const usageKey = `${dailyPrompt.prompt_id}-${normalizedDate}`
+          const memberNameUsed = memberUsageMap.get(usageKey)
+          
+          if (memberNameUsed) {
+            variables.member_name = memberNameUsed
+            question = replaceDynamicVariables(question, variables)
+          } else {
+            console.warn(`[home] getDailyPrompt returned unpersonalized member_name but no prompt_name_usage found`)
+          }
         }
-      } else {
-        // SAFETY CHECK: If we somehow have a memorial_name prompt but no memorials,
-        // don't show the raw variable - return a fallback message
-        console.warn(`[home] Found memorial_name prompt but group has no memorials. Showing fallback.`)
-        return "Share a moment that made you smile today."
+        
+        return question
       }
     }
     
-    // Handle member_name variable
-    if (question.match(/\{.*member_name.*\}/i) && groupMembersForVariables.length > 0) {
-      // For now, use first member (could be improved to cycle)
-      variables.member_name = groupMembersForVariables[0].user?.name || "them"
-      question = replaceDynamicVariables(question, variables)
+    // If we have a prompt from entries, use it (may need personalization)
+    if (entries[0]?.prompt?.question) {
+      let question = entries[0].prompt.question
+      const variables: Record<string, string> = {}
+      
+      // Handle memorial_name variable
+      if (question.match(/\{.*memorial_name.*\}/i)) {
+        if (memorials.length > 0) {
+          // Use deterministic logic to select memorial
+          const dayIndex = getDayIndex(selectedDate, currentGroupId || "")
+          const memorialIndex = dayIndex % memorials.length
+          const selectedMemorialName = memorials[memorialIndex]?.name
+          
+          if (selectedMemorialName) {
+            question = personalizeMemorialPrompt(question, selectedMemorialName)
+          }
+        }
+      }
+      
+      // Handle member_name variable - check prompt_name_usage first
+      if (question.match(/\{.*member_name.*\}/i)) {
+        const entryPromptId = entries[0].prompt_id
+        if (entryPromptId && selectedDate) {
+          const normalizedDate = selectedDate.split('T')[0]
+          const usageKey = `${entryPromptId}-${normalizedDate}`
+          const memberNameUsed = memberUsageMap.get(usageKey)
+          
+          if (memberNameUsed) {
+            // Use the exact name from prompt_name_usage (ensures consistency)
+            variables.member_name = memberNameUsed
+            question = replaceDynamicVariables(question, variables)
+          } else if (groupMembersForVariables.length > 0) {
+            // Fallback: if no usage record exists, use first member
+            console.warn(`[home] No prompt_name_usage found for member_name, using first member as fallback`)
+            variables.member_name = groupMembersForVariables[0].user?.name || "them"
+            question = replaceDynamicVariables(question, variables)
+          }
+        }
+      }
+      
+      return question
     }
     
-    return question
-  }, [fallbackPrompt?.question, memorials, groupMembersForVariables, dailyPrompt, currentGroupId, selectedDate])
+    // No valid prompt available - return empty string (skeleton will be shown)
+    return ""
+  }, [dailyPrompt?.prompt?.question, dailyPrompt?.prompt_id, entries, memorials, groupMembersForVariables, currentGroupId, selectedDate, memberUsageMap, memberNameUsage])
 
   // Check if CTA should show (load immediately, not waiting for scroll)
   // Only show when viewing today's date
@@ -2548,73 +2575,94 @@ export default function Home() {
                 <View style={styles.loadingContainer}>
                   <Text style={styles.loadingText}>Loading...</Text>
                 </View>
-              ) : (
-                <>
-                  {/* Custom Question Branding */}
-                  {isCustomQuestion && customQuestionData && (
-                    <View style={styles.customQuestionBanner}>
-                      {customQuestionData.is_anonymous ? (
-                        <View style={styles.customQuestionHeader}>
-                          <FontAwesome name="question-circle" size={20} color={colors.accent} style={{ marginRight: spacing.sm }} />
-                          <Text style={styles.customQuestionLabel}>
-                            Custom question! Someone in your group asked everyone this:
+              ) : (() => {
+                // Determine if we have a valid prompt to show
+                const hasValidPrompt = dailyPrompt?.prompt || entries[0]?.prompt
+                const hasValidQuestion = personalizedPromptQuestion || dailyPrompt?.prompt?.question || entries[0]?.prompt?.question
+                const isLoading = isLoadingPrompt || isFetchingPrompt || isLoadingEntries || isFetchingEntries
+                
+                // Show skeleton when loading and no valid prompt/question yet
+                if (isLoading && !hasValidQuestion) {
+                  return <PromptSkeleton />
+                }
+                
+                // Only show actual prompt if we have valid question text
+                if (!hasValidQuestion) {
+                  return <PromptSkeleton />
+                }
+                
+                // Show actual prompt content
+                return (
+                  <>
+                    {/* Custom Question Branding */}
+                    {isCustomQuestion && customQuestionData && (
+                      <View style={styles.customQuestionBanner}>
+                        {customQuestionData.is_anonymous ? (
+                          <View style={styles.customQuestionHeader}>
+                            <FontAwesome name="question-circle" size={20} color={colors.accent} style={{ marginRight: spacing.sm }} />
+                            <Text style={styles.customQuestionLabel}>
+                              Custom question! Someone in your group asked everyone this:
+                            </Text>
+                          </View>
+                        ) : (
+                          <View style={styles.customQuestionHeader}>
+                            <Avatar
+                              uri={customQuestionData.user?.avatar_url}
+                              name={customQuestionData.user?.name || "User"}
+                              size={24}
+                            />
+                            <Text style={styles.customQuestionLabel}>
+                              {customQuestionData.user?.name || "Someone"} has a question for you
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginBottom: spacing.sm }}>
+                      {dailyPrompt?.prompt?.category && (
+                        <CategoryTag category={dailyPrompt.prompt.category} />
+                      )}
+                      {entries[0]?.prompt?.category && !dailyPrompt?.prompt?.category && (
+                        <CategoryTag category={entries[0].prompt.category} />
+                      )}
+                      {dailyPrompt?.deck_id && deckInfo && (
+                        <TouchableOpacity
+                          onPress={() => router.push(`/(main)/deck-detail?deckId=${dailyPrompt.deck_id}&groupId=${currentGroupId}`)}
+                          style={{
+                            alignSelf: "flex-start",
+                            paddingHorizontal: spacing.md,
+                            paddingVertical: spacing.xs,
+                            borderRadius: 16,
+                            backgroundColor: isDark ? colors.white : colors.black,
+                          }}
+                        >
+                          <Text style={{
+                            ...typography.caption,
+                            fontSize: 12,
+                            fontWeight: "600",
+                            color: isDark ? colors.black : colors.white,
+                          }}>
+                            {deckInfo.name}
                           </Text>
-                        </View>
-                      ) : (
-                        <View style={styles.customQuestionHeader}>
-                          <Avatar
-                            uri={customQuestionData.user?.avatar_url}
-                            name={customQuestionData.user?.name || "User"}
-                            size={24}
-                          />
-                          <Text style={styles.customQuestionLabel}>
-                            {customQuestionData.user?.name || "Someone"} has a question for you
-                          </Text>
-                        </View>
+                        </TouchableOpacity>
                       )}
                     </View>
-                  )}
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginBottom: spacing.sm }}>
-                    {fallbackPrompt?.category && (
-                      <CategoryTag category={fallbackPrompt.category} />
+                    <Text style={styles.promptQuestion}>
+                      {personalizedPromptQuestion || dailyPrompt?.prompt?.question || entries[0]?.prompt?.question}
+                    </Text>
+                    <Text style={styles.promptDescription}>
+                      {dailyPrompt?.prompt?.description || entries[0]?.prompt?.description || ""}
+                    </Text>
+                    {promptId && (
+                      <Button
+                        title="Tell the Group"
+                        onPress={handleAnswerPrompt}
+                        style={styles.answerButton}
+                      />
                     )}
-                    {dailyPrompt?.deck_id && deckInfo && (
-                      <TouchableOpacity
-                        onPress={() => router.push(`/(main)/deck-detail?deckId=${dailyPrompt.deck_id}&groupId=${currentGroupId}`)}
-                        style={{
-                          alignSelf: "flex-start",
-                          paddingHorizontal: spacing.md,
-                          paddingVertical: spacing.xs,
-                          borderRadius: 16,
-                          backgroundColor: isDark ? colors.white : colors.black,
-                        }}
-                      >
-                        <Text style={{
-                          ...typography.caption,
-                          fontSize: 12,
-                          fontWeight: "600",
-                          color: isDark ? colors.black : colors.white,
-                        }}>
-                          {deckInfo.name}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                  <Text style={styles.promptQuestion}>
-                    {personalizedPromptQuestion || fallbackPrompt?.question || "Share a moment that made you smile today."}
-                  </Text>
-                  <Text style={styles.promptDescription}>
-                    {fallbackPrompt?.description ?? "Tell your group about something meaningful or memorable from your day."}
-                  </Text>
-                  {promptId && (
-                    <Button
-                      title="Tell the Group"
-                      onPress={handleAnswerPrompt}
-                      style={styles.answerButton}
-                    />
-                  )}
-                </>
-              )}
+                  </>
+                )
+              })()}
             </View>
             <View style={styles.promptDivider} />
           </View>

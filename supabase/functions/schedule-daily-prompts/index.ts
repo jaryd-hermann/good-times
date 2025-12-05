@@ -39,19 +39,14 @@ serve(async (req) => {
 
     for (const group of groups || []) {
       // Check if group is still in ice-breaker period
+      // BUT: Allow queued items (Featured, Custom, etc.) to be scheduled even during ice-breaker period
+      let isInIceBreakerPeriod = false
       if (group.ice_breaker_queue_completed_date) {
         const completionDate = new Date(group.ice_breaker_queue_completed_date)
         const todayDate = new Date(today)
         
-        // If completion date is in the future, skip normal generation (ice-breaker queue still active)
         if (completionDate > todayDate) {
-          console.log(`[schedule-daily-prompts] Group ${group.id} still in ice-breaker period (completes ${group.ice_breaker_queue_completed_date}), skipping normal generation`)
-          results.push({ 
-            group_id: group.id, 
-            status: "skipped_ice_breaker_period",
-            completion_date: group.ice_breaker_queue_completed_date
-          })
-          continue
+          isInIceBreakerPeriod = true
         }
       } else {
         // If completion date is NULL, group hasn't initialized ice-breaker queue yet
@@ -62,6 +57,33 @@ serve(async (req) => {
           status: "skipped_no_completion_date"
         })
         continue
+      }
+      
+      // Check if there are queued items (Featured, Custom, etc.) that should be processed
+      // These should be scheduled even during ice-breaker period
+      const { data: queuedItems } = await supabaseClient
+        .from("group_prompt_queue")
+        .select("id, prompt_id, prompt:prompts(category)")
+        .eq("group_id", group.id)
+        .order("position", { ascending: true })
+        .limit(1)
+      
+      const hasQueuedItems = queuedItems && queuedItems.length > 0
+      
+      // If in ice-breaker period and no queued items, skip normal generation
+      if (isInIceBreakerPeriod && !hasQueuedItems) {
+        console.log(`[schedule-daily-prompts] Group ${group.id} still in ice-breaker period (completes ${group.ice_breaker_queue_completed_date}), skipping normal generation`)
+        results.push({ 
+          group_id: group.id, 
+          status: "skipped_ice_breaker_period",
+          completion_date: group.ice_breaker_queue_completed_date
+        })
+        continue
+      }
+      
+      // If in ice-breaker period but has queued items, log and continue (will process queue)
+      if (isInIceBreakerPeriod && hasQueuedItems) {
+        console.log(`[schedule-daily-prompts] Group ${group.id} in ice-breaker period but has queued items, processing queue`)
       }
       // FIRST: Check for custom question scheduled for today (highest priority)
       const { data: customQuestion } = await supabaseClient
@@ -318,11 +340,21 @@ serve(async (req) => {
           .eq("status", "active")
         
         if (activeDecksData && activeDecksData.length > 0) {
-          // Get week start date (Sunday)
+          // Get week start date (Monday of current week)
+          // This matches the SQL function get_current_week_monday()
           const todayDate = new Date(today)
-          const dayOfWeek = todayDate.getDay()
+          const dayOfWeek = todayDate.getDay() // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
           const weekStart = new Date(todayDate)
-          weekStart.setDate(todayDate.getDate() - dayOfWeek)
+          
+          // Calculate Monday of current week
+          if (dayOfWeek === 0) {
+            // If today is Sunday, subtract 6 days to get previous Monday
+            weekStart.setDate(todayDate.getDate() - 6)
+          } else {
+            // Otherwise, subtract (dayOfWeek - 1) days to get Monday of current week
+            weekStart.setDate(todayDate.getDate() - (dayOfWeek - 1))
+          }
+          
           const weekStartStr = weekStart.toISOString().split("T")[0]
           
           // Check which decks have been used this week

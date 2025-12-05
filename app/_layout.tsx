@@ -190,8 +190,13 @@ export default function RootLayout() {
       // Boot screen will ensure session is valid before navigating
       // This prevents black screens and ensures smooth experience
       console.log("[_layout] Notification clicked - storing for boot screen to handle")
+      
+      let shouldNavigateDirectly = false
+      
       try {
         const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default
+        
+        // Store notification data for boot screen to process
         await AsyncStorage.setItem("pending_notification", JSON.stringify({
           type,
           group_id,
@@ -199,62 +204,81 @@ export default function RootLayout() {
           prompt_id,
           timestamp: Date.now(),
         }))
+        
         // CRITICAL: Set flag to force boot screen to show when app opens from notification
         // This ensures session refresh happens before navigation
         await AsyncStorage.setItem("notification_clicked", "true")
         console.log("[_layout] Notification stored, boot screen will be forced to show")
-        // Boot screen will handle navigation after ensuring session is valid (see app/index.tsx)
-        // This ensures we never navigate with a stale session
-        return // Don't navigate yet - wait for boot screen to complete
+        
+        // CRITICAL: Check if app is already initialized (user is logged in and app is running)
+        // Only navigate directly if app is already running and initialized
+        // Otherwise, let boot screen handle it (prevents black screen on cold start)
+        try {
+          const { data: { session } } = await supabase.auth.getSession()
+          const isAppInitialized = !!session
+          
+          if (isAppInitialized) {
+            // App is already running - navigate directly (user clicked notification while app was open)
+            console.log("[_layout] App already initialized - will navigate directly")
+            shouldNavigateDirectly = true
+          } else {
+            // App is NOT initialized (cold start) - let boot screen handle navigation
+            // This prevents black screen when app opens from closed state
+            console.log("[_layout] App not initialized (cold start) - boot screen will handle navigation")
+            return // Exit early - boot screen will handle navigation
+          }
+        } catch (sessionError) {
+          // If we can't check session, assume cold start and let boot screen handle it
+          console.log("[_layout] Could not check session - boot screen will handle navigation")
+          return // Exit early - boot screen will handle navigation
+        }
       } catch (error) {
         console.error("[_layout] Error storing notification:", error)
-        // If storage fails, try to navigate immediately (fallback)
+        // If storage fails, don't navigate - better to show boot screen than black screen
+        return // Exit early - don't navigate if storage fails
       }
 
-      // Small delay to ensure app is ready
-      setTimeout(() => {
-        if (type === "daily_prompt" && group_id && prompt_id) {
-          // Navigate to entry composer with prompt
-          router.push({
-            pathname: "/(main)/modals/entry-composer",
-            params: {
-              promptId: prompt_id,
-              date: new Date().toISOString().split("T")[0],
-              returnTo: "/(main)/home",
-            },
-          })
-        } else if (type === "new_entry" && group_id && entry_id) {
-          // Navigate to entry detail
-          router.push({
-            pathname: "/(main)/modals/entry-detail",
-            params: {
-              entryId: entry_id,
-              returnTo: "/(main)/home",
-            },
-          })
-        } else if (type === "new_comment" && entry_id) {
-          // Navigate to entry detail
-          router.push({
-            pathname: "/(main)/modals/entry-detail",
-            params: {
-              entryId: entry_id,
-              returnTo: "/(main)/home",
-            },
-          })
-        } else if (type === "member_joined" && group_id) {
-          // Navigate to home with group focused
-          router.push({
-            pathname: "/(main)/home",
-            params: { focusGroupId: group_id },
-          })
-        } else if (type === "inactivity_reminder" && group_id) {
-          // Navigate to home with group focused
-          router.push({
-            pathname: "/(main)/home",
-            params: { focusGroupId: group_id },
-          })
-        }
-      }, 300) // Small delay to ensure app state is ready
+      // Only navigate if app is already initialized (user clicked notification while app was open)
+      if (shouldNavigateDirectly) {
+        setTimeout(() => {
+          if (type === "daily_prompt" && group_id && prompt_id) {
+            router.push({
+              pathname: "/(main)/modals/entry-composer",
+              params: {
+                promptId: prompt_id,
+                date: new Date().toISOString().split("T")[0],
+                returnTo: "/(main)/home",
+              },
+            })
+          } else if (type === "new_entry" && group_id && entry_id) {
+            router.push({
+              pathname: "/(main)/modals/entry-detail",
+              params: {
+                entryId: entry_id,
+                returnTo: "/(main)/home",
+              },
+            })
+          } else if (type === "new_comment" && entry_id) {
+            router.push({
+              pathname: "/(main)/modals/entry-detail",
+              params: {
+                entryId: entry_id,
+                returnTo: "/(main)/home",
+              },
+            })
+          } else if (type === "member_joined" && group_id) {
+            router.push({
+              pathname: "/(main)/home",
+              params: { focusGroupId: group_id },
+            })
+          } else if (type === "inactivity_reminder" && group_id) {
+            router.push({
+              pathname: "/(main)/home",
+              params: { focusGroupId: group_id },
+            })
+          }
+        }, 300) // Small delay to ensure app state is ready
+      }
     })
 
     return () => subscription.remove()

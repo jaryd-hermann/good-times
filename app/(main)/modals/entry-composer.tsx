@@ -216,7 +216,44 @@ export default function EntryComposer() {
     enabled: !!currentGroupId && !!activePrompt?.question?.match(/\{.*member_name.*\}/i),
   })
 
+  // Fetch prompt_name_usage for member_name to get the exact name that was stored
+  // CRITICAL: Use the stored name from prompt_name_usage, not recalculate
+  const { data: memberNameUsage = [] } = useQuery({
+    queryKey: ["memberNameUsage", currentGroupId, date, promptId],
+    queryFn: async () => {
+      if (!currentGroupId || !promptId || !date) return []
+      const { data, error } = await supabase
+        .from("prompt_name_usage")
+        .select("prompt_id, date_used, name_used, created_at")
+        .eq("group_id", currentGroupId)
+        .eq("variable_type", "member_name")
+        .order("created_at", { ascending: true })
+      if (error) {
+        console.error("[entry-composer] Error fetching member name usage:", error)
+        return []
+      }
+      return (data || []) as Array<{ prompt_id: string; date_used: string; name_used: string; created_at: string }>
+    },
+    enabled: !!currentGroupId && !!promptId && !!date && !!activePrompt?.question?.match(/\{.*member_name.*\}/i),
+    staleTime: 0, // Always fetch fresh data
+    refetchOnMount: true,
+  })
+
+  // Create a map of prompt_id + date -> member name used
+  const memberUsageMap = useMemo(() => {
+    const map = new Map<string, string>()
+    memberNameUsage.forEach((usage) => {
+      const normalizedDate = usage.date_used.split('T')[0]
+      const key = `${usage.prompt_id}-${normalizedDate}`
+      if (!map.has(key)) {
+        map.set(key, usage.name_used)
+      }
+    })
+    return map
+  }, [memberNameUsage])
+
   // Personalize prompt question with variables
+  // CRITICAL: Use prompt_name_usage to ensure consistency with home screen
   const personalizedQuestion = useMemo(() => {
     if (!activePrompt?.question) return activePrompt?.question
     
@@ -229,15 +266,32 @@ export default function EntryComposer() {
       question = personalizeMemorialPrompt(question, memorials[0].name)
     }
     
-    // Handle member_name variable
-    if (question.match(/\{.*member_name.*\}/i) && members.length > 0) {
-      // For now, use first member (could be improved to cycle)
-      variables.member_name = members[0].user?.name || "them"
-      question = replaceDynamicVariables(question, variables)
+    // Handle member_name variable - check prompt_name_usage first
+    if (question.match(/\{.*member_name.*\}/i)) {
+      if (promptId && date) {
+        const normalizedDate = date.split('T')[0]
+        const usageKey = `${promptId}-${normalizedDate}`
+        const memberNameUsed = memberUsageMap.get(usageKey)
+        
+        if (memberNameUsed) {
+          // Use the exact name from prompt_name_usage (ensures consistency)
+          variables.member_name = memberNameUsed
+          question = replaceDynamicVariables(question, variables)
+        } else if (members.length > 0) {
+          // Fallback: if no usage record exists, use first member
+          console.warn(`[entry-composer] No prompt_name_usage found for member_name, using first member as fallback`)
+          variables.member_name = members[0].user?.name || "them"
+          question = replaceDynamicVariables(question, variables)
+        }
+      } else if (members.length > 0) {
+        // Fallback if we don't have promptId/date
+        variables.member_name = members[0].user?.name || "them"
+        question = replaceDynamicVariables(question, variables)
+      }
     }
     
     return question
-  }, [activePrompt?.question, memorials, members])
+  }, [activePrompt?.question, memorials, members, memberUsageMap, promptId, date])
 
   // Load existing entry data when in edit mode
   useEffect(() => {

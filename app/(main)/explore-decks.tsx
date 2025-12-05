@@ -1786,7 +1786,6 @@ export default function ExploreDecks() {
         {activeTab === "featured" && featuredPrompts.length > 0 && (
           <View style={styles.featuredSection}>
             <Text style={styles.featuredTitle}>This weeks featured questions</Text>
-            <Text style={styles.featuredSubtitle}>Ask a single question to your group</Text>
             
             {featuredQuestionCount === 0 && (
               <Text style={styles.featuredStatus}>

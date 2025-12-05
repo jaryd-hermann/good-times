@@ -248,6 +248,33 @@ export default function EntryDetail() {
     gcTime: 0, // Don't cache - always fetch fresh to prevent stale data
   })
 
+  // Fetch prompt_name_usage to determine which member name was actually used
+  // CRITICAL: Use the stored name from prompt_name_usage, not recalculate
+  const { data: memberNameUsage = [] } = useQuery({
+    queryKey: ["memberNameUsage", entry?.group_id, entry?.date],
+    queryFn: async () => {
+      if (!entry?.group_id) return []
+      const { data, error } = await supabase
+        .from("prompt_name_usage")
+        .select("prompt_id, date_used, name_used, created_at")
+        .eq("group_id", entry.group_id)
+        .eq("variable_type", "member_name")
+        .order("created_at", { ascending: true }) // Order by creation time - prefer earliest (correct) record
+      if (error) {
+        console.error("[entry-detail] Error fetching member name usage:", error)
+        return []
+      }
+      if (__DEV__) {
+        console.log(`[entry-detail] Fetched ${data?.length || 0} member name usage records for group ${entry.group_id}`)
+      }
+      return (data || []) as Array<{ prompt_id: string; date_used: string; name_used: string; created_at: string }>
+    },
+    enabled: !!entry?.group_id && !!entry?.prompt?.question?.match(/\{.*member_name.*\}/i),
+    staleTime: 0, // Always fetch fresh data
+    refetchOnMount: true,
+    gcTime: 0, // Don't cache - always fetch fresh to prevent stale data
+  })
+
   // Helper function to calculate day index (same logic as in lib/db.ts)
   const getDayIndex = (dateString: string, groupId: string): number => {
     const base = new Date(dateString)
@@ -280,6 +307,27 @@ export default function EntryDetail() {
     })
     return map
   }, [memorialNameUsage])
+
+  // Create a map of prompt_id + date -> member name used
+  // CRITICAL: Use the stored name from prompt_name_usage to ensure consistency
+  const memberUsageMap = useMemo(() => {
+    const map = new Map<string, string>()
+    memberNameUsage.forEach((usage) => {
+      const normalizedDate = usage.date_used.split('T')[0]
+      const key = `${usage.prompt_id}-${normalizedDate}`
+      
+      // Only set if key doesn't exist - prefer the FIRST record (earliest created_at)
+      if (!map.has(key)) {
+        map.set(key, usage.name_used)
+      } else {
+        // Duplicate detected - log warning but keep the first one (which is correct)
+        if (__DEV__) {
+          console.warn(`[entry-detail] Duplicate member_name usage detected for ${key}. Using first record: ${map.get(key)} instead of ${usage.name_used}`)
+        }
+      }
+    })
+    return map
+  }, [memberNameUsage])
 
   // Function to determine which memorial was used for this prompt on this date
   const getMemorialForPrompt = useMemo(() => {
@@ -355,15 +403,31 @@ export default function EntryDetail() {
       console.error(`[entry-detail] Question already contains a name! Question: ${question.substring(0, 100)}`)
     }
     
-    // Handle member_name variable
-    if (question.match(/\{.*member_name.*\}/i) && members.length > 0) {
-      // For now, use first member (could be improved to cycle)
-      variables.member_name = members[0].user?.name || "them"
-      question = replaceDynamicVariables(question, variables)
+    // Handle member_name variable - use the CORRECT member name that was actually used
+    // CRITICAL: Check prompt_name_usage first to get the exact name that was stored
+    if (question.match(/\{.*member_name.*\}/i) && entry?.group_id && entry?.prompt_id && entry?.date) {
+      const normalizedDate = entry.date.split('T')[0]
+      const usageKey = `${entry.prompt_id}-${normalizedDate}`
+      const memberNameUsed = memberUsageMap.get(usageKey)
+      
+      if (memberNameUsed) {
+        // Use the exact name from prompt_name_usage (ensures consistency)
+        variables.member_name = memberNameUsed
+        question = replaceDynamicVariables(question, variables)
+        if (__DEV__) {
+          console.log(`[entry-detail] Using member name from prompt_name_usage: ${memberNameUsed}`)
+        }
+      } else if (members.length > 0) {
+        // Fallback: if no usage record exists, use first member
+        // This shouldn't happen if getDailyPrompt ran correctly, but safety fallback
+        console.warn(`[entry-detail] No prompt_name_usage found for member_name, using first member as fallback`)
+        variables.member_name = members[0].user?.name || "them"
+        question = replaceDynamicVariables(question, variables)
+      }
     }
     
     return question
-  }, [entry?.prompt?.question, entry?.group_id, entry?.prompt_id, entry?.date, memorials, members, getMemorialForPrompt, memorialUsageMap, memorialNameUsage])
+  }, [entry?.prompt?.question, entry?.group_id, entry?.prompt_id, entry?.date, memorials, members, getMemorialForPrompt, memorialUsageMap, memorialNameUsage, memberUsageMap, memberNameUsage])
 
   const commentsSectionRef = useRef<View>(null)
 

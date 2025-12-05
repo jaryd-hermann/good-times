@@ -10,9 +10,9 @@ import { useTheme } from "../lib/theme-context"
 import { Avatar } from "./Avatar"
 import { FontAwesome } from "@expo/vector-icons"
 import { supabase } from "../lib/supabase"
-import { getComments, getMemorials, getReactions, toggleReaction } from "../lib/db"
+import { getComments, getMemorials, getReactions, toggleReaction, getGroupMembers } from "../lib/db"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { personalizeMemorialPrompt } from "../lib/prompts"
+import { personalizeMemorialPrompt, replaceDynamicVariables } from "../lib/prompts"
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 
@@ -257,10 +257,54 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     }
   }, [memorials, memorialNameUsage, memorialUsageMap])
 
+  // Fetch prompt_name_usage for member_name to get the exact name that was stored
+  // CRITICAL: Use the stored name from prompt_name_usage, not recalculate
+  const { data: memberNameUsage = [] } = useQuery({
+    queryKey: ["memberNameUsage", entry.group_id, entry.date],
+    queryFn: async () => {
+      if (!entry.group_id) return []
+      const { data, error } = await supabase
+        .from("prompt_name_usage")
+        .select("prompt_id, date_used, name_used, created_at")
+        .eq("group_id", entry.group_id)
+        .eq("variable_type", "member_name")
+        .order("created_at", { ascending: true })
+      if (error) {
+        console.error("[EntryCard] Error fetching member name usage:", error)
+        return []
+      }
+      return (data || []) as Array<{ prompt_id: string; date_used: string; name_used: string; created_at: string }>
+    },
+    enabled: !!entry.group_id && !!entry.prompt?.question?.match(/\{.*member_name.*\}/i),
+    staleTime: 0,
+    refetchOnMount: true,
+  })
+
+  // Create a map of prompt_id + date -> member name used
+  const memberUsageMap = useMemo(() => {
+    const map = new Map<string, string>()
+    memberNameUsage.forEach((usage) => {
+      const normalizedDate = usage.date_used.split('T')[0]
+      const key = `${usage.prompt_id}-${normalizedDate}`
+      if (!map.has(key)) {
+        map.set(key, usage.name_used)
+      }
+    })
+    return map
+  }, [memberNameUsage])
+
+  // Fetch members for fallback
+  const { data: members = [] } = useQuery({
+    queryKey: ["members", entry.group_id],
+    queryFn: () => getGroupMembers(entry.group_id),
+    enabled: !!entry.group_id && !!entry.prompt?.question?.match(/\{.*member_name.*\}/i),
+  })
+
   // Personalize prompt question if it has placeholders
   const personalizedQuestion = useMemo(() => {
     if (!entry.prompt?.question) return entry.prompt?.question
     let question = entry.prompt.question
+    const variables: Record<string, string> = {}
     
     // Check for memorial_name placeholder - use the CORRECT memorial that was actually used
     if (question.match(/\{.*memorial_name.*\}/i) && entry.group_id && entry.prompt_id && entry.date) {
@@ -287,6 +331,27 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
         // Fallback if we can't determine (shouldn't happen, but safety)
         console.warn(`[EntryCard] Could not determine memorial for prompt ${entry.prompt_id} on ${entry.date}, using first memorial`)
         question = personalizeMemorialPrompt(question, memorials[0].name)
+      }
+    }
+    
+    // Check for member_name placeholder - use the CORRECT member name that was actually used
+    if (question.match(/\{.*member_name.*\}/i) && entry.group_id && entry.prompt_id && entry.date) {
+      const normalizedDate = entry.date.split('T')[0]
+      const usageKey = `${entry.prompt_id}-${normalizedDate}`
+      const memberNameUsed = memberUsageMap.get(usageKey)
+      
+      if (memberNameUsed) {
+        // Use the exact name from prompt_name_usage (ensures consistency)
+        variables.member_name = memberNameUsed
+        question = replaceDynamicVariables(question, variables)
+        if (__DEV__) {
+          console.log(`[EntryCard] Using member name from prompt_name_usage: ${memberNameUsed}`)
+        }
+      } else if (members.length > 0) {
+        // Fallback: if no usage record exists, use first member
+        console.warn(`[EntryCard] No prompt_name_usage found for member_name, using first member as fallback`)
+        variables.member_name = members[0].user?.name || "them"
+        question = replaceDynamicVariables(question, variables)
       }
     } else if (question.includes("Gumbo") || question.includes("Amelia")) {
       // CRITICAL: If the question already has a name in it (shouldn't happen, but if it does, log it)

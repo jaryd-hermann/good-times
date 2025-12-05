@@ -6,6 +6,15 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 }
 
+// Helper function to calculate day index (group-specific randomization)
+function getDayIndex(dateString: string, groupId: string): number {
+  const base = new Date(dateString)
+  const start = new Date("2020-01-01")
+  const diff = Math.floor((base.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
+  const groupOffset = groupId.length
+  return diff + groupOffset
+}
+
 // Get user's local time (9 AM)
 function getUserLocalTime(userTimezone: string = "America/New_York"): Date {
   const now = new Date()
@@ -76,6 +85,20 @@ serve(async (req) => {
         continue
       }
 
+      // Get memorials for this group (needed for {memorial_name} replacement)
+      const { data: memorials, error: memorialsError } = await supabaseClient
+        .from("memorials")
+        .select("id, name")
+        .eq("group_id", dailyPrompt.group_id)
+        .order("created_at", { ascending: true })
+
+      if (memorialsError) {
+        console.error(`[send-daily-notifications] Error fetching memorials for group ${dailyPrompt.group_id}:`, memorialsError)
+        // Continue anyway - memorials are optional
+      }
+      
+      const groupMemorials = memorials || []
+
       // Determine which users should receive this prompt
       let targetUsers: Array<{ user_id: string }> = []
       
@@ -101,32 +124,94 @@ serve(async (req) => {
         if (!pushToken) continue
 
         // Personalize prompt text with dynamic variables
+        // CRITICAL: Use prompt_name_usage table to get the EXACT same name that was selected
+        // when getDailyPrompt ran. This ensures the notification matches what users see in the app.
         let personalizedQuestion = prompt.question
+        const variables: Record<string, string> = {}
         
-        if (prompt.dynamic_variables && Array.isArray(prompt.dynamic_variables)) {
-          const variables: Record<string, string> = {}
+        // Check if prompt has dynamic variables that need replacement
+        const hasMemorialName = personalizedQuestion.match(/\{.*memorial_name.*\}/i)
+        const hasMemberName = personalizedQuestion.match(/\{.*member_name.*\}/i)
+        
+        // Handle memorial_name variable - MUST use prompt_name_usage for consistency
+        if (hasMemorialName) {
+          // CRITICAL: First check prompt_name_usage to get the exact name that was already selected
+          const { data: memorialUsage } = await supabaseClient
+            .from("prompt_name_usage")
+            .select("name_used")
+            .eq("group_id", dailyPrompt.group_id)
+            .eq("prompt_id", dailyPrompt.prompt_id)
+            .eq("variable_type", "memorial_name")
+            .eq("date_used", today)
+            .maybeSingle()
           
-          // Handle member_name variable for birthday prompts
-          if (prompt.birthday_type === "their_birthday" && members) {
+          if (memorialUsage?.name_used) {
+            // Use the exact name from prompt_name_usage (ensures consistency with app)
+            variables.memorial_name = memorialUsage.name_used
+            console.log(`[send-daily-notifications] Using memorial name from prompt_name_usage: ${memorialUsage.name_used}`)
+          } else if (groupMemorials.length > 0) {
+            // Fallback: if prompt_name_usage doesn't exist yet (shouldn't happen if getDailyPrompt ran first)
+            // Use the same deterministic logic as getDailyPrompt
+            const dayIndex = getDayIndex(today, dailyPrompt.group_id)
+            const memorialIndex = dayIndex % groupMemorials.length
+            const selectedMemorial = groupMemorials[memorialIndex]
+            
+            if (selectedMemorial?.name) {
+              variables.memorial_name = selectedMemorial.name
+              console.warn(`[send-daily-notifications] No prompt_name_usage found, calculated memorial name: ${selectedMemorial.name}`)
+            }
+          }
+        }
+        
+        // Handle member_name variable - MUST use prompt_name_usage for consistency
+        if (hasMemberName) {
+          // CRITICAL: First check prompt_name_usage to get the exact name that was already selected
+          const { data: memberUsage } = await supabaseClient
+            .from("prompt_name_usage")
+            .select("name_used")
+            .eq("group_id", dailyPrompt.group_id)
+            .eq("prompt_id", dailyPrompt.prompt_id)
+            .eq("variable_type", "member_name")
+            .eq("date_used", today)
+            .maybeSingle()
+          
+          if (memberUsage?.name_used) {
+            // Use the exact name from prompt_name_usage (ensures consistency with app)
+            variables.member_name = memberUsage.name_used
+            console.log(`[send-daily-notifications] Using member name from prompt_name_usage: ${memberUsage.name_used}`)
+          } else if (prompt.birthday_type === "their_birthday" && members) {
+            // Fallback for birthday prompts: get the birthday person's name
             const todayMonthDay = today.substring(5) // MM-DD
             for (const member of members) {
               const user = member.user as any
               if (user?.birthday && user.birthday.substring(5) === todayMonthDay) {
                 variables.member_name = user.name || "them"
+                console.warn(`[send-daily-notifications] No prompt_name_usage found, calculated member name for birthday: ${variables.member_name}`)
                 break
               }
             }
           }
-          
-          // Replace variables in question text
-          if (Object.keys(variables).length > 0) {
-            for (const [key, value] of Object.entries(variables)) {
-              personalizedQuestion = personalizedQuestion.replace(
-                new RegExp(`\\{\\{?${key}\\}?\\}`, "gi"),
-                value
-              )
-            }
-          }
+        }
+        
+        // Replace variables in question text (support both {variable} and {{variable}} formats)
+        for (const [key, value] of Object.entries(variables)) {
+          personalizedQuestion = personalizedQuestion.replace(
+            new RegExp(`\\{\\{?${key}\\}?\\}`, "gi"),
+            value
+          )
+        }
+        
+        // Safety check: if variables weren't replaced, remove them to avoid showing raw variables
+        if (personalizedQuestion.match(/\{.*(memorial_name|member_name).*\}/i)) {
+          console.warn(`[send-daily-notifications] Variables not replaced in question for group ${dailyPrompt.group_id}: ${personalizedQuestion}`)
+          // Replace any remaining variables with a fallback
+          personalizedQuestion = personalizedQuestion.replace(
+            /\{\{?memorial_name\}\}?/gi,
+            "them"
+          ).replace(
+            /\{\{?member_name\}\}?/gi,
+            "them"
+          )
         }
 
         // Send push notification via Expo
