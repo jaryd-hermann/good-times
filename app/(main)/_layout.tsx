@@ -146,7 +146,7 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
       <View style={styles.tabContainer}>
       {visibleRoutes.map((route) => {
         const isFocused = state.index === state.routes.indexOf(route)
-        const label = route.name === "home" ? "Answer" : route.name === "explore-decks" ? "Ask" : "Remember"
+        const label = route.name === "home" ? "Answer" : route.name === "explore-decks" ? "Ask" : "History"
         const animatedValue = animatedValuesRef.current[route.key] || new Animated.Value(isFocused ? 1 : 0)
 
         const iconScale = animatedValue.interpolate({

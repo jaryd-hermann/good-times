@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState, useRef, memo, useMemo } from "react"
+import { useCallback, useEffect, useState, useRef, useMemo } from "react"
 import {
   View,
   Text,
@@ -27,7 +27,15 @@ import { useOnboarding } from "../../components/OnboardingProvider"
 import { createGroup, createMemorial } from "../../lib/db"
 import { uploadAvatar, uploadMemorialPhoto, isLocalFileUri } from "../../lib/storage"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
-import { saveBiometricCredentials, getBiometricPreference } from "../../lib/biometric"
+import {
+  saveBiometricCredentials,
+  getBiometricPreference,
+  isBiometricAvailable,
+  getBiometricRefreshToken,
+  getBiometricUserId,
+  authenticateWithBiometric,
+  clearBiometricCredentials,
+} from "../../lib/biometric"
 import type { User } from "../../lib/types"
 import { usePostHog } from "posthog-react-native"
 import { captureEvent, identifyUser } from "../../lib/posthog"
@@ -280,7 +288,7 @@ async function ensureProfileAndJoinGroup(
 
     if (existingMember) {
       console.log("[ensureProfileAndJoinGroup] User already a member of group")
-      await AsyncStorage.removeItem(PENDING_GROUP_KEY)
+      // Don't clear pending_group_join here - let swipe-onboarding handle it
       return { joinedGroup: true, groupId: pendingGroupId }
     }
 
@@ -301,7 +309,7 @@ async function ensureProfileAndJoinGroup(
       
       if (isDuplicateError) {
         console.log("[ensureProfileAndJoinGroup] Duplicate membership detected (likely concurrent call), treating as success")
-        await AsyncStorage.removeItem(PENDING_GROUP_KEY)
+        // Don't clear pending_group_join here - let swipe-onboarding handle it
         return { joinedGroup: true, groupId: pendingGroupId }
       }
       
@@ -311,7 +319,7 @@ async function ensureProfileAndJoinGroup(
     }
 
     console.log("[ensureProfileAndJoinGroup] ✅ Successfully joined group")
-    await AsyncStorage.removeItem(PENDING_GROUP_KEY)
+    // Don't clear pending_group_join here - let swipe-onboarding handle it after showing
     return { joinedGroup: true, groupId: pendingGroupId }
   } catch (error: any) {
     console.error("[ensureProfileAndJoinGroup] ❌ Error in ensureProfileAndJoinGroup:", error)
@@ -354,6 +362,7 @@ export default function OnboardingAuth() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isRegistrationFlow, setIsRegistrationFlow] = useState(false)
   const [showNoAccountModal, setShowNoAccountModal] = useState(false)
+  const [biometricAttempted, setBiometricAttempted] = useState(false)
 
   // Check if user is in registration flow (onboarding or invite/join)
   useEffect(() => {
@@ -715,6 +724,191 @@ export default function OnboardingAuth() {
     },
     [clear, data, persisting, router]
   )
+
+  // Biometric login: Attempt FaceID/TouchID when screen mounts (if enabled)
+  useEffect(() => {
+    async function attemptBiometricLogin() {
+      // Only attempt once per mount
+      if (biometricAttempted) return
+      
+      try {
+        // Check if biometric is available and enabled
+        const biometricAvailable = await isBiometricAvailable()
+        if (!biometricAvailable) {
+          setBiometricAttempted(true)
+          return
+        }
+
+        const biometricEnabled = await getBiometricPreference()
+        if (!biometricEnabled) {
+          setBiometricAttempted(true)
+          return
+        }
+
+        // Check if we have stored credentials
+        const refreshToken = await getBiometricRefreshToken()
+        const userId = await getBiometricUserId()
+        if (!refreshToken || !userId) {
+          setBiometricAttempted(true)
+          return
+        }
+
+        setBiometricAttempted(true)
+
+        // Attempt biometric authentication
+        const authResult = await authenticateWithBiometric("Authenticate to log in")
+        if (!authResult.success) {
+          // User cancelled or failed - allow manual login
+          return
+        }
+
+        // Use refresh token to get new session
+        const { data: sessionData, error } = await supabase.auth.refreshSession({
+          refresh_token: refreshToken,
+        })
+
+        if (error || !sessionData.session) {
+          console.warn("[auth] Failed to refresh session with biometric:", error)
+          // Clear invalid credentials
+          await clearBiometricCredentials()
+          return
+        }
+
+        const session = sessionData.session
+        const authenticatedUserId = session.user.id
+
+        // Track signed_in event and identify user in PostHog
+        try {
+          if (posthog) {
+            posthog.capture("signed_in")
+            posthog.identify(authenticatedUserId)
+          } else {
+            captureEvent("signed_in")
+            identifyUser(authenticatedUserId)
+          }
+        } catch (error) {
+          // Never let PostHog errors affect sign-in
+          if (__DEV__) console.error("[auth] Failed to track signed_in:", error)
+        }
+
+        // CRITICAL: Ensure profile exists and join group if pending (must happen immediately after auth)
+        let joinedGroup = false
+        let groupId: string | undefined
+        try {
+          const result = await ensureProfileAndJoinGroup(
+            authenticatedUserId,
+            session,
+            {
+              userName: data.userName,
+              userBirthday: data.userBirthday,
+              userPhoto: data.userPhoto,
+              userEmail: data.userEmail,
+            }
+          )
+          joinedGroup = result.joinedGroup
+          groupId = result.groupId
+        } catch (profileError: any) {
+          // Profile creation failure is critical - cannot proceed
+          console.error("[auth] ❌ Critical: Profile creation failed during biometric login:", profileError)
+          Alert.alert(
+            "Account Setup Error",
+            "Failed to create your profile. Please try signing in again or contact support if the problem persists.",
+            [{ text: "OK", onPress: () => router.replace("/(onboarding)/auth") }]
+          )
+          return
+        }
+
+        // CRITICAL: If user just joined a group (via invite/deeplink), route to welcome-post-auth
+        if (joinedGroup) {
+          console.log("[auth] User just joined group via invite (biometric), routing to welcome-post-auth")
+          router.replace("/(onboarding)/welcome-post-auth")
+          return
+        }
+
+        // Check if this is a NEW user registration flow (has onboarding data)
+        const isNewUserRegistration = !!(data.groupName && data.groupType && data.userName && data.userBirthday)
+        
+        if (isNewUserRegistration) {
+          // New user creating their own group - call persistOnboarding
+          await persistOnboarding(authenticatedUserId, session)
+          return
+        }
+
+        // Check if this is an existing user (has profile and possibly group)
+        const { data: user } = await (supabase
+          .from("users") as any)
+          .select("name, birthday, email")
+          .eq("id", authenticatedUserId)
+          .maybeSingle() as { data: Pick<User, "name" | "birthday" | "email"> | null }
+
+        // CRITICAL: Sync profile email with auth session email if they differ
+        if (user && session.user.email && user.email !== session.user.email) {
+          console.log(`[auth] Email mismatch detected - syncing profile email with auth session`)
+          try {
+            await (supabase
+              .from("users") as any)
+              .update({ email: session.user.email })
+              .eq("id", authenticatedUserId)
+            console.log(`[auth] ✅ Profile email synced successfully`)
+          } catch (emailSyncError) {
+            console.warn(`[auth] ⚠️ Failed to sync profile email:`, emailSyncError)
+          }
+        }
+
+        // If user has profile, check if they're in onboarding flow or returning user
+        if (user?.name && user?.birthday) {
+          // Existing user - check if they have a group
+          const { data: membership } = await supabase
+            .from("group_members")
+            .select("group_id")
+            .eq("user_id", authenticatedUserId)
+            .limit(1)
+            .maybeSingle()
+
+          if (membership) {
+            // User has group - check if this is registration flow or sign-in
+            const isRegistration = !!(data.userName && data.userBirthday)
+            
+            if (isRegistration) {
+              // This is registration flow - check if user needs onboarding
+              const onboardingKey = getPostAuthOnboardingKey(authenticatedUserId)
+              const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
+              
+              if (!hasCompletedPostAuth) {
+                // New user in registration flow who hasn't completed onboarding
+                router.replace("/(onboarding)/welcome-post-auth")
+              } else {
+                // Registration flow but onboarding already completed
+                router.replace("/(main)/home")
+              }
+            } else {
+              // This is sign-in flow - always go to home, never show onboarding
+              router.replace("/(main)/home")
+            }
+            return
+          } else {
+            // Existing user without group - need to create one
+            router.replace("/(onboarding)/create-group/name-type")
+            return
+          }
+        }
+
+        // Incomplete profile - user needs to complete onboarding
+        router.replace("/(onboarding)/about")
+      } catch (error) {
+        // Silently fail - user can still log in manually
+        console.warn("[auth] Biometric login error:", error)
+        setBiometricAttempted(true)
+      }
+    }
+
+    // Attempt biometric login after a short delay to allow screen to render
+    const timeout = setTimeout(() => {
+      attemptBiometricLogin()
+    }, 500)
+
+    return () => clearTimeout(timeout)
+  }, [router, biometricAttempted, data, persistOnboarding, posthog])
 
   // Listen for OAuth redirect
   useEffect(() => {
@@ -2213,38 +2407,16 @@ export default function OnboardingAuth() {
   )
 }
 
-// Memoized email input component - optimized to prevent iOS glitch
-const EmailInput = memo(({ value, onChangeText, style }: { value: string; onChangeText: (text: string) => void; style: any }) => {
-  const [localValue, setLocalValue] = useState(value)
-  const rafRef = useRef<number | null>(null)
-  
-  // Sync local value when prop changes externally
-  useEffect(() => {
-    setLocalValue(value)
-  }, [value])
-  
-  // On iOS, batch parent updates using requestAnimationFrame to prevent glitch
-  const handleChangeText = useCallback((text: string) => {
-    setLocalValue(text) // Update local state immediately for responsive UI
-    // On iOS we now update parent ONLY on blur to avoid flicker while typing.
-    // On Android we keep immediate updates.
-    if (Platform.OS !== "ios") {
-      onChangeText(text)
-    }
-  }, [onChangeText])
-  
+// Simple email input component - matches the working pattern from settings/profile.tsx
+// No memoization, no local state, no refs - just a straightforward controlled component
+const EmailInput = ({ value, onChangeText, style }: { value: string; onChangeText: (text: string) => void; style: any }) => {
   return (
     <TextInput
-      value={localValue}
-      onChangeText={handleChangeText}
-      onBlur={() => {
-        // iOS: sync final value to parent when user leaves the field.
-        if (Platform.OS === "ios") {
-          onChangeText(localValue)
-        }
-      }}
+      value={value}
+      onChangeText={onChangeText}
       placeholder="you@email.com"
       placeholderTextColor="rgba(255,255,255,0.6)"
+      keyboardType="email-address"
       autoCapitalize="none"
       autoCorrect={false}
       textContentType="none"
@@ -2253,9 +2425,7 @@ const EmailInput = memo(({ value, onChangeText, style }: { value: string; onChan
       style={style}
     />
   )
-})
-
-EmailInput.displayName = "EmailInput"
+}
 
 const styles = StyleSheet.create({
   background: {

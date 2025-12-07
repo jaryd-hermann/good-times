@@ -63,14 +63,14 @@ export default function WelcomePostAuth() {
         // Prioritize hasCompletedPostAuth check (more reliable)
         if (hasCompletedPostAuth || isExistingUser) {
           // Profile and group joining are handled in auth.tsx immediately after authentication
-          // This screen is just for UI - check if there's a pending group to focus on
+          // Check if there's a pending group join - if so, route to swipe-onboarding
           const pendingGroupId = await AsyncStorage.getItem(PENDING_GROUP_KEY)
           if (pendingGroupId) {
-            // Clear pending and navigate to home with focus
-            await AsyncStorage.removeItem(PENDING_GROUP_KEY)
+            // User just joined a group - route to swipe-onboarding
+            console.log(`[welcome-post-auth] User joined group, routing to swipe-onboarding with groupId: ${pendingGroupId}`)
             router.replace({
-              pathname: "/(main)/home",
-              params: { focusGroupId: pendingGroupId },
+              pathname: "/(onboarding)/swipe-onboarding",
+              params: { groupId: pendingGroupId },
             })
             return
           }

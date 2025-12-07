@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useMemo } from "react"
+import React, { useState, useEffect, useRef, useMemo } from "react"
 import {
   View,
   Text,
@@ -214,15 +214,26 @@ export default function ExploreDecks() {
   const [matchModalVisible, setMatchModalVisible] = useState(false)
   const [matchInfo, setMatchInfo] = useState<{ matchedWithUsers: string[] } | null>(null)
   const [isSwiping, setIsSwiping] = useState(false)
+  const [progressCompleteModalVisible, setProgressCompleteModalVisible] = useState(false)
+  const [hasShownCompletionModal, setHasShownCompletionModal] = useState(false) // Track if modal has been shown
+  const [userName, setUserName] = useState<string>("there")
+  const [localYesSwipeCount, setLocalYesSwipeCount] = useState<number | null>(null)
+  const [progressBarKey, setProgressBarKey] = useState(0) // Force re-render key
   // Use refs to track values to avoid stale closure issues
   const currentQuestionIndexRef = useRef(0)
   const currentGroupIdRef = useRef<string | undefined>(undefined)
   const userIdRef = useRef<string | undefined>(undefined)
+  const yesSwipeCountRef = useRef<number>(0)
+  const queryClientRef = useRef(queryClient)
+  const handleSwipeRef = useRef<((direction: "yes" | "no") => Promise<void>) | null>(null)
+  const setLocalYesSwipeCountRef = useRef<React.Dispatch<React.SetStateAction<number | null>> | null>(null)
   const cardPosition = useRef(new Animated.ValueXY()).current
   const cardRotation = useRef(new Animated.Value(0)).current
   const cardOpacity = useRef(new Animated.Value(1)).current
   const scrollY = useRef(new Animated.Value(0)).current
   const headerTranslateY = useRef(new Animated.Value(0)).current
+  const progressBarWidthRef = useRef(new Animated.Value(0))
+  const progressBarWidth = progressBarWidthRef.current // Animated progress bar width (0-100%)
   const contentPaddingTop = useRef(new Animated.Value(0)).current
   const lastScrollY = useRef(0)
   const isResettingScroll = useRef(false)
@@ -249,6 +260,11 @@ export default function ExploreDecks() {
       } = await supabase.auth.getUser()
       if (user) {
         setUserId(user.id)
+        // Get user name
+        const currentUser = await getCurrentUser()
+        if (currentUser?.name) {
+          setUserName(currentUser.name)
+        }
         // Get user's groups
         const groups = await getUserGroups(user.id)
         if (groups.length > 0) {
@@ -350,16 +366,27 @@ export default function ExploreDecks() {
           console.error("[explore-decks] Error reloading group context:", error)
         }
         
-        // CRITICAL: Always invalidate featured prompts query when screen comes into focus
+        // CRITICAL: Always invalidate and refetch featured prompts query when screen comes into focus
         // This ensures the section shows if prompts exist for the current week
         // This fixes the issue where the section disappears after adding a question
         queryClient.invalidateQueries({ queryKey: ["featuredPrompts"] })
+        queryClient.refetchQueries({ queryKey: ["featuredPrompts"] })
+        
+        // CRITICAL: If swipe tab is active, ensure queries refetch when screen comes into focus
+        // This fixes blank content when switching groups or returning to the screen
+        if (activeTab === "matches" && currentGroupId && userId) {
+          queryClient.invalidateQueries({ queryKey: ["swipeableQuestions", currentGroupId, userId] })
+          queryClient.invalidateQueries({ queryKey: ["swipingParticipants", currentGroupId, userId] })
+          queryClient.invalidateQueries({ queryKey: ["yesSwipeCount", currentGroupId, userId] })
+          queryClient.refetchQueries({ queryKey: ["swipeableQuestions", currentGroupId, userId] })
+          queryClient.refetchQueries({ queryKey: ["yesSwipeCount", currentGroupId, userId] })
+        }
       }
       reloadGroupContext()
     }, [focusGroupId, queryClient])
   )
 
-  // Invalidate queries when currentGroupId changes (handles group switches)
+  // Invalidate and refetch queries when currentGroupId changes (handles group switches)
   useEffect(() => {
     if (currentGroupId) {
       // Invalidate all queries that depend on groupId
@@ -367,8 +394,22 @@ export default function ExploreDecks() {
       queryClient.invalidateQueries({ queryKey: ["collectionDeckCounts"] })
       queryClient.invalidateQueries({ queryKey: ["deckQuestionsLeft", currentGroupId] })
       queryClient.invalidateQueries({ queryKey: ["voteStatuses", currentGroupId] })
+      
+      // CRITICAL: If swipe tab is active, refetch swipe queries immediately when group changes
+      // This ensures data loads even if queries were disabled before
+      if (activeTab === "matches" && userId) {
+        queryClient.invalidateQueries({ queryKey: ["swipeableQuestions", currentGroupId, userId] })
+        queryClient.invalidateQueries({ queryKey: ["swipingParticipants", currentGroupId, userId] })
+        queryClient.invalidateQueries({ queryKey: ["yesSwipeCount", currentGroupId, userId] })
+        // Explicitly refetch to ensure data loads
+        queryClient.refetchQueries({ queryKey: ["swipeableQuestions", currentGroupId, userId] })
+        queryClient.refetchQueries({ queryKey: ["yesSwipeCount", currentGroupId, userId] })
+      }
+      
+      // Always refetch featured prompts when group changes (they're group-agnostic but should refresh)
+      refetchFeaturedPrompts()
     }
-  }, [currentGroupId, queryClient])
+  }, [currentGroupId, queryClient, activeTab, userId, refetchFeaturedPrompts])
 
   const { data: collections = [] } = useQuery({
     queryKey: ["collections"],
@@ -464,7 +505,7 @@ export default function ExploreDecks() {
   // CRITICAL: Include current week Monday in query key so it refetches when week changes
   // This ensures the section always shows when there are prompts for the current week
   // The query key changes when the week changes, forcing a refetch
-  const { data: featuredPrompts = [], error: featuredPromptsError } = useQuery({
+  const { data: featuredPrompts = [], error: featuredPromptsError, isLoading: isLoadingFeaturedPrompts, refetch: refetchFeaturedPrompts } = useQuery({
     queryKey: ["featuredPrompts", getCurrentWeekMonday()],
     queryFn: getFeaturedPromptsForCurrentWeek,
     staleTime: 0, // Always consider stale to ensure fresh data
@@ -488,10 +529,13 @@ export default function ExploreDecks() {
   })
 
   // Get swipeable questions for matches tab
-  const { data: swipeableQuestionsData = [], refetch: refetchSwipeableQuestions } = useQuery({
+  const { data: swipeableQuestionsData = [], refetch: refetchSwipeableQuestions, isLoading: isLoadingSwipeableQuestions } = useQuery({
     queryKey: ["swipeableQuestions", currentGroupId, userId],
     queryFn: () => (currentGroupId && userId ? getSwipeableQuestionsForGroup(currentGroupId, userId) : []),
     enabled: !!currentGroupId && !!userId && activeTab === "matches",
+    staleTime: 0, // Always consider stale to ensure fresh data
+    refetchOnMount: true, // Always refetch on mount
+    refetchOnWindowFocus: true, // Refetch when screen comes into focus
   })
 
   // Get swiping participants
@@ -500,6 +544,53 @@ export default function ExploreDecks() {
     queryFn: () => (currentGroupId && userId ? getSwipingParticipants(currentGroupId, userId) : []),
     enabled: !!currentGroupId && !!userId && activeTab === "matches",
   })
+
+  // Get count of "yes" swipes for current user
+  const { data: yesSwipeCount = 0 } = useQuery({
+    queryKey: ["yesSwipeCount", currentGroupId, userId],
+    queryFn: async () => {
+      if (!currentGroupId || !userId) return 0
+      const { count, error } = await supabase
+        .from("group_question_swipes")
+        .select("*", { count: "exact", head: true })
+        .eq("group_id", currentGroupId)
+        .eq("user_id", userId)
+        .eq("response", "yes")
+      
+      if (error) {
+        console.error("[explore-decks] Error fetching yes swipe count:", error)
+        return 0
+      }
+      const countValue = count || 0
+      // Sync local state with fetched count
+      setLocalYesSwipeCount(countValue)
+      return countValue
+    },
+    enabled: !!currentGroupId && !!userId && activeTab === "matches",
+    refetchOnMount: true,
+  })
+
+  // Use local count if available (for optimistic updates), otherwise use query count
+  const displaySwipeCount = localYesSwipeCount !== null ? localYesSwipeCount : yesSwipeCount
+
+  // Keep refs in sync for use in pan responder
+  useEffect(() => {
+    yesSwipeCountRef.current = yesSwipeCount
+  }, [yesSwipeCount])
+  
+  useEffect(() => {
+    queryClientRef.current = queryClient
+  }, [queryClient])
+
+  // Update animated progress bar width when displaySwipeCount changes
+  useEffect(() => {
+    const percentage = Math.min((displaySwipeCount / 15) * 100, 100)
+    Animated.timing(progressBarWidth, {
+      toValue: percentage,
+      duration: 200,
+      useNativeDriver: false, // width animation requires layout
+    }).start()
+  }, [displaySwipeCount, progressBarWidth])
 
   // Reset card position and index when new questions load
   useEffect(() => {
@@ -792,10 +883,62 @@ export default function ExploreDecks() {
 
     console.log("[explore-decks] Recording swipe for question:", currentQuestion.id)
 
+    // If swiped yes, check if pan responder already updated (to avoid double counting)
+    // Pan responder updates optimistically, so we should use that value, not increment again
+    if (direction === "yes") {
+      // Get the current count from ref (which pan responder updates) and cache
+      const refCount = yesSwipeCountRef.current
+      const cachedCount = queryClient.getQueryData<number>(["yesSwipeCount", groupId, user]) || 0
+      
+      // If refCount is higher than cached count, pan responder already updated - use refCount
+      // Otherwise, increment from cached count (button tap path)
+      const newCount = refCount > cachedCount ? refCount : cachedCount + 1
+      
+      console.log("[explore-decks] handleSwipe progress check:", { refCount, cachedCount, newCount, "fromPanResponder": refCount > cachedCount })
+      
+      // Ensure ref and state are in sync (but don't double-update if pan responder already did it)
+      if (refCount !== newCount) {
+        yesSwipeCountRef.current = newCount
+      }
+      setLocalYesSwipeCount(newCount)
+      queryClient.setQueryData(["yesSwipeCount", groupId, user], newCount)
+      
+      // Show modal if reached exactly 15 likes (only once)
+      if (newCount === 15 && !hasShownCompletionModal) {
+        // Delay showing modal slightly to let card animation complete
+        setTimeout(() => {
+          console.log("[explore-decks] handleSwipe: Showing completion modal, newCount:", newCount)
+          setProgressCompleteModalVisible(true)
+          setHasShownCompletionModal(true) // Mark as shown so it doesn't show again
+        }, 400)
+      }
+      
+      // Update animated progress bar (only if pan responder didn't already update it)
+      // Pan responder updates it immediately, so this is mainly for button taps
+      if (refCount <= cachedCount) {
+        const percentage = Math.min((newCount / 15) * 100, 100)
+        console.log("[explore-decks] handleSwipe: Updating progress bar animated value:", { newCount, percentage })
+        Animated.timing(progressBarWidth, {
+          toValue: percentage,
+          duration: 200,
+          useNativeDriver: false,
+        }).start((finished) => {
+          console.log("[explore-decks] handleSwipe: Progress bar animation finished:", finished)
+        })
+      }
+    }
+
     try {
       // Record swipe
       const result = await recordSwipe(groupId, currentQuestion.id, user, direction)
       console.log("[explore-decks] Swipe recorded successfully:", result)
+      
+      // Refetch to ensure accuracy (in background, but don't overwrite optimistic update immediately)
+      if (direction === "yes") {
+        setTimeout(() => {
+          queryClient.refetchQueries({ queryKey: ["yesSwipeCount", groupId, user] })
+        }, 500)
+      }
 
       // Animate card off screen
       const screenWidth = SCREEN_WIDTH
@@ -817,8 +960,9 @@ export default function ExploreDecks() {
         
         // Check for match
         if (result.matched && result.matchedWithUsers) {
-          setMatchInfo({ matchedWithUsers: result.matchedWithUsers })
-          setMatchModalVisible(true)
+          // Hide match modal - don't show it
+          // setMatchInfo({ matchedWithUsers: result.matchedWithUsers })
+          // setMatchModalVisible(true)
         }
 
         // Get the latest question index from ref (most up-to-date)
@@ -869,8 +1013,23 @@ export default function ExploreDecks() {
         }),
       ]).start()
       Alert.alert("Error", "Failed to record your swipe. Please try again.")
+      // On error, revert optimistic update if it was a yes swipe
+      if (direction === "yes") {
+        setLocalYesSwipeCount((prevCount) => {
+          if (prevCount !== null && prevCount > 0) {
+            return prevCount - 1
+          }
+          return prevCount
+        })
+      }
     }
-  }, [currentGroupId, userId, swipeableQuestionsData, refetchSwipeableQuestions, queryClient])
+  }, [currentGroupId, userId, swipeableQuestionsData, refetchSwipeableQuestions, queryClient, yesSwipeCount])
+
+  // Keep handleSwipe ref in sync so pan responder always uses latest version
+  useEffect(() => {
+    handleSwipeRef.current = handleSwipe
+    setLocalYesSwipeCountRef.current = setLocalYesSwipeCount
+  }, [handleSwipe, setLocalYesSwipeCount])
 
   // PanResponder for swipe gestures - recreate when handleSwipe changes
   const panResponder = useMemo(
@@ -933,10 +1092,55 @@ export default function ExploreDecks() {
           }
 
           if (Math.abs(dx) > SWIPE_THRESHOLD) {
-            // Swipe detected
+            // Swipe detected - call handleSwipe directly (EXACTLY like the button does)
             const direction = dx > 0 ? "yes" : "no"
-            console.log("[explore-decks] Swipe detected:", direction, "dx:", dx)
-            handleSwipe(direction).catch((error) => {
+            console.log("[explore-decks] Swipe detected:", direction, "dx:", dx, "SWIPE_THRESHOLD:", SWIPE_THRESHOLD, "abs(dx):", Math.abs(dx))
+            
+            // FOR YES SWIPES: Update progress bar IMMEDIATELY before calling handleSwipe
+            // This ensures it updates even if handleSwipe has issues
+            console.log("[explore-decks] Checking direction, direction === 'yes':", direction === "yes", "direction:", direction, "dx > 0:", dx > 0)
+            if (direction === "yes") {
+              console.log("[explore-decks] YES SWIPE DETECTED! Entering yes swipe block")
+              const currentCount = yesSwipeCountRef.current || 0
+              const newCount = currentCount + 1
+              const percentage = Math.min((newCount / 15) * 100, 100)
+              
+              console.log("[explore-decks] SWIPE YES: Updating progress bar immediately:", { currentCount, newCount, percentage, progressBarWidthRefExists: !!progressBarWidthRef.current })
+              
+              // Update ref and state (but NOT query cache - let handleSwipe update cache to avoid double counting)
+              yesSwipeCountRef.current = newCount
+              setLocalYesSwipeCount(newCount)
+              // Don't update query cache here - handleSwipe will do it and can detect if we already updated
+              
+              // Update animated progress bar DIRECTLY using ref - this is the critical update
+              const animatedValue = progressBarWidthRef.current
+              console.log("[explore-decks] SWIPE YES: About to animate, animatedValue exists:", !!animatedValue, "percentage:", percentage)
+              Animated.timing(animatedValue, {
+                toValue: percentage,
+                duration: 200,
+                useNativeDriver: false,
+              }).start((finished) => {
+                console.log("[explore-decks] SWIPE YES: Progress bar animation finished:", finished)
+              })
+              
+              // Show modal if reached exactly 15 likes (only once)
+              if (newCount === 15 && !hasShownCompletionModal) {
+                setTimeout(() => {
+                  setProgressCompleteModalVisible(true)
+                  setHasShownCompletionModal(true) // Mark as shown so it doesn't show again
+                }, 400)
+              }
+            }
+            
+            // Now call handleSwipe for API call and card animation
+            const latestHandleSwipe = handleSwipeRef.current || handleSwipe
+            if (!latestHandleSwipe) {
+              console.error("[explore-decks] handleSwipeRef.current is null and handleSwipe is not available!")
+              return
+            }
+            
+            console.log("[explore-decks] Calling handleSwipe from swipe, direction:", direction)
+            latestHandleSwipe(direction).catch((error) => {
               console.error("[explore-decks] Error in handleSwipe:", error)
               setIsSwiping(false)
               // Reset card position on error
@@ -985,7 +1189,7 @@ export default function ExploreDecks() {
           ]).start()
         },
       }),
-    [handleSwipe]
+    [handleSwipe, queryClient, yesSwipeCount]
   )
 
   const styles = StyleSheet.create({
@@ -1276,6 +1480,17 @@ export default function ExploreDecks() {
       borderTopRightRadius: 24,
       padding: spacing.lg,
       paddingBottom: insets.bottom + spacing.lg,
+      position: "relative",
+    },
+    modalCloseButton: {
+      position: "absolute",
+      top: spacing.lg,
+      right: spacing.lg,
+      width: 32,
+      height: 32,
+      justifyContent: "center",
+      alignItems: "center",
+      zIndex: 10,
     },
     modalTitle: {
       ...typography.h2,
@@ -1305,11 +1520,13 @@ export default function ExploreDecks() {
       alignItems: "center",
     },
     modalButtonPrimary: {
-      flex: 1,
       backgroundColor: colors.accent,
       paddingVertical: spacing.md,
+      paddingHorizontal: spacing.lg,
       borderRadius: 0, // Square edges
       alignItems: "center",
+      justifyContent: "center",
+      width: "100%",
     },
     modalButtonSecondaryText: {
       ...typography.bodyBold,
@@ -1318,6 +1535,16 @@ export default function ExploreDecks() {
     modalButtonPrimaryText: {
       ...typography.bodyBold,
       color: colors.white,
+    },
+    modalCloseButton: {
+      position: "absolute",
+      top: spacing.lg,
+      right: spacing.lg,
+      width: 32,
+      height: 32,
+      justifyContent: "center",
+      alignItems: "center",
+      zIndex: 10,
     },
     // Featured Questions Styles
     featuredSection: {
@@ -1534,7 +1761,7 @@ export default function ExploreDecks() {
     },
     swipeCard: {
       width: SCREEN_WIDTH - spacing.md * 2,
-      height: 340, // Reduced from 400 to 340 (15% less height: 400 * 0.85 = 340)
+      height: 306, // Reduced by 10% from 340: 340 * 0.9 = 306
       backgroundColor: colors.gray[900],
       borderRadius: 12,
       padding: spacing.lg,
@@ -1551,6 +1778,23 @@ export default function ExploreDecks() {
       textAlign: "center",
       lineHeight: 32,
     },
+    progressBarContainer: {
+      width: "100%",
+      paddingHorizontal: spacing.md,
+      marginBottom: spacing.lg,
+    },
+    progressBarBackground: {
+      width: "100%",
+      height: 4,
+      backgroundColor: colors.gray[800],
+      borderRadius: 2,
+      overflow: "hidden",
+    },
+    progressBarFill: {
+      height: "100%",
+      backgroundColor: colors.white,
+      borderRadius: 2,
+    },
   })
 
   return (
@@ -1566,63 +1810,61 @@ export default function ExploreDecks() {
         ]}
       >
         <View style={styles.headerLeft}>
-          <Text style={styles.title}>
-            {activeTab === "decks" && "Question Decks"}
-            {activeTab === "featured" && "Featured"}
-            {activeTab === "matches" && "Swipe and Match"}
-          </Text>
-          {/* Show subtitle or participant info in same position */}
-          {activeTab === "matches" && swipingParticipantsData.length > 0 ? (
-            <View style={styles.headerParticipantsContainer}>
-              <View style={styles.headerParticipantsAvatars}>
-                {swipingParticipantsData.slice(0, 3).map((participant, index) => (
-                  <View
-                    key={participant.id}
-                    style={[
-                      styles.headerParticipantAvatar,
-                      { marginLeft: index > 0 ? -12 : 0, zIndex: 3 - index },
-                    ]}
-                  >
-                    <Avatar uri={participant.avatar_url} name={participant.name} size={32} />
-                  </View>
-                ))}
-              </View>
-              <Text style={styles.subtitle}>
-                {swipingParticipantsData.length === 1
-                  ? `${swipingParticipantsData[0].name} has liked some questions`
-                  : swipingParticipantsData.length === 2
-                  ? `${swipingParticipantsData[0].name} and ${swipingParticipantsData[1].name} have liked some questions`
-                  : `${swipingParticipantsData[0].name} and ${swipingParticipantsData.length - 1} others have liked some questions`}
-              </Text>
-            </View>
-          ) : (
-            <Text style={styles.subtitle}>
-              {activeTab === "decks" && "Explore collections and intentional question decks to add for your group."}
-              {activeTab === "featured" && "Ask a single question to your group"}
-              {activeTab === "matches" && "Find some good questions you like and want the group to answer"}
-            </Text>
-          )}
-          {/* Tab Navigation */}
+          {/* Tab Navigation - moved above title */}
           <View style={styles.tabContainer}>
             <TouchableOpacity
               style={[styles.tab, activeTab === "decks" && styles.tabActive]}
-              onPress={() => setActiveTab("decks")}
+              onPress={() => {
+                setActiveTab("decks")
+                // Refetch decks-related queries when switching to decks tab
+                if (currentGroupId) {
+                  queryClient.invalidateQueries({ queryKey: ["groupActiveDecks", currentGroupId] })
+                  queryClient.invalidateQueries({ queryKey: ["collectionDeckCounts"] })
+                }
+              }}
             >
               <Text style={[styles.tabText, activeTab === "decks" && styles.tabTextActive]}>Decks</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.tab, activeTab === "featured" && styles.tabActive]}
-              onPress={() => setActiveTab("featured")}
+              onPress={() => {
+                setActiveTab("featured")
+                // Refetch featured prompts when switching to featured tab
+                refetchFeaturedPrompts()
+              }}
             >
               <Text style={[styles.tabText, activeTab === "featured" && styles.tabTextActive]}>Featured</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.tab, activeTab === "matches" && styles.tabActive]}
-              onPress={() => setActiveTab("matches")}
+              onPress={() => {
+                setActiveTab("matches")
+                // Refetch swipe queries when switching to swipe tab
+                if (currentGroupId && userId) {
+                  queryClient.invalidateQueries({ queryKey: ["swipeableQuestions", currentGroupId, userId] })
+                  queryClient.invalidateQueries({ queryKey: ["swipingParticipants", currentGroupId, userId] })
+                  queryClient.invalidateQueries({ queryKey: ["yesSwipeCount", currentGroupId, userId] })
+                  queryClient.refetchQueries({ queryKey: ["swipeableQuestions", currentGroupId, userId] })
+                  queryClient.refetchQueries({ queryKey: ["yesSwipeCount", currentGroupId, userId] })
+                }
+              }}
             >
               <Text style={[styles.tabText, activeTab === "matches" && styles.tabTextActive]}>Swipe</Text>
             </TouchableOpacity>
           </View>
+          
+          <Text style={styles.title}>
+            {activeTab === "decks" && "Add a deck"}
+            {activeTab === "featured" && "This week only"}
+            {activeTab === "matches" && "Like some questions"}
+          </Text>
+          
+          {/* Show subtitle */}
+          <Text style={styles.subtitle}>
+            {activeTab === "decks" && "Explore themes of questions you can add for your group to answer."}
+            {activeTab === "featured" && "Ask a single question to your group"}
+            {activeTab === "matches" && "Help us understand your group and set your vibe by swiping on some sample questions."}
+          </Text>
         </View>
         <View style={styles.headerRight}>
           <TouchableOpacity
@@ -1783,25 +2025,24 @@ export default function ExploreDecks() {
         )}
 
         {/* Featured Questions Carousel */}
-        {activeTab === "featured" && featuredPrompts.length > 0 && (
+        {activeTab === "featured" && (
           <View style={styles.featuredSection}>
-            <Text style={styles.featuredTitle}>This weeks featured questions</Text>
-            
-            {featuredQuestionCount === 0 && (
-              <Text style={styles.featuredStatus}>
-                You can ask 2 questions this week
-              </Text>
-            )}
-            {featuredQuestionCount === 1 && (
-              <Text style={styles.featuredStatus}>
-                You can ask 1 more question this week
-              </Text>
-            )}
-            {featuredQuestionCount >= 2 && (
-              <Text style={styles.featuredStatus}>
-                You can't ask any more this week
-              </Text>
-            )}
+            {isLoadingFeaturedPrompts ? (
+              <View style={styles.swipeEmptyState}>
+                <Text style={styles.swipeEmptyText}>Loading featured questions...</Text>
+              </View>
+            ) : featuredPromptsError ? (
+              <View style={styles.swipeEmptyState}>
+                <Text style={styles.swipeEmptyText}>Failed to load featured questions</Text>
+                <Text style={styles.swipeEmptySubtext}>Please try again later</Text>
+              </View>
+            ) : featuredPrompts.length === 0 ? (
+              <View style={styles.swipeEmptyState}>
+                <Text style={styles.swipeEmptyText}>No featured questions this week</Text>
+                <Text style={styles.swipeEmptySubtext}>Check back next week for new featured questions!</Text>
+              </View>
+            ) : (
+              <>
             
             <ScrollView
               ref={featuredCarouselRef}
@@ -1931,19 +2172,44 @@ export default function ExploreDecks() {
             >
               <Text style={styles.contributeLinkText}>Contribute a question</Text>
             </TouchableOpacity>
+              </>
+            )}
           </View>
         )}
 
         {/* Matches Tab Content - Swipe Interface */}
         {activeTab === "matches" && (
           <View style={styles.swipeContainer}>
-            {swipeableQuestionsData.length === 0 ? (
+            {isLoadingSwipeableQuestions ? (
+              <View style={styles.swipeEmptyState}>
+                <Text style={styles.swipeEmptyText}>Loading questions...</Text>
+              </View>
+            ) : swipeableQuestionsData.length === 0 ? (
               <View style={styles.swipeEmptyState}>
                 <Text style={styles.swipeEmptyText}>No questions available to swipe</Text>
                 <Text style={styles.swipeEmptySubtext}>Check back later for more questions!</Text>
               </View>
             ) : (
               <>
+                {/* Progress Bar */}
+                {swipeableQuestionsData.length > 0 && currentGroupId && userId && (
+                  <View style={styles.progressBarContainer}>
+                    <View style={styles.progressBarBackground}>
+                      <Animated.View
+                        style={[
+                          styles.progressBarFill,
+                          {
+                            width: progressBarWidth.interpolate({
+                              inputRange: [0, 100],
+                              outputRange: ["0%", "100%"],
+                            }),
+                          },
+                        ]}
+                      />
+                    </View>
+                  </View>
+                )}
+                
                 {/* Swipe Card */}
                 {currentQuestionIndex < swipeableQuestionsData.length && currentGroupId && userId && (
                   <Animated.View
@@ -2093,6 +2359,46 @@ export default function ExploreDecks() {
         </TouchableOpacity>
       </Modal>
 
+      {/* Progress Complete Modal - Toaster from bottom */}
+      <Modal
+        transparent
+        animationType="slide"
+        visible={progressCompleteModalVisible}
+        onRequestClose={() => setProgressCompleteModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setProgressCompleteModalVisible(false)}
+        >
+          <View
+            style={[styles.modalContent, { paddingBottom: insets.bottom + spacing.lg }]}
+            onStartShouldSetResponder={() => true}
+          >
+            {/* Close button */}
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setProgressCompleteModalVisible(false)}
+            >
+              <FontAwesome name="times" size={20} color={colors.white} />
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Thanks, {userName}!</Text>
+            <Text style={styles.modalText}>
+              You've helped give us a great idea of what your group likes, which helps us ask you questions you'd all like to answer. No need to keep swiping.
+            </Text>
+            <TouchableOpacity
+              style={[styles.modalButton, styles.modalButtonPrimary]}
+              onPress={() => {
+                setProgressCompleteModalVisible(false)
+                router.push("/(main)/home")
+              }}
+            >
+              <Text style={styles.modalButtonPrimaryText}>Happy to help</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Help Modal */}
       <Modal
         transparent
@@ -2109,12 +2415,36 @@ export default function ExploreDecks() {
             style={styles.modalContent}
             onStartShouldSetResponder={() => true}
           >
-            <Text style={styles.modalTitle}>Question Decks</Text>
-            <Text style={styles.modalText}>
-              Question decks are curated collections of questions that your group can vote to add to your daily question rotation.{"\n\n"}
-              When a deck is activated, one question from that deck will be included each week alongside your regular questions.{"\n\n"}
-              You can have up to 3 active decks at a time. Once all questions in a deck have been asked, it will be marked as finished and no longer count toward your limit.
-            </Text>
+            {activeTab === "decks" && (
+              <>
+                <Text style={styles.modalTitle}>Question Decks</Text>
+                <Text style={styles.modalText}>
+                  Question decks are curated collections of questions that your group can vote to add to your daily question rotation.{"\n\n"}
+                  When a deck is activated, one question from that deck will be included each week alongside your regular questions.{"\n\n"}
+                  You can have up to 3 active decks at a time. Once all questions in a deck have been asked, it will be marked as finished and no longer count toward your limit.
+                </Text>
+              </>
+            )}
+            {activeTab === "featured" && (
+              <>
+                <Text style={styles.modalTitle}>Featured Questions</Text>
+                <Text style={styles.modalText}>
+                  Featured questions are special questions selected for this week.{"\n\n"}
+                  You can ask up to 2 featured questions to your group each week. These questions appear alongside your regular daily questions.{"\n\n"}
+                  Once you've asked 2 featured questions, you'll need to wait until next week to ask more.
+                </Text>
+              </>
+            )}
+            {activeTab === "matches" && (
+              <>
+                <Text style={styles.modalTitle}>Like Some Questions</Text>
+                <Text style={styles.modalText}>
+                  Swipe right on questions you'd like your group to answer, or swipe left to skip.{"\n\n"}
+                  This helps us understand what your group likes, so we can ask you questions you'd all enjoy answering.{"\n\n"}
+                  You can swipe through as many questions as you'd like. But, 15 is the sweetspot that gives us a good picture of your groups vibe.
+                </Text>
+              </>
+            )}
             <TouchableOpacity
               onPress={() => setHelpModalVisible(false)}
               style={styles.modalButton}

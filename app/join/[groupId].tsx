@@ -168,9 +168,25 @@ export default function JoinGroup() {
           router.replace("/(onboarding)/welcome-post-auth")
           return
         }
+        
+        // Check if user has completed swipe onboarding for this group
+        const SWIPE_ONBOARDING_KEY_PREFIX = "has_completed_swipe_onboarding"
+        const swipeOnboardingKey = `${SWIPE_ONBOARDING_KEY_PREFIX}_${userId}_${groupId}`
+        const hasCompletedSwipeOnboarding = await AsyncStorage.getItem(swipeOnboardingKey)
+        
+        if (hasCompletedSwipeOnboarding === "true") {
+          // Already completed swipe onboarding - go to home
+          router.replace({
+            pathname: "/(main)/home",
+            params: { focusGroupId: groupId },
+          })
+          return
+        }
+
+        // Route to swipe onboarding (with groupId param)
         router.replace({
-          pathname: "/(main)/home",
-          params: { focusGroupId: groupId },
+          pathname: "/(onboarding)/swipe-onboarding",
+          params: { groupId },
         })
         return
       }
@@ -191,9 +207,25 @@ export default function JoinGroup() {
             router.replace("/(onboarding)/welcome-post-auth")
             return
           }
+          
+          // Check if user has completed swipe onboarding for this group
+          const SWIPE_ONBOARDING_KEY_PREFIX = "has_completed_swipe_onboarding"
+          const swipeOnboardingKey = `${SWIPE_ONBOARDING_KEY_PREFIX}_${userId}_${groupId}`
+          const hasCompletedSwipeOnboarding = await AsyncStorage.getItem(swipeOnboardingKey)
+          
+          if (hasCompletedSwipeOnboarding === "true") {
+            // Already completed swipe onboarding - go to home
+            router.replace({
+              pathname: "/(main)/home",
+              params: { focusGroupId: groupId },
+            })
+            return
+          }
+
+          // Route to swipe onboarding (with groupId param)
           router.replace({
-            pathname: "/(main)/home",
-            params: { focusGroupId: groupId },
+            pathname: "/(onboarding)/swipe-onboarding",
+            params: { groupId },
           })
           return
         }
@@ -242,9 +274,24 @@ export default function JoinGroup() {
         return
       }
       
+      // Check if user has completed swipe onboarding for this group
+      const SWIPE_ONBOARDING_KEY_PREFIX = "has_completed_swipe_onboarding"
+      const swipeOnboardingKey = `${SWIPE_ONBOARDING_KEY_PREFIX}_${userId}_${groupId}`
+      const hasCompletedSwipeOnboarding = await AsyncStorage.getItem(swipeOnboardingKey)
+      
+      if (hasCompletedSwipeOnboarding === "true") {
+        // Already completed swipe onboarding - go to home
+        router.replace({
+          pathname: "/(main)/home",
+          params: { focusGroupId: groupId },
+        })
+        return
+      }
+
+      // Route to swipe onboarding (with groupId param)
       router.replace({
-        pathname: "/(main)/home",
-        params: { focusGroupId: groupId },
+        pathname: "/(onboarding)/swipe-onboarding",
+        params: { groupId },
       })
     } catch (err: any) {
       console.error("[join] error:", err)

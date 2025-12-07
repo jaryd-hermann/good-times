@@ -93,7 +93,7 @@ export interface Reaction {
   id: string
   entry_id: string
   user_id: string
-  type: "heart"
+  type: string // Emoji string (e.g., "❤️", "👍", "👏", etc.)
   created_at: string
 }
 

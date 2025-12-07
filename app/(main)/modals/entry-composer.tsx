@@ -1098,37 +1098,14 @@ export default function EntryComposer() {
     }
   }
 
-  // Auto-focus input when component mounts
-  useEffect(() => {
-    // Multiple attempts to ensure focus works
-    const timers = [
-      setTimeout(() => textInputRef.current?.focus(), 100),
-      setTimeout(() => textInputRef.current?.focus(), 250),
-      setTimeout(() => textInputRef.current?.focus(), 500),
-    ]
-    
-    return () => {
-      timers.forEach(timer => clearTimeout(timer))
-    }
-  }, [])
+  // Don't auto-focus on mount - let user tap to focus
+  // This prevents keyboard from pushing content up before user starts typing
 
-  // Also focus when screen comes into focus (handles navigation back to this screen)
-  useFocusEffect(
-    useCallback(() => {
-      const timer = setTimeout(() => {
-        textInputRef.current?.focus()
-      }, 100)
-      return () => clearTimeout(timer)
-    }, [])
-  )
-
-  // Handle input layout to ensure focus after render and capture position
+  // Handle input layout to capture position (don't auto-focus)
   const handleInputLayout = useCallback((event: any) => {
     const { y, height } = event.nativeEvent.layout
     inputContainerYRef.current = y
-    setTimeout(() => {
-      textInputRef.current?.focus()
-    }, 50)
+    // Don't auto-focus - let user tap to focus
   }, [])
 
   // Auto-scroll to keep text input cursor visible when content size changes
@@ -1592,7 +1569,7 @@ export default function EntryComposer() {
         style={styles.keyboardAvoidingView}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={0}
-        enabled={true}
+        enabled={true} // Keep enabled - it only activates when keyboard appears (after user taps)
       >
         <ScrollView 
           ref={scrollViewRef}
@@ -1656,11 +1633,12 @@ export default function EntryComposer() {
             placeholder="Start writing..."
             placeholderTextColor={colors.gray[500]}
             multiline
-            autoFocus={true}
+            autoFocus={false}
             showSoftInputOnFocus={true}
             keyboardType="default"
             returnKeyType="default"
             blurOnSubmit={false}
+            editable={true}
           />
         </View>
 

@@ -58,8 +58,9 @@ import { BirthdayCardEditBanner } from "../../components/BirthdayCardEditBanner"
 import { BirthdayCardYourCardBanner } from "../../components/BirthdayCardYourCardBanner"
 import { NotificationBell } from "../../components/NotificationBell"
 import { NotificationModal } from "../../components/NotificationModal"
-import { getInAppNotifications, markNotificationsAsChecked, markEntryAsVisited, markGroupAsVisited, type InAppNotification } from "../../lib/notifications-in-app"
+import { getInAppNotifications, markNotificationsAsChecked, markEntryAsVisited, markGroupAsVisited, clearAllNotifications, type InAppNotification } from "../../lib/notifications-in-app"
 import { updateBadgeCount } from "../../lib/notifications-badge"
+import { UserProfileModal } from "../../components/UserProfileModal"
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 
@@ -173,6 +174,8 @@ export default function Home() {
   const [groupPickerVisible, setGroupPickerVisible] = useState(false)
   const [isGroupSwitching, setIsGroupSwitching] = useState(false)
   const [notificationModalVisible, setNotificationModalVisible] = useState(false)
+  const [userProfileModalVisible, setUserProfileModalVisible] = useState(false)
+  const [selectedMember, setSelectedMember] = useState<{ id: string; name: string; avatar_url?: string } | null>(null)
   const scrollY = useRef(new Animated.Value(0)).current
   const headerTranslateY = useRef(new Animated.Value(0)).current
   const contentPaddingTop = useRef(new Animated.Value(0)).current
@@ -395,7 +398,7 @@ export default function Home() {
   })
 
   // Fetch in-app notifications
-  const { data: notifications = [] } = useQuery({
+  const { data: notifications = [], refetch: refetchNotifications } = useQuery({
     queryKey: ["inAppNotifications", userId],
     queryFn: () => (userId ? getInAppNotifications(userId) : []),
     enabled: !!userId,
@@ -1182,6 +1185,38 @@ export default function Home() {
     return map
   }, [memberNameUsage])
 
+  // Check if today's question is about the current user (member_name matches userName)
+  // CRITICAL: Only check for member_name prompts, not memorial_name
+  const isQuestionAboutMe = useMemo(() => {
+    // Only check if we have a prompt with member_name variable
+    const promptQuestion = dailyPrompt?.prompt?.question || entries[0]?.prompt?.question
+    if (!promptQuestion || !promptQuestion.match(/\{.*member_name.*\}/i)) {
+      return false
+    }
+    
+    // Need prompt ID and date to look up the member name used
+    const currentPromptId = dailyPrompt?.prompt_id || entries[0]?.prompt_id
+    if (!currentPromptId || !selectedDate || !userName) {
+      return false
+    }
+    
+    // Get the member name that was used for this prompt on this date
+    const normalizedDate = selectedDate.split('T')[0]
+    const usageKey = `${currentPromptId}-${normalizedDate}`
+    const memberNameUsed = memberUsageMap.get(usageKey)
+    
+    if (!memberNameUsed) {
+      // No usage record found - can't determine if it's about me
+      return false
+    }
+    
+    // Compare names (case-insensitive, trimmed)
+    const normalizedUsedName = memberNameUsed.trim().toLowerCase()
+    const normalizedUserName = userName.trim().toLowerCase()
+    
+    return normalizedUsedName === normalizedUserName
+  }, [dailyPrompt?.prompt?.question, dailyPrompt?.prompt_id, entries, selectedDate, userName, memberUsageMap])
+
   // Personalize prompt question with variables
   // CRITICAL: Only work with actual prompts from dailyPrompt or entries - never fallback prompts
   const personalizedPromptQuestion = useMemo(() => {
@@ -1535,6 +1570,48 @@ export default function Home() {
       updateBadgeCount(userId).catch((error) => {
         if (__DEV__) console.error("[home] Failed to update badge count:", error)
       })
+    }
+  }
+
+  async function handleClearAllNotifications() {
+    if (!userId) return
+    
+    try {
+      console.log("[home] Clearing all notifications...")
+      // Clear all notifications (marks everything as visited/checked)
+      await clearAllNotifications(userId)
+      console.log("[home] All notifications cleared")
+      
+      // Invalidate the query cache first to ensure fresh data
+      queryClient.invalidateQueries({ queryKey: ["inAppNotifications", userId] })
+      
+      // Remove the cached data to force a fresh fetch
+      queryClient.removeQueries({ queryKey: ["inAppNotifications", userId] })
+      
+      // Small delay to ensure AsyncStorage writes are complete
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
+      // Refetch using the refetch function from useQuery (more reliable than queryClient.refetchQueries)
+      const { data: newNotifications } = await refetchNotifications()
+      console.log("[home] Notifications refetched, new count:", newNotifications?.length ?? 0)
+      
+      // If there are still notifications, log for debugging
+      if (newNotifications && newNotifications.length > 0) {
+        console.warn("[home] ⚠️ Still showing notifications after clear:", newNotifications.map(n => ({ type: n.type, id: n.id })))
+      }
+      
+      // Update badge count
+      await updateBadgeCount(userId)
+      console.log("[home] Badge count updated")
+      
+      // Close the modal after a brief delay to allow UI to update
+      setTimeout(() => {
+        setNotificationModalVisible(false)
+      }, 200)
+    } catch (error) {
+      console.error("[home] Failed to clear all notifications:", error)
+      // Close modal even on error
+      setNotificationModalVisible(false)
     }
   }
 
@@ -2266,7 +2343,7 @@ export default function Home() {
             <NotificationBell
               hasNotifications={hasNotifications}
               onPress={handleNotificationBellPress}
-              size={28}
+              size={25}
             />
             <TouchableOpacity onPress={() => router.push("/(main)/settings")} style={styles.avatarButton}>
               <Avatar uri={userAvatarUrl} name={userName} size={36} />
@@ -2281,13 +2358,12 @@ export default function Home() {
               key={member.id}
               style={styles.memberAvatar}
               onPress={() => {
-                router.push({
-                  pathname: "/(main)/history",
-                  params: {
-                    focusGroupId: currentGroupId,
-                    filterMemberId: member.user_id,
-                  },
+                setSelectedMember({
+                  id: member.user_id,
+                  name: member.user.name || "User",
+                  avatar_url: member.user.avatar_url,
                 })
+                setUserProfileModalVisible(true)
               }}
             >
               <Avatar uri={member.user.avatar_url} name={member.user.name || "User"} size={32} />
@@ -2566,7 +2642,7 @@ export default function Home() {
         )}
 
         {/* Daily prompt */}
-        {!userEntry && !isFuture && (
+        {!userEntry && !isFuture && !(isQuestionAboutMe && entries.length > 0) && (
           <View style={styles.promptCardWrapper}>
             <View style={styles.promptDivider} />
             <View style={styles.promptCard}>
@@ -2591,7 +2667,22 @@ export default function Home() {
                   return <PromptSkeleton />
                 }
                 
-                // Show actual prompt content
+                // CRITICAL: If question is about the current user and no entries yet, show message
+                if (isQuestionAboutMe && entries.length === 0) {
+                  // No entries yet - show message asking user to come back later
+                  return (
+                    <View style={{ paddingVertical: spacing.xl, alignItems: "center" }}>
+                      <Text style={[styles.promptQuestion, { textAlign: "center", marginBottom: spacing.md }]}>
+                        Today's question is about you
+                      </Text>
+                      <Text style={[typography.body, { textAlign: "center", color: colors.textSecondary, paddingHorizontal: spacing.lg }]}>
+                        Come back later to see what everyone said.
+                      </Text>
+                    </View>
+                  )
+                }
+                
+                // Show actual prompt content (not about current user)
                 return (
                   <>
                     {/* Custom Question Branding */}
@@ -2633,14 +2724,16 @@ export default function Home() {
                             paddingHorizontal: spacing.md,
                             paddingVertical: spacing.xs,
                             borderRadius: 16,
-                            backgroundColor: isDark ? colors.white : colors.black,
+                            backgroundColor: colors.gray[900],
+                            borderWidth: 1,
+                            borderColor: colors.white,
                           }}
                         >
                           <Text style={{
                             ...typography.caption,
                             fontSize: 12,
                             fontWeight: "600",
-                            color: isDark ? colors.black : colors.white,
+                            color: colors.white,
                           }}>
                             {deckInfo.name}
                           </Text>
@@ -2889,6 +2982,29 @@ export default function Home() {
         notifications={notifications}
         onClose={() => setNotificationModalVisible(false)}
         onNotificationPress={handleNotificationPress}
+        onClearAll={handleClearAllNotifications}
+      />
+
+      {/* User Profile Modal */}
+      <UserProfileModal
+        visible={userProfileModalVisible}
+        userId={selectedMember?.id || null}
+        userName={selectedMember?.name || null}
+        userAvatarUrl={selectedMember?.avatar_url}
+        groupId={currentGroupId}
+        onClose={() => {
+          setUserProfileModalVisible(false)
+          setSelectedMember(null)
+        }}
+        onViewHistory={(userId) => {
+          router.push({
+            pathname: "/(main)/history",
+            params: {
+              focusGroupId: currentGroupId,
+              filterMemberId: userId,
+            },
+          })
+        }}
       />
     </View>
   )

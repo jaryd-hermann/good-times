@@ -6,9 +6,12 @@ import AsyncStorage from "@react-native-async-storage/async-storage"
 const LAST_APP_CLOSE_TIME_KEY = "last_app_close_time"
 const CURRENT_SESSION_START_TIME_KEY = "current_session_start_time"
 const LAST_SUCCESSFUL_NAVIGATION_KEY = "last_successful_navigation"
+const LAST_APP_ACTIVE_TIME_KEY = "last_app_active_time"
 
 // Cold start threshold: if app was closed more than this many minutes ago, show boot screen
 const COLD_START_THRESHOLD_MINUTES = 5
+// Inactivity threshold: if app was inactive for more than this, treat as cold start
+const INACTIVITY_THRESHOLD_MINUTES = 30
 
 /**
  * Record that the app was closed
@@ -134,6 +137,69 @@ export async function getLastSuccessfulNavigation(): Promise<string | null> {
 }
 
 /**
+ * Record that the app became active (user is using it)
+ * Call this when app comes to foreground or user interacts
+ */
+export async function recordAppActive(): Promise<void> {
+  try {
+    const timestamp = Date.now().toString()
+    await AsyncStorage.setItem(LAST_APP_ACTIVE_TIME_KEY, timestamp)
+    if (__DEV__) {
+      console.log("[session-lifecycle] Recorded app active at:", new Date(parseInt(timestamp)).toISOString())
+    }
+  } catch (error) {
+    console.error("[session-lifecycle] Failed to record app active:", error)
+  }
+}
+
+/**
+ * Get the time when the app was last active (in milliseconds since epoch)
+ * Returns null if never recorded
+ */
+export async function getLastAppActiveTime(): Promise<number | null> {
+  try {
+    const timestamp = await AsyncStorage.getItem(LAST_APP_ACTIVE_TIME_KEY)
+    return timestamp ? parseInt(timestamp, 10) : null
+  } catch (error) {
+    console.error("[session-lifecycle] Failed to get last app active time:", error)
+    return null
+  }
+}
+
+/**
+ * Check if app was inactive for too long (should show boot screen)
+ * Returns true if app was inactive for more than threshold
+ */
+export async function wasInactiveTooLong(): Promise<boolean> {
+  try {
+    const lastActiveTime = await getLastAppActiveTime()
+    if (!lastActiveTime) {
+      // Never recorded - assume inactive too long to be safe
+      return true
+    }
+    
+    const timeSinceActive = Date.now() - lastActiveTime
+    const thresholdMs = INACTIVITY_THRESHOLD_MINUTES * 60 * 1000
+    const wasTooLong = timeSinceActive > thresholdMs
+    
+    if (__DEV__) {
+      console.log("[session-lifecycle] Inactivity check:", {
+        lastActiveTime: new Date(lastActiveTime).toISOString(),
+        timeSinceActiveMinutes: Math.round(timeSinceActive / 1000 / 60),
+        thresholdMinutes: INACTIVITY_THRESHOLD_MINUTES,
+        wasTooLong,
+      })
+    }
+    
+    return wasTooLong
+  } catch (error) {
+    console.error("[session-lifecycle] Failed to check inactivity:", error)
+    // On error, assume inactive too long to be safe
+    return true
+  }
+}
+
+/**
  * Clear all session lifecycle data
  * Useful for testing or resetting state
  */
@@ -143,6 +209,7 @@ export async function clearSessionLifecycle(): Promise<void> {
       LAST_APP_CLOSE_TIME_KEY,
       CURRENT_SESSION_START_TIME_KEY,
       LAST_SUCCESSFUL_NAVIGATION_KEY,
+      LAST_APP_ACTIVE_TIME_KEY,
     ])
     if (__DEV__) {
       console.log("[session-lifecycle] Cleared all session lifecycle data")

@@ -288,7 +288,8 @@ serve(async (req) => {
       }
 
       // Conditional categories
-      if (hasMemorials && !disabledCategories.has("Remembering")) {
+      // Don't include "Remembering" during ice-breaker period (even if group has memorials)
+      if (hasMemorials && !disabledCategories.has("Remembering") && !isInIceBreakerPeriod) {
         eligibleCategories.push("Remembering")
       } else {
         disabledCategories.add("Remembering")
@@ -309,9 +310,10 @@ serve(async (req) => {
         const queuedPrompt = queuedItem.prompt as any
         const memberCount = members?.length || 0
         
-        // Filter out "Remembering" category if no memorials
-        if (queuedPrompt.category === "Remembering" && !hasMemorials) {
+        // Filter out "Remembering" category if no memorials OR during ice-breaker period
+        if (queuedPrompt.category === "Remembering" && (!hasMemorials || isInIceBreakerPeriod)) {
           // Skip this queued prompt, continue to selection logic
+          // Memorial questions should not be scheduled during ice-breaker period
         } else if (groupData?.type === "family" && queuedPrompt.category === "Friends") {
           // Skip Friends category prompts for Family groups
         } else if (groupData?.type === "friends" && queuedPrompt.category === "Family") {

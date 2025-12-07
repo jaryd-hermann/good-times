@@ -53,6 +53,60 @@ export async function markNotificationsAsChecked(): Promise<void> {
   await AsyncStorage.setItem(LAST_CHECKED_KEY, new Date().toISOString())
 }
 
+// Clear all notifications by marking everything as visited/checked
+export async function clearAllNotifications(userId: string): Promise<void> {
+  const now = new Date().toISOString()
+  
+  // Set global last checked timestamp
+  await AsyncStorage.setItem(LAST_CHECKED_KEY, now)
+  
+  // Mark all user's entries as visited
+  try {
+    const { data: userEntries } = await supabase
+      .from("entries")
+      .select("id")
+      .eq("user_id", userId)
+    
+    if (userEntries) {
+      for (const entry of userEntries) {
+        const key = `${ENTRY_VISITED_KEY_PREFIX}${entry.id}`
+        await AsyncStorage.setItem(key, now)
+      }
+    }
+  } catch (error) {
+    console.error("[clearAllNotifications] Error marking entries as visited:", error)
+  }
+  
+  // Mark all entries where user has commented (for thread replies)
+  try {
+    const { data: userComments } = await supabase
+      .from("comments")
+      .select("entry_id")
+      .eq("user_id", userId)
+    
+    if (userComments) {
+      const uniqueEntryIds = Array.from(new Set(userComments.map((c) => c.entry_id)))
+      for (const entryId of uniqueEntryIds) {
+        const key = `${ENTRY_VISITED_KEY_PREFIX}${entryId}`
+        await AsyncStorage.setItem(key, now)
+      }
+    }
+  } catch (error) {
+    console.error("[clearAllNotifications] Error marking commented entries as visited:", error)
+  }
+  
+  // Mark all user's groups as visited
+  try {
+    const groups = await getUserGroups(userId)
+    for (const group of groups) {
+      const key = `${GROUP_VISITED_KEY_PREFIX}${group.id}`
+      await AsyncStorage.setItem(key, now)
+    }
+  } catch (error) {
+    console.error("[clearAllNotifications] Error marking groups as visited:", error)
+  }
+}
+
 // Get last visited timestamp for a group
 async function getGroupLastVisited(groupId: string): Promise<Date | null> {
   const key = `${GROUP_VISITED_KEY_PREFIX}${groupId}`
@@ -92,20 +146,27 @@ export async function getInAppNotifications(userId: string): Promise<InAppNotifi
   if (groups.length > 1) {
     for (const group of groups) {
       try {
-        const dailyPrompt = await getDailyPrompt(group.id, todayDate, userId)
-        if (dailyPrompt) {
-          // Check if user has answered today's question
-          const userEntry = await getUserEntryForDate(group.id, userId, todayDate)
-          if (!userEntry) {
-            // User hasn't answered today's question
-            notifications.push({
-              id: `new_question_${group.id}_${todayDate}`,
-              type: "new_question",
-              groupId: group.id,
-              groupName: group.name,
-              date: todayDate,
-              createdAt: dailyPrompt.created_at || new Date().toISOString(),
-            })
+        // Only show if user hasn't checked notifications since today started
+        // If lastChecked exists and is today, don't show (user has already seen/cleared it)
+        const todayStart = new Date(todayDate + "T00:00:00")
+        const shouldShowNewQuestion = !lastChecked || lastChecked < todayStart
+        
+        if (shouldShowNewQuestion) {
+          const dailyPrompt = await getDailyPrompt(group.id, todayDate, userId)
+          if (dailyPrompt) {
+            // Check if user has answered today's question
+            const userEntry = await getUserEntryForDate(group.id, userId, todayDate)
+            if (!userEntry) {
+              // User hasn't answered today's question
+              notifications.push({
+                id: `new_question_${group.id}_${todayDate}`,
+                type: "new_question",
+                groupId: group.id,
+                groupName: group.name,
+                date: todayDate,
+                createdAt: dailyPrompt.created_at || new Date().toISOString(),
+              })
+            }
           }
         }
       } catch (error) {
@@ -313,26 +374,36 @@ export async function getInAppNotifications(userId: string): Promise<InAppNotifi
   }
 
   // 5. Check for pending deck votes (user hasn't voted yet)
+  // Only show if vote was requested after last check
+  const checkSince = lastChecked || new Date(0)
   for (const group of groups) {
     try {
       const pendingVotes = await getPendingVotes(group.id, userId)
       if (pendingVotes && pendingVotes.length > 0) {
-        // Get the most recent pending vote (first one)
-        const pendingVote = pendingVotes[0]
-        const deck = pendingVote.deck
-        const requester = pendingVote.requested_by_user
+        // Filter to only votes requested after last check
+        const recentVotes = pendingVotes.filter((vote) => {
+          const voteCreatedAt = vote.created_at ? new Date(vote.created_at) : new Date(0)
+          return voteCreatedAt > checkSince
+        })
+        
+        if (recentVotes.length > 0) {
+          // Get the most recent pending vote (first one)
+          const pendingVote = recentVotes[0]
+          const deck = pendingVote.deck
+          const requester = pendingVote.requested_by_user
 
-        if (deck && requester) {
-          notifications.push({
-            id: `deck_vote_requested_${group.id}_${pendingVote.deck_id}`,
-            type: "deck_vote_requested",
-            groupId: group.id,
-            groupName: group.name,
-            deckId: pendingVote.deck_id,
-            deckName: deck.name,
-            requesterName: requester.name || "Someone",
-            createdAt: pendingVote.created_at || new Date().toISOString(),
-          })
+          if (deck && requester) {
+            notifications.push({
+              id: `deck_vote_requested_${group.id}_${pendingVote.deck_id}`,
+              type: "deck_vote_requested",
+              groupId: group.id,
+              groupName: group.name,
+              deckId: pendingVote.deck_id,
+              deckName: deck.name,
+              requesterName: requester.name || "Someone",
+              createdAt: pendingVote.created_at || new Date().toISOString(),
+            })
+          }
         }
       }
     } catch (error) {

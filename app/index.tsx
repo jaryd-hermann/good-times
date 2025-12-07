@@ -13,6 +13,8 @@ import {
   isColdStart,
   recordSessionStart,
   recordSuccessfulNavigation,
+  recordAppActive,
+  wasInactiveTooLong,
 } from "../lib/session-lifecycle";
 
 // Import supabase safely to prevent crashes
@@ -78,6 +80,8 @@ export default function Index() {
         
         // Always record session start - ensures we track app opens
         await recordSessionStart();
+        // Record app active on boot
+        await recordAppActive();
         console.log("[boot] Boot screen initialized - always showing boot screen");
         setShouldShowBootScreen(true);
       } catch (error) {
@@ -92,35 +96,57 @@ export default function Index() {
     // When app comes to foreground, always refresh session and show boot screen if needed
     const subscription = AppState.addEventListener("change", async (nextAppState) => {
       if (nextAppState === "active") {
+        // Record that app is now active
+        await recordAppActive();
+        
+        // CRITICAL: Reset navigation ref when app comes back to foreground
+        // This ensures navigation can happen again if needed (prevents black screen)
+        hasNavigatedRef.current = false;
+        
+        // Check if app was inactive for too long (treat as cold start)
+        const inactiveTooLong = await wasInactiveTooLong();
+        
         // Check if app was opened from a notification click
         const notificationClicked = await AsyncStorage.getItem("notification_clicked");
         const hasPendingNotification = await AsyncStorage.getItem("pending_notification");
         
-        if (notificationClicked === "true" || hasPendingNotification) {
-          console.log("[boot] App came to foreground from notification - forcing boot screen and session refresh");
+        if (notificationClicked === "true" || hasPendingNotification || inactiveTooLong) {
+          const reason = notificationClicked === "true" || hasPendingNotification 
+            ? "notification" 
+            : "long inactivity";
+          console.log(`[boot] App came to foreground from ${reason} - forcing boot screen and session refresh`);
+          
           // Clear the flag
           if (notificationClicked === "true") {
             await AsyncStorage.removeItem("notification_clicked");
           }
-          // Force boot screen to show and refresh session
+          
+          // CRITICAL: Force boot screen to show BEFORE session refresh
+          // This prevents black screen if session refresh fails or takes time
           setShouldShowBootScreen(true);
+          setBooting(true);
           setSessionRefreshing(true);
+          
           try {
             const { ensureValidSession } = await import("../lib/auth");
-            await ensureValidSession();
-            console.log("[boot] Session refreshed after notification click");
+            const sessionValid = await ensureValidSession();
+            if (!sessionValid) {
+              console.warn("[boot] Session invalid after refresh - may need to sign in");
+              // Keep boot screen visible - will navigate to sign in if needed
+            } else {
+              console.log("[boot] Session refreshed successfully");
+            }
           } catch (error) {
-            console.error("[boot] Failed to refresh session after notification:", error);
+            console.error("[boot] Failed to refresh session:", error);
+            // Keep boot screen visible on error
           } finally {
             setSessionRefreshing(false);
-            // Keep boot screen visible longer for notification opens (2 seconds)
-            setTimeout(() => {
-              setShouldShowBootScreen(false);
-            }, 2000);
+            // Don't hide boot screen immediately - let boot flow handle navigation
+            // Boot screen will hide once navigation succeeds
           }
         } else {
-          console.log("[boot] App came to foreground - refreshing session and showing boot screen");
-          // Always refresh session when app comes to foreground
+          console.log("[boot] App came to foreground - refreshing session");
+          // Short inactivity - refresh session and ensure boot screen can show if needed
           setSessionRefreshing(true);
           try {
             const { ensureValidSession } = await import("../lib/auth");
@@ -128,16 +154,16 @@ export default function Index() {
             console.log("[boot] Session refreshed on foreground");
           } catch (error) {
             console.error("[boot] Failed to refresh session on foreground:", error);
+            // If refresh fails, show boot screen as fallback
+            setShouldShowBootScreen(true);
+            setBooting(true);
           } finally {
             setSessionRefreshing(false);
           }
-          // Show boot screen briefly to ensure smooth transition
-          setShouldShowBootScreen(true);
-          // Hide boot screen after a short delay
-          setTimeout(() => {
-            setShouldShowBootScreen(false);
-          }, 500);
         }
+      } else if (nextAppState === "background" || nextAppState === "inactive") {
+        // Record app going to background
+        await recordAppActive(); // Update last active time before going inactive
       }
     });
     
@@ -157,6 +183,13 @@ export default function Index() {
         if (authLoading) {
           console.log("[boot] Waiting for AuthProvider to load...");
           return;
+        }
+
+        // CRITICAL: Ensure boot screen is visible during boot process
+        // This prevents black screens if navigation hasn't happened yet
+        if (!shouldShowBootScreen && !booting) {
+          setShouldShowBootScreen(true);
+          setBooting(true);
         }
 
         console.log("[boot] AuthProvider loaded, user:", !!user);
@@ -397,19 +430,46 @@ export default function Index() {
         // Route to appropriate screen based on group membership
         console.log("[boot] routing decision...");
         
+        // CRITICAL: Set a timeout to ensure we don't get stuck in boot screen
+        // If navigation doesn't happen within 3 seconds, force navigation
+        const navigationTimeout = setTimeout(() => {
+          if (hasNavigatedRef.current) {
+            clearTimeout(navigationTimeout);
+            return;
+          }
+          console.warn("[boot] Navigation timeout - forcing navigation");
+          if (membership?.group_id) {
+            router.replace("/(main)/home");
+          } else {
+            router.replace("/(onboarding)/create-group/name-type");
+          }
+        }, 3000);
+        
         if (membership?.group_id) {
           console.log("[boot] user with group → (main)/home");
-          if (!hasNavigatedRef.current) {
+          // CRITICAL: Always navigate if we haven't navigated yet OR if segments are empty (black screen prevention)
+          const segmentsLength = (segments as string[]).length;
+          const needsNavigation = !hasNavigatedRef.current || segmentsLength === 0;
+          if (needsNavigation) {
             hasNavigatedRef.current = true;
+            clearTimeout(navigationTimeout);
             router.replace("/(main)/home");
             await recordSuccessfulNavigation("/(main)/home");
+            // Record app active after successful navigation
+            await recordAppActive();
           }
         } else {
           console.log("[boot] no group → onboarding/create-group/name-type");
-          if (!hasNavigatedRef.current) {
+          // CRITICAL: Always navigate if we haven't navigated yet OR if segments are empty (black screen prevention)
+          const segmentsLength = (segments as string[]).length;
+          const needsNavigation = !hasNavigatedRef.current || segmentsLength === 0;
+          if (needsNavigation) {
             hasNavigatedRef.current = true;
+            clearTimeout(navigationTimeout);
             router.replace("/(onboarding)/create-group/name-type");
             await recordSuccessfulNavigation("/(onboarding)/create-group/name-type");
+            // Record app active after successful navigation
+            await recordAppActive();
           }
         }
       } catch (e: any) {

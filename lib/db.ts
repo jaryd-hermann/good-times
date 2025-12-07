@@ -1460,6 +1460,51 @@ export async function toggleReaction(entryId: string, userId: string): Promise<v
   }
 }
 
+/**
+ * Add or remove an emoji reaction for an entry
+ * If user already has this emoji reaction, remove it
+ * If user has a different emoji reaction, replace it
+ * If user has no reaction, add it
+ */
+export async function toggleEmojiReaction(entryId: string, userId: string, emoji: string): Promise<void> {
+  // Check if user already has this exact emoji reaction
+  const { data: existing } = await supabase
+    .from("reactions")
+    .select("id")
+    .eq("entry_id", entryId)
+    .eq("user_id", userId)
+    .eq("type", emoji)
+    .maybeSingle()
+
+  if (existing) {
+    // User already has this emoji - remove it
+    await supabase.from("reactions").delete().eq("id", existing.id)
+  } else {
+    // Check if user has any other reaction for this entry
+    const { data: otherReaction } = await supabase
+      .from("reactions")
+      .select("id")
+      .eq("entry_id", entryId)
+      .eq("user_id", userId)
+      .maybeSingle()
+
+    if (otherReaction) {
+      // User has a different reaction - replace it
+      await supabase
+        .from("reactions")
+        .update({ type: emoji })
+        .eq("id", otherReaction.id)
+    } else {
+      // User has no reaction - add new one
+      await supabase.from("reactions").insert({ 
+        entry_id: entryId, 
+        user_id: userId, 
+        type: emoji 
+      })
+    }
+  }
+}
+
 // Comment queries
 export async function getComments(entryId: string): Promise<Comment[]> {
   const { data, error } = await supabase

@@ -10,7 +10,8 @@ import { useTheme } from "../lib/theme-context"
 import { Avatar } from "./Avatar"
 import { FontAwesome } from "@expo/vector-icons"
 import { supabase } from "../lib/supabase"
-import { getComments, getMemorials, getReactions, toggleReaction, getGroupMembers } from "../lib/db"
+import { getComments, getMemorials, getReactions, toggleReaction, toggleEmojiReaction, getGroupMembers } from "../lib/db"
+import { EmojiPicker } from "./EmojiPicker"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "../lib/prompts"
 
@@ -113,10 +114,6 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   const minCharsForFade = MAX_TEXT_LINES * estimatedCharsPerLine
   const shouldShowFade = entry.text_content && entry.text_content.length >= minCharsForFade
 
-  // Determine if we should show CTA button
-  const hasMultipleMedia = entry.media_urls && entry.media_urls.length > 1
-  const hasTextCropped = shouldShowFade
-  const shouldShowCTA = hasMultipleMedia || hasTextCropped
 
   // Separate media types
   const audioMedia = useMemo(() => {
@@ -353,10 +350,11 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
         variables.member_name = members[0].user?.name || "them"
         question = replaceDynamicVariables(question, variables)
       }
-    } else if (question.includes("Gumbo") || question.includes("Amelia")) {
-      // CRITICAL: If the question already has a name in it (shouldn't happen, but if it does, log it)
-      console.error(`[EntryCard] Question already contains a name! Question: ${question.substring(0, 100)}`)
     }
+    
+    // Note: We removed the check for "Gumbo" or "Amelia" in the question text because
+    // these names can legitimately appear in questions (e.g., "What is a story about Gumbo...")
+    // The check was causing false positives for questions that mention names directly
     
     return question
   }, [entry.prompt?.question, entry.group_id, entry.prompt_id, entry.date, memorials, getMemorialForPrompt, memorialUsageMap, memorialNameUsage])
@@ -385,9 +383,40 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   const hasLiked = reactions.some((r) => r.user_id === userId)
   const reactionCount = reactions.length
   const queryClient = useQueryClient()
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+
+  // Group reactions by emoji type and count them
+  const reactionsByEmoji = useMemo(() => {
+    const grouped: Record<string, { count: number; userReacted: boolean }> = {}
+    reactions.forEach((reaction) => {
+      const emoji = reaction.type || "❤️" // Fallback to heart for old reactions
+      if (!grouped[emoji]) {
+        grouped[emoji] = { count: 0, userReacted: false }
+      }
+      grouped[emoji].count++
+      if (reaction.user_id === userId) {
+        grouped[emoji].userReacted = true
+      }
+    })
+    return grouped
+  }, [reactions, userId])
+
+  // Get current user's reactions (emojis they've used)
+  const currentUserReactions = useMemo(() => {
+    return reactions
+      .filter((r) => r.user_id === userId)
+      .map((r) => r.type || "❤️")
+  }, [reactions, userId])
 
   const toggleReactionMutation = useMutation({
     mutationFn: () => toggleReaction(entry.id, userId!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["reactions", entry.id] })
+    },
+  })
+
+  const toggleEmojiReactionMutation = useMutation({
+    mutationFn: (emoji: string) => toggleEmojiReaction(entry.id, userId!, emoji),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["reactions", entry.id] })
     },
@@ -398,6 +427,15 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     if (!userId) return
     try {
       await toggleReactionMutation.mutateAsync()
+    } catch (error) {
+      // Silently fail - user can try again
+    }
+  }
+
+  async function handleSelectEmoji(emoji: string) {
+    if (!userId) return
+    try {
+      await toggleEmojiReactionMutation.mutateAsync(emoji)
     } catch (error) {
       // Silently fail - user can try again
     }
@@ -658,17 +696,6 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
       backgroundColor: "rgba(0, 0, 0, 0.3)",
       zIndex: 1,
     },
-    ctaButton: {
-      backgroundColor: colors.white,
-      borderRadius: 8,
-      paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.md,
-    },
-    ctaText: {
-      ...typography.bodyBold,
-      color: colors.black,
-      fontSize: 14,
-    },
     actionsRow: {
       flexDirection: "row",
     alignItems: "center",
@@ -696,6 +723,37 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
       fontSize: 14,
     color: colors.white,
   },
+    reactionsRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+      flexWrap: "wrap",
+      marginLeft: -5, // Move 20% closer to comment icon (20% of spacing.lg = 24 * 0.2 = 4.8, rounded to 5)
+    },
+    reactionBadge: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs,
+      borderRadius: 16,
+      backgroundColor: "transparent",
+      borderWidth: 1,
+      borderColor: isDark ? colors.gray[600] : colors.gray[400],
+    },
+    reactionEmoji: {
+      fontSize: 16,
+    },
+    reactionCount: {
+      ...typography.bodyMedium,
+      fontSize: 12,
+      color: colors.white,
+      fontWeight: "600",
+    },
+    reactIcon: {
+      width: 25,
+      height: 25,
+    },
     commentsContainer: {
       paddingHorizontal: spacing.lg,
     paddingTop: spacing.xs,
@@ -928,40 +986,68 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
           </TouchableOpacity>
         )}
 
-        {/* Comment Icons, and CTA Button */}
+        {/* Comment Icons, React Button with Reactions, and CTA Button */}
         <View style={styles.actionsRow}>
           <View style={styles.actionsLeft}>
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={(e) => {
-                e.stopPropagation()
-                handleEntryPress(true) // Scroll to comments
-              }}
-              activeOpacity={0.7}
-            >
-              <FontAwesome 
-                name={comments.length > 0 ? "comment" : "comment-o"} 
-                size={20} 
-                color={colors.white}
-                style={comments.length > 0 ? styles.iconSolid : styles.iconOutline}
-              />
-              {comments.length > 0 && <Text style={styles.actionCount}>{comments.length}</Text>}
-            </TouchableOpacity>
+            <View style={styles.actionsLeft}>
+              {/* Comment Icon - moved to left */}
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={(e) => {
+                  e.stopPropagation()
+                  handleEntryPress(true) // Scroll to comments
+                }}
+                activeOpacity={0.7}
+              >
+                <FontAwesome 
+                  name={comments.length > 0 ? "comment" : "comment-o"} 
+                  size={20} 
+                  color={colors.white}
+                  style={comments.length > 0 ? styles.iconSolid : styles.iconOutline}
+                />
+                {comments.length > 0 && <Text style={styles.actionCount}>{comments.length}</Text>}
+              </TouchableOpacity>
+
+              {/* React Button and Reactions - moved to right of comment */}
+              <View style={styles.reactionsRow}>
+                {/* Only show React Button if user hasn't reacted yet */}
+                {currentUserReactions.length === 0 && (
+                  <TouchableOpacity
+                    style={styles.actionButton}
+                    onPress={(e) => {
+                      e.stopPropagation()
+                      if (userId) {
+                        setShowEmojiPicker(true)
+                      }
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <FontAwesome name="heart-o" size={20} color={colors.white} />
+                  </TouchableOpacity>
+                )}
+                
+                {/* Reactions inline with React button */}
+                {Object.entries(reactionsByEmoji).map(([emoji, data]) => (
+                  <TouchableOpacity
+                    key={emoji}
+                    style={styles.reactionBadge}
+                    onPress={(e) => {
+                      e.stopPropagation()
+                      if (userId) {
+                        handleSelectEmoji(emoji)
+                      }
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.reactionEmoji}>{emoji}</Text>
+                    {data.count > 1 && (
+                      <Text style={styles.reactionCount}>{data.count}</Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
           </View>
-          {shouldShowCTA && (
-            <TouchableOpacity
-              style={styles.ctaButton}
-              onPress={(e) => {
-                e.stopPropagation()
-                handleEntryPress()
-              }}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.ctaText}>
-                See everything {entry.user?.name || "they"} shared →
-              </Text>
-            </TouchableOpacity>
-          )}
         </View>
       </TouchableOpacity>
 
@@ -1023,6 +1109,14 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
 
       {/* Separator */}
       <View style={styles.separator} />
+
+      {/* Emoji Picker Modal */}
+      <EmojiPicker
+        visible={showEmojiPicker}
+        onClose={() => setShowEmojiPicker(false)}
+        onSelectEmoji={handleSelectEmoji}
+        currentReactions={currentUserReactions}
+      />
     </View>
   )
 }

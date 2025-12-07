@@ -112,16 +112,26 @@ serve(async (req) => {
 
       for (const targetUser of targetUsers) {
         // Get push token for this user
+        // Also get user info to check platform and log Android tokens
         const { data: pushTokens, error: tokenError } = await supabaseClient
           .from("push_tokens")
-          .select("token")
+          .select("token, user:users(id, name, email)")
           .eq("user_id", targetUser.user_id)
           .limit(1)
 
-        if (tokenError || !pushTokens || pushTokens.length === 0) continue
+        if (tokenError || !pushTokens || pushTokens.length === 0) {
+          console.log(`[send-daily-notifications] No push token found for user ${targetUser.user_id}`)
+          continue
+        }
 
         const pushToken = pushTokens[0].token
         if (!pushToken) continue
+        
+        // Log Android tokens for verification (Android tokens start with ExponentPushToken)
+        // iOS tokens also start with ExponentPushToken, but we can check device info if needed
+        const isAndroidToken = pushToken.startsWith("ExponentPushToken")
+        const userInfo = (pushTokens[0] as any).user
+        console.log(`[send-daily-notifications] Sending to user ${targetUser.user_id} (${userInfo?.name || userInfo?.email || 'unknown'}), token: ${pushToken.substring(0, 20)}...`)
 
         // Personalize prompt text with dynamic variables
         // CRITICAL: Use prompt_name_usage table to get the EXACT same name that was selected
@@ -238,6 +248,17 @@ serve(async (req) => {
 
           const result = await response.json()
           
+          // Log Android notification status for debugging
+          if (isAndroidToken) {
+            console.log(`[send-daily-notifications] Android notification result for user ${targetUser.user_id}:`, JSON.stringify(result))
+          }
+          
+          // Check if notification was successfully sent
+          const status = result.data?.status || "unknown"
+          if (status === "error") {
+            console.error(`[send-daily-notifications] Expo push service returned error for user ${targetUser.user_id}:`, result.data)
+          }
+          
           // Save notification to database
           const { error: insertError } = await supabaseClient.from("notifications").insert({
             user_id: targetUser.user_id,
@@ -251,7 +272,11 @@ serve(async (req) => {
             console.error(`[send-daily-notifications] Error saving notification for user ${targetUser.user_id}:`, insertError)
           }
 
-          notifications.push({ user_id: targetUser.user_id, status: result.data?.status || "sent" })
+          notifications.push({ 
+            user_id: targetUser.user_id, 
+            status: status,
+            platform: isAndroidToken ? "android" : "ios"
+          })
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error)
           console.error(`[send-daily-notifications] Error sending to user ${targetUser.user_id}:`, errorMessage)

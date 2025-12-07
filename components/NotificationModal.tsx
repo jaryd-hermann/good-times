@@ -16,6 +16,7 @@ interface NotificationModalProps {
   notifications: InAppNotification[]
   onClose: () => void
   onNotificationPress: (notification: InAppNotification) => void
+  onClearAll?: () => void
 }
 
 export function NotificationModal({
@@ -23,6 +24,7 @@ export function NotificationModal({
   notifications,
   onClose,
   onNotificationPress,
+  onClearAll,
 }: NotificationModalProps) {
   const { colors, isDark } = useTheme()
   const insets = useSafeAreaInsets()
@@ -131,6 +133,22 @@ export function NotificationModal({
       marginLeft: spacing.sm,
       color: colors.white,
     },
+    clearAllContainer: {
+      marginTop: spacing.md,
+      paddingTop: spacing.md,
+      borderTopWidth: 1,
+      borderTopColor: colors.gray[800],
+      alignItems: "center",
+    },
+    clearAllLink: {
+      paddingVertical: spacing.sm,
+    },
+    clearAllText: {
+      ...typography.body,
+      fontSize: 14,
+      color: colors.gray[400],
+      textDecorationLine: "underline",
+    },
   })
 
   return (
@@ -216,6 +234,20 @@ export function NotificationModal({
                 )
               })}
             </ScrollView>
+          )}
+          {notifications.length > 0 && onClearAll && (
+            <View style={styles.clearAllContainer}>
+              <TouchableOpacity 
+                onPress={() => {
+                  console.log("[NotificationModal] Clear all pressed")
+                  onClearAll()
+                }} 
+                style={styles.clearAllLink} 
+                activeOpacity={0.7}
+              >
+                <Text style={styles.clearAllText}>Clear all</Text>
+              </TouchableOpacity>
+            </View>
           )}
         </Animated.View>
       </View>

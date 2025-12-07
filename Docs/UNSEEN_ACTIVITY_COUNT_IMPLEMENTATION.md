@@ -260,3 +260,5 @@ Key points:
 - Uses `.gt("created_at", timestamp)` to get entries after last visit
 - Includes 1-second buffer to handle timing edge cases
 
+
+

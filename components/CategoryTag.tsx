@@ -23,14 +23,16 @@ export function CategoryTag({ category }: CategoryTagProps) {
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.xs,
       borderRadius: 16,
-      backgroundColor: isDark ? colors.white : colors.black,
+      backgroundColor: colors.gray[900],
+      borderWidth: 1,
+      borderColor: colors.white,
       marginBottom: spacing.sm,
     },
     tagText: {
       ...typography.caption,
       fontSize: 12,
       fontWeight: "600",
-      color: isDark ? colors.black : colors.white,
+      color: colors.white,
     },
   })
   

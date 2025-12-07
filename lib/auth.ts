@@ -85,8 +85,12 @@ export async function refreshSession(retries = 3): Promise<any> {
         error.message?.includes("ENOTFOUND")
       
       if (!isRetryable || attempt === maxRetries - 1) {
-        // Not retryable or last attempt - throw error
-        console.error(`[auth] refreshSession failed after ${attempt + 1} attempt(s):`, error.message)
+        // Not retryable or last attempt - log as warning instead of error for timeout cases
+        if (error.message?.includes("timeout")) {
+          console.warn(`[auth] refreshSession timed out after ${attempt + 1} attempt(s) - this may be due to slow network`)
+        } else {
+          console.error(`[auth] refreshSession failed after ${attempt + 1} attempt(s):`, error.message)
+        }
         throw error
       }
       
