@@ -18,6 +18,20 @@ interface ChangeEntry {
 
 const CHANGES: ChangeEntry[] = [
   {
+    date: "2025-12-07",
+    title: "Sunday, December 7th",
+    subtitle: "Release notes",
+    timestamp: "11:15am",
+    items: [
+      "At long holy last, fixed the black screen issue after long sessions. You should have no issue reopening app and getting stuck.",
+      "Fixed the annoying keyboard typing glitch on IOS.",
+      "Added mini profiles, if you tap someones pic you'll see their photo and all their answers.",
+      "Added better and wider emoji support for reacting instead of just comments.",
+      "Improved onboarding, with swipe to like questions added while joining to better personalize your groups questions",
+      "Some general stability and bug fixes",
+    ],
+  },
+  {
     date: "2025-12-04",
     title: "Thursday, December 4th",
     subtitle: "Release notes",

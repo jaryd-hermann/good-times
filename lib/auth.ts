@@ -105,9 +105,65 @@ export async function refreshSession(retries = 3): Promise<any> {
   throw new Error("refreshSession: Max retries exceeded")
 }
 
+// Track last successful token refresh time to avoid unnecessary checks
+let lastTokenRefreshTime: number | null = null
+
+// Call this when TOKEN_REFRESHED event fires
+export function markTokenRefreshed(): void {
+  lastTokenRefreshTime = Date.now()
+  console.log("[auth] Token refresh marked - session should be valid")
+}
+
+// Check if we should skip ensureValidSession() because Supabase just refreshed
+// Returns true if we should skip (trust Supabase's refresh)
+export function shouldSkipSessionCheck(): boolean {
+  if (!lastTokenRefreshTime) {
+    return false
+  }
+  const timeSinceRefresh = Date.now() - lastTokenRefreshTime
+  const shouldSkip = timeSinceRefresh < 300000 // 5 minutes
+  if (shouldSkip) {
+    console.log("[auth] shouldSkipSessionCheck: TRUE - Recent token refresh, skipping session check", {
+      timeSinceRefreshMs: timeSinceRefresh,
+      timeSinceRefreshMinutes: Math.floor(timeSinceRefresh / 60000),
+    })
+  }
+  return shouldSkip
+}
+
 // Check if session is expired or about to expire (within 5 minutes)
 export async function isSessionExpired(): Promise<boolean> {
   try {
+    // CRITICAL: If Supabase just refreshed token (within last 5 minutes), trust it
+    // This prevents unnecessary refresh attempts when network is slow
+    console.log("[auth] isSessionExpired: Checking lastTokenRefreshTime", {
+      hasLastTokenRefreshTime: !!lastTokenRefreshTime,
+      lastTokenRefreshTime,
+      currentTime: Date.now(),
+    })
+    if (lastTokenRefreshTime) {
+      const timeSinceRefresh = Date.now() - lastTokenRefreshTime
+      console.log("[auth] isSessionExpired: Time since refresh", {
+        timeSinceRefreshMs: timeSinceRefresh,
+        timeSinceRefreshMinutes: Math.floor(timeSinceRefresh / 60000),
+        isWithin5Minutes: timeSinceRefresh < 300000,
+      })
+      if (timeSinceRefresh < 300000) { // 5 minutes - extended window
+        console.log("[auth] Recent token refresh detected, assuming session is valid", {
+          timeSinceRefreshMs: timeSinceRefresh,
+          timeSinceRefreshMinutes: Math.floor(timeSinceRefresh / 60000),
+        })
+        return false // Session was just refreshed, assume valid
+      } else {
+        console.log("[auth] Token refresh was too long ago, checking session normally", {
+          timeSinceRefreshMs: timeSinceRefresh,
+          timeSinceRefreshMinutes: Math.floor(timeSinceRefresh / 60000),
+        })
+      }
+    } else {
+      console.log("[auth] isSessionExpired: No lastTokenRefreshTime set, checking session normally")
+    }
+    
     const session = await getCurrentSession()
     if (!session) {
       // No session - could be timeout or truly no session
@@ -116,6 +172,18 @@ export async function isSessionExpired(): Promise<boolean> {
         console.log("[auth] No session found but refresh in progress, waiting...")
         return false // Don't trigger another refresh
       }
+      
+      // CRITICAL: If getCurrentSession timed out, don't assume expired
+      // Supabase might have the session but network is slow
+      // Check if we recently had a token refresh (within 5 minutes)
+      if (lastTokenRefreshTime && (Date.now() - lastTokenRefreshTime) < 300000) {
+        console.log("[auth] getCurrentSession timeout but recent refresh - assuming session valid", {
+          timeSinceRefreshMs: Date.now() - lastTokenRefreshTime,
+          timeSinceRefreshMinutes: Math.floor((Date.now() - lastTokenRefreshTime) / 60000),
+        })
+        return false // Assume valid if recent refresh
+      }
+      
       return true // No session and no refresh in progress
     }
     
@@ -131,115 +199,284 @@ export async function isSessionExpired(): Promise<boolean> {
     if (refreshInProgress) {
       return false
     }
-    return true // Assume expired on error (unless refresh in progress)
+    
+    // If we recently had a token refresh, assume valid despite error (within 5 minutes)
+    if (lastTokenRefreshTime && (Date.now() - lastTokenRefreshTime) < 300000) {
+      console.log("[auth] Error checking expiry but recent refresh - assuming session valid", {
+        timeSinceRefreshMs: Date.now() - lastTokenRefreshTime,
+        timeSinceRefreshMinutes: Math.floor((Date.now() - lastTokenRefreshTime) / 60000),
+      })
+      return false
+    }
+    
+    return true // Assume expired on error (unless refresh in progress or recent refresh)
   }
 }
 
 // Refresh session if expired or about to expire
 // Uses mutex to prevent concurrent refresh attempts
 export async function ensureValidSession(): Promise<boolean> {
+  const startTime = Date.now()
+  console.log("[auth] ensureValidSession: START", {
+    refreshInProgress,
+    hasExistingPromise: !!refreshPromise,
+    timestamp: new Date().toISOString(),
+  })
+
   // If refresh is already in progress, wait for it instead of starting a new one
   if (refreshInProgress && refreshPromise) {
-    console.log("[auth] Refresh already in progress, waiting for existing refresh...")
+    console.log("[auth] ensureValidSession: Refresh already in progress, waiting for existing refresh...")
     try {
       const result = await refreshPromise
+      const elapsed = Date.now() - startTime
+      console.log("[auth] ensureValidSession: Waited for existing refresh", {
+        result: !!result,
+        elapsedMs: elapsed,
+      })
       if (result) {
         return true
       }
       // Refresh completed but returned false, check session directly
       const session = await getCurrentSession()
-      return !!session
-    } catch (error) {
+      const hasSession = !!session
+      console.log("[auth] ensureValidSession: Existing refresh returned false, checking session directly", {
+        hasSession,
+      })
+      return hasSession
+    } catch (error: any) {
       // Existing refresh failed, continue with our own check
-      console.log("[auth] Existing refresh failed, checking session...")
+      console.log("[auth] ensureValidSession: Existing refresh failed, checking session...", {
+        error: error?.message,
+      })
       // Reset mutex since refresh failed
       refreshInProgress = false
       refreshPromise = null
     }
   }
 
+  // CRITICAL: Short-circuit if Supabase just refreshed token (within last 5 minutes)
+  // This prevents unnecessary refresh attempts when network is slow
+  // If TOKEN_REFRESHED fired, Supabase has a valid session - we just can't read it due to network issues
+  if (lastTokenRefreshTime) {
+    const timeSinceRefresh = Date.now() - lastTokenRefreshTime
+    if (timeSinceRefresh < 300000) { // 5 minutes - extended window
+      console.log("[auth] ensureValidSession: Recent token refresh detected, skipping refresh check", {
+        timeSinceRefreshMs: timeSinceRefresh,
+        timeSinceRefreshMinutes: Math.floor(timeSinceRefresh / 60000),
+        lastTokenRefreshTime,
+      })
+      return true // Session was just refreshed, assume valid
+    } else {
+      console.log("[auth] ensureValidSession: Token refresh was too long ago, will check session", {
+        timeSinceRefreshMs: timeSinceRefresh,
+        timeSinceRefreshMinutes: Math.floor(timeSinceRefresh / 60000),
+      })
+    }
+  }
+
   try {
     const expired = await isSessionExpired()
+    console.log("[auth] ensureValidSession: Session expiry check", {
+      expired,
+      refreshInProgress,
+    })
+    
     if (!expired) {
+      const elapsed = Date.now() - startTime
+      console.log("[auth] ensureValidSession: Session valid, no refresh needed", {
+        elapsedMs: elapsed,
+      })
       return true // Session is valid, no refresh needed
     }
 
     // Session is expired - check mutex again before starting refresh
     if (refreshInProgress && refreshPromise) {
-      console.log("[auth] Refresh started while checking, waiting...")
+      console.log("[auth] ensureValidSession: Refresh started while checking expiry, waiting...")
       try {
         const result = await refreshPromise
+        const elapsed = Date.now() - startTime
+        console.log("[auth] ensureValidSession: Got result from concurrent refresh", {
+          result: !!result,
+          elapsedMs: elapsed,
+        })
         if (result) {
           return true
         }
         const session = await getCurrentSession()
-        return !!session
-      } catch (error) {
+        const hasSession = !!session
+        console.log("[auth] ensureValidSession: Concurrent refresh returned false, checking session", {
+          hasSession,
+        })
+        return hasSession
+      } catch (error: any) {
+        console.log("[auth] ensureValidSession: Concurrent refresh failed", {
+          error: error?.message,
+        })
         refreshInProgress = false
         refreshPromise = null
       }
     }
 
     // Start new refresh with mutex protection
+    console.log("[auth] ensureValidSession: Starting new session refresh...")
     refreshInProgress = true
+    const refreshStartTime = Date.now()
     refreshPromise = (async () => {
       try {
-        console.log("[auth] Session expired or expiring soon, refreshing...")
+        console.log("[auth] ensureValidSession: refreshPromise START - Session expired or expiring soon, refreshing...")
         await refreshSession() // Will retry automatically
-        console.log("[auth] Session refreshed successfully")
+        const refreshElapsed = Date.now() - refreshStartTime
+        console.log("[auth] ensureValidSession: refreshPromise SUCCESS - Session refreshed successfully", {
+          refreshElapsedMs: refreshElapsed,
+        })
         return true
       } catch (refreshError: any) {
         // Refresh failed after all retries
-        console.error("[auth] ensureValidSession: refresh failed after retries:", refreshError.message)
+        const refreshElapsed = Date.now() - refreshStartTime
+        console.error("[auth] ensureValidSession: refreshPromise FAILED - refresh failed after retries", {
+          error: refreshError.message,
+          errorType: refreshError.constructor?.name,
+          refreshElapsedMs: refreshElapsed,
+        })
         
         // Check if session still exists in storage (might be valid despite refresh failure)
         const storedSession = await getCurrentSession()
+        console.log("[auth] ensureValidSession: Checking stored session after refresh failure", {
+          hasStoredSession: !!storedSession,
+        })
+        
         if (storedSession) {
-          console.log("[auth] Session exists in storage despite refresh failure, checking validity...")
+          console.log("[auth] ensureValidSession: Session exists in storage despite refresh failure, checking validity...")
           // Check if stored session is still valid (not expired)
           const expiresAt = storedSession.expires_at
           if (expiresAt) {
             const expiresIn = expiresAt - Math.floor(Date.now() / 1000)
+            const expiresInMinutes = Math.floor(expiresIn / 60)
+            console.log("[auth] ensureValidSession: Stored session expiry check", {
+              expiresAt: new Date(expiresAt * 1000).toISOString(),
+              expiresInSeconds: expiresIn,
+              expiresInMinutes,
+              isValid: expiresIn > 0,
+            })
             if (expiresIn > 0) {
-              console.log("[auth] Stored session is still valid, continuing with it")
+              console.log("[auth] ensureValidSession: Stored session is still valid, continuing with it")
               return true // Session is valid, continue
+            } else {
+              console.log("[auth] ensureValidSession: Stored session is expired")
             }
+          } else {
+            console.log("[auth] ensureValidSession: Stored session has no expiry info")
           }
         }
         
-        // No valid session found
+        // CRITICAL: Try biometric restore as fallback (if enabled)
+        // This restores session using stored biometric credentials
+        console.log("[auth] ensureValidSession: Attempting biometric restore as fallback...")
+        try {
+          const { 
+            getBiometricPreference, 
+            getBiometricRefreshToken,
+            getBiometricUserId 
+          } = await import("./biometric")
+          
+          const biometricEnabled = await getBiometricPreference()
+          if (biometricEnabled) {
+            const biometricRefreshToken = await getBiometricRefreshToken()
+            const biometricUserId = await getBiometricUserId()
+            
+            if (biometricRefreshToken && biometricUserId) {
+              console.log("[auth] ensureValidSession: Biometric credentials found, attempting restore...")
+              // Use refresh token to restore session (no biometric prompt needed - token is already stored)
+              const { data, error } = await supabase.auth.refreshSession({
+                refresh_token: biometricRefreshToken,
+              })
+              
+              if (!error && data?.session) {
+                console.log("[auth] ensureValidSession: Biometric restore SUCCESS - Session restored")
+                return true // Session restored successfully
+              } else {
+                console.warn("[auth] ensureValidSession: Biometric restore failed", {
+                  error: error?.message,
+                })
+                // Clear invalid biometric credentials
+                const { clearBiometricCredentials } = await import("./biometric")
+                await clearBiometricCredentials()
+              }
+            } else {
+              console.log("[auth] ensureValidSession: No biometric credentials found")
+            }
+          } else {
+            console.log("[auth] ensureValidSession: Biometric not enabled")
+          }
+        } catch (biometricError: any) {
+          console.error("[auth] ensureValidSession: Biometric restore error", {
+            error: biometricError?.message,
+          })
+          // Don't fail - continue to return false
+        }
+        
+        // No valid session found and biometric restore failed
+        console.log("[auth] ensureValidSession: No valid session found after refresh failure and biometric restore attempt")
         return false
       } finally {
         refreshInProgress = false
         refreshPromise = null
+        const totalElapsed = Date.now() - refreshStartTime
+        console.log("[auth] ensureValidSession: refreshPromise FINALLY - Mutex cleared", {
+          totalElapsedMs: totalElapsed,
+        })
       }
     })()
 
     const result = await refreshPromise
+    const totalElapsed = Date.now() - startTime
+    console.log("[auth] ensureValidSession: END", {
+      result,
+      totalElapsedMs: totalElapsed,
+    })
     return result
   } catch (error: any) {
     // Make sure to reset mutex on error
+    const totalElapsed = Date.now() - startTime
     if (refreshInProgress) {
       refreshInProgress = false
       refreshPromise = null
     }
-    console.error("[auth] ensureValidSession failed:", error.message)
+    console.error("[auth] ensureValidSession: EXCEPTION", {
+      error: error.message,
+      errorType: error.constructor?.name,
+      stack: error.stack,
+      totalElapsedMs: totalElapsed,
+    })
     // Check stored session as fallback
     try {
       const storedSession = await getCurrentSession()
+      console.log("[auth] ensureValidSession: Checking fallback stored session", {
+        hasStoredSession: !!storedSession,
+      })
       if (storedSession) {
         const expiresAt = storedSession.expires_at
         if (expiresAt) {
           const expiresIn = expiresAt - Math.floor(Date.now() / 1000)
+          const expiresInMinutes = Math.floor(expiresIn / 60)
+          console.log("[auth] ensureValidSession: Fallback session expiry check", {
+            expiresAt: new Date(expiresAt * 1000).toISOString(),
+            expiresInSeconds: expiresIn,
+            expiresInMinutes,
+            isValid: expiresIn > 0,
+          })
           if (expiresIn > 0) {
-            console.log("[auth] Using stored session as fallback")
+            console.log("[auth] ensureValidSession: Using stored session as fallback")
             return true
           }
         }
       }
-    } catch (fallbackError) {
-      console.error("[auth] Fallback session check failed:", fallbackError)
+    } catch (fallbackError: any) {
+      console.error("[auth] ensureValidSession: Fallback session check failed", {
+        error: fallbackError?.message,
+      })
     }
+    console.log("[auth] ensureValidSession: Returning false (no valid session)")
     return false
   }
 }

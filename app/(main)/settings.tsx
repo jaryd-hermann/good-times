@@ -32,6 +32,13 @@ import {
   saveBiometricPreference,
   authenticateWithBiometric,
 } from "../../lib/biometric"
+import {
+  logSessionState,
+  forceSessionExpiry,
+  simulateLongInactivity,
+  clearAllSessionData,
+  type SessionState,
+} from "../../lib/test-session-utils"
 
 export default function SettingsScreen() {
   const router = useRouter()
@@ -45,6 +52,7 @@ export default function SettingsScreen() {
   const [biometricAvailable, setBiometricAvailable] = useState(false)
   const [biometricType, setBiometricType] = useState<"face" | "fingerprint" | "iris" | "none">("none")
   const [devForceCustomQuestion, setDevForceCustomQuestion] = useState(false)
+  const [sessionState, setSessionState] = useState<SessionState | null>(null)
   const posthog = usePostHog()
 
   // Track loaded_settings_screen event
@@ -180,6 +188,98 @@ export default function SettingsScreen() {
   async function handleDevForceCustomQuestionToggle(value: boolean) {
     setDevForceCustomQuestion(value)
     await AsyncStorage.setItem("dev_force_custom_question", value ? "true" : "false")
+  }
+
+  async function handleLogSessionState() {
+    try {
+      const state = await logSessionState()
+      setSessionState(state)
+      Alert.alert(
+        "Session State",
+        `Session: ${state.hasSession ? "✅" : "❌"}\n` +
+        `Expires in: ${state.sessionExpiresIn !== null ? `${state.sessionExpiresIn} min` : "N/A"}\n` +
+        `Cold start: ${state.isColdStart ? "Yes" : "No"}\n` +
+        `Inactive too long: ${state.inactiveTooLong ? "Yes" : "No"}\n` +
+        `Time since close: ${state.timeSinceClose !== null ? `${state.timeSinceClose} min` : "N/A"}\n` +
+        `Time since active: ${state.timeSinceActive !== null ? `${state.timeSinceActive} min` : "N/A"}\n\n` +
+        `Check console for full details.`,
+        [{ text: "OK" }]
+      )
+    } catch (error: any) {
+      Alert.alert("Error", error.message || "Failed to log session state")
+    }
+  }
+
+  async function handleForceSessionExpiry() {
+    Alert.alert(
+      "Force Session Expiry",
+      "This will clear the current session. Restart the app to test expired session flow.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Clear Session",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await forceSessionExpiry()
+              Alert.alert("Success", "Session cleared. Restart app to test.")
+            } catch (error: any) {
+              Alert.alert("Error", error.message || "Failed to clear session")
+            }
+          },
+        },
+      ]
+    )
+  }
+
+  async function handleSimulateInactivity() {
+    Alert.prompt(
+      "Simulate Inactivity",
+      "Enter minutes of inactivity to simulate (default: 35):",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Simulate",
+          onPress: async (minutesStr) => {
+            try {
+              const minutes = minutesStr ? parseInt(minutesStr, 10) : 35
+              if (isNaN(minutes) || minutes < 0) {
+                Alert.alert("Error", "Invalid number of minutes")
+                return
+              }
+              await simulateLongInactivity(minutes)
+              Alert.alert("Success", `Simulated ${minutes} minutes of inactivity. Restart app to test.`)
+            } catch (error: any) {
+              Alert.alert("Error", error.message || "Failed to simulate inactivity")
+            }
+          },
+        },
+      ],
+      "plain-text",
+      "35"
+    )
+  }
+
+  async function handleClearAllSessionData() {
+    Alert.alert(
+      "Clear All Session Data",
+      "This will clear all session lifecycle data. Restart the app to test cold start.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Clear All",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await clearAllSessionData()
+              Alert.alert("Success", "All session data cleared. Restart app to test.")
+            } catch (error: any) {
+              Alert.alert("Error", error.message || "Failed to clear session data")
+            }
+          },
+        },
+      ]
+    )
   }
 
 
@@ -423,18 +523,58 @@ export default function SettingsScreen() {
         )}
 
         {__DEV__ && (
-          <View style={styles.settingRow}>
-            <View style={styles.settingRowText}>
-              <Text style={styles.settingRowTitle}>Force Custom Question</Text>
-              <Text style={styles.settingRowSubtitle}>Override eligibility to test custom question flow</Text>
+          <>
+            <View style={styles.settingRow}>
+              <View style={styles.settingRowText}>
+                <Text style={styles.settingRowTitle}>Force Custom Question</Text>
+                <Text style={styles.settingRowSubtitle}>Override eligibility to test custom question flow</Text>
+              </View>
+              <Switch
+                value={devForceCustomQuestion}
+                onValueChange={handleDevForceCustomQuestionToggle}
+                trackColor={{ false: colors.gray[700], true: colors.accent }}
+                thumbColor={Platform.OS === "android" ? (isDark ? colors.white : colors.black) : colors.white}
+              />
             </View>
-            <Switch
-              value={devForceCustomQuestion}
-              onValueChange={handleDevForceCustomQuestionToggle}
-              trackColor={{ false: colors.gray[700], true: colors.accent }}
-              thumbColor={Platform.OS === "android" ? (isDark ? colors.white : colors.black) : colors.white}
-            />
-          </View>
+
+            {/* Session Testing Utilities */}
+            <View style={[styles.profileCard, { marginTop: spacing.md }]}>
+              <View style={styles.profileCardContent}>
+                <View style={styles.profileCardIcon}>
+                  <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.gray[800], justifyContent: "center", alignItems: "center" }}>
+                    <FontAwesome name="bug" size={20} color={colors.accent} />
+                  </View>
+                </View>
+                <View style={styles.profileCardText}>
+                  <Text style={styles.profileCardTitle}>Session Testing</Text>
+                  <Text style={styles.profileCardSubtitle}>Dev tools for testing session management</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.actions}>
+              <Button
+                title="Log Session State"
+                onPress={handleLogSessionState}
+                variant="secondary"
+              />
+              <Button
+                title="Force Session Expiry"
+                onPress={handleForceSessionExpiry}
+                variant="secondary"
+              />
+              <Button
+                title="Simulate Long Inactivity"
+                onPress={handleSimulateInactivity}
+                variant="secondary"
+              />
+              <Button
+                title="Clear All Session Data"
+                onPress={handleClearAllSessionData}
+                variant="secondary"
+              />
+            </View>
+          </>
         )}
 
         <View style={styles.actions}>

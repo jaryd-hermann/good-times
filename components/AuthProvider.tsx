@@ -93,6 +93,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } = supabase.auth.onAuthStateChange(async (event: string, session: any) => {
       console.log(`[AuthProvider] onAuthStateChange: event=${event}, hasSession=${!!session}`)
       
+      // CRITICAL: Mark token refresh when Supabase auto-refreshes
+      // This prevents unnecessary refresh attempts when network is slow
+      if (event === "TOKEN_REFRESHED") {
+        try {
+          const { markTokenRefreshed } = await import("../lib/auth")
+          markTokenRefreshed()
+          console.log("[AuthProvider] Token refreshed by Supabase - marking as valid")
+        } catch (error) {
+          console.warn("[AuthProvider] Failed to mark token refresh:", error)
+        }
+      }
+      
       // Mark that we've received initial session state
       if (!sessionInitialized) {
         sessionInitialized = true
@@ -206,26 +218,81 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // CRITICAL: App came to foreground - ALWAYS refresh session to ensure it's valid
         // This prevents black screens and ensures session is active
         // Add small delay to avoid race conditions with initial load
+        console.log("[AuthProvider] AppState: active - App came to foreground", {
+          hasUser: !!user,
+          userId: user?.id,
+          timestamp: new Date().toISOString(),
+        })
         refreshTimeout = setTimeout(async () => {
+          const foregroundRefreshStartTime = Date.now()
           try {
             if (user) {
-              console.log("[AuthProvider] App came to foreground - refreshing session to ensure validity...")
+              // CRITICAL: Check if we should skip refresh (Supabase already refreshed)
+              const { shouldSkipSessionCheck } = await import("../lib/auth")
+              const skipCheck = shouldSkipSessionCheck()
+              
+              if (skipCheck) {
+                console.log("[AuthProvider] Foreground refresh: SKIPPED - Recent token refresh detected", {
+                  userId: user.id,
+                  timestamp: new Date().toISOString(),
+                })
+                return // Skip refresh - Supabase already handled it
+              }
+              
+              console.log("[AuthProvider] Foreground refresh: START", {
+                userId: user.id,
+                timestamp: new Date().toISOString(),
+              })
               setRefreshing(true)
               try {
                 // Always refresh session on foreground, regardless of expiry status
                 // This ensures session is active and prevents stale session issues
                 const { ensureValidSession } = await import("../lib/auth")
-                await ensureValidSession()
-                console.log("[AuthProvider] Session refreshed successfully on foreground")
-              } catch (error) {
-                console.error("[AuthProvider] Failed to refresh session on foreground:", error)
+                const sessionValid = await ensureValidSession()
+                const foregroundRefreshElapsed = Date.now() - foregroundRefreshStartTime
+                console.log("[AuthProvider] Foreground refresh: COMPLETE", {
+                  sessionValid,
+                  elapsedMs: foregroundRefreshElapsed,
+                })
+                if (sessionValid) {
+                  console.log("[AuthProvider] Session refreshed successfully on foreground")
+                } else {
+                  console.warn("[AuthProvider] Session refresh returned false on foreground - session may be invalid")
+                  // CRITICAL: Trigger boot flow re-evaluation in app/index.tsx
+                  // Use AsyncStorage as communication mechanism
+                  try {
+                    const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default
+                    await AsyncStorage.setItem("trigger_boot_recheck", Date.now().toString())
+                    console.log("[AuthProvider] Set trigger_boot_recheck flag")
+                  } catch (storageError) {
+                    console.error("[AuthProvider] Failed to set trigger_boot_recheck:", storageError)
+                  }
+                }
+              } catch (error: any) {
+                const foregroundRefreshElapsed = Date.now() - foregroundRefreshStartTime
+                console.error("[AuthProvider] Foreground refresh: ERROR - Failed to refresh session", {
+                  error: error?.message,
+                  errorType: error?.constructor?.name,
+                  elapsedMs: foregroundRefreshElapsed,
+                })
                 // Don't set refreshing to false here - let it timeout or handle in finally
               } finally {
                 setRefreshing(false)
+                const totalElapsed = Date.now() - foregroundRefreshStartTime
+                console.log("[AuthProvider] Foreground refresh: FINALLY", {
+                  totalElapsedMs: totalElapsed,
+                })
               }
+            } else {
+              console.log("[AuthProvider] Foreground refresh: SKIPPED - No user")
             }
-          } catch (error) {
-            console.error("[AuthProvider] Error refreshing session on foreground:", error)
+          } catch (error: any) {
+            const foregroundRefreshElapsed = Date.now() - foregroundRefreshStartTime
+            console.error("[AuthProvider] Foreground refresh: EXCEPTION", {
+              error: error?.message,
+              errorType: error?.constructor?.name,
+              elapsedMs: foregroundRefreshElapsed,
+            })
             setRefreshing(false)
           }
         }, 500) // Small delay to avoid race conditions

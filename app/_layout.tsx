@@ -18,6 +18,7 @@ import { TabBarProvider } from "../lib/tab-bar-context"
 import { ThemeProvider } from "../lib/theme-context"
 import { View, ActivityIndicator, StyleSheet, ImageBackground, Text } from "react-native"
 import { typography, colors as themeColors } from "../lib/theme"
+import AsyncStorage from "@react-native-async-storage/async-storage"
 // Import supabase with error handling
 let supabase: any
 try {
@@ -35,6 +36,58 @@ try {
 }
 
 SplashScreen.preventAutoHideAsync().catch(() => {})
+
+// Component to handle boot recheck trigger from AuthProvider
+// This ensures boot screen shows and boot flow runs even when app/index.tsx isn't mounted
+function BootRecheckHandler() {
+  const { user } = useAuth()
+  
+  useEffect(() => {
+    let checkInterval: ReturnType<typeof setInterval> | null = null
+    
+    const checkTrigger = async () => {
+      try {
+        const trigger = await AsyncStorage.getItem("trigger_boot_recheck")
+        if (trigger) {
+          console.log("[_layout] Boot recheck trigger detected from AuthProvider, forcing boot screen", {
+            triggerValue: trigger,
+            hasUser: !!user,
+            userId: user?.id,
+            timestamp: new Date().toISOString(),
+          })
+          await AsyncStorage.removeItem("trigger_boot_recheck")
+          
+          // CRITICAL: Navigate to root (/) to trigger app/index.tsx boot flow
+          // This will show boot screen and run proper boot flow
+          if (user) {
+            console.log("[_layout] User exists, navigating to root to show boot screen and run boot flow")
+            // Set flag to force boot screen to show
+            await AsyncStorage.setItem("force_boot_screen", "true")
+            // Navigate to root - this will mount app/index.tsx and show boot screen
+            router.replace("/")
+          }
+        }
+      } catch (error) {
+        console.error("[_layout] Failed to check boot recheck trigger:", error)
+      }
+    }
+
+    // Check immediately
+    checkTrigger()
+    
+    // Check periodically (every 2 seconds)
+    // Reduced frequency to avoid log spam
+    checkInterval = setInterval(checkTrigger, 2000) // Reduced from 500ms to 2s
+
+    return () => {
+      if (checkInterval) {
+        clearInterval(checkInterval)
+      }
+    }
+  }, [user])
+  
+  return null // This component doesn't render anything
+}
 
 // Refreshing overlay component - shows when session is being refreshed
 // Matches the boot screen design for consistency
@@ -444,6 +497,7 @@ export default function RootLayout() {
       >
         <SafeAreaProvider>
           <AuthProvider>
+            <BootRecheckHandler />
             <RefreshingOverlay />
             <ThemeProvider>
             <QueryClientProvider client={queryClient}>

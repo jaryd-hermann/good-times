@@ -61,6 +61,7 @@ import { NotificationModal } from "../../components/NotificationModal"
 import { getInAppNotifications, markNotificationsAsChecked, markEntryAsVisited, markGroupAsVisited, clearAllNotifications, type InAppNotification } from "../../lib/notifications-in-app"
 import { updateBadgeCount } from "../../lib/notifications-badge"
 import { UserProfileModal } from "../../components/UserProfileModal"
+import { useAuth } from "../../components/AuthProvider"
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 
@@ -163,6 +164,7 @@ export default function Home() {
   const focusGroupId = params.focusGroupId as string | undefined
   const queryClient = useQueryClient()
   const { colors, isDark } = useTheme()
+  const { user: authUser } = useAuth() // Get user from AuthProvider (works even with invalid session)
   const [selectedDate, setSelectedDate] = useState(getTodayDate())
   const [currentGroupId, setCurrentGroupId] = useState<string>()
   const [userId, setUserId] = useState<string>()
@@ -222,7 +224,7 @@ export default function Home() {
 
   useEffect(() => {
     loadUser()
-  }, [])
+  }, [authUser]) // Re-run when authUser changes (e.g., after session refresh)
 
   // Reload user profile when screen comes into focus (e.g., returning from settings)
   // But don't reset group - only update if focusGroupId param is provided
@@ -245,9 +247,15 @@ export default function Home() {
             // Continue anyway - might still work
           }
           
-          const {
-            data: { user },
-          } = await supabase.auth.getUser()
+          // CRITICAL: Use user from AuthProvider first (works even with invalid session)
+          let user = authUser
+          if (!user) {
+            const {
+              data: { user: supabaseUser },
+            } = await supabase.auth.getUser()
+            user = supabaseUser
+          }
+          
           if (user) {
             setUserId(user.id)
             const profile = await getCurrentUser()
@@ -314,13 +322,21 @@ export default function Home() {
 
   async function loadUser() {
     try {
-      // Ensure session is valid before loading data
-      const { ensureValidSession } = await import("../../lib/auth")
-      await ensureValidSession()
+      // CRITICAL: Use user from AuthProvider first (works even with invalid session)
+      // Fall back to Supabase if AuthProvider doesn't have user
+      let user = authUser
       
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
+      if (!user) {
+        // Try to ensure session is valid before loading data
+        const { ensureValidSession } = await import("../../lib/auth")
+        await ensureValidSession()
+        
+        const {
+          data: { user: supabaseUser },
+        } = await supabase.auth.getUser()
+        user = supabaseUser
+      }
+      
       if (user) {
         setUserId(user.id)
         const profile = await getCurrentUser()
