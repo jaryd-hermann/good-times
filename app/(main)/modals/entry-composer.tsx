@@ -18,6 +18,7 @@ import {
   AppState,
   PanResponder,
   Animated,
+  Dimensions,
 } from "react-native"
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
 import * as ImagePicker from "expo-image-picker"
@@ -35,6 +36,8 @@ import { parseEmbedUrl, extractEmbedUrls, type ParsedEmbed } from "../../../lib/
 import { EmbeddedPlayer } from "../../../components/EmbeddedPlayer"
 import * as Clipboard from "expo-clipboard"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "../../../lib/prompts"
+import { MentionAutocomplete } from "../../../components/MentionAutocomplete"
+import { UserProfileModal } from "../../../components/UserProfileModal"
 import * as FileSystem from "expo-file-system/legacy"
 import { usePostHog } from "posthog-react-native"
 import { captureEvent, safeCapture } from "../../../lib/posthog"
@@ -96,12 +99,21 @@ export default function EntryComposer() {
   const [showSuccessModal, setShowSuccessModal] = useState(false)
   const [keyboardHeight, setKeyboardHeight] = useState(0)
   const [uploadingMedia, setUploadingMedia] = useState<Record<string, boolean>>({})
+  const currentScrollYRef = useRef<number>(0)
   const [showUploadingModal, setShowUploadingModal] = useState(false)
   const [showFileSizeModal, setShowFileSizeModal] = useState(false)
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const dragPosition = useRef(new Animated.ValueXY()).current
   const posthog = usePostHog()
+  const scrollViewHeightRef = useRef<number>(0)
+  
+  // Mention autocomplete state
+  const [mentionQuery, setMentionQuery] = useState("")
+  const [showMentionAutocomplete, setShowMentionAutocomplete] = useState(false)
+  const [selectedMentionUser, setSelectedMentionUser] = useState<{ id: string; name: string; avatar_url?: string } | null>(null)
+  const [userProfileModalVisible, setUserProfileModalVisible] = useState(false)
+  const cursorPositionRef = useRef<number>(0)
   
   // File size limit: 2GB = 2 * 1024 * 1024 * 1024 bytes
   const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024
@@ -214,6 +226,24 @@ export default function EntryComposer() {
     queryKey: ["members", currentGroupId],
     queryFn: () => (currentGroupId ? getGroupMembers(currentGroupId) : []),
     enabled: !!currentGroupId && !!activePrompt?.question?.match(/\{.*member_name.*\}/i),
+  })
+
+  // Fetch all members for mention autocomplete (exclude current user)
+  const { data: mentionUsers = [] } = useQuery({
+    queryKey: ["mentionUsers", currentGroupId, userId],
+    queryFn: async () => {
+      if (!currentGroupId || !userId) return []
+      const members = await getGroupMembers(currentGroupId)
+      // Filter out current user and map to MentionUser format
+      return members
+        .filter((m) => m.user_id !== userId)
+        .map((m) => ({
+          id: m.user_id,
+          name: m.user?.name || "User",
+          avatar_url: m.user?.avatar_url,
+        }))
+    },
+    enabled: !!currentGroupId && !!userId,
   })
 
   // Fetch prompt_name_usage for member_name to get the exact name that was stored
@@ -586,7 +616,7 @@ export default function EntryComposer() {
         if (status.isRecording) {
           setVoiceDuration(Math.floor(status.durationMillis / 1000))
         }
-      }, 300)
+      }, 300) as unknown as NodeJS.Timeout
     } catch (error: any) {
       // If error is about background state, show helpful message
       if (error.message?.includes("background")) {
@@ -1004,6 +1034,9 @@ export default function EntryComposer() {
         embedUrl: embed.embedUrl,
       }))
 
+      // Parse mentions from text
+      const mentionedUserIds = parseMentions(text.trim())
+      
       if (editMode && entryId) {
         // Update existing entry
         await updateEntry(
@@ -1012,8 +1045,9 @@ export default function EntryComposer() {
           {
             text_content: text.trim() || undefined,
             media_urls: uploadedMedia.map((item) => item.url),
-            media_types: uploadedMedia.map((item) => item.type),
+            media_types: uploadedMedia.map((item) => item.type) as ("photo" | "video" | "audio")[],
             embedded_media: embeddedMediaForStorage.length > 0 ? embeddedMediaForStorage : undefined,
+            mentions: mentionedUserIds.length > 0 ? mentionedUserIds : undefined,
           }
         )
 
@@ -1043,16 +1077,22 @@ export default function EntryComposer() {
         ])
       } else {
         // Create new entry
-        await createEntry({
+        const newEntry = await createEntry({
           group_id: currentGroupId,
           user_id: userId,
           prompt_id: activePrompt.id,
           date,
           text_content: text.trim() || undefined,
           media_urls: uploadedMedia.map((item) => item.url),
-          media_types: uploadedMedia.map((item) => item.type),
+          media_types: uploadedMedia.map((item) => item.type) as ("photo" | "video" | "audio")[],
           embedded_media: embeddedMediaForStorage.length > 0 ? embeddedMediaForStorage : undefined,
+          mentions: mentionedUserIds.length > 0 ? mentionedUserIds : undefined,
         })
+        
+        // Create notifications for mentioned users
+        if (mentionedUserIds.length > 0 && newEntry) {
+          await createMentionNotifications(newEntry.id, currentGroupId, userId, mentionedUserIds)
+        }
 
         // Track answered_daily_question event
         const hasMedia = uploadedMedia.length > 0 || embeddedMedia.length > 0
@@ -1098,28 +1138,195 @@ export default function EntryComposer() {
     }
   }
 
-  // Don't auto-focus on mount - let user tap to focus
-  // This prevents keyboard from pushing content up before user starts typing
+  // Handle mention selection
+  function handleMentionSelect(user: { id: string; name: string; avatar_url?: string }) {
+    const cursorPosition = cursorPositionRef.current
+    const textBeforeCursor = text.substring(0, cursorPosition)
+    const lastAtIndex = textBeforeCursor.lastIndexOf("@")
+    
+    if (lastAtIndex !== -1) {
+      // Replace "@query" with "@UserName" (bold formatting will be handled in display)
+      const textAfterAt = textBeforeCursor.substring(lastAtIndex + 1)
+      const newText = 
+        text.substring(0, lastAtIndex) + 
+        `@${user.name}` + 
+        text.substring(cursorPosition)
+      
+      setText(newText)
+      setShowMentionAutocomplete(false)
+      
+      // Move cursor after the mention
+      setTimeout(() => {
+        const newCursorPosition = lastAtIndex + user.name.length + 1
+        cursorPositionRef.current = newCursorPosition
+        textInputRef.current?.setNativeProps({
+          selection: { start: newCursorPosition, end: newCursorPosition },
+        })
+      }, 0)
+    }
+  }
 
-  // Handle input layout to capture position (don't auto-focus)
+  // Parse mentions from text content
+  // Returns array of user IDs that were mentioned
+  function parseMentions(textContent: string): string[] {
+    if (!textContent || !currentGroupId) return []
+    
+    // Find all @mentions in text (format: @Name)
+    // Match @ followed by word characters (letters, numbers, underscore)
+    // Stop at whitespace, punctuation, or end of string
+    const mentionRegex = /@(\w+)/g
+    const matches = Array.from(textContent.matchAll(mentionRegex))
+    const mentionedNames = matches.map((match) => match[1])
+    
+    // Find user IDs for mentioned names
+    const mentionedUserIds: string[] = []
+    for (const name of mentionedNames) {
+      const member = members.find((m) => 
+        m.user?.name?.toLowerCase() === name.toLowerCase()
+      )
+      if (member && member.user_id !== userId) {
+        mentionedUserIds.push(member.user_id)
+      }
+    }
+    
+    // Remove duplicates
+    return Array.from(new Set(mentionedUserIds))
+  }
+
+  // Create notifications for mentioned users
+  async function createMentionNotifications(
+    entryId: string,
+    groupId: string,
+    authorUserId: string,
+    mentionedUserIds: string[]
+  ) {
+    if (!mentionedUserIds.length) return
+    
+    try {
+      // Get author's name
+      const { data: author } = await supabase
+        .from("users")
+        .select("name")
+        .eq("id", authorUserId)
+        .single()
+      
+      const authorName = author?.name || "Someone"
+      
+      // Create notifications for each mentioned user
+      const notifications = mentionedUserIds.map((mentionedUserId) => ({
+        user_id: mentionedUserId,
+        type: "mentioned_in_entry",
+        title: `${authorName} mentioned you in their answer today`,
+        body: "See what they said about you",
+        data: {
+          entry_id: entryId,
+          group_id: groupId,
+          author_user_id: authorUserId,
+        },
+        read: false,
+      }))
+      
+      // Insert notifications (for in-app display)
+      const { error: notificationsError } = await supabase
+        .from("notifications")
+        .insert(notifications)
+      
+      if (notificationsError) {
+        console.error("[entry-composer] Failed to create mention notifications:", notificationsError)
+      }
+      
+      // Also insert into notification_queue for push notifications
+      const { error: queueError } = await supabase
+        .from("notification_queue")
+        .insert(notifications.map(n => ({
+          user_id: n.user_id,
+          type: n.type,
+          title: n.title,
+          body: n.body,
+          data: n.data,
+        })))
+      
+      if (queueError) {
+        console.error("[entry-composer] Failed to add mention notifications to queue:", queueError)
+      }
+    } catch (error) {
+      console.error("[entry-composer] Error creating mention notifications:", error)
+    }
+  }
+
+  // Auto-focus text input on mount so users can start typing immediately
+  useEffect(() => {
+    // Small delay to ensure component is fully mounted and layout is ready
+    const focusTimer = setTimeout(() => {
+      textInputRef.current?.focus()
+    }, 300) as unknown as NodeJS.Timeout
+    
+    return () => clearTimeout(focusTimer)
+  }, [])
+
+  // Handle input layout to capture position
   const handleInputLayout = useCallback((event: any) => {
     const { y, height } = event.nativeEvent.layout
     inputContainerYRef.current = y
-    // Don't auto-focus - let user tap to focus
   }, [])
 
+  // Helper function to scroll input into view above keyboard
+  // Only scrolls if cursor is close to or below the keyboard
+  const scrollInputIntoView = useCallback((contentHeight?: number, forceScroll: boolean = false) => {
+    if (!scrollViewRef.current || inputContainerYRef.current === null) return
+    
+    // Use requestAnimationFrame to ensure layout is updated
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          if (!scrollViewRef.current || inputContainerYRef.current === null) return
+          
+          // Get screen dimensions
+          const screenHeight = Dimensions.get('window').height
+          
+          // Use contentHeight if provided, otherwise estimate based on text length
+          // Average line height is ~24px, min height is 200px
+          const estimatedHeight = contentHeight || Math.max(200, (text.split('\n').length * 24))
+          
+          // Calculate the bottom position of the text input (where cursor is)
+          const inputTop = inputContainerYRef.current
+          const inputBottom = inputTop + estimatedHeight
+          
+          // Calculate visible area above keyboard
+          const toolbarHeight = 80
+          const padding = 60 // Reduced padding - only keep cursor slightly above keyboard
+          const visibleAreaTop = keyboardHeight > 0 
+            ? screenHeight - keyboardHeight - toolbarHeight - padding
+            : screenHeight - 300 // Fallback when keyboard not visible
+          
+          // Calculate where the cursor would be relative to the visible viewport
+          // Current scroll position is tracked in currentScrollYRef
+          const cursorPositionInViewport = inputBottom - currentScrollYRef.current
+          
+          // Only scroll if cursor is close to or below the keyboard threshold
+          // Or if forceScroll is true (for newlines)
+          const needsScroll = forceScroll || cursorPositionInViewport > visibleAreaTop
+          
+          if (needsScroll) {
+            // Scroll so that the bottom of the text input (cursor position) is visible above keyboard
+            // We want: inputBottom - scrollOffset <= visibleAreaTop
+            // So: scrollOffset >= inputBottom - visibleAreaTop
+            const scrollOffset = Math.max(0, inputBottom - visibleAreaTop)
+            currentScrollYRef.current = scrollOffset // Update tracked scroll position
+            scrollViewRef.current.scrollTo({ y: scrollOffset, animated: true })
+          }
+        }, 150) // Delay to ensure layout has updated
+      })
+    })
+  }, [keyboardHeight, text])
+
   // Auto-scroll to keep text input cursor visible when content size changes
-  const handleTextContentSizeChange = useCallback((contentWidth: number, contentHeight: number) => {
-    // When text content size changes (user types/returns), scroll to keep input visible
-    if (inputContainerYRef.current !== null && scrollViewRef.current) {
-      setTimeout(() => {
-        // Scroll to position the input container near the bottom of visible area
-        // Account for keyboard height and some padding
-        const scrollOffset = Math.max(0, inputContainerYRef.current! - 200)
-        scrollViewRef.current?.scrollTo({ y: scrollOffset, animated: true })
-      }, 100)
-    }
-  }, [])
+  const handleTextContentSizeChange = useCallback((event: any) => {
+    // When text content size changes (user types/returns), only scroll if cursor is close to keyboard
+    const contentHeight = event.nativeEvent.contentSize.height
+    scrollInputIntoView(contentHeight, false)
+  }, [scrollInputIntoView])
+
 
   // Handle media carousel layout to capture its Y position
   const handleMediaCarouselLayout = useCallback((event: any) => {
@@ -1576,6 +1783,14 @@ export default function EntryComposer() {
           style={styles.content} 
           contentContainerStyle={styles.contentContainer}
           keyboardShouldPersistTaps="handled"
+          onLayout={(event) => {
+            scrollViewHeightRef.current = event.nativeEvent.layout.height
+          }}
+          onScroll={(event) => {
+            // Track current scroll position to determine if we need to scroll
+            currentScrollYRef.current = event.nativeEvent.contentOffset.y
+          }}
+          scrollEventThrottle={16}
         >
         <Text style={styles.question}>{personalizedQuestion || activePrompt?.question}</Text>
         {activePrompt?.description && (
@@ -1622,24 +1837,105 @@ export default function EntryComposer() {
           </View>
         )}
 
-        <View ref={inputContainerRef} onLayout={handleInputLayout}>
+        <View ref={inputContainerRef} onLayout={handleInputLayout} style={{ position: 'relative' }}>
           <TextInput
             ref={textInputRef}
             style={styles.input}
             value={text}
-            onChangeText={setText}
+            onChangeText={(newText) => {
+              setText(newText)
+              
+              // Detect "@" mention trigger using current cursor position
+              const cursorPosition = cursorPositionRef.current || newText.length
+              const textBeforeCursor = newText.substring(0, cursorPosition)
+              const lastAtIndex = textBeforeCursor.lastIndexOf("@")
+              
+              if (lastAtIndex !== -1) {
+                // Check if there's a space or newline after @ (mention ended)
+                const textAfterAt = textBeforeCursor.substring(lastAtIndex + 1)
+                const hasSpaceOrNewline = /[\s\n]/.test(textAfterAt)
+                
+                if (!hasSpaceOrNewline) {
+                  // We're in a mention - show autocomplete
+                  const query = textAfterAt.toLowerCase()
+                  setMentionQuery(query)
+                  setShowMentionAutocomplete(true)
+                } else {
+                  setShowMentionAutocomplete(false)
+                }
+              } else {
+                setShowMentionAutocomplete(false)
+              }
+              
+              // Check if a newline was just added - only scroll if cursor would be below keyboard
+              if (newText.length > text.length && newText.endsWith('\n')) {
+                // Newline detected - check if we need to scroll (forceScroll = true)
+                setTimeout(() => {
+                  scrollInputIntoView(undefined, true)
+                }, 50) // Short delay to allow text to render
+              }
+            }}
             onBlur={handleTextBlur}
             onContentSizeChange={handleTextContentSizeChange}
+            onFocus={() => {
+              // When input is focused, ensure it's visible above keyboard
+              setTimeout(() => {
+                scrollInputIntoView()
+              }, 300) // Wait for keyboard animation
+            }}
+            onSelectionChange={(event) => {
+              // Track cursor position
+              const { start } = event.nativeEvent.selection
+              cursorPositionRef.current = start
+              
+              // When cursor position changes, only scroll if cursor is close to keyboard
+              // This handles cases where user moves cursor or text wraps
+              setTimeout(() => {
+                scrollInputIntoView(undefined, false)
+              }, 100)
+              
+              // Check for "@" mention trigger at new cursor position
+              const textBeforeCursor = text.substring(0, start)
+              const lastAtIndex = textBeforeCursor.lastIndexOf("@")
+              
+              if (lastAtIndex !== -1) {
+                const textAfterAt = textBeforeCursor.substring(lastAtIndex + 1)
+                const hasSpaceOrNewline = /[\s\n]/.test(textAfterAt)
+                
+                if (!hasSpaceOrNewline) {
+                  const query = textAfterAt.toLowerCase()
+                  setMentionQuery(query)
+                  setShowMentionAutocomplete(true)
+                } else {
+                  setShowMentionAutocomplete(false)
+                }
+              } else {
+                setShowMentionAutocomplete(false)
+              }
+            }}
             placeholder="Start writing..."
             placeholderTextColor={colors.gray[500]}
             multiline
-            autoFocus={false}
+            autoFocus={true}
             showSoftInputOnFocus={true}
             keyboardType="default"
             returnKeyType="default"
             blurOnSubmit={false}
             editable={true}
           />
+          
+          {/* Mention Autocomplete - positioned absolutely within input container */}
+          {showMentionAutocomplete && (
+            <View style={{ position: 'absolute', top: '100%', left: 0, marginTop: 8, zIndex: 1000, width: 280 }}>
+              <MentionAutocomplete
+                visible={showMentionAutocomplete}
+                query={mentionQuery}
+                users={mentionUsers}
+                onSelect={handleMentionSelect}
+                position={null}
+              />
+            </View>
+          )}
         </View>
 
         {/* Embedded media preview - show inline where they appear in text */}
@@ -1715,6 +2011,28 @@ export default function EntryComposer() {
 
       </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* User Profile Modal */}
+      <UserProfileModal
+        visible={userProfileModalVisible}
+        userId={selectedMentionUser?.id || null}
+        userName={selectedMentionUser?.name || null}
+        userAvatarUrl={selectedMentionUser?.avatar_url}
+        groupId={currentGroupId}
+        onClose={() => {
+          setUserProfileModalVisible(false)
+          setSelectedMentionUser(null)
+        }}
+        onViewHistory={(userId) => {
+          router.push({
+            pathname: "/(main)/history",
+            params: {
+              focusGroupId: currentGroupId,
+              filterMemberId: userId,
+            },
+          })
+        }}
+      />
 
       {/* Toolbar - positioned above keyboard */}
       <View style={[styles.toolbar, { bottom: Platform.OS === "android" ? keyboardHeight + spacing.xl + spacing.md : keyboardHeight }]}>

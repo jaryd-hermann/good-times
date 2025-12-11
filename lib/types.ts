@@ -75,6 +75,7 @@ export interface Entry {
   media_urls?: string[]
   media_types?: ("photo" | "video" | "audio")[]
   embedded_media?: EmbeddedMedia[]
+  mentions?: string[] // Array of user IDs mentioned in the entry
   created_at: string
   user?: User
   prompt?: Prompt

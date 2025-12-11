@@ -85,7 +85,87 @@ serve(async (req) => {
       if (isInIceBreakerPeriod && hasQueuedItems) {
         console.log(`[schedule-daily-prompts] Group ${group.id} in ice-breaker period but has queued items, processing queue`)
       }
-      // FIRST: Check for custom question scheduled for today (highest priority)
+      
+      // PRIORITY 1: Check for birthdays TODAY (HIGHEST PRIORITY - cannot be skipped)
+      // Get all group members with their birthdays
+      const { data: members, error: membersError } = await supabaseClient
+        .from("group_members")
+        .select("user_id, user:users(id, name, birthday)")
+        .eq("group_id", group.id)
+
+      if (membersError) throw membersError
+
+      // Check for birthdays today
+      const birthdayMembers: Array<{ user_id: string; name: string }> = []
+      if (members) {
+        for (const member of members) {
+          const user = member.user as any
+          if (user?.birthday) {
+            const birthdayMonthDay = user.birthday.substring(5) // MM-DD format
+            if (birthdayMonthDay === todayMonthDay) {
+              birthdayMembers.push({
+                user_id: user.id,
+                name: user.name || "them",
+              })
+            }
+          }
+        }
+      }
+
+      if (birthdayMembers.length > 0) {
+        // Handle birthday prompts
+        for (const birthdayMember of birthdayMembers) {
+          // Get "your_birthday" prompt for the birthday person
+          const { data: yourBirthdayPrompt } = await supabaseClient
+            .from("prompts")
+            .select("id")
+            .eq("category", "Birthday")
+            .eq("birthday_type", "your_birthday")
+            .limit(1)
+            .maybeSingle()
+
+          if (yourBirthdayPrompt) {
+            await supabaseClient.from("daily_prompts").insert({
+              group_id: group.id,
+              prompt_id: yourBirthdayPrompt.id,
+              date: today,
+              user_id: birthdayMember.user_id, // User-specific prompt
+            })
+          }
+
+          // Get "their_birthday" prompt for all other members
+          const { data: theirBirthdayPrompt } = await supabaseClient
+            .from("prompts")
+            .select("id")
+            .eq("category", "Birthday")
+            .eq("birthday_type", "their_birthday")
+            .limit(1)
+            .maybeSingle()
+
+          if (theirBirthdayPrompt && members) {
+            for (const member of members) {
+              // Skip the birthday person (they already got their prompt)
+              if (member.user_id === birthdayMember.user_id) continue
+
+              await supabaseClient.from("daily_prompts").insert({
+                group_id: group.id,
+                prompt_id: theirBirthdayPrompt.id,
+                date: today,
+                user_id: member.user_id, // User-specific prompt
+              })
+            }
+          }
+        }
+
+        results.push({
+          group_id: group.id,
+          status: "birthday_scheduled",
+          birthday_members: birthdayMembers.map((m) => m.name),
+        })
+        continue // Skip all other scheduling - birthday is highest priority
+      }
+
+      // PRIORITY 2: Check for custom question scheduled for today
       const { data: customQuestion } = await supabaseClient
         .from("custom_questions")
         .select("id, prompt_id, date_asked")
@@ -162,85 +242,7 @@ serve(async (req) => {
         }
       }
 
-      // Get all group members with their birthdays
-      const { data: members, error: membersError } = await supabaseClient
-        .from("group_members")
-        .select("user_id, user:users(id, name, birthday)")
-        .eq("group_id", group.id)
-
-      if (membersError) throw membersError
-
-      // Check for birthdays today
-      const birthdayMembers: Array<{ user_id: string; name: string }> = []
-      if (members) {
-        for (const member of members) {
-          const user = member.user as any
-          if (user?.birthday) {
-            const birthdayMonthDay = user.birthday.substring(5) // MM-DD format
-            if (birthdayMonthDay === todayMonthDay) {
-              birthdayMembers.push({
-                user_id: user.id,
-                name: user.name || "them",
-              })
-            }
-          }
-        }
-      }
-
-      if (birthdayMembers.length > 0) {
-        // Handle birthday prompts
-        for (const birthdayMember of birthdayMembers) {
-          // Get "your_birthday" prompt for the birthday person
-          const { data: yourBirthdayPrompt } = await supabaseClient
-            .from("prompts")
-            .select("id")
-            .eq("category", "Birthday")
-            .eq("birthday_type", "your_birthday")
-            .limit(1)
-            .maybeSingle()
-
-          if (yourBirthdayPrompt) {
-            await supabaseClient.from("daily_prompts").insert({
-              group_id: group.id,
-              prompt_id: yourBirthdayPrompt.id,
-              date: today,
-              user_id: birthdayMember.user_id, // User-specific prompt
-            })
-          }
-
-          // Get "their_birthday" prompt for all other members
-          const { data: theirBirthdayPrompt } = await supabaseClient
-            .from("prompts")
-            .select("id")
-            .eq("category", "Birthday")
-            .eq("birthday_type", "their_birthday")
-            .limit(1)
-            .maybeSingle()
-
-          if (theirBirthdayPrompt && members) {
-            for (const member of members) {
-              // Skip the birthday person (they already got their prompt)
-              if (member.user_id === birthdayMember.user_id) continue
-
-              await supabaseClient.from("daily_prompts").insert({
-                group_id: group.id,
-                prompt_id: theirBirthdayPrompt.id,
-                date: today,
-                user_id: member.user_id, // User-specific prompt
-              })
-            }
-          }
-        }
-
-        results.push({
-          group_id: group.id,
-          status: "birthday_scheduled",
-          birthday_members: birthdayMembers.map((m) => m.name),
-        })
-        continue
-      }
-
-      // No birthdays today - proceed with regular prompt logic
+      // No birthdays or custom questions today - proceed with regular prompt logic
       // Get group type
       const { data: groupData } = await supabaseClient
         .from("groups")
@@ -289,8 +291,47 @@ serve(async (req) => {
 
       // Conditional categories
       // Don't include "Remembering" during ice-breaker period (even if group has memorials)
+      // CRITICAL: Also check if a memorial question was already scheduled THIS WEEK
+      // Maximum 1 memorial question per week, rotating by person
+      let canScheduleMemorial = false
       if (hasMemorials && !disabledCategories.has("Remembering") && !isInIceBreakerPeriod) {
-        eligibleCategories.push("Remembering")
+        // Check if a memorial question was already scheduled this week
+        const todayDate = new Date(today)
+        const dayOfWeek = todayDate.getDay() // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+        const weekStart = new Date(todayDate)
+        
+        // Calculate Monday of current week
+        if (dayOfWeek === 0) {
+          // If today is Sunday, subtract 6 days to get previous Monday
+          weekStart.setDate(todayDate.getDate() - 6)
+        } else {
+          // Otherwise, subtract (dayOfWeek - 1) days to get Monday of current week
+          weekStart.setDate(todayDate.getDate() - (dayOfWeek - 1))
+        }
+        
+        const weekStartStr = weekStart.toISOString().split("T")[0]
+        
+        // Check if any "Remembering" prompts were scheduled this week
+        const { data: weekMemorialPrompts } = await supabaseClient
+          .from("daily_prompts")
+          .select("id, prompt:prompts(category)")
+          .eq("group_id", group.id)
+          .gte("date", weekStartStr)
+          .lte("date", today)
+          .is("user_id", null) // Only check general prompts (not user-specific)
+        
+        const hasMemorialThisWeek = (weekMemorialPrompts || []).some((dp: any) => {
+          const prompt = dp.prompt as any
+          return prompt?.category === "Remembering"
+        })
+        
+        if (!hasMemorialThisWeek) {
+          canScheduleMemorial = true
+          eligibleCategories.push("Remembering")
+        } else {
+          console.log(`[schedule-daily-prompts] Group ${group.id} already has a memorial question scheduled this week, skipping`)
+          disabledCategories.add("Remembering")
+        }
       } else {
         disabledCategories.add("Remembering")
       }
@@ -305,6 +346,7 @@ serve(async (req) => {
         .maybeSingle()
 
       let selectedPrompt: any = null
+      let selectionMethod: string = "random" // Track how prompt was selected
 
       if (queuedItem && queuedItem.prompt) {
         const queuedPrompt = queuedItem.prompt as any
@@ -327,6 +369,7 @@ serve(async (req) => {
           }
         } else {
           selectedPrompt = queuedPrompt
+          selectionMethod = "queued"
         }
       }
 
@@ -405,13 +448,66 @@ serve(async (req) => {
               // Select first available prompt (by deck_order)
               selectedPrompt = availableDeckPrompts[0]
               selectedDeckId = deckToUse.deck_id
+              selectionMethod = "deck"
               console.log(`[schedule-daily-prompts] Scheduling deck question from "${deckToUse.deck?.name || 'Unknown'}" for ${today}`)
             }
           }
         }
       }
       
-      // If no deck prompt selected, use weighted selection from categories
+      // PHASE 5: If no prompt selected yet, try personalized suggestions
+      if (!selectedPrompt) {
+        try {
+          // Get prompts already asked (to exclude from personalized suggestions)
+          const { data: usedPromptsForPersonalization } = await supabaseClient
+            .from("daily_prompts")
+            .select("prompt_id")
+            .eq("group_id", group.id)
+            .is("user_id", null)
+          
+          const excludePromptIds = (usedPromptsForPersonalization || []).map((p: any) => p.prompt_id)
+          
+          // Call personalized suggestion function
+          // Limit to 5 suggestions, exclude already asked prompts
+          const { data: personalizedSuggestions, error: suggestionError } = await supabaseClient
+            .rpc("suggest_questions_for_group", {
+              p_group_id: group.id,
+              p_limit: 5,
+              p_exclude_prompt_ids: excludePromptIds.length > 0 ? excludePromptIds : null
+            })
+          
+          if (!suggestionError && personalizedSuggestions && personalizedSuggestions.length > 0) {
+            // Use the top suggestion (highest fit score)
+            const topSuggestion = personalizedSuggestions[0]
+            
+            // Get full prompt details
+            const { data: promptDetails } = await supabaseClient
+              .from("prompts")
+              .select("*")
+              .eq("id", topSuggestion.prompt_id)
+              .single()
+            
+            if (promptDetails) {
+              // Verify it matches group type and is eligible
+              const groupCategory = groupData?.type === "family" ? "Family" : "Friends"
+              if (promptDetails.category === groupCategory && 
+                  !disabledCategories.has(promptDetails.category) &&
+                  promptDetails.category !== "Remembering" &&
+                  promptDetails.category !== "Birthday" &&
+                  promptDetails.category !== "Featured") {
+                selectedPrompt = promptDetails
+                selectionMethod = "personalized"
+                console.log(`[schedule-daily-prompts] Using personalized suggestion (fit_score: ${topSuggestion.fit_score?.toFixed(2)}) for group ${group.id}`)
+              }
+            }
+          }
+        } catch (error) {
+          // Log error but continue to fallback logic
+          console.error(`[schedule-daily-prompts] Error getting personalized suggestions for group ${group.id}:`, error)
+        }
+      }
+      
+      // If no personalized prompt selected, use weighted selection from categories (existing fallback)
       if (!selectedPrompt) {
         // Get all prompts used for this group (general prompts only)
         const { data: usedPrompts } = await supabaseClient
@@ -626,7 +722,21 @@ serve(async (req) => {
         await supabaseClient.from("group_prompt_queue").delete().eq("group_id", group.id).eq("prompt_id", promptId)
       }
 
-      results.push({ group_id: group.id, status: "scheduled", prompt_id: promptId })
+      // Update selection method if it was custom or birthday (set earlier in flow)
+      if (customQuestion) {
+        selectionMethod = "custom"
+      } else if (birthdayMembers.length > 0) {
+        selectionMethod = "birthday"
+      }
+      // Note: deck, queued, and personalized are already set above
+      // random is the default if none of the above
+
+      results.push({ 
+        group_id: group.id, 
+        status: "scheduled", 
+        prompt_id: promptId,
+        selection_method: selectionMethod
+      })
     }
 
     return new Response(JSON.stringify({ success: true, results }), {

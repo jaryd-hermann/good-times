@@ -22,6 +22,8 @@ import { captureEvent } from "../../../lib/posthog"
 import { PhotoLightbox } from "../../../components/PhotoLightbox"
 import { markEntryAsVisited } from "../../../lib/notifications-in-app"
 import { updateBadgeCount } from "../../../lib/notifications-badge"
+import { UserProfileModal } from "../../../components/UserProfileModal"
+import { MentionableText } from "../../../components/MentionableText"
 
 export default function EntryDetail() {
   const router = useRouter()
@@ -58,6 +60,8 @@ export default function EntryDetail() {
   const [keyboardHeight, setKeyboardHeight] = useState(0)
   const [lightboxVisible, setLightboxVisible] = useState(false)
   const [lightboxIndex, setLightboxIndex] = useState(0)
+  const [userProfileModalVisible, setUserProfileModalVisible] = useState(false)
+  const [selectedMentionUser, setSelectedMentionUser] = useState<{ id: string; name: string; avatar_url?: string } | null>(null)
   const insets = useSafeAreaInsets()
   const posthog = usePostHog()
 
@@ -875,6 +879,13 @@ export default function EntryDetail() {
       marginBottom: spacing.md,
       gap: spacing.sm,
     },
+    mention: {
+      ...typography.body,
+      fontSize: 14,
+      lineHeight: 22,
+      color: colors.accent,
+      fontWeight: "bold",
+    },
   }), [colors])
 
   return (
@@ -938,7 +949,17 @@ export default function EntryDetail() {
               <Text style={styles.question}>{personalizedQuestion || entry.prompt?.question}</Text>
 
               {entry.text_content && (
-                <HyperlinkedText text={entry.text_content} textStyle={styles.text} linkStyle={styles.link} />
+                <MentionableText 
+                  text={entry.text_content} 
+                  textStyle={styles.text} 
+                  linkStyle={styles.link}
+                  mentionStyle={styles.mention}
+                  groupId={entry.group_id}
+                  onMentionPress={(userId, userName, avatarUrl) => {
+                    setSelectedMentionUser({ id: userId, name: userName, avatar_url: avatarUrl })
+                    setUserProfileModalVisible(true)
+                  }}
+                />
               )}
 
               {/* Embedded media (Spotify/Apple Music/Soundcloud) */}
@@ -1016,7 +1037,7 @@ export default function EntryDetail() {
                         : styles.mediaImage
                       
                       // Get all photo URLs for lightbox
-                      const photoUrls = entry.media_urls
+                      const photoUrls = (entry.media_urls || [])
                         .map((u, i) => entry.media_types?.[i] === "photo" ? u : null)
                         .filter((u): u is string => u !== null)
                       const photoIndex = photoUrls.indexOf(url)
@@ -1146,6 +1167,28 @@ export default function EntryDetail() {
           onClose={() => setLightboxVisible(false)}
         />
       )}
+
+      {/* User Profile Modal */}
+      <UserProfileModal
+        visible={userProfileModalVisible}
+        userId={selectedMentionUser?.id || null}
+        userName={selectedMentionUser?.name || null}
+        userAvatarUrl={selectedMentionUser?.avatar_url}
+        groupId={entry?.group_id}
+        onClose={() => {
+          setUserProfileModalVisible(false)
+          setSelectedMentionUser(null)
+        }}
+        onViewHistory={(userId) => {
+          router.push({
+            pathname: "/(main)/history",
+            params: {
+              focusGroupId: entry?.group_id,
+              filterMemberId: userId,
+            },
+          })
+        }}
+      />
     </KeyboardAvoidingView>
   )
 }
@@ -1157,7 +1200,7 @@ function formatMillis(ms: number) {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`
 }
 
-// Component to render text with clickable hyperlinks
+// Component to render text with clickable hyperlinks (kept for backward compatibility)
 function HyperlinkedText({ text, textStyle, linkStyle }: { text: string; textStyle: any; linkStyle: any }) {
   // URL regex pattern - matches http/https URLs
   const urlRegex = /(https?:\/\/[^\s]+)/gi

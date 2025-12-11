@@ -37,6 +37,7 @@ import {
   forceSessionExpiry,
   simulateLongInactivity,
   clearAllSessionData,
+  testPasswordResetLink,
   type SessionState,
 } from "../../lib/test-session-utils"
 
@@ -279,6 +280,67 @@ export default function SettingsScreen() {
           },
         },
       ]
+    )
+  }
+
+  async function handleTestPasswordReset() {
+    // First get email, then URL
+    Alert.prompt(
+      "Test Password Reset Link",
+      "Enter the email address for the reset link:",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Next",
+          onPress: async (email) => {
+            if (!email || !email.trim()) {
+              Alert.alert("Error", "Please enter an email address")
+              return
+            }
+            
+            // Then prompt for URL
+            Alert.prompt(
+              "Test Password Reset Link",
+              "Paste the Supabase verification URL from the email:\n\nhttps://project.supabase.co/auth/v1/verify?token=...&type=recovery&redirect_to=goodtimes://",
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Test",
+                  onPress: async (url) => {
+                    if (!url || !url.trim()) {
+                      Alert.alert("Error", "Please paste the verification URL")
+                      return
+                    }
+                    try {
+                      const result = await testPasswordResetLink(url.trim(), email.trim())
+                      if (result.success) {
+                        Alert.alert(
+                          "Success", 
+                          `Password reset link appears valid!\n\nEmail: ${email.trim()}\n\nNote: The link will be consumed when you use it. Navigating to reset password screen...`,
+                          [
+                            {
+                              text: "OK",
+                              onPress: () => {
+                                router.push("/(onboarding)/reset-password")
+                              }
+                            }
+                          ]
+                        )
+                      } else {
+                        Alert.alert("Error", result.error || "Failed to verify password reset link")
+                      }
+                    } catch (error: any) {
+                      Alert.alert("Error", error.message || "Failed to test password reset link")
+                    }
+                  },
+                },
+              ],
+              "plain-text"
+            )
+          },
+        },
+      ],
+      "plain-text"
     )
   }
 
@@ -571,6 +633,11 @@ export default function SettingsScreen() {
               <Button
                 title="Clear All Session Data"
                 onPress={handleClearAllSessionData}
+                variant="secondary"
+              />
+              <Button
+                title="Test Password Reset Link"
+                onPress={handleTestPasswordReset}
                 variant="secondary"
               />
             </View>

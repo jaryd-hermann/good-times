@@ -5,7 +5,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage"
 
 export interface InAppNotification {
   id: string
-  type: "new_question" | "reply_to_entry" | "reply_to_thread" | "new_answers" | "deck_vote_requested"
+  type: "new_question" | "reply_to_entry" | "reply_to_thread" | "new_answers" | "deck_vote_requested" | "mentioned_in_entry"
   groupId: string
   groupName: string
   // For new_question
@@ -22,6 +22,9 @@ export interface InAppNotification {
   deckId?: string
   deckName?: string
   requesterName?: string
+  // For mentioned_in_entry
+  authorName?: string
+  authorAvatarUrl?: string
   createdAt: string
 }
 
@@ -375,7 +378,7 @@ export async function getInAppNotifications(userId: string): Promise<InAppNotifi
 
   // 5. Check for pending deck votes (user hasn't voted yet)
   // Only show if vote was requested after last check
-  const checkSince = lastChecked || new Date(0)
+  const deckVoteCheckSince = lastChecked || new Date(0)
   for (const group of groups) {
     try {
       const pendingVotes = await getPendingVotes(group.id, userId)
@@ -383,7 +386,7 @@ export async function getInAppNotifications(userId: string): Promise<InAppNotifi
         // Filter to only votes requested after last check
         const recentVotes = pendingVotes.filter((vote) => {
           const voteCreatedAt = vote.created_at ? new Date(vote.created_at) : new Date(0)
-          return voteCreatedAt > checkSince
+          return voteCreatedAt > deckVoteCheckSince
         })
         
         if (recentVotes.length > 0) {
@@ -410,6 +413,51 @@ export async function getInAppNotifications(userId: string): Promise<InAppNotifi
       console.error(`[notifications] Error checking pending deck votes for group ${group.id}:`, error)
       // Continue with other groups
     }
+  }
+
+  // 6. Check for mention notifications (from notifications table)
+  const mentionCheckSince = lastChecked || new Date(0)
+  try {
+    const { data: mentionNotifications, error: mentionNotificationsError } = await supabase
+      .from("notifications")
+      .select("id, user_id, type, title, body, data, created_at")
+      .eq("user_id", userId)
+      .eq("type", "mentioned_in_entry")
+      .gt("created_at", mentionCheckSince.toISOString())
+      .order("created_at", { ascending: false })
+
+    if (!mentionNotificationsError && mentionNotifications) {
+      for (const notif of mentionNotifications) {
+        const data = notif.data as any
+        
+        if (data?.entry_id && data?.group_id) {
+          // Get group name
+          const group = groups.find((g) => g.id === data.group_id)
+          const groupName = group?.name || "your group"
+          
+          // Get author info from data
+          const { data: author } = await supabase
+            .from("users")
+            .select("name, avatar_url")
+            .eq("id", data.author_user_id)
+            .single()
+          
+          notifications.push({
+            id: `mentioned_in_entry_${notif.id}`,
+            type: "mentioned_in_entry",
+            groupId: data.group_id,
+            groupName: groupName,
+            entryId: data.entry_id,
+            authorName: author?.name || "Someone",
+            authorAvatarUrl: author?.avatar_url || undefined,
+            createdAt: notif.created_at || new Date().toISOString(),
+          })
+        }
+      }
+    }
+  } catch (error) {
+    console.error("[notifications] Error checking mention notifications:", error)
+    // Continue with other notifications
   }
 
   // Sort by most recent first

@@ -18,6 +18,18 @@ interface ChangeEntry {
 
 const CHANGES: ChangeEntry[] = [
   {
+    date: "2025-12-11",
+    title: "Thursday, December 11th",
+    subtitle: "Release notes",
+    timestamp: "8:23am",
+    items: [
+      "Ok, actually have fixed the black screen issue when opening the app after over an hour",
+      "You can now mentioned someone in an answer with @.",
+      "Improved question personalization has been a big focus this week, you should now have more tailored questions to your group and your vibe",
+      "Lots of small bug fixes and stability improvements",
+    ],
+  },
+  {
     date: "2025-12-07",
     title: "Sunday, December 7th",
     subtitle: "Release notes",

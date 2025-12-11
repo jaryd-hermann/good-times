@@ -364,6 +364,40 @@ export default function OnboardingAuth() {
   const [showNoAccountModal, setShowNoAccountModal] = useState(false)
   const [biometricAttempted, setBiometricAttempted] = useState(false)
 
+  // CRITICAL: Check if user already has a valid session - if so, redirect to home
+  // This prevents the "Already Signed In" modal loop when user has session but AuthProvider user load timed out
+  useEffect(() => {
+    async function checkExistingSession() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session?.user) {
+          // User has a valid session - check if they have a profile
+          try {
+            const { data: profile } = await Promise.race([
+              supabase.from("users").select("id").eq("id", session.user.id).maybeSingle(),
+              new Promise<{ data: null }>((resolve) => setTimeout(() => resolve({ data: null }), 2000))
+            ]) as any
+            
+            if (profile) {
+              // User has session AND profile - they shouldn't be on auth screen
+              // Redirect to home (boot flow should have handled this, but if user load timed out, it didn't)
+              console.log("[auth] User has valid session and profile - redirecting to home")
+              router.replace("/(main)/home")
+            }
+          } catch (profileError) {
+            // Profile check failed - might be network issue, don't redirect
+            console.warn("[auth] Failed to check profile for existing session:", profileError)
+          }
+        }
+      } catch (error) {
+        // Session check failed - ignore, user can still sign in
+        console.warn("[auth] Failed to check existing session:", error)
+      }
+    }
+    
+    checkExistingSession()
+  }, [router])
+
   // Check if user is in registration flow (onboarding or invite/join)
   useEffect(() => {
     async function checkRegistrationFlow() {
@@ -729,50 +763,87 @@ export default function OnboardingAuth() {
   useEffect(() => {
     async function attemptBiometricLogin() {
       // Only attempt once per mount
-      if (biometricAttempted) return
+      if (biometricAttempted) {
+        console.log("[auth] Biometric login: Already attempted, skipping")
+        return
+      }
+      
+      console.log("[auth] Biometric login: Starting attempt...")
       
       try {
+        // CRITICAL: First check if user already has a valid session
+        // If they do, they shouldn't be on this screen - biometric won't help
+        const { data: { session: existingSession } } = await supabase.auth.getSession()
+        if (existingSession?.user) {
+          console.log("[auth] Biometric login: User already has session, skipping biometric (shouldn't be on auth screen)")
+          setBiometricAttempted(true)
+          return
+        }
+        
         // Check if biometric is available and enabled
+        console.log("[auth] Biometric login: Checking availability...")
         const biometricAvailable = await isBiometricAvailable()
+        console.log("[auth] Biometric login: Available?", biometricAvailable)
         if (!biometricAvailable) {
+          console.log("[auth] Biometric login: Not available on device")
           setBiometricAttempted(true)
           return
         }
 
+        console.log("[auth] Biometric login: Checking preference...")
         const biometricEnabled = await getBiometricPreference()
+        console.log("[auth] Biometric login: Enabled in app?", biometricEnabled)
         if (!biometricEnabled) {
+          console.log("[auth] Biometric login: Not enabled in app settings")
           setBiometricAttempted(true)
           return
         }
 
         // Check if we have stored credentials
+        console.log("[auth] Biometric login: Checking stored credentials...")
         const refreshToken = await getBiometricRefreshToken()
         const userId = await getBiometricUserId()
+        console.log("[auth] Biometric login: Has refresh token?", !!refreshToken)
+        console.log("[auth] Biometric login: Has user ID?", !!userId)
         if (!refreshToken || !userId) {
+          console.log("[auth] Biometric login: No stored credentials - user needs to sign in manually first")
           setBiometricAttempted(true)
           return
         }
 
+        console.log("[auth] Biometric login: All checks passed - prompting for biometric authentication...")
         setBiometricAttempted(true)
 
         // Attempt biometric authentication
+        console.log("[auth] Biometric login: Prompting user for FaceID/TouchID...")
         const authResult = await authenticateWithBiometric("Authenticate to log in")
+        console.log("[auth] Biometric login: Authentication result:", {
+          success: authResult.success,
+          error: authResult.error
+        })
         if (!authResult.success) {
           // User cancelled or failed - allow manual login
+          console.log("[auth] Biometric login: User cancelled or failed - allowing manual login")
           return
         }
+        
+        console.log("[auth] Biometric login: ✅ Biometric authentication successful!")
 
         // Use refresh token to get new session
+        console.log("[auth] Biometric login: Refreshing session with stored refresh token...")
         const { data: sessionData, error } = await supabase.auth.refreshSession({
           refresh_token: refreshToken,
         })
 
         if (error || !sessionData.session) {
-          console.warn("[auth] Failed to refresh session with biometric:", error)
+          console.warn("[auth] Biometric login: ❌ Failed to refresh session:", error)
+          console.warn("[auth] Biometric login: Clearing invalid credentials")
           // Clear invalid credentials
           await clearBiometricCredentials()
           return
         }
+        
+        console.log("[auth] Biometric login: ✅ Session refreshed successfully!")
 
         const session = sessionData.session
         const authenticatedUserId = session.user.id
@@ -897,17 +968,26 @@ export default function OnboardingAuth() {
         router.replace("/(onboarding)/about")
       } catch (error) {
         // Silently fail - user can still log in manually
-        console.warn("[auth] Biometric login error:", error)
+        console.error("[auth] Biometric login: ❌ Error during biometric login:", error)
+        console.error("[auth] Biometric login: Error details:", {
+          message: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined
+        })
         setBiometricAttempted(true)
       }
     }
 
     // Attempt biometric login after a short delay to allow screen to render
+    console.log("[auth] Biometric login: Setting up attempt (500ms delay)...")
     const timeout = setTimeout(() => {
+      console.log("[auth] Biometric login: Timeout fired - attempting biometric login now")
       attemptBiometricLogin()
     }, 500)
 
-    return () => clearTimeout(timeout)
+    return () => {
+      console.log("[auth] Biometric login: Cleanup - clearing timeout")
+      clearTimeout(timeout)
+    }
   }, [router, biometricAttempted, data, persistOnboarding, posthog])
 
   // Listen for OAuth redirect
@@ -919,6 +999,13 @@ export default function OnboardingAuth() {
       // Filter out non-OAuth URLs (like expo development client URLs)
       if (url.includes("expo-development-client") || url.includes("192.168")) {
         console.log("[OAuth] Ignoring non-OAuth URL")
+        return
+      }
+
+      // CRITICAL: Skip password reset links - let _layout.tsx handle them
+      // Password reset links can have error=, type=recovery, or reset-password in the URL
+      if (url.includes("reset-password") || url.includes("type=recovery") || url.includes("otp_expired")) {
+        console.log("[OAuth] Ignoring password reset link - handled by _layout.tsx")
         return
       }
 

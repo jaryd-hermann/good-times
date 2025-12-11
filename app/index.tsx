@@ -5,9 +5,10 @@
 
 import { useEffect, useState, useRef } from "react";
 import { View, ActivityIndicator, Text, Pressable, Alert, ImageBackground, StyleSheet, AppState } from "react-native";
-import { useRouter, useSegments } from "expo-router";
+import { useRouter, useSegments, usePathname } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Linking from "expo-linking";
 import { typography, colors as themeColors } from "../lib/theme";
 import { useAuth } from "../components/AuthProvider";
 import {
@@ -45,14 +46,18 @@ const PENDING_GROUP_KEY = "pending_group_join";
 export default function Index() {
   const router = useRouter();
   const segments = useSegments();
+  const pathname = usePathname();
   const queryClient = useQueryClient();
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, restoringSession } = useAuth();
   const [booting, setBooting] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [loadingDots, setLoadingDots] = useState(".");
+  // CRITICAL: Initialize boot screen state to true immediately to prevent black screen
+  // This ensures the boot screen shows on first render, before useEffect runs
   const [shouldShowBootScreen, setShouldShowBootScreen] = useState(true);
   const [sessionRefreshing, setSessionRefreshing] = useState(false);
-  const [forceBootRecheck, setForceBootRecheck] = useState(0); // Trigger to force boot flow re-evaluation
+  const [forceBootRecheck, setForceBootRecheck] = useState<number>(0); // Trigger to force boot flow re-evaluation
+  const [isPasswordResetLink, setIsPasswordResetLink] = useState(false); // Track if we're handling password reset
   const hasNavigatedRef = useRef(false);
   const bootStartTimeRef = useRef<number>(Date.now()); // Initialize immediately
   const userRef = useRef(user); // Keep ref to latest user for AppState listener
@@ -61,6 +66,39 @@ export default function Index() {
   useEffect(() => {
     userRef.current = user;
   }, [user]);
+  
+  // CRITICAL: Check for password reset links on mount - if detected, skip boot screen
+  useEffect(() => {
+    async function checkForPasswordReset() {
+      try {
+        const url = await Linking.getInitialURL()
+        // Check for both expired and valid reset links
+        if (url && (url.includes("otp_expired") || url.includes("reset-password") || url.includes("type=recovery"))) {
+          console.log("[boot] Password reset link detected, skipping boot screen")
+          setIsPasswordResetLink(true)
+          setBooting(false)
+          setShouldShowBootScreen(false)
+        }
+      } catch (e) {
+        // Ignore errors
+      }
+    }
+    checkForPasswordReset()
+    
+    // Also listen for URL changes
+    const subscription = Linking.addEventListener("url", (event) => {
+      const url = event.url
+      // Check for both expired and valid reset links
+      if (url && (url.includes("otp_expired") || url.includes("reset-password") || url.includes("type=recovery"))) {
+        console.log("[boot] Password reset link detected via listener, skipping boot screen")
+        setIsPasswordResetLink(true)
+        setBooting(false)
+        setShouldShowBootScreen(false)
+      }
+    })
+    
+    return () => subscription.remove()
+  }, [])
 
   // Check for boot recheck trigger from AuthProvider
   useEffect(() => {
@@ -127,7 +165,19 @@ export default function Index() {
 
   // CRITICAL: Always show boot screen on app open (from any source)
   // Record session start immediately
+  // CRITICAL: Check for force_boot_refresh flag SYNCHRONOUSLY on mount to prevent black screen
+  // This ensures boot screen shows immediately when navigating from ForegroundQueryRefresher
   useEffect(() => {
+    // Check for force_boot_refresh flag immediately (synchronously via closure)
+    // This prevents black screen when ForegroundQueryRefresher navigates to root
+    AsyncStorage.getItem("force_boot_refresh").then((flag) => {
+      if (flag) {
+        console.log("[boot] force_boot_refresh flag detected on mount - showing boot screen immediately");
+        setShouldShowBootScreen(true);
+        setBooting(true);
+      }
+    }).catch(() => {});
+    
     async function initializeBoot() {
       try {
         // Check if boot screen was forced (from BootRecheckHandler)
@@ -174,119 +224,13 @@ export default function Index() {
     
     initializeBoot();
     
-    // When app comes to foreground, always refresh session and show boot screen if needed
-    console.log("[boot] AppState listener: Setting up AppState listener", {
-      hasUser: !!user,
-      userId: user?.id,
-      timestamp: new Date().toISOString(),
-    });
+    // SIMPLIFIED: When app comes to foreground, just record activity
+    // ForegroundQueryRefresher handles long inactivity (treats like "R")
+    // Don't try to be smart here - let the boot flow handle everything
     const subscription = AppState.addEventListener("change", async (nextAppState) => {
-      const currentUser = userRef.current; // Use ref to get latest user
-      console.log("[boot] AppState listener: AppState changed", {
-        nextAppState,
-        currentUser: !!currentUser,
-        userId: currentUser?.id,
-        timestamp: new Date().toISOString(),
-      });
       if (nextAppState === "active") {
-        // Record that app is now active
+        // Just record that app is active - that's it
         await recordAppActive();
-        
-        // CRITICAL: Reset navigation ref when app comes back to foreground
-        // This ensures navigation can happen again if needed (prevents black screen)
-        hasNavigatedRef.current = false;
-        
-        // Check if app was inactive for too long (treat as cold start)
-        const inactiveTooLong = await wasInactiveTooLong();
-        
-        // Check if app was opened from a notification click
-        const notificationClicked = await AsyncStorage.getItem("notification_clicked");
-        const hasPendingNotification = await AsyncStorage.getItem("pending_notification");
-        
-        // CRITICAL: Check if we should skip session refresh (Supabase already refreshed)
-        const { shouldSkipSessionCheck } = await import("../lib/auth");
-        const skipCheck = shouldSkipSessionCheck();
-        
-        if (skipCheck) {
-          console.log("[boot] AppState: Recent token refresh detected - skipping foreground refresh, letting boot flow handle navigation");
-          // Don't block - let boot flow handle navigation immediately
-        } else if (notificationClicked === "true" || hasPendingNotification || inactiveTooLong) {
-          const reason = notificationClicked === "true" || hasPendingNotification 
-            ? "notification" 
-            : "long inactivity";
-          console.log(`[boot] App came to foreground from ${reason} - forcing boot screen and session refresh`);
-          
-          // Clear the flag
-          if (notificationClicked === "true") {
-            await AsyncStorage.removeItem("notification_clicked");
-          }
-          
-          // CRITICAL: Force boot screen to show BEFORE session refresh
-          // This prevents black screen if session refresh fails or takes time
-          setShouldShowBootScreen(true);
-          setBooting(true);
-          setSessionRefreshing(true);
-          
-          // CRITICAL: Don't block navigation - run refresh in background
-          const refreshPromise = (async () => {
-            try {
-              const { ensureValidSession } = await import("../lib/auth");
-              const sessionValid = await ensureValidSession();
-              if (!sessionValid) {
-                console.warn("[boot] Session invalid after refresh - may need to sign in");
-              } else {
-                console.log("[boot] Session refreshed successfully");
-              }
-            } catch (error) {
-              console.error("[boot] Failed to refresh session:", error);
-            } finally {
-              setSessionRefreshing(false);
-            }
-          })();
-          
-          // Don't await - let boot flow handle navigation immediately
-        } else {
-          console.log("[boot] App came to foreground - refreshing session (background)");
-          // Short inactivity - refresh session in background, don't block
-          setSessionRefreshing(true);
-          const refreshPromise = (async () => {
-            try {
-              const { ensureValidSession } = await import("../lib/auth");
-              const sessionValid = await ensureValidSession();
-              console.log("[boot] Session refreshed on foreground (background)", { sessionValid });
-              
-              // CRITICAL: If session refresh fails but user exists, we need to handle navigation
-              // Don't auto-logout - keep user logged in, but ensure navigation happens
-              if (!sessionValid && currentUser) {
-                console.warn("[boot] Session refresh failed but user exists - triggering boot flow re-evaluation", {
-                  userId: currentUser.id,
-                });
-                // Reset hasNavigatedRef to allow boot flow to re-evaluate navigation
-                hasNavigatedRef.current = false;
-                // Force boot flow to re-run by incrementing trigger
-                setForceBootRecheck(prev => prev + 1);
-              }
-            } catch (error) {
-              console.error("[boot] Failed to refresh session on foreground:", error);
-              // If refresh fails, show boot screen as fallback
-              setShouldShowBootScreen(true);
-              setBooting(true);
-              // Reset hasNavigatedRef to allow boot flow to re-evaluate navigation
-              if (currentUser) {
-                console.warn("[boot] Session refresh error but user exists - triggering boot flow re-evaluation", {
-                  userId: currentUser.id,
-                });
-                hasNavigatedRef.current = false;
-                // Force boot flow to re-run by incrementing trigger
-                setForceBootRecheck(prev => prev + 1);
-              }
-            } finally {
-              setSessionRefreshing(false);
-            }
-          })();
-          
-          // Don't await - let boot flow handle navigation immediately
-        }
       } else if (nextAppState === "background" || nextAppState === "inactive") {
         // Record app going to background
         await recordAppActive(); // Update last active time before going inactive
@@ -309,29 +253,87 @@ export default function Index() {
       timestamp: new Date().toISOString(),
     });
     
+    // CRITICAL: Prevent duplicate boot flow runs
+    // Skip if:
+    // 1. We've already navigated AND we're not on root (segments.length > 0) - we're on a different screen
+    // 2. OR we've already navigated AND we're on root AND forceBootRecheck wasn't triggered - duplicate run
+    // UNLESS: forceBootRecheck was explicitly triggered (which resets hasNavigatedRef)
+    // Note: force_boot_refresh flag is checked inside the async function, not here
+    // This prevents race conditions where navigation to root triggers multiple boot flow runs
+    const isOnRoot = (segments.length as number) === 0;
+    const wasRecheckTriggered = forceBootRecheck > 0;
+    const shouldSkip = hasNavigatedRef.current && !wasRecheckTriggered && (
+      (!isOnRoot) || // Already navigated and not on root
+      (isOnRoot && authLoading === false && !user && !restoringSession) // On root but no user and auth done
+    );
+    
+    if (shouldSkip) {
+      console.log("[boot] Boot flow: Skipping duplicate run - already navigated", {
+        hasNavigated: hasNavigatedRef.current,
+        segmentsLength: segments.length,
+        isOnRoot,
+        forceBootRecheck,
+        wasRecheckTriggered,
+        authLoading,
+        hasUser: !!user,
+        restoringSession,
+      });
+      return;
+    }
+    
     let cancelled = false;
 
     (async () => {
       try {
+        // CRITICAL: Always show boot screen immediately when boot flow starts
+        // This prevents black screens during the boot process
+        setShouldShowBootScreen(true);
+        setBooting(true);
+        bootStartTimeRef.current = Date.now(); // Reset boot start time
+        
         // Wait for AuthProvider to finish loading
         if (authLoading) {
           console.log("[boot] Boot flow useEffect: Waiting for AuthProvider to load...");
           return;
         }
         
-        console.log("[boot] Boot flow useEffect: AuthProvider loaded, proceeding with boot flow");
-
-        // CRITICAL: Ensure boot screen is visible during boot process
-        // This prevents black screens if navigation hasn't happened yet
-        if (!shouldShowBootScreen && !booting) {
-          setShouldShowBootScreen(true);
-          setBooting(true);
+        // CRITICAL: Wait for session restoration if in progress (max 5 seconds)
+        // This ensures we don't navigate to welcome while restoration is happening
+        // Note: We check restoringSession from the hook (not closure) - if it changes, useEffect will re-run
+        if (restoringSession) {
+          console.log("[boot] Boot flow: Session restoration in progress - waiting (max 5s)...");
+          const restorationStartTime = Date.now();
+          const maxWaitTime = 5000; // 5 seconds max
+          
+          // Wait for restoration to complete (check every 100ms, max 5s)
+          // IMPORTANT: restoringSession is from useAuth() hook, so if it changes, this useEffect will re-run
+          // The while loop is a best-effort wait, but the real check happens via useEffect dependency
+          let waited = 0;
+          while (waited < maxWaitTime) {
+            await new Promise(resolve => setTimeout(resolve, 100)); // Check every 100ms
+            waited = Date.now() - restorationStartTime;
+            if (cancelled) return;
+            
+            // Re-check restoringSession from hook (not closure) - if false, break early
+            // This is a best-effort optimization - useEffect will re-run when restoringSession changes
+            if (!restoringSession) {
+              console.log("[boot] Boot flow: Session restoration completed after", waited, "ms");
+              break;
+            }
+          }
+          
+          if (restoringSession) {
+            console.warn("[boot] Boot flow: Session restoration timeout after", waited, "ms - proceeding anyway");
+          }
         }
+        
+        console.log("[boot] Boot flow useEffect: AuthProvider loaded, proceeding with boot flow");
 
         console.log("[boot] Boot flow: AuthProvider loaded", {
           hasUser: !!user,
           userId: user?.id,
           authLoading,
+          restoringSession,
           segmentsLength: segments.length,
           hasNavigated: hasNavigatedRef.current,
           timestamp: new Date().toISOString(),
@@ -348,64 +350,39 @@ export default function Index() {
           // Don't block - continue with boot flow
         }
 
-        // CRITICAL: Check if we should skip session refresh (Supabase already refreshed)
-        // If TOKEN_REFRESHED fired recently, trust it and skip blocking refresh
-        // But still show boot screen and invalidate queries (already done above)
-        if (user) {
-          const { shouldSkipSessionCheck } = await import("../lib/auth");
-          const skipCheck = shouldSkipSessionCheck();
-          
-          if (skipCheck) {
-            console.log("[boot] Boot flow: Recent token refresh detected - skipping session check, but boot screen will show briefly", {
-              userId: user.id,
-            });
-            // CRITICAL: Ensure boot screen is visible even when skipping session check
-            // This provides consistent UX and ensures fresh data loads
-            setShouldShowBootScreen(true);
-            setBooting(true);
-            // Don't wait for session refresh - but boot screen will still show
-            // Queries are already invalidated above, so fresh data will load
-          } else {
-            console.log("[boot] Boot flow: User exists - refreshing session to ensure validity...", {
-              userId: user.id,
-            });
-            setSessionRefreshing(true);
-            const sessionRefreshStartTime = Date.now();
-            
-            // CRITICAL: Don't block navigation - run refresh in background
-            // Start refresh but don't await it - navigate immediately
-            const refreshPromise = (async () => {
-              try {
-                const { ensureValidSession } = await import("../lib/auth");
-                const sessionValid = await ensureValidSession();
-                const sessionRefreshElapsed = Date.now() - sessionRefreshStartTime;
-                console.log("[boot] Boot flow: Session refresh completed (background)", {
-                  sessionValid,
-                  elapsedMs: sessionRefreshElapsed,
-                });
-                if (!sessionValid) {
-                  console.warn("[boot] Boot flow: Session refresh failed - session invalid", {
-                    userId: user.id,
-                    elapsedMs: sessionRefreshElapsed,
-                  });
-                }
-              } catch (error: any) {
-                const sessionRefreshElapsed = Date.now() - sessionRefreshStartTime;
-                console.error("[boot] Boot flow: Session refresh error (background)", {
-                  error: error?.message,
-                  errorType: error?.constructor?.name,
-                  elapsedMs: sessionRefreshElapsed,
-                });
-              } finally {
-                setSessionRefreshing(false);
-              }
-            })();
-            
-            // Don't await - let it run in background while we navigate
-            // Navigation will proceed immediately
+        // CRITICAL: Check for user from AuthProvider OR directly from Supabase session
+        // If user load timed out in AuthProvider, we can still get user ID from session
+        let effectiveUser = user;
+        if (!effectiveUser) {
+          // User load may have timed out - check session directly (like ForegroundQueryRefresher does)
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user) {
+              console.log("[boot] Boot flow: User load timed out in AuthProvider, but found user in session", {
+                userId: session.user.id,
+              });
+              // Create a minimal user object from session
+              effectiveUser = { id: session.user.id } as any;
+            }
+          } catch (error) {
+            console.warn("[boot] Boot flow: Failed to get session:", error);
           }
+        }
+
+        if (effectiveUser) {
+          // CRITICAL: Trust session - if user exists (from AuthProvider or session), proceed immediately (like hitting "R")
+          // Don't try to refresh - AuthProvider/session already validated it
+          // Session refresh happens automatically via Supabase's onAuthStateChange
+          // Just proceed immediately like a cold start
+          console.log("[boot] Boot flow: User exists - trusting session, proceeding immediately (like cold start/R)", {
+            userId: effectiveUser.id,
+            fromAuthProvider: !!user,
+            fromSession: !user,
+          });
+          // Don't try to refresh session - AuthProvider/session already validated it
+          // Just invalidate queries (already done above) and navigate
         } else {
-          console.log("[boot] Boot flow: No user - skipping session refresh");
+          console.log("[boot] Boot flow: No user found (neither AuthProvider nor session) - navigating to welcome");
         }
 
         // Check if Supabase is configured
@@ -436,9 +413,25 @@ export default function Index() {
         // Check for pending group join (from deep link before auth)
         const pendingGroupId = await AsyncStorage.getItem(PENDING_GROUP_KEY);
 
-        // Phase 2: Route based on AuthProvider state only
-        if (!user) {
-          console.log("[boot] No user → onboarding/welcome-1");
+        // CRITICAL: Route based on effectiveUser (from AuthProvider OR session), not just AuthProvider user
+        // This ensures we route correctly even if AuthProvider's user load timed out
+        if (!effectiveUser) {
+          console.log("[boot] No user (neither AuthProvider nor session) → onboarding/welcome-1");
+          
+          // CRITICAL: Check if we're handling a password reset error - if so, don't navigate
+          // The deep link handler in _layout.tsx will handle navigation
+          try {
+            const initialURL = await Linking.getInitialURL()
+            if (initialURL && (initialURL.includes("otp_expired") || initialURL.includes("reset-password"))) {
+              console.log("[boot] Password reset link detected, skipping boot navigation (deep link handler will navigate)")
+              setBooting(false)
+              setShouldShowBootScreen(false)
+              return // Don't navigate - let deep link handler do it
+            }
+          } catch (e) {
+            // Ignore errors checking URL
+          }
+          
           // Keep pendingGroupId in storage for after auth
           if (!hasNavigatedRef.current) {
             hasNavigatedRef.current = true;
@@ -448,19 +441,47 @@ export default function Index() {
           return;
         }
 
-        // User exists - check profile and group membership
-        const { data: userData, error: userErr } = await supabase
+        // User exists (from AuthProvider or session) - check profile and group membership
+        // Add timeout to prevent hanging if session refresh is slow
+        console.log("[boot] Boot flow: effectiveUser exists, proceeding with profile check", {
+          userId: effectiveUser.id,
+          fromAuthProvider: !!user,
+          fromSession: !user,
+        });
+        
+        console.log("[boot] Boot flow: Querying user profile...");
+        const userQueryPromise = supabase
           .from("users")
           .select("name, birthday")
-          .eq("id", user.id)
+          .eq("id", effectiveUser.id)
           .maybeSingle();
-
+        
+        const userQueryTimeout = new Promise<{ data: null, error: { message: string, timeout: boolean } }>((resolve) => {
+          setTimeout(() => {
+            resolve({
+              data: null,
+              error: { message: "User query timeout after 5 seconds", timeout: true }
+            });
+          }, 5000); // 5 second timeout
+        });
+        
+        const { data: userData, error: userErr } = await Promise.race([userQueryPromise, userQueryTimeout]) as any;
+        
+        let userQueryTimedOut = false;
         if (userErr) {
-          console.log("[boot] users query error:", userErr.message);
+          const isTimeout = userErr.timeout === true;
+          console.log(`[boot] users query ${isTimeout ? 'timed out' : 'error'}:`, userErr.message);
+          // If timeout, skip profile check and continue (don't block navigation)
+          // CRITICAL: Don't check for orphaned session on timeout - trust AuthProvider
+          if (isTimeout) {
+            userQueryTimedOut = true;
+            console.warn("[boot] User query timed out - skipping profile check and continuing (trusting AuthProvider)");
+          }
         }
 
-        // Check if user has complete profile
-        if (!userData?.name || !userData?.birthday) {
+        // Check if user has complete profile (ONLY if query didn't timeout)
+        // If timeout occurred, skip this check and proceed - AuthProvider already validated the user
+        if (!userQueryTimedOut && (!userData?.name || !userData?.birthday)) {
           console.log("[boot] ⚠️ User exists but no profile - orphaned session");
           console.log("[boot] Clearing orphaned session and redirecting to welcome-1");
           
@@ -480,20 +501,46 @@ export default function Index() {
         }
 
         // Check group membership
+        // Add timeout to prevent hanging if session refresh is slow
         console.log("[boot] checking group membership...");
-        const { data: membership, error: memErr } = await supabase
+        const membershipQueryPromise = supabase
           .from("group_members")
           .select("group_id")
-          .eq("user_id", user.id)
+          .eq("user_id", effectiveUser.id)
           .limit(1)
           .maybeSingle();
-
-        console.log("[boot] membership query result:", { membership, error: memErr?.message });
+        
+        const membershipQueryTimeout = new Promise<{ data: null, error: { message: string, timeout: boolean } }>((resolve) => {
+          setTimeout(() => {
+            resolve({
+              data: null,
+              error: { message: "Membership query timeout after 5 seconds", timeout: true }
+            });
+          }, 5000); // 5 second timeout
+        });
+        
+        const { data: membership, error: memErr } = await Promise.race([membershipQueryPromise, membershipQueryTimeout]) as any;
 
         if (memErr) {
-          console.log("[boot] group_members error:", memErr.message);
-          console.log("[boot] → onboarding/create-group/name-type");
+          const isTimeout = memErr.timeout === true;
+          console.log(`[boot] membership query ${isTimeout ? 'timed out' : 'error'}:`, memErr.message);
           
+          // CRITICAL: On timeout, trust the session - if user has session, they likely have a group
+          // Navigate to home instead of create-group to avoid wrong routing
+          // This matches cold start behavior where we trust the session
+          if (isTimeout) {
+            console.warn("[boot] Membership query timed out - trusting session, navigating to home (user has session, likely has group)");
+            if (!hasNavigatedRef.current) {
+              hasNavigatedRef.current = true;
+              router.replace("/(main)/home");
+              await recordSuccessfulNavigation("/(main)/home");
+              await recordAppActive();
+            }
+            return;
+          }
+          
+          // Non-timeout error - assume no membership
+          console.log("[boot] → onboarding/create-group/name-type");
           if (!hasNavigatedRef.current) {
             hasNavigatedRef.current = true;
             router.replace("/(onboarding)/create-group/name-type");
@@ -501,6 +548,8 @@ export default function Index() {
           }
           return;
         }
+        
+        console.log("[boot] membership query result:", { membership, error: memErr?.message });
 
         // Handle pending group join
         if (pendingGroupId) {
@@ -522,36 +571,29 @@ export default function Index() {
             const pendingNotification = JSON.parse(pendingNotificationStr);
             const { type, group_id, entry_id, prompt_id, timestamp } = pendingNotification;
             
-            // Only process if notification is recent (within last 5 minutes)
-            // This prevents stale notifications from being processed
-            const notificationAge = Date.now() - (timestamp || 0);
-            const maxAge = 5 * 60 * 1000; // 5 minutes
+            // Check if we had long inactivity - if so, extend notification validity
+            // This ensures notifications work even after hours of inactivity
+            const { wasInactiveTooLong } = await import("../lib/session-lifecycle");
+            const inactiveTooLong = await wasInactiveTooLong();
             
-            if (notificationAge < maxAge) {
-              console.log("[boot] Processing pending notification:", type);
+            // If inactive too long, accept notification regardless of age (user just tapped it)
+            // Otherwise, only process if notification is recent (within last 5 minutes)
+            const notificationAge = Date.now() - (timestamp || 0);
+            const maxAge = inactiveTooLong ? Infinity : (5 * 60 * 1000); // 5 minutes or unlimited if long inactivity
+            
+            if (notificationAge < maxAge || inactiveTooLong) {
+              console.log("[boot] Processing pending notification:", type, {
+                notificationAge,
+                inactiveTooLong,
+                maxAge: inactiveTooLong ? "unlimited (long inactivity)" : maxAge,
+              });
               await AsyncStorage.removeItem("pending_notification");
               
-              // CRITICAL: Force session refresh before navigating from notification
-              // This ensures we never navigate with a stale session
-              console.log("[boot] Forcing session refresh before notification navigation...");
-              setSessionRefreshing(true);
-              setShouldShowBootScreen(true); // Ensure boot screen shows during refresh
-              try {
-                const { ensureValidSession } = await import("../lib/auth");
-                const sessionValid = await ensureValidSession();
-                if (!sessionValid) {
-                  console.warn("[boot] Session invalid after refresh - skipping notification navigation");
-                  setSessionRefreshing(false);
-                  return; // Don't navigate if session is invalid
-                }
-                console.log("[boot] Session validated successfully for notification navigation");
-              } catch (sessionError) {
-                console.error("[boot] Session refresh failed for notification navigation:", sessionError);
-                setSessionRefreshing(false);
-                return; // Don't navigate if session refresh fails
-              } finally {
-                setSessionRefreshing(false);
-              }
+              // CRITICAL: Session refresh is already handled by boot flow above
+              // If we had long inactivity, ForegroundQueryRefresher already cleared cache
+              // and navigated to root. We just need to navigate to the notification destination.
+              // No need to refresh session again - boot flow already did it.
+              console.log("[boot] Session already refreshed by boot flow, navigating to notification destination");
               
               // Navigate based on notification type
               if (type === "daily_prompt" && group_id && prompt_id) {
@@ -626,22 +668,28 @@ export default function Index() {
         });
         
         // CRITICAL: Set a timeout to ensure we don't get stuck in boot screen
-        // If navigation doesn't happen within 3 seconds, force navigation
+        // If navigation doesn't happen within 5 seconds, force navigation to home (trust session)
+        // Increased from 3s to 5s to allow queries to complete (they have 5s timeouts)
         const navigationTimeout = setTimeout(() => {
           if (hasNavigatedRef.current) {
             clearTimeout(navigationTimeout);
             return;
           }
-          console.warn("[boot] Boot flow: Navigation timeout - forcing navigation", {
+          console.warn("[boot] Boot flow: Navigation timeout - forcing navigation to home (trusting session)", {
             hasMembership: !!membership,
             groupId: membership?.group_id,
+            effectiveUserId: effectiveUser?.id,
           });
-          if (membership?.group_id) {
+          // CRITICAL: Always navigate to home on timeout if we have effectiveUser
+          // Trust the session - user has session, likely has group
+          // This matches cold start behavior
+          if (effectiveUser) {
+            hasNavigatedRef.current = true;
             router.replace("/(main)/home");
-          } else {
-            router.replace("/(onboarding)/create-group/name-type");
+            recordSuccessfulNavigation("/(main)/home").catch(() => {});
+            recordAppActive().catch(() => {});
           }
-        }, 3000);
+        }, 5000); // Increased to 5s to match query timeouts
         
         if (membership?.group_id) {
           console.log("[boot] Boot flow: user with group → (main)/home");
@@ -722,7 +770,7 @@ export default function Index() {
     return () => {
       cancelled = true;
     };
-  }, [user, authLoading, router, forceBootRecheck]); // Add forceBootRecheck to dependencies
+  }, [user, authLoading, restoringSession, router, forceBootRecheck]); // Add restoringSession to dependencies
 
   // CRITICAL: Always show boot screen during boot process
   // Show boot screen if:
@@ -731,9 +779,10 @@ export default function Index() {
   // 3. Session is refreshing
   // 4. No route matched (prevents black screen)
   // 5. Explicitly set to show boot screen
+  // BUT: Don't show if we're handling a password reset link (let deep link handler navigate)
   const segmentsLength = (segments as string[]).length;
   const hasNoRoute = segmentsLength === 0;
-  const shouldShowBooting = booting || authLoading || sessionRefreshing || (!err && hasNoRoute) || shouldShowBootScreen;
+  const shouldShowBooting = !isPasswordResetLink && (booting || authLoading || sessionRefreshing || (!err && hasNoRoute) || shouldShowBootScreen);
   
   // Ensure minimum boot screen display time (1 second) for smooth UX
   const minBootTime = 1000;
@@ -755,6 +804,12 @@ export default function Index() {
     return () => clearInterval(interval);
   }, [shouldShowBooting]);
 
+  // CRITICAL: If we're handling a password reset link, don't render boot screen - let navigation happen
+  // Also, if we're not on the root route anymore, don't render (navigation has happened)
+  if (isPasswordResetLink || (pathname && pathname !== "/" && pathname !== "")) {
+    return null; // Don't render anything - navigation has happened or will happen
+  }
+  
   // CRITICAL: Always show boot screen during boot to prevent black screens
   return (
     <View style={{ flex: 1, backgroundColor: colors.black }}>

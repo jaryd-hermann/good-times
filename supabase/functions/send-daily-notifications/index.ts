@@ -144,6 +144,7 @@ serve(async (req) => {
         const hasMemberName = personalizedQuestion.match(/\{.*member_name.*\}/i)
         
         // Handle memorial_name variable - MUST use prompt_name_usage for consistency
+        // If not found, use week-based rotation (same as getDailyPrompt)
         if (hasMemorialName) {
           // CRITICAL: First check prompt_name_usage to get the exact name that was already selected
           const { data: memorialUsage } = await supabaseClient
@@ -160,15 +161,66 @@ serve(async (req) => {
             variables.memorial_name = memorialUsage.name_used
             console.log(`[send-daily-notifications] Using memorial name from prompt_name_usage: ${memorialUsage.name_used}`)
           } else if (groupMemorials.length > 0) {
-            // Fallback: if prompt_name_usage doesn't exist yet (shouldn't happen if getDailyPrompt ran first)
-            // Use the same deterministic logic as getDailyPrompt
-            const dayIndex = getDayIndex(today, dailyPrompt.group_id)
-            const memorialIndex = dayIndex % groupMemorials.length
-            const selectedMemorial = groupMemorials[memorialIndex]
+            // Fallback: Use week-based rotation (same logic as getDailyPrompt)
+            // Calculate week start (Monday of current week)
+            const todayDate = new Date(today)
+            const dayOfWeek = todayDate.getDay() // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+            const weekStart = new Date(todayDate)
             
-            if (selectedMemorial?.name) {
-              variables.memorial_name = selectedMemorial.name
-              console.warn(`[send-daily-notifications] No prompt_name_usage found, calculated memorial name: ${selectedMemorial.name}`)
+            if (dayOfWeek === 0) {
+              weekStart.setDate(todayDate.getDate() - 6)
+            } else {
+              weekStart.setDate(todayDate.getDate() - (dayOfWeek - 1))
+            }
+            
+            const weekStartStr = weekStart.toISOString().split("T")[0]
+            
+            // Check if a memorial was already used THIS WEEK
+            const { data: thisWeekUsage } = await supabaseClient
+              .from("prompt_name_usage")
+              .select("name_used")
+              .eq("group_id", dailyPrompt.group_id)
+              .eq("prompt_id", dailyPrompt.prompt_id)
+              .eq("variable_type", "memorial_name")
+              .gte("date_used", weekStartStr)
+              .lte("date_used", today)
+              .order("date_used", { ascending: false })
+              .limit(1)
+            
+            if (thisWeekUsage && thisWeekUsage.length > 0) {
+              // Memorial already used this week - use same one
+              variables.memorial_name = thisWeekUsage[0].name_used
+              console.log(`[send-daily-notifications] Using memorial from this week: ${thisWeekUsage[0].name_used}`)
+            } else {
+              // No memorial used this week - rotate to next person
+              // Find which memorial was used last week (if any)
+              const { data: lastWeekUsage } = await supabaseClient
+                .from("prompt_name_usage")
+                .select("name_used")
+                .eq("group_id", dailyPrompt.group_id)
+                .eq("prompt_id", dailyPrompt.prompt_id)
+                .eq("variable_type", "memorial_name")
+                .lt("date_used", weekStartStr) // Before this week
+                .order("date_used", { ascending: false })
+                .limit(1)
+              
+              const lastUsedName = lastWeekUsage && lastWeekUsage.length > 0 ? lastWeekUsage[0].name_used : null
+              
+              // Find index of last used memorial
+              const lastUsedIndex = lastUsedName 
+                ? groupMemorials.findIndex((m: any) => m.name === lastUsedName)
+                : -1
+              
+              // Select next memorial in rotation (cycle through)
+              const nextIndex = lastUsedIndex >= 0 
+                ? (lastUsedIndex + 1) % groupMemorials.length  // Next in rotation
+                : 0  // Start with first if none used before
+              
+              const selectedMemorial = groupMemorials[nextIndex]
+              if (selectedMemorial?.name) {
+                variables.memorial_name = selectedMemorial.name
+                console.log(`[send-daily-notifications] Rotating memorial: ${lastUsedName || 'none'} -> ${selectedMemorial.name}`)
+              }
             }
           }
         }
@@ -190,15 +242,28 @@ serve(async (req) => {
             variables.member_name = memberUsage.name_used
             console.log(`[send-daily-notifications] Using member name from prompt_name_usage: ${memberUsage.name_used}`)
           } else if (prompt.birthday_type === "their_birthday" && members) {
-            // Fallback for birthday prompts: get the birthday person's name
+            // Fallback for birthday prompts: get ALL birthday people's names and combine them
             const todayMonthDay = today.substring(5) // MM-DD
+            const birthdayNames: string[] = []
+            
             for (const member of members) {
               const user = member.user as any
-              if (user?.birthday && user.birthday.substring(5) === todayMonthDay) {
-                variables.member_name = user.name || "them"
-                console.warn(`[send-daily-notifications] No prompt_name_usage found, calculated member name for birthday: ${variables.member_name}`)
-                break
+              if (user?.birthday && user.birthday.substring(5) === todayMonthDay && user.name) {
+                birthdayNames.push(user.name)
               }
+            }
+            
+            // Combine names: "Name1 and Name2" or just "Name1" if only one
+            if (birthdayNames.length > 0) {
+              if (birthdayNames.length === 1) {
+                variables.member_name = birthdayNames[0]
+              } else {
+                // Combine with "and": "Jaryd and Brett"
+                variables.member_name = birthdayNames.join(" and ")
+              }
+              console.warn(`[send-daily-notifications] No prompt_name_usage found, calculated member name(s) for birthday: ${variables.member_name}`)
+            } else {
+              variables.member_name = "them"
             }
           }
         }
@@ -228,8 +293,8 @@ serve(async (req) => {
         const message = {
           to: pushToken,
           sound: "default",
-          title: `Today's question for ${group.name}`,
-          body: personalizedQuestion,
+          title: `Answer today's question in ${group.name}`,
+          body: "Take a minute to answer so you can see what the others said",
           data: {
             type: "daily_prompt",
             group_id: group.id,
@@ -264,7 +329,7 @@ serve(async (req) => {
             user_id: targetUser.user_id,
             type: "daily_prompt",
             title: message.title,
-            body: message.body,
+            body: message.body, // "Take a minute to answer so you can see what the others said"
             data: message.data,
           })
 

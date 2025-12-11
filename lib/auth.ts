@@ -1,13 +1,44 @@
 import { supabase } from "./supabase"
 import type { User } from "./types"
+import AsyncStorage from "@react-native-async-storage/async-storage"
 
 // Mutex to prevent concurrent refresh attempts
 let refreshInProgress = false
 let refreshPromise: Promise<any> | null = null
 
+// CRITICAL: Track explicit logout to distinguish from expired sessions
+const EXPLICIT_LOGOUT_FLAG = "explicit_logout"
+
 export async function signOut() {
+  // Set flag BEFORE signing out to mark this as explicit logout
+  try {
+    await AsyncStorage.setItem(EXPLICIT_LOGOUT_FLAG, Date.now().toString())
+    console.log("[auth] signOut: Marked as explicit logout")
+  } catch (error) {
+    console.warn("[auth] signOut: Failed to set explicit logout flag:", error)
+  }
+  
   const { error } = await supabase.auth.signOut()
   if (error) throw error
+}
+
+export async function isExplicitLogout(): Promise<boolean> {
+  try {
+    const flag = await AsyncStorage.getItem(EXPLICIT_LOGOUT_FLAG)
+    return !!flag
+  } catch (error) {
+    console.warn("[auth] isExplicitLogout: Failed to check flag:", error)
+    return false
+  }
+}
+
+export async function clearExplicitLogoutFlag(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(EXPLICIT_LOGOUT_FLAG)
+    console.log("[auth] clearExplicitLogoutFlag: Flag cleared")
+  } catch (error) {
+    console.warn("[auth] clearExplicitLogoutFlag: Failed to clear flag:", error)
+  }
 }
 
 export async function getCurrentSession() {

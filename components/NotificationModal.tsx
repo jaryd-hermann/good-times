@@ -208,6 +208,10 @@ export function NotificationModal({
                 } else if (notification.type === "deck_vote_requested") {
                   notificationText = `${notification.requesterName} wants to add "${notification.deckName}" to ${notification.groupName}`
                   avatarName = notification.requesterName || "Someone"
+                } else if (notification.type === "mentioned_in_entry") {
+                  notificationText = `${notification.authorName} mentioned you in their answer today`
+                  avatarUrl = notification.authorAvatarUrl
+                  avatarName = notification.authorName || "Someone"
                 }
 
                 return (
@@ -223,7 +227,7 @@ export function NotificationModal({
                     }}
                     activeOpacity={0.7}
                   >
-                    {(notification.type === "reply_to_entry" || notification.type === "reply_to_thread" || notification.type === "deck_vote_requested") && (
+                    {(notification.type === "reply_to_entry" || notification.type === "reply_to_thread" || notification.type === "deck_vote_requested" || notification.type === "mentioned_in_entry") && (
                       <Avatar uri={avatarUrl} name={avatarName} size={32} />
                     )}
                     <View style={styles.notificationContent}>

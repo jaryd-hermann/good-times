@@ -38,6 +38,7 @@ interface AuthContextType {
   user: User | null
   loading: boolean
   refreshing: boolean // New: indicates session refresh in progress
+  restoringSession: boolean // New: indicates session restoration in progress (after SIGNED_OUT)
   signOut: () => Promise<void>
 }
 
@@ -45,6 +46,7 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
   refreshing: false,
+  restoringSession: false,
   signOut: async () => {},
 })
 
@@ -56,6 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false) // Track session refresh state
+  const [restoringSession, setRestoringSession] = useState(false) // Track session restoration state
   
   // Get PostHog instance (PostHogProvider is always rendered in _layout.tsx)
   // posthog will be null/undefined if PostHog is not configured or initialization failed
@@ -119,8 +122,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (session?.user) {
-        await loadUser(session.user.id)
-        // Save biometric credentials if enabled
+        // CRITICAL: Only load user if app is in foreground
+        // When app is backgrounded, Supabase can still refresh tokens, but network requests are throttled
+        // Attempting to load user data while backgrounded will timeout and create noise in logs
+        const currentAppState = AppState.currentState
+        const isAppActive = currentAppState === 'active'
+        
+        if (isAppActive) {
+          // App is active - safe to load user data
+          await loadUser(session.user.id)
+        } else {
+          // App is backgrounded - skip user load, but mark token as refreshed
+          // User data will be loaded when app comes to foreground
+          console.log("[AuthProvider] TOKEN_REFRESHED while app backgrounded - skipping user load (will load on foreground)")
+          // Still mark token as refreshed so we know session is valid
+          if (!sessionInitialized) {
+            // If this is initial load and app is backgrounded, set loading to false
+            // User will be loaded when app comes to foreground
+            setLoading(false)
+          }
+        }
+        
+        // Save biometric credentials if enabled (this is safe to do even when backgrounded)
         try {
           const biometricEnabled = await getBiometricPreference()
           if (biometricEnabled && session.refresh_token) {
@@ -130,27 +153,120 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.warn("[AuthProvider] failed to save biometric credentials:", error)
         }
       } else {
-        // Clear biometric credentials on sign out
-        try {
-          await clearBiometricCredentials()
-        } catch (error) {
-          console.warn("[AuthProvider] failed to clear biometric credentials:", error)
-        }
+        // CRITICAL: Session Restoration Pattern
+        // Don't immediately clear user state on SIGNED_OUT - it might be an expired session
+        // that can be restored using refresh token
         
-        // Reset PostHog user identification on sign out
-        if (posthog) {
+        // Check if this is an explicit logout (user clicked "Sign Out")
+        const { isExplicitLogout, clearExplicitLogoutFlag } = await import("../lib/auth")
+        const isExplicit = await isExplicitLogout()
+        
+        if (isExplicit) {
+          // Explicit logout - clear state immediately
+          console.log("[AuthProvider] SIGNED_OUT: Explicit logout detected - clearing user state")
+          await clearExplicitLogoutFlag()
+          
+          // Clear biometric credentials on sign out
           try {
-            posthog.reset()
-            if (__DEV__) {
-              console.log("[PostHog] User reset")
-            }
+            await clearBiometricCredentials()
           } catch (error) {
-            console.warn("[AuthProvider] Failed to reset PostHog:", error)
+            console.warn("[AuthProvider] failed to clear biometric credentials:", error)
+          }
+          
+          // Reset PostHog user identification on sign out
+          if (posthog) {
+            try {
+              posthog.reset()
+              if (__DEV__) {
+                console.log("[PostHog] User reset")
+              }
+            } catch (error) {
+              console.warn("[AuthProvider] Failed to reset PostHog:", error)
+            }
+          }
+          
+          setUser(null)
+          setLoading(false)
+        } else {
+          // NOT explicit logout - likely expired session, attempt restoration
+          console.log("[AuthProvider] SIGNED_OUT: Expired session detected - attempting refresh token restoration")
+          setRestoringSession(true)
+          
+          try {
+            // Attempt to restore session using refresh token
+            // This is the key difference: we try to restore BEFORE clearing state
+            const { refreshSession, getCurrentSession } = await import("../lib/auth")
+            
+            // Try to refresh session (single attempt with 15s timeout)
+            try {
+              const restoredSession = await refreshSession(1) // Single attempt with timeout
+              
+              if (restoredSession) {
+                // Restoration successful - verify session exists
+                const currentSession = await getCurrentSession()
+                if (currentSession?.user) {
+                  console.log("[AuthProvider] SIGNED_OUT: Session restoration SUCCESS - user remains logged in", {
+                    userId: currentSession.user.id,
+                  })
+                  // onAuthStateChange will fire again with SIGNED_IN event, which will load user
+                  setRestoringSession(false)
+                  // Don't clear user state - let the SIGNED_IN event handle it
+                  return
+                }
+              }
+            } catch (refreshError: any) {
+              // Refresh failed - check if it's because there's no refresh token (truly logged out)
+              // vs network error (might be recoverable)
+              const isAuthError = 
+                refreshError?.message?.includes("Auth session missing") ||
+                refreshError?.message?.includes("refresh_token_not_found") ||
+                refreshError?.message?.includes("Invalid Refresh Token")
+              
+              if (isAuthError) {
+                console.log("[AuthProvider] SIGNED_OUT: No refresh token available - truly logged out")
+                throw refreshError // Will be caught below
+              } else {
+                // Network error - might be temporary, but we'll treat as logged out for now
+                console.log("[AuthProvider] SIGNED_OUT: Refresh failed (network error) - treating as logged out", {
+                  error: refreshError?.message,
+                })
+                throw refreshError
+              }
+            }
+            
+            // If we get here, restoration didn't succeed
+            console.log("[AuthProvider] SIGNED_OUT: Session restoration FAILED - clearing user state")
+            throw new Error("Session restoration failed")
+          } catch (restoreError: any) {
+            // Restoration failed - clear state
+            console.log("[AuthProvider] SIGNED_OUT: Session restoration failed - clearing user state", {
+              error: restoreError?.message,
+            })
+            
+            // Clear biometric credentials
+            try {
+              await clearBiometricCredentials()
+            } catch (error) {
+              console.warn("[AuthProvider] failed to clear biometric credentials:", error)
+            }
+            
+            // Reset PostHog user identification
+            if (posthog) {
+              try {
+                posthog.reset()
+                if (__DEV__) {
+                  console.log("[PostHog] User reset")
+                }
+              } catch (error) {
+                console.warn("[AuthProvider] Failed to reset PostHog:", error)
+              }
+            }
+            
+            setUser(null)
+            setLoading(false)
+            setRestoringSession(false)
           }
         }
-        
-        setUser(null)
-        setLoading(false)
       }
     })
 
@@ -215,87 +331,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.error("[AuthProvider] Failed to record app close:", error)
         }
       } else if (nextAppState === "active") {
-        // CRITICAL: App came to foreground - ALWAYS refresh session to ensure it's valid
-        // This prevents black screens and ensures session is active
-        // Add small delay to avoid race conditions with initial load
-        console.log("[AuthProvider] AppState: active - App came to foreground", {
-          hasUser: !!user,
-          userId: user?.id,
-          timestamp: new Date().toISOString(),
-        })
+        // CRITICAL: When app comes to foreground, check if we have a session but no user
+        // This handles the case where TOKEN_REFRESHED fired while app was backgrounded
+        // and user load was skipped
+        try {
+          const { data: { session } } = await supabase.auth.getSession()
+          if (session?.user && !user) {
+            console.log("[AuthProvider] App came to foreground - session exists but no user, loading user now")
+            await loadUser(session.user.id)
+          }
+        } catch (error) {
+          console.warn("[AuthProvider] Failed to check session on foreground:", error)
+        }
+        
+        // SIMPLIFIED: Check if long inactivity - if so, skip foreground refresh
+        // ForegroundQueryRefresher will handle it by treating like "R" (navigate to root)
+        // This prevents competing refresh attempts
         refreshTimeout = setTimeout(async () => {
-          const foregroundRefreshStartTime = Date.now()
           try {
+            const { wasInactiveTooLong } = await import("../lib/session-lifecycle")
+            const inactiveTooLong = await wasInactiveTooLong()
+            
+            if (inactiveTooLong) {
+              console.log("[AuthProvider] Foreground refresh: SKIPPED - Long inactivity, ForegroundQueryRefresher will handle (treating like 'R')")
+              return // ForegroundQueryRefresher will navigate to root and boot flow will handle everything
+            }
+            
+            // Short inactivity: Quick session check (non-blocking)
             if (user) {
-              // CRITICAL: Check if we should skip refresh (Supabase already refreshed)
               const { shouldSkipSessionCheck } = await import("../lib/auth")
-              const skipCheck = shouldSkipSessionCheck()
-              
-              if (skipCheck) {
-                console.log("[AuthProvider] Foreground refresh: SKIPPED - Recent token refresh detected", {
-                  userId: user.id,
-                  timestamp: new Date().toISOString(),
-                })
-                return // Skip refresh - Supabase already handled it
+              if (shouldSkipSessionCheck()) {
+                console.log("[AuthProvider] Foreground refresh: SKIPPED - Recent token refresh")
+                return
               }
               
-              console.log("[AuthProvider] Foreground refresh: START", {
-                userId: user.id,
-                timestamp: new Date().toISOString(),
-              })
+              // Quick background refresh for short inactivity
               setRefreshing(true)
               try {
-                // Always refresh session on foreground, regardless of expiry status
-                // This ensures session is active and prevents stale session issues
                 const { ensureValidSession } = await import("../lib/auth")
-                const sessionValid = await ensureValidSession()
-                const foregroundRefreshElapsed = Date.now() - foregroundRefreshStartTime
-                console.log("[AuthProvider] Foreground refresh: COMPLETE", {
-                  sessionValid,
-                  elapsedMs: foregroundRefreshElapsed,
-                })
-                if (sessionValid) {
-                  console.log("[AuthProvider] Session refreshed successfully on foreground")
-                } else {
-                  console.warn("[AuthProvider] Session refresh returned false on foreground - session may be invalid")
-                  // CRITICAL: Trigger boot flow re-evaluation in app/index.tsx
-                  // Use AsyncStorage as communication mechanism
-                  try {
-                    const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default
-                    await AsyncStorage.setItem("trigger_boot_recheck", Date.now().toString())
-                    console.log("[AuthProvider] Set trigger_boot_recheck flag")
-                  } catch (storageError) {
-                    console.error("[AuthProvider] Failed to set trigger_boot_recheck:", storageError)
-                  }
-                }
-              } catch (error: any) {
-                const foregroundRefreshElapsed = Date.now() - foregroundRefreshStartTime
-                console.error("[AuthProvider] Foreground refresh: ERROR - Failed to refresh session", {
-                  error: error?.message,
-                  errorType: error?.constructor?.name,
-                  elapsedMs: foregroundRefreshElapsed,
-                })
-                // Don't set refreshing to false here - let it timeout or handle in finally
+                await ensureValidSession() // Non-blocking, runs in background
+              } catch (error) {
+                console.error("[AuthProvider] Foreground refresh error:", error)
               } finally {
                 setRefreshing(false)
-                const totalElapsed = Date.now() - foregroundRefreshStartTime
-                console.log("[AuthProvider] Foreground refresh: FINALLY", {
-                  totalElapsedMs: totalElapsed,
-                })
               }
-            } else {
-              console.log("[AuthProvider] Foreground refresh: SKIPPED - No user")
             }
-          } catch (error: any) {
-            const foregroundRefreshElapsed = Date.now() - foregroundRefreshStartTime
-            console.error("[AuthProvider] Foreground refresh: EXCEPTION", {
-              error: error?.message,
-              errorType: error?.constructor?.name,
-              elapsedMs: foregroundRefreshElapsed,
-            })
-            setRefreshing(false)
+          } catch (error) {
+            console.error("[AuthProvider] Foreground refresh check error:", error)
           }
-        }, 500) // Small delay to avoid race conditions
+        }, 500)
       }
     }
 
@@ -310,9 +394,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user])
 
   async function loadUser(userId: string) {
+    let userData: any = null
     try {
       console.log('[AuthProvider] Loading user:', userId)
-      const { data, error } = await supabase.from("users").select("*").eq("id", userId).maybeSingle()
+      
+      // Add timeout to prevent hanging (10 seconds)
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('User load timeout after 10 seconds')), 10000)
+      })
+      
+      const userPromise = supabase.from("users").select("*").eq("id", userId).maybeSingle()
+      
+      const result = await Promise.race([userPromise, timeoutPromise]) as any
+      const { data, error } = result || { data: null, error: null }
       
       if (error) {
         console.error('[AuthProvider] Error loading user:', error)
@@ -320,85 +414,105 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       console.log('[AuthProvider] User data loaded:', data ? 'success' : 'null', error ? `error: ${error.message}` : '')
       
+      userData = data
       setUser(data)
       
-      // Identify user in PostHog after successful load
+      // CRITICAL: Set loading to false immediately after user data is set
+      // Don't wait for PostHog identification - it can happen in background
+      setLoading(false)
+      
+      // Identify user in PostHog after successful load (non-blocking, fire-and-forget)
       // Even if data is null, we can still identify the user with just the userId
+      // Run this in background - don't await it
       if (posthog) {
-        if (data) {
-        try {
-          console.log('[PostHog] Attempting to identify user:', userId)
-          
-          // Get group count for analytics (non-PII)
-          const { count: groupCount } = await supabase
-            .from("group_members")
-            .select("*", { count: "exact", head: true })
-            .eq("user_id", userId)
-          
-          // Calculate account age
-          const accountCreatedAt = new Date(data.created_at || new Date())
-          const accountAgeDays = Math.floor(
-            (Date.now() - accountCreatedAt.getTime()) / (1000 * 60 * 60 * 24)
-          )
-          
-          // Identify user with non-PII properties
-          const properties = {
-            has_groups: (groupCount || 0) > 0,
-            group_count: groupCount || 0,
-            account_age_days: accountAgeDays,
-          }
-          
-          console.log('[PostHog] Calling identify with:', { userId, properties })
-          posthog.identify(userId, properties)
-          console.log('[PostHog] Identify called successfully')
-          
-          // Capture a test event to verify PostHog is working
-          console.log('[PostHog] Calling capture for user_loaded event')
-          posthog.capture('user_loaded', {
-            user_id: userId,
-            has_groups: (groupCount || 0) > 0,
-          })
-          console.log('[PostHog] Capture called successfully')
-          
-          // Try to flush events immediately
-          if (posthog.flush) {
-            console.log('[PostHog] Flushing events...')
-            posthog.flush()
-            console.log('[PostHog] Flush called')
-          }
-          
-          if (__DEV__) {
-            console.log("[PostHog] User identified:", userId, properties)
-            console.log("[PostHog] Test event captured: user_loaded")
-          }
-        } catch (error) {
-          console.error("[AuthProvider] Failed to identify user in PostHog:", error)
-          // Don't block user loading if PostHog fails
-        }
-        } else {
-          // User data not loaded yet, but still identify with minimal info
-          console.log('[PostHog] Identifying user without profile data:', userId)
+        // Run PostHog identification in background (non-blocking)
+        (async () => {
           try {
-            posthog.identify(userId, {
-              profile_loaded: false,
-            })
-            posthog.capture('user_loaded', {
-              user_id: userId,
-              profile_loaded: false,
-            })
-            console.log('[PostHog] User identified without profile data')
+            if (data) {
+              console.log('[PostHog] Attempting to identify user:', userId)
+              
+              // Get group count for analytics (non-PII) - with timeout
+              let groupCount = 0
+              try {
+                const timeoutPromise = new Promise((_, reject) => {
+                  setTimeout(() => reject(new Error('Group count query timeout')), 5000)
+                })
+                const countPromise = supabase
+                  .from("group_members")
+                  .select("*", { count: "exact", head: true })
+                  .eq("user_id", userId)
+                const countResult = await Promise.race([countPromise, timeoutPromise]) as any
+                groupCount = countResult?.count || 0
+              } catch (countError) {
+                console.warn('[PostHog] Failed to get group count (non-blocking):', countError)
+                // Continue without group count
+              }
+              
+              // Calculate account age
+              const accountCreatedAt = new Date(data.created_at || new Date())
+              const accountAgeDays = Math.floor(
+                (Date.now() - accountCreatedAt.getTime()) / (1000 * 60 * 60 * 24)
+              )
+              
+              // Identify user with non-PII properties
+              const properties = {
+                has_groups: (groupCount || 0) > 0,
+                group_count: groupCount || 0,
+                account_age_days: accountAgeDays,
+              }
+              
+              console.log('[PostHog] Calling identify with:', { userId, properties })
+              posthog.identify(userId, properties)
+              console.log('[PostHog] Identify called successfully')
+              
+              // Capture a test event to verify PostHog is working
+              console.log('[PostHog] Calling capture for user_loaded event')
+              posthog.capture('user_loaded', {
+                user_id: userId,
+                has_groups: (groupCount || 0) > 0,
+              })
+              console.log('[PostHog] Capture called successfully')
+              
+              // Try to flush events immediately
+              if (posthog.flush) {
+                console.log('[PostHog] Flushing events...')
+                posthog.flush()
+                console.log('[PostHog] Flush called')
+              }
+              
+              if (__DEV__) {
+                console.log("[PostHog] User identified:", userId, properties)
+                console.log("[PostHog] Test event captured: user_loaded")
+              }
+            } else {
+              // User data not loaded yet, but still identify with minimal info
+              console.log('[PostHog] Identifying user without profile data:', userId)
+              posthog.identify(userId, {
+                profile_loaded: false,
+              })
+              posthog.capture('user_loaded', {
+                user_id: userId,
+                profile_loaded: false,
+              })
+              console.log('[PostHog] User identified without profile data')
+            }
           } catch (error) {
-            console.error("[AuthProvider] Failed to identify user in PostHog (no profile):", error)
+            console.error("[AuthProvider] Failed to identify user in PostHog (non-blocking):", error)
+            // Don't block user loading if PostHog fails
           }
-        }
+        })() // Fire and forget - don't await
       } else {
-        console.warn('[PostHog] Cannot identify user - posthog:', !!posthog, 'data:', !!data)
+        console.warn('[PostHog] Cannot identify user - posthog:', !!posthog, 'data:', !!userData)
       }
     } catch (error) {
-      console.error("[v0] Error loading user:", error)
-    } finally {
+      console.error("[AuthProvider] Error loading user:", error)
+      // CRITICAL: Always set loading to false, even on error
+      // This prevents the app from hanging on white screen
+      setUser(null)
       setLoading(false)
     }
+    // Note: setLoading(false) is now called earlier (after user data is set)
+    // This ensures the app doesn't hang waiting for PostHog identification
   }
 
   async function handleSignOut() {
@@ -438,5 +552,5 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }
 
-  return <AuthContext.Provider value={{ user, loading, refreshing, signOut: handleSignOut }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={{ user, loading, refreshing, restoringSession, signOut: handleSignOut }}>{children}</AuthContext.Provider>
 }

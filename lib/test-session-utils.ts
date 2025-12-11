@@ -2,6 +2,7 @@
 // Only available in __DEV__ mode
 
 import AsyncStorage from "@react-native-async-storage/async-storage"
+import * as Linking from "expo-linking"
 import { supabase } from "./supabase"
 import { 
   clearSessionLifecycle, 
@@ -106,6 +107,56 @@ export async function clearAllSessionData(): Promise<void> {
   }
 }
 
+export async function testPasswordResetLink(verificationUrl: string, email?: string): Promise<{ success: boolean; email?: string; error?: string }> {
+  console.log('[TEST] Testing password reset link:', verificationUrl)
+  try {
+    // Extract token from Supabase verification URL
+    // Format: https://project.supabase.co/auth/v1/verify?token=...&type=recovery&redirect_to=goodtimes://
+    const url = new URL(verificationUrl)
+    const token = url.searchParams.get('token')
+    const type = url.searchParams.get('type')
+    const redirectTo = url.searchParams.get('redirect_to') || 'goodtimes://'
+    
+    if (!token || type !== 'recovery') {
+      throw new Error('Invalid verification URL. Must contain token and type=recovery')
+    }
+    
+    console.log('[TEST] Extracted from URL:', {
+      tokenLength: token.length,
+      type,
+      redirectTo
+    })
+    
+    // The verification URL needs to be processed by Supabase's server
+    // When clicked, Supabase processes it and redirects to redirect_to with tokens
+    // We can simulate this by calling the verify endpoint with the full URL
+    // But actually, the best way is to use Linking to open it, which will trigger the redirect
+    
+    // For testing, let's construct what the redirect URL would look like
+    // and try to extract tokens from it, or simulate the redirect flow
+    
+    // The verification URL needs to be processed by Supabase's server
+    // When you click it, Supabase processes it and redirects to redirect_to with tokens
+    // For testing, we can't easily simulate this without opening a browser
+    // Instead, let's check if the token format looks valid and provide guidance
+    
+    console.log('[TEST] Token extracted successfully')
+    console.log('[TEST] Note: To fully test, you need to click the link in email or open it in browser')
+    console.log('[TEST] Supabase will process it and redirect to:', redirectTo)
+    
+    // For now, just validate the URL format
+    // The actual test happens when the link is clicked and Supabase redirects
+    return { 
+      success: true, 
+      email: email || 'Email will be available after Supabase processes the link',
+      error: 'This tool validates the URL format. To fully test, click the link in email. Supabase will redirect to the app with tokens if valid, or with error if expired.'
+    }
+  } catch (error: any) {
+    console.error('[TEST] ❌ Failed to test password reset link:', error)
+    return { success: false, error: error.message || String(error) }
+  }
+}
+
 // Make available globally for console access (if needed)
 if (__DEV__) {
   (global as any).testSession = {
@@ -113,6 +164,7 @@ if (__DEV__) {
     forceExpiry: forceSessionExpiry,
     simulateInactivity: simulateLongInactivity,
     clearAll: clearAllSessionData,
+    testPasswordReset: testPasswordResetLink,
   }
 }
 

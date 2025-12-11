@@ -735,16 +735,31 @@ export default function Home() {
     }
   }, [selectedDate, currentGroupId, userId, queryClient])
 
+  // CRITICAL: Refetch prompt when userId becomes available (fixes race condition)
+  // This ensures prompt loads even if userId was undefined when query first ran
+  useEffect(() => {
+    if (currentGroupId && selectedDate && userId) {
+      // Invalidate and refetch to ensure prompt loads with userId
+      queryClient.invalidateQueries({
+        queryKey: ["dailyPrompt", currentGroupId, selectedDate],
+        exact: false, // Match all queries for this group/date regardless of userId
+      })
+    }
+  }, [userId, currentGroupId, selectedDate, queryClient])
+
   const { data: dailyPrompt, isLoading: isLoadingPrompt, isFetching: isFetchingPrompt } = useQuery({
     queryKey: ["dailyPrompt", currentGroupId, selectedDate, userId],
     queryFn: () => (currentGroupId ? getDailyPrompt(currentGroupId, selectedDate, userId) : null),
     enabled: !!currentGroupId && !!selectedDate, // Always enabled when group and date are available
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes to prevent glitching during date navigation
     gcTime: 10 * 60 * 1000, // Keep cache for 10 minutes for smooth date navigation
-    refetchOnMount: false, // Don't refetch on mount if data is cached (prevents flash)
-    refetchOnWindowFocus: false, // Don't refetch on focus (prevents flash)
+    refetchOnMount: true, // Always refetch on mount to ensure fresh data (fixes stuck loading state)
+    refetchOnWindowFocus: true, // Refetch on focus to ensure fresh data when returning to screen
     // Don't use placeholder data from different dates - this causes glitching
     placeholderData: undefined,
+    // CRITICAL: Retry failed queries to handle transient network issues
+    retry: 2,
+    retryDelay: 1000,
   })
 
   const { data: userEntry } = useQuery({
@@ -1530,6 +1545,30 @@ export default function Home() {
     } else if (notification.type === "new_answers") {
       // Navigate to home (group already switched above)
       router.replace("/(main)/home")
+    } else if (notification.type === "mentioned_in_entry") {
+      // Navigate to entry detail for the mentioned entry
+      if (notification.entryId) {
+        const { data: entries } = await supabase
+          .from("entries")
+          .select("id")
+          .eq("group_id", notification.groupId)
+          .order("date", { ascending: false })
+          .order("created_at", { ascending: false })
+          .limit(50)
+        
+        const entryIdList = entries?.map((e) => e.id) || []
+        const entryIndex = entryIdList.indexOf(notification.entryId)
+        
+        router.push({
+          pathname: "/(main)/modals/entry-detail",
+          params: {
+            entryId: notification.entryId,
+            entryIds: JSON.stringify(entryIdList),
+            index: entryIndex >= 0 ? String(entryIndex) : undefined,
+            returnTo: "/(main)/home",
+          },
+        })
+      }
     } else if (notification.type === "deck_vote_requested") {
       // Navigate to deck vote page
       if (notification.deckId) {
@@ -2673,14 +2712,24 @@ export default function Home() {
                 const hasValidQuestion = personalizedPromptQuestion || dailyPrompt?.prompt?.question || entries[0]?.prompt?.question
                 const isLoading = isLoadingPrompt || isFetchingPrompt || isLoadingEntries || isFetchingEntries
                 
-                // Show skeleton when loading and no valid prompt/question yet
+                // Show skeleton ONLY when actively loading and no valid prompt/question yet
+                // CRITICAL: Don't show skeleton if query completed but returned null (no prompt scheduled)
+                // This prevents infinite loading state when prompt doesn't exist for a date
                 if (isLoading && !hasValidQuestion) {
                   return <PromptSkeleton />
                 }
                 
-                // Only show actual prompt if we have valid question text
-                if (!hasValidQuestion) {
+                // If query completed but no valid question, check if we're still waiting for entries
+                // Only show skeleton if we're still loading entries (might have prompt in entries)
+                if (!hasValidQuestion && (isLoadingEntries || isFetchingEntries)) {
                   return <PromptSkeleton />
+                }
+                
+                // If query completed and no valid question found, don't show skeleton
+                // (This means no prompt is scheduled for this date, which is valid)
+                if (!hasValidQuestion) {
+                  // Return empty state instead of skeleton
+                  return null
                 }
                 
                 // CRITICAL: If question is about the current user and no entries yet, show message

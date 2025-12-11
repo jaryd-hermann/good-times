@@ -2,6 +2,60 @@ import { supabase } from "./supabase"
 import type { User, Group, GroupMember, Prompt, DailyPrompt, Entry, Memorial, Reaction, Comment, CustomQuestion, CustomQuestionRotation, GroupActivityTracking, Collection, Deck, GroupDeckVote, GroupActiveDeck, BirthdayCard, BirthdayCardEntry, FeaturedPrompt, GroupFeaturedQuestion } from "./types"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "./prompts"
 
+// Helper function to select next memorial in rotation (week-based)
+// Ensures: Week 1 = Person A, Week 2 = Person B, etc.
+async function selectNextMemorial(
+  groupId: string,
+  promptId: string,
+  date: string,
+  memorials: Memorial[]
+): Promise<string> {
+  const weekStart = getWeekStartDate(date)
+  
+  // Check if a memorial was already used THIS WEEK
+  const { data: thisWeekUsage } = await supabase
+    .from("prompt_name_usage")
+    .select("name_used")
+    .eq("group_id", groupId)
+    .eq("prompt_id", promptId)
+    .eq("variable_type", "memorial_name")
+    .gte("date_used", weekStart)
+    .lte("date_used", date)
+    .order("date_used", { ascending: false })
+    .limit(1)
+  
+  // If a memorial was already used this week, use the same one (shouldn't happen with 1/week limit, but safety check)
+  if (thisWeekUsage && thisWeekUsage.length > 0) {
+    return thisWeekUsage[0].name_used
+  }
+  
+  // No memorial used this week - rotate to next person
+  // Find which memorial was used last week (if any)
+  const { data: lastWeekUsage } = await supabase
+    .from("prompt_name_usage")
+    .select("name_used")
+    .eq("group_id", groupId)
+    .eq("prompt_id", promptId)
+    .eq("variable_type", "memorial_name")
+    .lt("date_used", weekStart) // Before this week
+    .order("date_used", { ascending: false })
+    .limit(1)
+  
+  const lastUsedName = lastWeekUsage && lastWeekUsage.length > 0 ? lastWeekUsage[0].name_used : null
+  
+  // Find index of last used memorial
+  const lastUsedIndex = lastUsedName 
+    ? memorials.findIndex(m => m.name === lastUsedName)
+    : -1
+  
+  // Select next memorial in rotation (cycle through)
+  const nextIndex = lastUsedIndex >= 0 
+    ? (lastUsedIndex + 1) % memorials.length  // Next in rotation
+    : 0  // Start with first if none used before
+  
+  return memorials[nextIndex].name
+}
+
 // User queries
 export async function getCurrentUser(): Promise<User | null> {
   const {
@@ -181,9 +235,9 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
       if (prompt.dynamic_variables && Array.isArray(prompt.dynamic_variables)) {
         const variables: Record<string, string> = {}
         
-        // If it's a "their_birthday" prompt, we need the birthday person's name
+        // If it's a "their_birthday" prompt, we need ALL birthday people's names (combined)
         if (prompt.birthday_type === "their_birthday") {
-          // Get the birthday person's name from the group members
+          // Get ALL members with birthdays today and combine their names
           const { data: members } = await supabase
             .from("group_members")
             .select("user_id, user:users(id, name, birthday)")
@@ -191,12 +245,25 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
           
           if (members) {
             const todayMonthDay = date.substring(5) // MM-DD
+            const birthdayNames: string[] = []
+            
             for (const member of members) {
               const user = member.user as any
-              if (user?.birthday && user.birthday.substring(5) === todayMonthDay) {
-                variables.member_name = user.name || "them"
-                break
+              if (user?.birthday && user.birthday.substring(5) === todayMonthDay && user.name) {
+                birthdayNames.push(user.name)
               }
+            }
+            
+            // Combine names: "Name1 and Name2" or just "Name1" if only one
+            if (birthdayNames.length > 0) {
+              if (birthdayNames.length === 1) {
+                variables.member_name = birthdayNames[0]
+              } else {
+                // Combine with "and": "Jaryd and Brett"
+                variables.member_name = birthdayNames.join(" and ")
+              }
+            } else {
+              variables.member_name = "them"
             }
           }
         }
@@ -293,29 +360,41 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
             console.log(`[getDailyPrompt] Using existing memorial selection for ${date}: ${existingUsage.name_used}`)
           } else {
             // No existing selection for this date - calculate which memorial to use
-            // Get recently used memorial names for this prompt (excluding this date)
-            const { data: recentUsage } = await supabase
+            // CRITICAL: Check which memorial was used THIS WEEK (not just recently)
+            // This ensures proper week-by-week rotation: Week 1 = Person A, Week 2 = Person B, etc.
+            const weekStart = getWeekStartDate(date)
+            const { data: thisWeekUsage } = await supabase
               .from("prompt_name_usage")
               .select("name_used")
               .eq("group_id", groupId)
               .eq("prompt_id", prompt.id)
               .eq("variable_type", "memorial_name")
-              .neq("date_used", date) // Exclude this date to avoid conflicts
+              .gte("date_used", weekStart)
+              .lte("date_used", date)
               .order("date_used", { ascending: false })
-              .limit(memorials.length)
-
-            const usedNames = new Set(recentUsage?.map((u) => u.name_used) || [])
+              .limit(1) // Only need the most recent one from this week
             
-            // Find unused memorials first
-            const unusedMemorials = memorials.filter((m) => !usedNames.has(m.name))
+            // Also get the last memorial used in previous weeks (for rotation)
+            const { data: lastWeekUsage } = await supabase
+              .from("prompt_name_usage")
+              .select("name_used")
+              .eq("group_id", groupId)
+              .eq("prompt_id", prompt.id)
+              .eq("variable_type", "memorial_name")
+              .lt("date_used", weekStart) // Before this week
+              .order("date_used", { ascending: false })
+              .limit(1)
             
-            // If all have been used, reset and start fresh
-            const availableMemorials = unusedMemorials.length > 0 ? unusedMemorials : memorials
-            
-            // Select next memorial (cycle through)
-            const dayIndex = getDayIndex(date, groupId)
-            const memorialIndex = dayIndex % availableMemorials.length
-            const selectedMemorial = availableMemorials[memorialIndex]
+            // If a memorial was already used this week, use the same one (shouldn't happen with 1/week limit, but safety check)
+            if (thisWeekUsage && thisWeekUsage.length > 0) {
+              variables.memorial_name = thisWeekUsage[0].name_used
+              console.log(`[getDailyPrompt] Memorial already used this week: ${thisWeekUsage[0].name_used}`)
+            } else {
+              // No memorial used this week - rotate to next person
+              const selectedMemorialName = await selectNextMemorial(groupId, prompt.id, date, memorials)
+              variables.memorial_name = selectedMemorialName
+              console.log(`[getDailyPrompt] Rotating memorial to: ${selectedMemorialName}`)
+            }
             
             variables.memorial_name = selectedMemorial.name
 
@@ -357,8 +436,8 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
 
       // Handle member_name variable
       if (prompt.dynamic_variables.includes("member_name")) {
-        if (prompt.birthday_type === "their_birthday") {
-          // For birthday prompts, get the birthday person's name
+        if (prompt.birthday_type === "their_birthday" || prompt.category === "Birthday") {
+          // For birthday prompts, get ALL birthday people's names and combine them
           // CRITICAL: FIRST check if this exact date/prompt already has a member name selected
           const { data: existingUsage } = await supabase
             .from("prompt_name_usage")
@@ -374,7 +453,7 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
             variables.member_name = existingUsage.name_used
             console.log(`[getDailyPrompt] Using existing member name selection for ${date}: ${existingUsage.name_used}`)
           } else {
-            // No existing selection for this date - calculate which member to use
+            // No existing selection for this date - get ALL members with birthdays today
             const { data: members } = await supabase
               .from("group_members")
               .select("user_id, user:users(id, name, birthday)")
@@ -382,44 +461,58 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
             
             if (members) {
               const todayMonthDay = date.substring(5) // MM-DD
+              const birthdayNames: string[] = []
+              
               for (const member of members) {
                 const user = member.user as any
-                if (user?.birthday && user.birthday.substring(5) === todayMonthDay) {
-                  variables.member_name = user.name || "them"
-                  
-                  // Record usage for this date (ignore errors if already exists - might be race condition)
-                  const { error: insertError } = await supabase.from("prompt_name_usage").insert({
-                    group_id: groupId,
-                    prompt_id: prompt.id,
-                    variable_type: "member_name",
-                    name_used: variables.member_name,
-                    date_used: date,
-                  })
-                  
-                  if (insertError) {
-                    // Check if it's a duplicate constraint violation (23505 is unique violation)
-                    if (insertError.code !== '23505') {
-                      console.warn(`[getDailyPrompt] Failed to insert prompt_name_usage for ${prompt.id} on ${date}:`, insertError.message)
-                    } else {
-                      // Duplicate - another call already inserted this. Re-fetch to get the correct name
-                      const { data: duplicateUsage } = await supabase
-                        .from("prompt_name_usage")
-                        .select("name_used")
-                        .eq("group_id", groupId)
-                        .eq("prompt_id", prompt.id)
-                        .eq("variable_type", "member_name")
-                        .eq("date_used", date)
-                        .maybeSingle()
-                      
-                      if (duplicateUsage?.name_used) {
-                        // Use the name that was already inserted (prevents race condition issues)
-                        variables.member_name = duplicateUsage.name_used
-                        console.log(`[getDailyPrompt] Duplicate insert detected, using existing: ${duplicateUsage.name_used}`)
-                      }
+                if (user?.birthday && user.birthday.substring(5) === todayMonthDay && user.name) {
+                  birthdayNames.push(user.name)
+                }
+              }
+              
+              // Combine names: "Name1 and Name2" or just "Name1" if only one
+              if (birthdayNames.length > 0) {
+                if (birthdayNames.length === 1) {
+                  variables.member_name = birthdayNames[0]
+                } else {
+                  // Combine with "and": "Jaryd and Brett"
+                  variables.member_name = birthdayNames.join(" and ")
+                }
+                
+                // Record usage for this date (ignore errors if already exists - might be race condition)
+                const { error: insertError } = await supabase.from("prompt_name_usage").insert({
+                  group_id: groupId,
+                  prompt_id: prompt.id,
+                  variable_type: "member_name",
+                  name_used: variables.member_name,
+                  date_used: date,
+                })
+                
+                if (insertError) {
+                  // Check if it's a duplicate constraint violation (23505 is unique violation)
+                  if (insertError.code !== '23505') {
+                    console.warn(`[getDailyPrompt] Failed to insert prompt_name_usage for ${prompt.id} on ${date}:`, insertError.message)
+                  } else {
+                    // Duplicate - another call already inserted this. Re-fetch to get the correct name
+                    const { data: duplicateUsage } = await supabase
+                      .from("prompt_name_usage")
+                      .select("name_used")
+                      .eq("group_id", groupId)
+                      .eq("prompt_id", prompt.id)
+                      .eq("variable_type", "member_name")
+                      .eq("date_used", date)
+                      .maybeSingle()
+                    
+                    if (duplicateUsage?.name_used) {
+                      // Use the name that was already inserted (prevents race condition issues)
+                      variables.member_name = duplicateUsage.name_used
+                      console.log(`[getDailyPrompt] Duplicate insert detected, using existing: ${duplicateUsage.name_used}`)
                     }
                   }
-                  break
                 }
+              } else {
+                // Fallback if no names found
+                variables.member_name = "them"
               }
             }
           }
@@ -539,27 +632,9 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
           // This date already has a memorial selected - use it EXACTLY as-is
           personalizedQuestion = personalizeMemorialPrompt(prompt.question, existingUsage.name_used)
         } else {
-          // No existing selection for this date - calculate which memorial to use
-          // Get recently used memorial names for this prompt (excluding this date)
-          const { data: recentUsage } = await supabase
-            .from("prompt_name_usage")
-            .select("name_used")
-            .eq("group_id", groupId)
-            .eq("prompt_id", prompt.id)
-            .eq("variable_type", "memorial_name")
-            .neq("date_used", date) // Exclude this date to avoid conflicts
-            .order("date_used", { ascending: false })
-            .limit(memorials.length)
-
-          const usedNames = new Set(recentUsage?.map((u) => u.name_used) || [])
-          const unusedMemorials = memorials.filter((m) => !usedNames.has(m.name))
-          const availableMemorials = unusedMemorials.length > 0 ? unusedMemorials : memorials
-          
-          const dayIndex = getDayIndex(date, groupId)
-          const memorialIndex = dayIndex % availableMemorials.length
-          const selectedMemorial = availableMemorials[memorialIndex]
-          
-          personalizedQuestion = personalizeMemorialPrompt(prompt.question, selectedMemorial.name)
+          // No existing selection for this date - calculate which memorial to use (week-based rotation)
+          const selectedMemorialName = await selectNextMemorial(groupId, prompt.id, date, memorials)
+          personalizedQuestion = personalizeMemorialPrompt(prompt.question, selectedMemorialName)
 
           // Record usage for this date (ignore errors if already exists - might be race condition)
           const { error: insertError } = await supabase.from("prompt_name_usage").insert({
@@ -834,27 +909,9 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
           // This date already has a memorial selected - use it EXACTLY as-is
           variables.memorial_name = existingUsage.name_used
         } else {
-          // No existing selection for this date - calculate which memorial to use
-          // Get recently used memorial names for this prompt (excluding this date)
-          const { data: recentUsage } = await supabase
-            .from("prompt_name_usage")
-            .select("name_used")
-            .eq("group_id", groupId)
-            .eq("prompt_id", prompt.id)
-            .eq("variable_type", "memorial_name")
-            .neq("date_used", date) // Exclude this date to avoid conflicts
-            .order("date_used", { ascending: false })
-            .limit(memorials.length)
-
-          const usedNames = new Set(recentUsage?.map((u) => u.name_used) || [])
-          const unusedMemorials = memorials.filter((m) => !usedNames.has(m.name))
-          const availableMemorials = unusedMemorials.length > 0 ? unusedMemorials : memorials
-          
-          const dayIndex = getDayIndex(date, groupId)
-          const memorialIndex = dayIndex % availableMemorials.length
-          const selectedMemorial = availableMemorials[memorialIndex]
-          
-          variables.memorial_name = selectedMemorial.name
+          // No existing selection for this date - calculate which memorial to use (week-based rotation)
+          const selectedMemorialName = await selectNextMemorial(groupId, prompt.id, date, memorials)
+          variables.memorial_name = selectedMemorialName
 
           // Record usage for this date (ignore errors if already exists - might be race condition)
           const { error: insertError } = await supabase.from("prompt_name_usage").insert({
@@ -1051,27 +1108,9 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
           question: personalizedQuestion,
         }
       } else {
-        // No existing selection for this date - calculate which memorial to use
-        // Get recently used memorial names for this prompt (excluding this date)
-        const { data: recentUsage } = await supabase
-          .from("prompt_name_usage")
-          .select("name_used")
-          .eq("group_id", groupId)
-          .eq("prompt_id", prompt.id)
-          .eq("variable_type", "memorial_name")
-          .neq("date_used", date) // Exclude this date to avoid conflicts
-          .order("date_used", { ascending: false })
-          .limit(memorials.length)
-
-        const usedNames = new Set(recentUsage?.map((u) => u.name_used) || [])
-        const unusedMemorials = memorials.filter((m) => !usedNames.has(m.name))
-        const availableMemorials = unusedMemorials.length > 0 ? unusedMemorials : memorials
-        
-        const dayIndex = getDayIndex(date, groupId)
-        const memorialIndex = dayIndex % availableMemorials.length
-        const selectedMemorial = availableMemorials[memorialIndex]
-        
-        const personalizedQuestion = personalizeMemorialPrompt(prompt.question, selectedMemorial.name)
+        // No existing selection for this date - calculate which memorial to use (week-based rotation)
+        const selectedMemorialName = await selectNextMemorial(groupId, prompt.id, date, memorials)
+        const personalizedQuestion = personalizeMemorialPrompt(prompt.question, selectedMemorialName)
         personalizedPrompt = {
           ...prompt,
           question: personalizedQuestion,
@@ -1221,6 +1260,7 @@ export async function createEntry(entry: {
   media_urls?: string[]
   media_types?: ("photo" | "video" | "audio")[]
   embedded_media?: any[] // JSONB array
+  mentions?: string[] // Array of user IDs mentioned in the entry
 }): Promise<Entry> {
   const { data, error } = await supabase
     .from("entries")
@@ -1282,6 +1322,7 @@ export async function updateEntry(
     media_urls?: string[]
     media_types?: ("photo" | "video" | "audio")[]
     embedded_media?: any[] // JSONB array
+    mentions?: string[] // Array of user IDs mentioned in the entry
   }
 ): Promise<Entry> {
   // First, verify the entry exists and belongs to the user
@@ -1835,6 +1876,11 @@ export async function createCustomQuestion(data: {
   }
 
   // Update custom_question record
+  // CRITICAL: Specify foreign key explicitly to avoid ambiguous relationship error
+  // There are two relationships between custom_questions and prompts:
+  // 1. custom_questions.prompt_id -> prompts.id (what we want)
+  // 2. prompts.custom_question_id -> custom_questions.id (reverse relationship)
+  // Using !prompt_id tells Supabase to use the prompt_id foreign key
   const { data: updatedQuestion, error: updateError } = await supabase
     .from("custom_questions")
     .update({
@@ -1845,7 +1891,7 @@ export async function createCustomQuestion(data: {
       prompt_id: prompt.id,
     })
     .eq("id", existingOpportunity.id)
-    .select("*, user:users(*), group:groups(*), prompt:prompts(*)")
+    .select("*, user:users(*), group:groups(*), prompt:prompts!prompt_id(*)")
     .single()
 
   if (updateError) throw updateError

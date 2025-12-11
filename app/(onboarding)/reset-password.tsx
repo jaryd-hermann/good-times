@@ -10,6 +10,7 @@ import { OnboardingBack } from "../../components/OnboardingBack"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { saveBiometricCredentials, getBiometricPreference } from "../../lib/biometric"
 import * as Linking from "expo-linking"
+import AsyncStorage from "@react-native-async-storage/async-storage"
 
 export default function ResetPassword() {
   const router = useRouter()
@@ -19,27 +20,82 @@ export default function ResetPassword() {
   const [confirmPassword, setConfirmPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const [email, setEmail] = useState<string | null>(null)
+  const [isChecking, setIsChecking] = useState(true)
 
   // Extract token from URL hash or query params (Supabase sends it in hash)
+  // NOTE: _layout.tsx already sets the session before navigating here, but we need to wait for it
   useEffect(() => {
-    async function checkURL() {
+    async function checkSession() {
+      console.log("[reset-password] Checking for existing session...")
+      
+      // Wait a bit for _layout.tsx to finish setting the session
+      await new Promise(resolve => setTimeout(resolve, 300))
+      
+      // Check if we have a session (set by _layout.tsx)
+      let session = null
+      let retries = 3
+      
+      while (retries > 0 && !session) {
+        const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession()
+        
+        if (sessionError) {
+          console.error("[reset-password] Error getting session:", sessionError)
+        }
+        
+        if (currentSession) {
+          session = currentSession
+          break
+        }
+        
+        console.log(`[reset-password] No session found, retrying... (${retries} attempts left)`)
+        retries--
+        if (retries > 0) {
+          await new Promise(resolve => setTimeout(resolve, 200))
+        }
+      }
+      
+      if (session?.user?.email) {
+        console.log("[reset-password] Found session with email:", session.user.email)
+        setEmail(session.user.email)
+        // Clear the backup email from AsyncStorage
+        await AsyncStorage.removeItem("password_reset_email")
+        return
+      }
+      
+      // Fallback 1: Check AsyncStorage for email stored by _layout.tsx
+      console.warn("[reset-password] No session found after retries, checking AsyncStorage for email...")
+      try {
+        const storedEmail = await AsyncStorage.getItem("password_reset_email")
+        if (storedEmail) {
+          console.log("[reset-password] Found email in AsyncStorage:", storedEmail)
+          setEmail(storedEmail)
+          // Keep it in storage in case we need it later, but proceed with reset
+          return
+        }
+      } catch (e) {
+        console.warn("[reset-password] Failed to read AsyncStorage:", e)
+      }
+      
+      // Fallback 2: Check URL if session wasn't set by _layout.tsx (e.g., app was already open)
+      console.warn("[reset-password] No email in AsyncStorage, checking URL for tokens...")
       const url = await Linking.getInitialURL()
-      if (url) {
-        // Supabase sends tokens in hash fragment: goodtimes://reset-password#access_token=...&type=recovery
+      if (url && url.includes("reset-password")) {
         const hashMatch = url.match(/#(.+)/)
         if (hashMatch) {
           const hashParams = new URLSearchParams(hashMatch[1])
           const accessToken = hashParams.get("access_token")
           const type = hashParams.get("type")
           
+          // Only set session if we have tokens and no existing session
           if (accessToken && type === "recovery") {
-            // Set the session with the recovery token
+            console.log("[reset-password] Setting session from URL tokens...")
             const { data, error } = await supabase.auth.setSession({
               access_token: accessToken,
               refresh_token: hashParams.get("refresh_token") || "",
             })
             
             if (error) {
+              console.error("[reset-password] Failed to set session:", error)
               Alert.alert("Error", "Invalid or expired reset link. Please request a new one.")
               router.replace("/(onboarding)/forgot-password")
               return
@@ -47,24 +103,37 @@ export default function ResetPassword() {
             
             if (data.session?.user?.email) {
               setEmail(data.session.user.email)
+              await AsyncStorage.removeItem("password_reset_email")
+              return
             }
           }
         }
       }
       
-      // Also check if we have a session already (in case user clicked link while app was open)
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session?.user?.email) {
-        setEmail(session.user.email)
-      }
+      // No URL, no session, and no stored email - navigate back
+      console.warn("[reset-password] No URL, no session, and no stored email after all attempts, navigating to forgot-password")
+      setIsChecking(false)
+      Alert.alert("Error", "Invalid or expired reset link. Please request a new one.")
+      router.replace("/(onboarding)/forgot-password")
+      return
     }
     
-    checkURL()
+    setIsChecking(false)
+    checkSession()
     
     // Listen for URL changes (when app is already open)
     const subscription = Linking.addEventListener("url", async (event) => {
       const url = event.url
       if (url.includes("reset-password")) {
+        console.log("[reset-password] URL change detected:", url)
+        // Check session first - _layout.tsx might have already set it
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session?.user?.email) {
+          setEmail(session.user.email)
+          return
+        }
+        
+        // Fallback: try to set session from URL
         const hashMatch = url.match(/#(.+)/)
         if (hashMatch) {
           const hashParams = new URLSearchParams(hashMatch[1])
@@ -78,6 +147,7 @@ export default function ResetPassword() {
             })
             
             if (error) {
+              console.error("[reset-password] Failed to set session from URL change:", error)
               Alert.alert("Error", "Invalid or expired reset link. Please request a new one.")
               router.replace("/(onboarding)/forgot-password")
               return
@@ -186,6 +256,17 @@ export default function ResetPassword() {
     } finally {
       setLoading(false)
     }
+  }
+
+  // Don't render if we're still checking or if we don't have an email
+  if (isChecking || !email) {
+    return (
+      <View style={styles.background}>
+        <View style={[styles.container, { paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.xl, justifyContent: "center", alignItems: "center" }]}>
+          <Text style={styles.title}>Loading...</Text>
+        </View>
+      </View>
+    )
   }
 
   return (

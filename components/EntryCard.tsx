@@ -14,6 +14,8 @@ import { getComments, getMemorials, getReactions, toggleReaction, toggleEmojiRea
 import { EmojiPicker } from "./EmojiPicker"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "../lib/prompts"
+import { MentionableText } from "./MentionableText"
+import { UserProfileModal } from "./UserProfileModal"
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 
@@ -40,6 +42,8 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   const [imageDimensions, setImageDimensions] = useState<Record<number, { width: number; height: number }>>({})
   const [videoDimensions, setVideoDimensions] = useState<Record<number, { width: number; height: number }>>({})
   const [userId, setUserId] = useState<string>()
+  const [selectedMember, setSelectedMember] = useState<{ id: string; name: string; avatar_url?: string } | null>(null)
+  const [userProfileModalVisible, setUserProfileModalVisible] = useState(false)
 
   useEffect(() => {
     async function loadUser() {
@@ -106,6 +110,12 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
         params,
       })
     }
+  }
+
+  // Handle mention press
+  function handleMentionPress(userId: string, userName: string, avatarUrl?: string) {
+    setSelectedMember({ id: userId, name: userName, avatar_url: avatarUrl })
+    setUserProfileModalVisible(true)
   }
 
   // Calculate if text exceeds 14 lines (for fade overlay)
@@ -576,6 +586,20 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     lineHeight: 22,
     color: colors.white, // colors.white is #000000 (black) in light mode, #ffffff (white) in dark mode
   },
+  link: {
+    ...typography.body,
+    fontSize: 14,
+    lineHeight: 22,
+    color: colors.accent,
+    textDecorationLine: "underline",
+  },
+  mention: {
+    ...typography.body,
+    fontSize: 14,
+    lineHeight: 22,
+    color: colors.accent,
+    fontWeight: "bold",
+  },
   textFadeOverlay: {
     position: "absolute",
     bottom: 0,
@@ -831,9 +855,15 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
         {/* Text Content */}
         {entry.text_content && (
           <View style={styles.textContainer}>
-            <Text style={styles.entryText} numberOfLines={MAX_TEXT_LINES}>
-              {entry.text_content}
-            </Text>
+            <MentionableText 
+              text={entry.text_content} 
+              textStyle={styles.entryText} 
+              linkStyle={styles.link} 
+              mentionStyle={styles.mention}
+              groupId={entry.group_id}
+              onMentionPress={handleMentionPress}
+              numberOfLines={MAX_TEXT_LINES}
+            />
             {/* Fade overlay for last 2 lines (only when exceeding 14 lines) */}
             {shouldShowFade && (
               <View style={styles.textFadeOverlay} pointerEvents="none">
@@ -1116,6 +1146,28 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
         onClose={() => setShowEmojiPicker(false)}
         onSelectEmoji={handleSelectEmoji}
         currentReactions={currentUserReactions}
+      />
+
+      {/* User Profile Modal */}
+      <UserProfileModal
+        visible={userProfileModalVisible}
+        userId={selectedMember?.id || null}
+        userName={selectedMember?.name || null}
+        userAvatarUrl={selectedMember?.avatar_url}
+        groupId={entry.group_id}
+        onClose={() => {
+          setUserProfileModalVisible(false)
+          setSelectedMember(null)
+        }}
+        onViewHistory={(userId) => {
+          router.push({
+            pathname: "/(main)/history",
+            params: {
+              focusGroupId: entry.group_id,
+              filterMemberId: userId,
+            },
+          })
+        }}
       />
     </View>
   )
