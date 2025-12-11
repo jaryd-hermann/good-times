@@ -297,15 +297,18 @@ export default function Index() {
           return;
         }
         
-        // CRITICAL: Wait for session restoration if in progress (max 5 seconds)
+        // Check if this is a background open (not cold start) for optimization
+        const isBackgroundOpen = !(await isColdStart());
+        
+        // CRITICAL: Wait for session restoration if in progress (max 5 seconds, or 2s for background opens)
         // This ensures we don't navigate to welcome while restoration is happening
         // Note: We check restoringSession from the hook (not closure) - if it changes, useEffect will re-run
         if (restoringSession) {
-          console.log("[boot] Boot flow: Session restoration in progress - waiting (max 5s)...");
+          const maxWaitTime = isBackgroundOpen ? 2000 : 5000; // Faster timeout for background opens
+          console.log(`[boot] Boot flow: Session restoration in progress - waiting (max ${maxWaitTime}ms)...`);
           const restorationStartTime = Date.now();
-          const maxWaitTime = 5000; // 5 seconds max
           
-          // Wait for restoration to complete (check every 100ms, max 5s)
+          // Wait for restoration to complete (check every 100ms)
           // IMPORTANT: restoringSession is from useAuth() hook, so if it changes, this useEffect will re-run
           // The while loop is a best-effort wait, but the real check happens via useEffect dependency
           let waited = 0;
@@ -341,13 +344,23 @@ export default function Index() {
 
         // CRITICAL: Always invalidate React Query cache to force fresh data
         // This ensures data is fresh when app opens (like hitting "R" to refresh)
+        // For background opens, make this non-blocking to speed up navigation
         console.log("[boot] Boot flow: Invalidating React Query cache to force fresh data...");
-        try {
-          await queryClient.invalidateQueries();
-          console.log("[boot] Boot flow: React Query cache invalidated - fresh data will load");
-        } catch (invalidateError) {
-          console.error("[boot] Boot flow: Failed to invalidate queries:", invalidateError);
-          // Don't block - continue with boot flow
+        if (isBackgroundOpen) {
+          // Non-blocking for background opens - invalidate in background
+          queryClient.invalidateQueries().catch((invalidateError) => {
+            console.error("[boot] Boot flow: Failed to invalidate queries:", invalidateError);
+          });
+          console.log("[boot] Boot flow: React Query cache invalidation started (non-blocking for background open)");
+        } else {
+          // Blocking for cold starts to ensure fresh data
+          try {
+            await queryClient.invalidateQueries();
+            console.log("[boot] Boot flow: React Query cache invalidated - fresh data will load");
+          } catch (invalidateError) {
+            console.error("[boot] Boot flow: Failed to invalidate queries:", invalidateError);
+            // Don't block - continue with boot flow
+          }
         }
 
         // CRITICAL: Check for user from AuthProvider OR directly from Supabase session
@@ -442,66 +455,81 @@ export default function Index() {
         }
 
         // User exists (from AuthProvider or session) - check profile and group membership
-        // Add timeout to prevent hanging if session refresh is slow
-        console.log("[boot] Boot flow: effectiveUser exists, proceeding with profile check", {
-          userId: effectiveUser.id,
-          fromAuthProvider: !!user,
-          fromSession: !user,
-        });
-        
-        console.log("[boot] Boot flow: Querying user profile...");
-        const userQueryPromise = supabase
-          .from("users")
-          .select("name, birthday")
-          .eq("id", effectiveUser.id)
-          .maybeSingle();
-        
-        const userQueryTimeout = new Promise<{ data: null, error: { message: string, timeout: boolean } }>((resolve) => {
-          setTimeout(() => {
-            resolve({
-              data: null,
-              error: { message: "User query timeout after 5 seconds", timeout: true }
-            });
-          }, 5000); // 5 second timeout
-        });
-        
-        const { data: userData, error: userErr } = await Promise.race([userQueryPromise, userQueryTimeout]) as any;
+        // OPTIMIZATION: For background opens with user from AuthProvider, skip profile check (trust AuthProvider)
+        // For cold starts or session-only users, still check profile to catch orphaned sessions
+        const shouldSkipProfileCheck = isBackgroundOpen && !!user; // Skip if background open AND user from AuthProvider
         
         let userQueryTimedOut = false;
-        if (userErr) {
-          const isTimeout = userErr.timeout === true;
-          console.log(`[boot] users query ${isTimeout ? 'timed out' : 'error'}:`, userErr.message);
-          // If timeout, skip profile check and continue (don't block navigation)
-          // CRITICAL: Don't check for orphaned session on timeout - trust AuthProvider
-          if (isTimeout) {
-            userQueryTimedOut = true;
-            console.warn("[boot] User query timed out - skipping profile check and continuing (trusting AuthProvider)");
+        let userData: any = null;
+        
+        if (!shouldSkipProfileCheck) {
+          // Only check profile for cold starts or when user is from session (not AuthProvider)
+          console.log("[boot] Boot flow: effectiveUser exists, proceeding with profile check", {
+            userId: effectiveUser.id,
+            fromAuthProvider: !!user,
+            fromSession: !user,
+            isBackgroundOpen,
+          });
+          
+          console.log("[boot] Boot flow: Querying user profile...");
+          const userQueryPromise = supabase
+            .from("users")
+            .select("name, birthday")
+            .eq("id", effectiveUser.id)
+            .maybeSingle();
+          
+          // Faster timeout for background opens (2s) vs cold starts (5s)
+          const userQueryTimeoutMs = isBackgroundOpen ? 2000 : 5000;
+          const userQueryTimeout = new Promise<{ data: null, error: { message: string, timeout: boolean } }>((resolve) => {
+            setTimeout(() => {
+              resolve({
+                data: null,
+                error: { message: `User query timeout after ${userQueryTimeoutMs / 1000} seconds`, timeout: true }
+              });
+            }, userQueryTimeoutMs);
+          });
+          
+          const { data: userDataResult, error: userErr } = await Promise.race([userQueryPromise, userQueryTimeout]) as any;
+          userData = userDataResult;
+          
+          if (userErr) {
+            const isTimeout = userErr.timeout === true;
+            console.log(`[boot] users query ${isTimeout ? 'timed out' : 'error'}:`, userErr.message);
+            // If timeout, skip profile check and continue (don't block navigation)
+            // CRITICAL: Don't check for orphaned session on timeout - trust AuthProvider
+            if (isTimeout) {
+              userQueryTimedOut = true;
+              console.warn("[boot] User query timed out - skipping profile check and continuing (trusting AuthProvider)");
+            }
           }
-        }
 
-        // Check if user has complete profile (ONLY if query didn't timeout)
-        // If timeout occurred, skip this check and proceed - AuthProvider already validated the user
-        if (!userQueryTimedOut && (!userData?.name || !userData?.birthday)) {
-          console.log("[boot] ⚠️ User exists but no profile - orphaned session");
-          console.log("[boot] Clearing orphaned session and redirecting to welcome-1");
-          
-          try {
-            await supabase.auth.signOut();
-            console.log("[boot] ✅ Orphaned session cleared");
-          } catch (signOutError) {
-            console.warn("[boot] Failed to clear orphaned session:", signOutError);
+          // Check if user has complete profile (ONLY if query didn't timeout)
+          // If timeout occurred, skip this check and proceed - AuthProvider already validated the user
+          if (!userQueryTimedOut && (!userData?.name || !userData?.birthday)) {
+            console.log("[boot] ⚠️ User exists but no profile - orphaned session");
+            console.log("[boot] Clearing orphaned session and redirecting to welcome-1");
+            
+            try {
+              await supabase.auth.signOut();
+              console.log("[boot] ✅ Orphaned session cleared");
+            } catch (signOutError) {
+              console.warn("[boot] Failed to clear orphaned session:", signOutError);
+            }
+            
+            if (!hasNavigatedRef.current) {
+              hasNavigatedRef.current = true;
+              router.replace("/(onboarding)/welcome-1");
+              await recordSuccessfulNavigation("/(onboarding)/welcome-1");
+            }
+            return;
           }
-          
-          if (!hasNavigatedRef.current) {
-            hasNavigatedRef.current = true;
-            router.replace("/(onboarding)/welcome-1");
-            await recordSuccessfulNavigation("/(onboarding)/welcome-1");
-          }
-          return;
+        } else {
+          console.log("[boot] Boot flow: Background open with user from AuthProvider - skipping profile check (trusting AuthProvider)");
         }
 
         // Check group membership
         // Add timeout to prevent hanging if session refresh is slow
+        // Faster timeout for background opens
         console.log("[boot] checking group membership...");
         const membershipQueryPromise = supabase
           .from("group_members")
@@ -510,13 +538,15 @@ export default function Index() {
           .limit(1)
           .maybeSingle();
         
+        // Faster timeout for background opens (2s) vs cold starts (5s)
+        const membershipQueryTimeoutMs = isBackgroundOpen ? 2000 : 5000;
         const membershipQueryTimeout = new Promise<{ data: null, error: { message: string, timeout: boolean } }>((resolve) => {
           setTimeout(() => {
             resolve({
               data: null,
-              error: { message: "Membership query timeout after 5 seconds", timeout: true }
+              error: { message: `Membership query timeout after ${membershipQueryTimeoutMs / 1000} seconds`, timeout: true }
             });
-          }, 5000); // 5 second timeout
+          }, membershipQueryTimeoutMs);
         });
         
         const { data: membership, error: memErr } = await Promise.race([membershipQueryPromise, membershipQueryTimeout]) as any;
@@ -668,8 +698,9 @@ export default function Index() {
         });
         
         // CRITICAL: Set a timeout to ensure we don't get stuck in boot screen
-        // If navigation doesn't happen within 5 seconds, force navigation to home (trust session)
-        // Increased from 3s to 5s to allow queries to complete (they have 5s timeouts)
+        // Faster timeout for background opens (3s) vs cold starts (5s)
+        // Background opens should be faster since we trust the session more
+        const navigationTimeoutMs = isBackgroundOpen ? 3000 : 5000;
         const navigationTimeout = setTimeout(() => {
           if (hasNavigatedRef.current) {
             clearTimeout(navigationTimeout);
@@ -679,6 +710,7 @@ export default function Index() {
             hasMembership: !!membership,
             groupId: membership?.group_id,
             effectiveUserId: effectiveUser?.id,
+            isBackgroundOpen,
           });
           // CRITICAL: Always navigate to home on timeout if we have effectiveUser
           // Trust the session - user has session, likely has group
@@ -689,7 +721,7 @@ export default function Index() {
             recordSuccessfulNavigation("/(main)/home").catch(() => {});
             recordAppActive().catch(() => {});
           }
-        }, 5000); // Increased to 5s to match query timeouts
+        }, navigationTimeoutMs);
         
         if (membership?.group_id) {
           console.log("[boot] Boot flow: user with group → (main)/home");
@@ -772,17 +804,25 @@ export default function Index() {
     };
   }, [user, authLoading, restoringSession, router, forceBootRecheck]); // Add restoringSession to dependencies
 
-  // CRITICAL: Always show boot screen during boot process
+  // CRITICAL: Always show boot screen during boot process to prevent black screens
   // Show boot screen if:
   // 1. Still booting
   // 2. AuthProvider is loading
-  // 3. Session is refreshing
-  // 4. No route matched (prevents black screen)
-  // 5. Explicitly set to show boot screen
+  // 3. Session is restoring
+  // 4. Session is refreshing
+  // 5. No route matched (prevents black screen)
+  // 6. Explicitly set to show boot screen
+  // 7. We haven't navigated yet (hasNavigatedRef is false)
+  // Default behavior: Show boot screen unless we've explicitly navigated away from root
   // BUT: Don't show if we're handling a password reset link (let deep link handler navigate)
   const segmentsLength = (segments as string[]).length;
   const hasNoRoute = segmentsLength === 0;
-  const shouldShowBooting = !isPasswordResetLink && (booting || authLoading || sessionRefreshing || (!err && hasNoRoute) || shouldShowBootScreen);
+  // Only consider navigation complete if we've navigated AND we're not on root anymore
+  const hasNavigated = hasNavigatedRef.current && (pathname && pathname !== "/" && pathname !== "");
+  // Always show boot screen by default when on root route - only hide if we've explicitly navigated away
+  // This prevents black screens when opening from background (component shows boot screen immediately)
+  const isOnRootRoute = !pathname || pathname === "/" || pathname === "";
+  const shouldShowBooting = !isPasswordResetLink && !hasNavigated && (isOnRootRoute || booting || authLoading || restoringSession || sessionRefreshing || (!err && hasNoRoute) || shouldShowBootScreen);
   
   // Ensure minimum boot screen display time (1 second) for smooth UX
   const minBootTime = 1000;
@@ -811,9 +851,13 @@ export default function Index() {
   }
   
   // CRITICAL: Always show boot screen during boot to prevent black screens
+  // Show boot screen immediately if we're on root route and haven't navigated yet
+  // This prevents black screens when opening from background
+  const shouldRenderBootScreen = shouldShowBooting || shouldForceShowBoot || (isOnRootRoute && !hasNavigated && !isPasswordResetLink);
+  
   return (
     <View style={{ flex: 1, backgroundColor: colors.black }}>
-      {shouldShowBooting || shouldForceShowBoot ? (
+      {shouldRenderBootScreen ? (
         <ImageBackground
           source={require("../assets/images/welcome-home.png")}
           style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
