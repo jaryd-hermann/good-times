@@ -175,7 +175,7 @@ serve(async (req) => {
         .maybeSingle()
 
       if (customQuestion && customQuestion.prompt_id) {
-        // Check if daily_prompt already exists for this custom question
+        // CRITICAL: Check if daily_prompt already exists for this custom question TODAY
         const { data: existingCustomPrompt } = await supabaseClient
           .from("daily_prompts")
           .select("id")
@@ -184,7 +184,39 @@ serve(async (req) => {
           .eq("prompt_id", customQuestion.prompt_id)
           .maybeSingle()
 
-        if (!existingCustomPrompt) {
+        if (existingCustomPrompt) {
+          results.push({ group_id: group.id, status: "already_scheduled", type: "custom" })
+          continue
+        }
+
+        // CRITICAL: Check if this same prompt_id was already asked recently (prevent back-to-back)
+        // We should NEVER show the same question back-to-back, even if it's a custom question
+        const yesterday = new Date(today)
+        yesterday.setDate(yesterday.getDate() - 1)
+        const yesterdayStr = yesterday.toISOString().split("T")[0]
+
+        const { data: recentPrompt } = await supabaseClient
+          .from("daily_prompts")
+          .select("id, date, prompt_id")
+          .eq("group_id", group.id)
+          .eq("prompt_id", customQuestion.prompt_id)
+          .gte("date", yesterdayStr) // Check yesterday and today
+          .order("date", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (recentPrompt) {
+          console.log(`[schedule-daily-prompts] Group ${group.id}: Custom question prompt_id ${customQuestion.prompt_id} was already asked on ${recentPrompt.date}, skipping to prevent back-to-back`)
+          results.push({ 
+            group_id: group.id, 
+            status: "skipped_custom_question_back_to_back",
+            prompt_id: customQuestion.prompt_id,
+            last_asked_date: recentPrompt.date
+          })
+          // Continue to regular prompt scheduling instead of skipping
+          // Don't use 'continue' here - let it fall through to regular scheduling
+        } else {
+          // Safe to schedule - this prompt_id hasn't been asked recently
           // Create daily_prompt entry for custom question
           await supabaseClient.from("daily_prompts").insert({
             group_id: group.id,
@@ -194,9 +226,6 @@ serve(async (req) => {
 
           results.push({ group_id: group.id, status: "custom_question_scheduled" })
           continue // Skip regular prompt scheduling
-        } else {
-          results.push({ group_id: group.id, status: "already_scheduled", type: "custom" })
-          continue
         }
       }
 

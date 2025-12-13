@@ -398,14 +398,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       console.log('[AuthProvider] Loading user:', userId)
       
-      // Add timeout to prevent hanging (10 seconds)
+      // CRITICAL: Check if app is active before loading user
+      // If app is backgrounded, skip user load (will load when app comes to foreground)
+      const currentAppState = AppState.currentState
+      const isAppActive = currentAppState === 'active'
+      
+      if (!isAppActive) {
+        console.log('[AuthProvider] App is not active - skipping user load (will load on foreground)')
+        return // Skip user load if app is backgrounded
+      }
+      
+      // Add timeout to prevent hanging (5 seconds for faster failure, was 10s)
+      // Reduced timeout since we're checking app state first
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('User load timeout after 10 seconds')), 10000)
+        setTimeout(() => reject(new Error('User load timeout after 5 seconds')), 5000)
       })
       
       const userPromise = supabase.from("users").select("*").eq("id", userId).maybeSingle()
       
-      const result = await Promise.race([userPromise, timeoutPromise]) as any
+      let result: any
+      try {
+        result = await Promise.race([userPromise, timeoutPromise])
+      } catch (timeoutError: any) {
+        // CRITICAL: Handle timeout gracefully - don't throw, just log warning
+        // This prevents errors when app is sitting open and network is slow
+        if (timeoutError?.message?.includes('timeout')) {
+          console.warn('[AuthProvider] User load timeout - this is non-critical, user will be loaded on next foreground')
+          // Don't set user or throw error - just return gracefully
+          // User will be loaded on next foreground or when network recovers
+          return
+        }
+        // Re-throw non-timeout errors
+        throw timeoutError
+      }
+      
       const { data, error } = result || { data: null, error: null }
       
       if (error) {

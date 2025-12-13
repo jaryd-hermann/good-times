@@ -158,28 +158,75 @@ export default function SettingsScreen() {
   }
 
   async function handleSignOut() {
-    try {
-      // Get current user ID before signing out
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
+    // CRITICAL: Navigate immediately for instant UX (optimistic navigation)
+    // Don't wait for cleanup operations - they can happen in background
+    router.replace("/(onboarding)/welcome-1")
+    
+    // Run cleanup operations in parallel with timeouts (non-blocking)
+    // This prevents the 10-15s lag
+    Promise.all([
+      // Get user ID and clear onboarding flag (with timeout)
+      (async () => {
+        try {
+          const getUserPromise = supabase.auth.getUser()
+          const getUserTimeout = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("getUser timeout")), 2000)
+          )
+          const result = await Promise.race([getUserPromise, getUserTimeout]) as any
+          const user = result?.data?.user
+          
+          if (user) {
+            const onboardingKey = `has_completed_post_auth_onboarding_${user.id}`
+            await AsyncStorage.removeItem(onboardingKey)
+          }
+        } catch (error) {
+          // Ignore errors - navigation already happened
+          console.warn("[settings] Failed to clear onboarding flag:", error)
+        }
+      })(),
       
-      // Clear biometric credentials on sign out
-      const { clearBiometricCredentials } = await import("../../lib/biometric")
-      await clearBiometricCredentials()
+      // Clear biometric credentials (with timeout)
+      (async () => {
+        try {
+          const { clearBiometricCredentials } = await import("../../lib/biometric")
+          const clearPromise = clearBiometricCredentials()
+          const clearTimeout = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("clearBiometric timeout")), 2000)
+          )
+          await Promise.race([clearPromise, clearTimeout])
+        } catch (error) {
+          console.warn("[settings] Failed to clear biometric credentials:", error)
+        }
+      })(),
       
-      // Clear user-specific onboarding flag
-      if (user) {
-        const onboardingKey = `has_completed_post_auth_onboarding_${user.id}`
-        await AsyncStorage.removeItem(onboardingKey)
-      }
+      // Sign out from Supabase (with timeout)
+      (async () => {
+        try {
+          const signOutPromise = supabase.auth.signOut()
+          const signOutTimeout = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("signOut timeout")), 3000)
+          )
+          await Promise.race([signOutPromise, signOutTimeout])
+        } catch (error) {
+          console.warn("[settings] signOut failed or timed out:", error)
+          // Continue anyway - navigation already happened
+        }
+      })(),
       
-      await supabase.auth.signOut()
-      await queryClient.invalidateQueries()
-      router.replace("/(onboarding)/welcome-1")
-    } catch (error: any) {
-      Alert.alert("Error", error.message)
-    }
+      // Invalidate queries (with timeout - this is often the slowest operation)
+      (async () => {
+        try {
+          // CRITICAL: Use removeQueries instead of invalidateQueries for faster cleanup
+          // removeQueries is synchronous and faster than invalidateQueries which refetches
+          queryClient.removeQueries()
+        } catch (error) {
+          console.warn("[settings] Query cleanup failed:", error)
+        }
+      })(),
+    ]).catch((error) => {
+      // All cleanup operations failed or timed out - that's okay, navigation already happened
+      console.warn("[settings] Some cleanup operations failed:", error)
+    })
   }
 
   function handleReportIssue() {

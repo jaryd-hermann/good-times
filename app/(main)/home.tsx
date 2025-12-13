@@ -2143,6 +2143,7 @@ export default function Home() {
     },
     answerButton: {
       marginTop: spacing.md,
+      backgroundColor: "#D35E3C",
     },
     lockedMessage: {
       padding: spacing.xl,
@@ -2664,8 +2665,67 @@ export default function Home() {
               </View>
             ) : (
               <View style={styles.notice}>
-                <Text style={styles.noticeText}>People have shared today.</Text>
-                <Text style={styles.noticeText}>Answer to see what they said.</Text>
+                {(() => {
+                  // Get unique users who answered (from otherEntries, which already excludes current user)
+                  const uniqueUsers = Array.from(
+                    new Map(
+                      otherEntries.map((entry) => [
+                        entry.user_id,
+                        {
+                          id: entry.user_id,
+                          name: entry.user?.name || "User",
+                          avatar_url: entry.user?.avatar_url,
+                        },
+                      ])
+                    ).values()
+                  )
+                  
+                  return (
+                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", marginRight: spacing.sm }}>
+                        {uniqueUsers.slice(0, 5).map((user: any, index: number) => (
+                          <View
+                            key={user.id}
+                            style={{
+                              marginLeft: index === 0 ? 0 : -8,
+                              borderWidth: 2,
+                              borderColor: colors.black,
+                              borderRadius: 16,
+                            }}
+                          >
+                            <Avatar
+                              uri={user.avatar_url}
+                              name={user.name}
+                              size={32}
+                            />
+                          </View>
+                        ))}
+                        {uniqueUsers.length > 5 && (
+                          <View
+                            style={{
+                              marginLeft: -8,
+                              borderWidth: 2,
+                              borderColor: colors.black,
+                              borderRadius: 16,
+                              backgroundColor: colors.gray[700],
+                              width: 32,
+                              height: 32,
+                              justifyContent: "center",
+                              alignItems: "center",
+                            }}
+                          >
+                            <Text style={{ ...typography.bodyBold, fontSize: 10, color: colors.white }}>
+                              +{uniqueUsers.length - 5}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={{ ...typography.body, color: colors.gray[300], fontSize: 14 }}>
+                        Answer to see what they said today.
+                      </Text>
+                    </View>
+                  )
+                })()}
               </View>
             )}
           </>
@@ -2813,7 +2873,7 @@ export default function Home() {
                     </Text>
                     {promptId && (
                       <Button
-                        title="Tell the Group"
+                        title="Answer"
                         onPress={handleAnswerPrompt}
                         style={styles.answerButton}
                       />

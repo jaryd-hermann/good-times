@@ -115,8 +115,12 @@ export default function EntryComposer() {
   const [userProfileModalVisible, setUserProfileModalVisible] = useState(false)
   const cursorPositionRef = useRef<number>(0)
   
-  // File size limit: 2GB = 2 * 1024 * 1024 * 1024 bytes
-  const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024
+  // CRITICAL: Reasonable file size limits to prevent memory crashes
+  // Large files loaded entirely into memory can crash the app
+  // Videos are most problematic, so stricter limit
+  const MAX_VIDEO_SIZE = 100 * 1024 * 1024 // 100MB for videos
+  const MAX_PHOTO_SIZE = 50 * 1024 * 1024 // 50MB for photos
+  const MAX_AUDIO_SIZE = 50 * 1024 * 1024 // 50MB for audio
 
   useEffect(() => {
     loadUserAndGroup()
@@ -469,20 +473,48 @@ export default function EntryComposer() {
     setEmbeddedMedia((prev) => prev.filter((_, i) => i !== index))
   }
 
-  async function checkFileSize(uri: string): Promise<boolean> {
+  async function checkFileSize(uri: string, fileType?: "photo" | "video" | "audio"): Promise<{ valid: boolean; error?: string }> {
     try {
       const fileInfo = await FileSystem.getInfoAsync(uri)
-      if (fileInfo.exists && fileInfo.size !== undefined) {
-        if (fileInfo.size > MAX_FILE_SIZE) {
-          setShowFileSizeModal(true)
-          return false
+      if (!fileInfo.exists) {
+        return { valid: false, error: "File does not exist" }
+      }
+      
+      if (fileInfo.size === undefined) {
+        // Can't determine size - warn but allow (some URIs don't expose size)
+        console.warn("[entry-composer] Cannot determine file size for:", uri)
+        return { valid: true }
+      }
+      
+      // Determine appropriate limit based on file type
+      let maxSize: number
+      let typeLabel: string
+      
+      if (fileType === "video") {
+        maxSize = MAX_VIDEO_SIZE
+        typeLabel = "video"
+      } else if (fileType === "audio") {
+        maxSize = MAX_AUDIO_SIZE
+        typeLabel = "audio"
+      } else {
+        maxSize = MAX_PHOTO_SIZE
+        typeLabel = "photo"
+      }
+      
+      if (fileInfo.size > maxSize) {
+        const sizeMB = (fileInfo.size / (1024 * 1024)).toFixed(1)
+        const maxMB = (maxSize / (1024 * 1024)).toFixed(0)
+        return {
+          valid: false,
+          error: `File is too large (${sizeMB}MB). Maximum size for ${typeLabel}s is ${maxMB}MB. Please choose a smaller file.`
         }
       }
-      return true
+      
+      return { valid: true }
     } catch (error) {
       console.warn("[entry-composer] Failed to check file size:", error)
-      // If we can't check size, allow it (better than blocking)
-      return true
+      // If we can't check size, warn but allow (some URIs don't expose size)
+      return { valid: true }
     }
   }
 
@@ -503,11 +535,28 @@ export default function EntryComposer() {
     if (!result.canceled) {
       // Check file sizes before adding
       const validAssets = []
+      const errors: string[] = []
+      
       for (const asset of result.assets) {
-        const isValid = await checkFileSize(asset.uri)
-        if (isValid) {
+        const fileType = asset.type === "video" ? "video" : asset.type === "image" ? "photo" : "audio"
+        const sizeCheck = await checkFileSize(asset.uri, fileType)
+        
+        if (sizeCheck.valid) {
           validAssets.push(asset)
+        } else if (sizeCheck.error) {
+          errors.push(sizeCheck.error)
         }
+      }
+      
+      // Show errors if any files were rejected
+      if (errors.length > 0) {
+        Alert.alert(
+          "File Too Large",
+          errors.length === 1 
+            ? errors[0]
+            : `${errors.length} files were too large:\n\n${errors.slice(0, 3).join("\n")}${errors.length > 3 ? `\n...and ${errors.length - 3} more` : ""}`,
+          [{ text: "OK" }]
+        )
       }
       
       if (validAssets.length > 0) {
@@ -546,9 +595,14 @@ export default function EntryComposer() {
       const asset = result.assets[0]
       
       // Check file size before adding
-      const isValid = await checkFileSize(asset.uri)
-      if (!isValid) {
-        return // File size modal already shown
+      const fileType = asset.type === "video" ? "video" : "photo"
+      const sizeCheck = await checkFileSize(asset.uri, fileType)
+      
+      if (!sizeCheck.valid) {
+        if (sizeCheck.error) {
+          Alert.alert("File Too Large", sizeCheck.error)
+        }
+        return
       }
       
       const isVideo = asset.type === "video"
@@ -978,13 +1032,12 @@ export default function EntryComposer() {
           }
           // New local file, upload it
           try {
-            // Additional validation for videos
-            if (item.type === "video") {
-              const isValid = await checkFileSize(item.uri)
-              if (!isValid) {
-                setUploadingMedia(prev => ({ ...prev, [item.id]: false }))
-                throw new Error("Video file is too large (max 2GB)")
-              }
+            // CRITICAL: Check file size BEFORE attempting upload to prevent memory crashes
+            // This prevents the app from crashing when trying to load large files into memory
+            const sizeCheck = await checkFileSize(item.uri, item.type)
+            if (!sizeCheck.valid) {
+              setUploadingMedia(prev => ({ ...prev, [item.id]: false }))
+              throw new Error(sizeCheck.error || `File is too large for ${item.type}`)
             }
             
             const remoteUrl = await uploadMedia(currentGroupId, storageKey, item.uri, item.type)
@@ -1072,6 +1125,7 @@ export default function EntryComposer() {
           queryClient.invalidateQueries({ queryKey: ["entry", entryId] }),
           queryClient.invalidateQueries({ queryKey: ["entries", currentGroupId], exact: false }),
           queryClient.invalidateQueries({ queryKey: ["userEntry", currentGroupId], exact: false }),
+          queryClient.invalidateQueries({ queryKey: ["userEntriesForHistoryDates", currentGroupId], exact: false }), // CRITICAL: Invalidate history user entries query
           queryClient.invalidateQueries({ queryKey: ["historyEntries", currentGroupId], exact: false }),
           queryClient.invalidateQueries({ queryKey: ["historyComments"] }),
         ])
@@ -1115,6 +1169,7 @@ export default function EntryComposer() {
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: ["entries", currentGroupId], exact: false }),
           queryClient.invalidateQueries({ queryKey: ["userEntry", currentGroupId], exact: false }),
+          queryClient.invalidateQueries({ queryKey: ["userEntriesForHistoryDates", currentGroupId], exact: false }), // CRITICAL: Invalidate history user entries query
           queryClient.invalidateQueries({ queryKey: ["historyEntries", currentGroupId], exact: false }),
           queryClient.invalidateQueries({ queryKey: ["dailyPrompt", currentGroupId], exact: false }),
           queryClient.invalidateQueries({ queryKey: ["historyComments"] }),

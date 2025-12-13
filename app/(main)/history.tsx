@@ -20,7 +20,7 @@ import {
 } from "date-fns"
 import { typography, spacing } from "../../lib/theme"
 import { useTheme } from "../../lib/theme-context"
-import { getGroupMembers, getAllPrompts, getDailyPrompt, getMemorials, getGroup, getGroupActiveDecks, hasReceivedBirthdayCards, getMyBirthdayCards, getBirthdayCardEntries } from "../../lib/db"
+import { getGroupMembers, getAllPrompts, getDailyPrompt, getMemorials, getGroup, getGroupActiveDecks, hasReceivedBirthdayCards, getMyBirthdayCards, getBirthdayCardEntries, getUserEntryForDate, getEntriesForDate } from "../../lib/db"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { Button } from "../../components/Button"
 import { getTodayDate } from "../../lib/utils"
@@ -192,6 +192,7 @@ export default function History() {
   }, [])
 
   // CRITICAL: Sync group ID with AsyncStorage on focus to match home.tsx
+  // Also refetch user entries to catch when user answers a question
   useFocusEffect(
     useCallback(() => {
       async function syncGroupId() {
@@ -228,6 +229,20 @@ export default function History() {
           })
           queryClient.invalidateQueries({ 
             queryKey: ["hasReceivedBirthdayCards", persistedGroupId],
+            exact: false 
+          })
+        }
+        
+        // CRITICAL: Always refetch user entries when screen comes into focus
+        // This ensures prompt cards disappear after user answers a question
+        // Use exact: false to match all queries with this prefix, regardless of dates in key
+        if (currentGroupId && userId) {
+          queryClient.invalidateQueries({ 
+            queryKey: ["userEntriesForHistoryDates", currentGroupId, userId],
+            exact: false 
+          })
+          queryClient.refetchQueries({ 
+            queryKey: ["userEntriesForHistoryDates", currentGroupId, userId],
             exact: false 
           })
         }
@@ -1012,17 +1027,127 @@ export default function History() {
     })
   }, [filteredEntries, showBirthdayCards, myBirthdayCards, currentGroupId, allCardEntries])
 
-  const entriesByDate = entriesWithBirthdayCards.reduce(
-    (acc, entry) => {
-      const date = entry.date
-      if (!acc[date]) {
-        acc[date] = []
+  // Get all unique dates from entries
+  const allDates = useMemo(() => {
+    const dates = new Set<string>()
+    entriesWithBirthdayCards.forEach((entry) => {
+      if (entry.date) {
+        dates.add(entry.date)
       }
-      acc[date].push(entry)
-      return acc
+    })
+    return Array.from(dates)
+  }, [entriesWithBirthdayCards])
+
+  // Fetch user entries for all dates to check if user has answered
+  // CRITICAL: Query key includes allDates so it refetches when dates change
+  // But we also need to ensure it refetches when user answers (even if dates don't change)
+  // So we use staleTime: 0 and refetchOnWindowFocus to ensure fresh data
+  const { data: userEntriesByDate = {} } = useQuery({
+    queryKey: ["userEntriesForHistoryDates", currentGroupId, userId, allDates.join(",")],
+    queryFn: async () => {
+      if (!currentGroupId || !userId || allDates.length === 0) return {}
+      const entries: Record<string, any> = {}
+      await Promise.all(
+        allDates.map(async (date) => {
+          const userEntry = await getUserEntryForDate(currentGroupId, userId, date)
+          if (userEntry) {
+            entries[date] = userEntry
+          }
+        })
+      )
+      return entries
     },
-    {} as Record<string, any[]>,
-  )
+    enabled: !!currentGroupId && !!userId && allDates.length > 0,
+    staleTime: 0, // Always consider stale to ensure fresh data
+    refetchOnMount: true, // Always refetch on mount
+    refetchOnWindowFocus: true, // Refetch when screen comes into focus
+    // CRITICAL: When allDates changes (e.g., new entry added), this will create a new query
+    // But we also need to handle the case where allDates doesn't change but user answers
+    // So we rely on invalidation from entry-composer + refetchOnWindowFocus
+  })
+
+  // Fetch prompts for dates where user hasn't answered (to show prompt card)
+  const datesWithoutUserEntry = useMemo(() => {
+    return allDates.filter((date) => !userEntriesByDate[date])
+  }, [allDates, userEntriesByDate])
+
+  const { data: promptsForDatesWithoutEntry = {} } = useQuery({
+    queryKey: ["promptsForHistoryDates", currentGroupId, userId, datesWithoutUserEntry.join(",")],
+    queryFn: async () => {
+      if (!currentGroupId || !userId || datesWithoutUserEntry.length === 0) return {}
+      const prompts: Record<string, any> = {}
+      await Promise.all(
+        datesWithoutUserEntry.map(async (date) => {
+          try {
+            const prompt = await getDailyPrompt(currentGroupId, date, userId)
+            if (prompt) {
+              prompts[date] = prompt
+            }
+          } catch (error) {
+            console.warn(`[history] Failed to fetch prompt for date ${date}:`, error)
+          }
+        })
+      )
+      return prompts
+    },
+    enabled: !!currentGroupId && !!userId && datesWithoutUserEntry.length > 0,
+  })
+
+  // Fetch entries for dates where user hasn't answered (to show avatars of who answered)
+  const { data: entriesForDatesWithoutUserEntry = {} } = useQuery({
+    queryKey: ["entriesForHistoryDatesWithoutUserEntry", currentGroupId, datesWithoutUserEntry.join(",")],
+    queryFn: async () => {
+      if (!currentGroupId || datesWithoutUserEntry.length === 0) return {}
+      const entriesByDate: Record<string, any[]> = {}
+      await Promise.all(
+        datesWithoutUserEntry.map(async (date) => {
+          try {
+            const entries = await getEntriesForDate(currentGroupId, date)
+            if (entries && entries.length > 0) {
+              entriesByDate[date] = entries
+            }
+          } catch (error) {
+            console.warn(`[history] Failed to fetch entries for date ${date}:`, error)
+          }
+        })
+      )
+      return entriesByDate
+    },
+    enabled: !!currentGroupId && datesWithoutUserEntry.length > 0,
+  })
+
+  // Filter entriesByDate to only show entries for dates where user has answered
+  // For dates where user hasn't answered, we'll show the prompt card instead
+  const entriesByDate = useMemo(() => {
+    const grouped = entriesWithBirthdayCards.reduce(
+      (acc, entry) => {
+        const date = entry.date
+        if (!acc[date]) {
+          acc[date] = []
+        }
+        acc[date].push(entry)
+        return acc
+      },
+      {} as Record<string, any[]>,
+    )
+    
+    // Filter out entries for dates where user hasn't answered
+    // Keep birthday cards always visible (they're not regular entries)
+    const filtered: Record<string, any[]> = {}
+    Object.entries(grouped).forEach(([date, entries]) => {
+      const hasUserEntry = !!userEntriesByDate[date]
+      // Always show birthday cards, but filter out regular entries if user hasn't answered
+      const visibleEntries = entries.filter((entry) => {
+        if (entry.is_birthday_card) return true // Always show birthday cards
+        return hasUserEntry // Only show regular entries if user has answered
+      })
+      if (visibleEntries.length > 0) {
+        filtered[date] = visibleEntries
+      }
+    })
+    
+    return filtered
+  }, [entriesWithBirthdayCards, userEntriesByDate])
 
   useEffect(() => {
     // Calculate header height and set initial padding
@@ -1430,6 +1555,19 @@ export default function History() {
     color: colors.white,
     textDecorationLine: "underline",
   },
+  promptCardWrapper: {
+    marginBottom: 0, // No margin - entries start immediately after
+    width: "100%",
+  },
+  promptDivider: {
+    width: "100%",
+    height: 1,
+    backgroundColor: isDark ? "#3D3D3D" : "#E5E5E5", // Lighter divider in light mode
+  },
+  promptCard: {
+    backgroundColor: colors.black,
+    padding: spacing.lg,
+  },
   }), [colors, isDark])
 
   return (
@@ -1679,55 +1817,179 @@ export default function History() {
           </View>
         ) : viewMode === "Days" ? (
           <>
-            {Object.entries(entriesByDate).map(([date, dateEntries]) => {
-              const entries = dateEntries as any[]
-              return (
-              <View key={date} style={styles.daySection}>
-                <View style={styles.dateHeader}>
-                  <Text style={styles.dateHeaderDay}>{format(parseISO(date), "EEEE")}</Text>
-                  <Text style={styles.dateHeaderDate}>, {format(parseISO(date), "d MMMM yyyy")}</Text>
-                </View>
-                {entries.map((entry: any, entryIndex: number) => {
-                  // Handle birthday card entries specially
-                  if (entry.is_birthday_card) {
-                    return (
-                      <TouchableOpacity
-                        key={entry.id}
-                        style={styles.birthdayCardEntry}
-                        onPress={() => {
-                          router.push({
-                            pathname: "/(main)/birthday-card-details",
-                            params: {
-                              cardId: entry.birthday_card_id,
-                              groupId: currentGroupId!,
-                              returnTo: "/(main)/history",
-                            },
-                          })
-                        }}
-                      >
-                        <View style={styles.birthdayCardEntryContent}>
-                          <Text style={styles.birthdayCardEntryTitle}>🎂 Birthday Card</Text>
-                          <Text style={styles.birthdayCardEntrySubtitle}>Tap to view your birthday card</Text>
-                        </View>
-                        <FontAwesome name="chevron-right" size={16} color={colors.gray[400]} />
-                      </TouchableOpacity>
-                    )
-                  }
-                  
-                  const entryIdList = entries.map((item: any) => item.id)
-                  return (
-                    <EntryCard
-                      key={entry.id}
-                      entry={entry}
-                      entryIds={entryIdList}
-                      index={entryIndex}
-                      returnTo="/(main)/history"
-                    />
-                  )
-                })}
-      </View>
-              )
-            })}
+            {(() => {
+              // Combine all dates: dates with entries (that user has answered) + dates with prompts (user hasn't answered)
+              const allDatesToShow = new Set([
+                ...Object.keys(entriesByDate),
+                ...datesWithoutUserEntry,
+              ])
+              
+              // Sort dates descending (most recent first)
+              const sortedDates = Array.from(allDatesToShow).sort((a, b) => {
+                return new Date(b).getTime() - new Date(a).getTime()
+              })
+              
+              return sortedDates.map((date) => {
+                const entries = entriesByDate[date] || []
+                const hasUserEntry = !!userEntriesByDate[date]
+                const promptForDate = promptsForDatesWithoutEntry[date]
+                
+                return (
+                  <View key={date} style={styles.daySection}>
+                    <View style={styles.dateHeader}>
+                      <Text style={styles.dateHeaderDay}>{format(parseISO(date), "EEEE")}</Text>
+                      <Text style={styles.dateHeaderDate}>, {format(parseISO(date), "d MMMM yyyy")}</Text>
+                    </View>
+                    
+                    {/* Show prompt card if user hasn't answered */}
+                    {!hasUserEntry && promptForDate && (() => {
+                      // Get entries for this date to show who answered
+                      const dateEntries = entriesForDatesWithoutUserEntry[date] || []
+                      // Get unique users who answered (excluding current user)
+                      const uniqueUsers = Array.from(
+                        new Map(
+                          dateEntries
+                            .filter((entry: any) => entry.user_id !== userId)
+                            .map((entry: any) => [
+                              entry.user_id,
+                              {
+                                id: entry.user_id,
+                                name: entry.user?.name || "User",
+                                avatar_url: entry.user?.avatar_url,
+                              },
+                            ])
+                        ).values()
+                      )
+                      
+                      return (
+                        <>
+                          {/* Overlapping avatars of members who answered with text next to them */}
+                          {uniqueUsers.length > 0 && (
+                            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: spacing.sm, paddingHorizontal: spacing.md }}>
+                              <View style={{ flexDirection: "row", alignItems: "center", marginRight: spacing.sm }}>
+                                {uniqueUsers.slice(0, 5).map((user: any, index: number) => (
+                                  <View
+                                    key={user.id}
+                                    style={{
+                                      marginLeft: index === 0 ? 0 : -8,
+                                      borderWidth: 2,
+                                      borderColor: colors.black,
+                                      borderRadius: 16,
+                                    }}
+                                  >
+                                    <Avatar
+                                      uri={user.avatar_url}
+                                      name={user.name}
+                                      size={32}
+                                    />
+                                  </View>
+                                ))}
+                                {uniqueUsers.length > 5 && (
+                                  <View
+                                    style={{
+                                      marginLeft: -8,
+                                      borderWidth: 2,
+                                      borderColor: colors.black,
+                                      borderRadius: 16,
+                                      backgroundColor: colors.gray[700],
+                                      width: 32,
+                                      height: 32,
+                                      justifyContent: "center",
+                                      alignItems: "center",
+                                    }}
+                                  >
+                                    <Text style={{ ...typography.bodyBold, fontSize: 10, color: colors.white }}>
+                                      +{uniqueUsers.length - 5}
+                                    </Text>
+                                  </View>
+                                )}
+                              </View>
+                              <Text style={{ ...typography.body, color: colors.gray[400], fontSize: 14 }}>
+                                Answer to see what they said
+                              </Text>
+                            </View>
+                          )}
+                          
+                          {/* Prompt card wrapper with dividers above and below */}
+                          <View style={styles.promptCardWrapper}>
+                            <View style={styles.promptDivider} />
+                            <View style={styles.promptCard}>
+                              <Text style={{ ...typography.h2, fontSize: 20, color: colors.white, marginBottom: spacing.sm }}>
+                                {promptForDate.prompt?.question || "Question"}
+                              </Text>
+                              {promptForDate.prompt?.description && (
+                                <Text style={{ ...typography.body, color: colors.gray[400], marginBottom: spacing.md }}>
+                                  {promptForDate.prompt.description}
+                                </Text>
+                              )}
+                              <Button
+                                title="Answer"
+                                style={{ backgroundColor: "#D35E3C" }}
+                                onPress={() => {
+                                  if (promptForDate.prompt_id && currentGroupId) {
+                                    router.push({
+                                      pathname: "/(main)/modals/entry-composer",
+                                      params: {
+                                        promptId: promptForDate.prompt_id,
+                                        date: date,
+                                        returnTo: "/(main)/history",
+                                        groupId: currentGroupId,
+                                      },
+                                    })
+                                  }
+                                }}
+                                style={{ marginTop: spacing.sm }}
+                              />
+                            </View>
+                            <View style={styles.promptDivider} />
+                          </View>
+                        </>
+                      )
+                    })()}
+                    
+                    {/* Show entries if user has answered */}
+                    {hasUserEntry && entries.map((entry: any, entryIndex: number) => {
+                      // Handle birthday card entries specially
+                      if (entry.is_birthday_card) {
+                        return (
+                          <TouchableOpacity
+                            key={entry.id}
+                            style={styles.birthdayCardEntry}
+                            onPress={() => {
+                              router.push({
+                                pathname: "/(main)/birthday-card-details",
+                                params: {
+                                  cardId: entry.birthday_card_id,
+                                  groupId: currentGroupId!,
+                                  returnTo: "/(main)/history",
+                                },
+                              })
+                            }}
+                          >
+                            <View style={styles.birthdayCardEntryContent}>
+                              <Text style={styles.birthdayCardEntryTitle}>🎂 Birthday Card</Text>
+                              <Text style={styles.birthdayCardEntrySubtitle}>Tap to view your birthday card</Text>
+                            </View>
+                            <FontAwesome name="chevron-right" size={16} color={colors.gray[400]} />
+                          </TouchableOpacity>
+                        )
+                      }
+                      
+                      const entryIdList = entries.map((item: any) => item.id)
+                      return (
+                        <EntryCard
+                          key={entry.id}
+                          entry={entry}
+                          entryIds={entryIdList}
+                          index={entryIndex}
+                          returnTo="/(main)/history"
+                        />
+                      )
+                    })}
+                  </View>
+                )
+              })
+            })()}
           </>
         ) : viewMode === "Weeks" ? (
           renderPeriodGrid(weekSummaries, "Weeks")

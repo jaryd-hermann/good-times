@@ -40,7 +40,7 @@ try {
   }
 }
 
-const colors = { black: "#000", accent: "#de2f08", white: "#fff" };
+const colors = { black: "#000", accent: "#D35E3C", white: "#fff" };
 const PENDING_GROUP_KEY = "pending_group_join";
 
 export default function Index() {
@@ -189,7 +189,9 @@ export default function Index() {
           setBooting(true);
         }
         
-        // Check if app was opened from a notification click
+        // CRITICAL: Check if app was opened from a notification click
+        // Notification flow: Force boot screen + session refresh (better approach)
+        // This ensures session is fresh when opening from background
         const notificationClicked = await AsyncStorage.getItem("notification_clicked");
         if (notificationClicked === "true") {
           console.log("[boot] App opened from notification - forcing boot screen and session refresh");
@@ -197,6 +199,7 @@ export default function Index() {
           await AsyncStorage.removeItem("notification_clicked");
           // Force boot screen to show and refresh session
           setShouldShowBootScreen(true);
+          setBooting(true);
           setSessionRefreshing(true);
           try {
             const { ensureValidSession } = await import("../lib/auth");
@@ -224,13 +227,47 @@ export default function Index() {
     
     initializeBoot();
     
-    // SIMPLIFIED: When app comes to foreground, just record activity
-    // ForegroundQueryRefresher handles long inactivity (treats like "R")
-    // Don't try to be smart here - let the boot flow handle everything
+    // CRITICAL: When app comes to foreground (app icon tap), show boot screen IMMEDIATELY and refresh session
+    // This aligns with notification flow: boot screen + forced session refresh
+    // Show boot screen synchronously before any async operations
     const subscription = AppState.addEventListener("change", async (nextAppState) => {
       if (nextAppState === "active") {
-        // Just record that app is active - that's it
-        await recordAppActive();
+        // CRITICAL: Check if this is from notification (handled separately above) or app icon tap
+        // Only do forced refresh for app icon taps (notifications handled in initializeBoot)
+        const notificationClicked = await AsyncStorage.getItem("notification_clicked");
+        const isFromNotification = notificationClicked === "true";
+        
+        if (!isFromNotification) {
+          // App icon tap - align with notification flow: boot screen + forced session refresh
+          console.log("[boot] App became active (icon tap) - showing boot screen immediately and refreshing session");
+          setShouldShowBootScreen(true);
+          setBooting(true);
+          bootStartTimeRef.current = Date.now(); // Reset boot start time
+          
+          // CRITICAL: Force session refresh (same as notification flow)
+          // This ensures session is fresh when opening from background
+          setSessionRefreshing(true);
+          try {
+            const { ensureValidSession } = await import("../lib/auth");
+            await ensureValidSession();
+            console.log("[boot] Session refreshed after app icon tap");
+          } catch (error) {
+            console.error("[boot] Failed to refresh session:", error);
+            // Don't block - continue with boot flow even if refresh fails
+          } finally {
+            setSessionRefreshing(false);
+          }
+        } else {
+          // Notification click - already handled in initializeBoot above
+          // Just show boot screen immediately (session refresh already in progress)
+          console.log("[boot] App became active (notification) - boot screen already shown, session refresh in progress");
+          setShouldShowBootScreen(true);
+          setBooting(true);
+          bootStartTimeRef.current = Date.now(); // Reset boot start time
+        }
+        
+        // Record activity (non-blocking)
+        recordAppActive().catch(() => {});
       } else if (nextAppState === "background" || nextAppState === "inactive") {
         // Record app going to background
         await recordAppActive(); // Update last active time before going inactive
@@ -299,13 +336,14 @@ export default function Index() {
         
         // Check if this is a background open (not cold start) for optimization
         const isBackgroundOpen = !(await isColdStart());
+        console.log("[boot] Boot flow: Background open detected:", isBackgroundOpen);
         
-        // CRITICAL: Wait for session restoration if in progress (max 5 seconds, or 2s for background opens)
-        // This ensures we don't navigate to welcome while restoration is happening
-        // Note: We check restoringSession from the hook (not closure) - if it changes, useEffect will re-run
-        if (restoringSession) {
-          const maxWaitTime = isBackgroundOpen ? 2000 : 5000; // Faster timeout for background opens
-          console.log(`[boot] Boot flow: Session restoration in progress - waiting (max ${maxWaitTime}ms)...`);
+        // CRITICAL: For background opens, skip session restoration wait (trust AuthProvider)
+        // Session is already valid from AuthProvider - don't wait
+        // Only wait for cold starts where session might need restoration
+        if (restoringSession && !isBackgroundOpen) {
+          const maxWaitTime = 5000; // Only wait for cold starts
+          console.log(`[boot] Boot flow: Cold start - session restoration in progress - waiting (max ${maxWaitTime}ms)...`);
           const restorationStartTime = Date.now();
           
           // Wait for restoration to complete (check every 100ms)
@@ -328,6 +366,8 @@ export default function Index() {
           if (restoringSession) {
             console.warn("[boot] Boot flow: Session restoration timeout after", waited, "ms - proceeding anyway");
           }
+        } else if (restoringSession && isBackgroundOpen) {
+          console.log("[boot] Boot flow: Background open - skipping session restoration wait (trusting AuthProvider)");
         }
         
         console.log("[boot] Boot flow useEffect: AuthProvider loaded, proceeding with boot flow");
@@ -342,21 +382,18 @@ export default function Index() {
           timestamp: new Date().toISOString(),
         });
 
-        // CRITICAL: Always invalidate React Query cache to force fresh data
-        // This ensures data is fresh when app opens (like hitting "R" to refresh)
-        // For background opens, make this non-blocking to speed up navigation
-        console.log("[boot] Boot flow: Invalidating React Query cache to force fresh data...");
+        // CRITICAL: For background opens, skip query invalidation entirely (trust cache)
+        // This speeds up navigation significantly - queries will refetch naturally when screens mount
+        // For cold starts, invalidate to ensure fresh data
+        console.log("[boot] Boot flow: Handling React Query cache...");
         if (isBackgroundOpen) {
-          // Non-blocking for background opens - invalidate in background
-          queryClient.invalidateQueries().catch((invalidateError) => {
-            console.error("[boot] Boot flow: Failed to invalidate queries:", invalidateError);
-          });
-          console.log("[boot] Boot flow: React Query cache invalidation started (non-blocking for background open)");
+          // Skip invalidation for background opens - trust cache, queries will refetch on mount
+          console.log("[boot] Boot flow: Background open - skipping query invalidation (trusting cache, queries refetch on mount)");
         } else {
           // Blocking for cold starts to ensure fresh data
           try {
             await queryClient.invalidateQueries();
-            console.log("[boot] Boot flow: React Query cache invalidated - fresh data will load");
+            console.log("[boot] Boot flow: Cold start - React Query cache invalidated - fresh data will load");
           } catch (invalidateError) {
             console.error("[boot] Boot flow: Failed to invalidate queries:", invalidateError);
             // Don't block - continue with boot flow
@@ -455,20 +492,20 @@ export default function Index() {
         }
 
         // User exists (from AuthProvider or session) - check profile and group membership
-        // OPTIMIZATION: For background opens with user from AuthProvider, skip profile check (trust AuthProvider)
-        // For cold starts or session-only users, still check profile to catch orphaned sessions
-        const shouldSkipProfileCheck = isBackgroundOpen && !!user; // Skip if background open AND user from AuthProvider
+        // CRITICAL OPTIMIZATION: For background opens, skip ALL profile checks (trust AuthProvider completely)
+        // AuthProvider already validated the user - don't waste time checking again
+        // Only check profile for cold starts to catch orphaned sessions
+        const shouldSkipProfileCheck = isBackgroundOpen; // Skip ALL profile checks for background opens
         
         let userQueryTimedOut = false;
         let userData: any = null;
         
         if (!shouldSkipProfileCheck) {
-          // Only check profile for cold starts or when user is from session (not AuthProvider)
-          console.log("[boot] Boot flow: effectiveUser exists, proceeding with profile check", {
+          // Only check profile for cold starts
+          console.log("[boot] Boot flow: Cold start - checking user profile", {
             userId: effectiveUser.id,
             fromAuthProvider: !!user,
             fromSession: !user,
-            isBackgroundOpen,
           });
           
           console.log("[boot] Boot flow: Querying user profile...");
@@ -478,8 +515,8 @@ export default function Index() {
             .eq("id", effectiveUser.id)
             .maybeSingle();
           
-          // Faster timeout for background opens (2s) vs cold starts (5s)
-          const userQueryTimeoutMs = isBackgroundOpen ? 2000 : 5000;
+          // 5s timeout for cold starts
+          const userQueryTimeoutMs = 5000;
           const userQueryTimeout = new Promise<{ data: null, error: { message: string, timeout: boolean } }>((resolve) => {
             setTimeout(() => {
               resolve({
@@ -524,62 +561,118 @@ export default function Index() {
             return;
           }
         } else {
-          console.log("[boot] Boot flow: Background open with user from AuthProvider - skipping profile check (trusting AuthProvider)");
+          console.log("[boot] Boot flow: Background open - skipping ALL profile checks (trusting AuthProvider completely)");
         }
 
         // Check group membership
-        // Add timeout to prevent hanging if session refresh is slow
-        // Faster timeout for background opens
-        console.log("[boot] checking group membership...");
-        const membershipQueryPromise = supabase
-          .from("group_members")
-          .select("group_id")
-          .eq("user_id", effectiveUser.id)
-          .limit(1)
-          .maybeSingle();
+        // CRITICAL OPTIMIZATION: For background opens, use cached group from AsyncStorage if available
+        // This avoids a database query and speeds up navigation significantly
+        let membership: any = null;
         
-        // Faster timeout for background opens (2s) vs cold starts (5s)
-        const membershipQueryTimeoutMs = isBackgroundOpen ? 2000 : 5000;
-        const membershipQueryTimeout = new Promise<{ data: null, error: { message: string, timeout: boolean } }>((resolve) => {
-          setTimeout(() => {
-            resolve({
-              data: null,
-              error: { message: `Membership query timeout after ${membershipQueryTimeoutMs / 1000} seconds`, timeout: true }
-            });
-          }, membershipQueryTimeoutMs);
-        });
-        
-        const { data: membership, error: memErr } = await Promise.race([membershipQueryPromise, membershipQueryTimeout]) as any;
-
-        if (memErr) {
-          const isTimeout = memErr.timeout === true;
-          console.log(`[boot] membership query ${isTimeout ? 'timed out' : 'error'}:`, memErr.message);
+        if (isBackgroundOpen) {
+          // Try to get cached group ID from AsyncStorage first (fast path)
+          try {
+            const cachedGroupId = await AsyncStorage.getItem("current_group_id");
+            if (cachedGroupId) {
+              console.log("[boot] Background open - using cached group ID:", cachedGroupId);
+              // Create a membership-like object for routing
+              membership = { group_id: cachedGroupId };
+            } else {
+              // No cache - do quick query with short timeout
+              console.log("[boot] Background open - no cached group, querying membership...");
+              const membershipQueryPromise = supabase
+                .from("group_members")
+                .select("group_id")
+                .eq("user_id", effectiveUser.id)
+                .limit(1)
+                .maybeSingle();
+              
+              // Very short timeout for background opens (1s) - if it times out, assume has group
+              const membershipQueryTimeoutMs = 1000;
+              const membershipQueryTimeout = new Promise<{ data: null, error: { message: string, timeout: boolean } }>((resolve) => {
+                setTimeout(() => {
+                  resolve({
+                    data: null,
+                    error: { message: `Membership query timeout after ${membershipQueryTimeoutMs / 1000} seconds`, timeout: true }
+                  });
+                }, membershipQueryTimeoutMs);
+              });
+              
+              const { data: membershipResult, error: memErr } = await Promise.race([membershipQueryPromise, membershipQueryTimeout]) as any;
+              
+              if (memErr) {
+                const isTimeout = memErr.timeout === true;
+                if (isTimeout) {
+                  // On timeout, trust session - navigate to home (user has session, likely has group)
+                  console.warn("[boot] Background open - membership query timed out - trusting session, navigating to home");
+                  membership = null; // Will trigger home navigation below
+                } else {
+                  // Non-timeout error - assume no membership
+                  console.log("[boot] Background open - membership query error:", memErr.message);
+                  membership = null;
+                }
+              } else {
+                membership = membershipResult;
+              }
+            }
+          } catch (error) {
+            console.warn("[boot] Background open - error getting cached group or querying:", error);
+            // On error, assume has group (trust session)
+            membership = null; // Will trigger home navigation below
+          }
+        } else {
+          // Cold start - do full query with longer timeout
+          console.log("[boot] Cold start - checking group membership...");
+          const membershipQueryPromise = supabase
+            .from("group_members")
+            .select("group_id")
+            .eq("user_id", effectiveUser.id)
+            .limit(1)
+            .maybeSingle();
           
-          // CRITICAL: On timeout, trust the session - if user has session, they likely have a group
-          // Navigate to home instead of create-group to avoid wrong routing
-          // This matches cold start behavior where we trust the session
-          if (isTimeout) {
-            console.warn("[boot] Membership query timed out - trusting session, navigating to home (user has session, likely has group)");
+          const membershipQueryTimeoutMs = 5000;
+          const membershipQueryTimeout = new Promise<{ data: null, error: { message: string, timeout: boolean } }>((resolve) => {
+            setTimeout(() => {
+              resolve({
+                data: null,
+                error: { message: `Membership query timeout after ${membershipQueryTimeoutMs / 1000} seconds`, timeout: true }
+              });
+            }, membershipQueryTimeoutMs);
+          });
+          
+          const { data: membershipResult, error: memErr } = await Promise.race([membershipQueryPromise, membershipQueryTimeout]) as any;
+
+          if (memErr) {
+            const isTimeout = memErr.timeout === true;
+            console.log(`[boot] membership query ${isTimeout ? 'timed out' : 'error'}:`, memErr.message);
+            
+            // CRITICAL: On timeout, trust the session - if user has session, they likely have a group
+            // Navigate to home instead of create-group to avoid wrong routing
+            if (isTimeout) {
+              console.warn("[boot] Membership query timed out - trusting session, navigating to home (user has session, likely has group)");
+              if (!hasNavigatedRef.current) {
+                hasNavigatedRef.current = true;
+                router.replace("/(main)/home");
+                await recordSuccessfulNavigation("/(main)/home");
+                await recordAppActive();
+              }
+              return;
+            }
+            
+            // Non-timeout error - assume no membership
+            console.log("[boot] → onboarding/create-group/name-type");
             if (!hasNavigatedRef.current) {
               hasNavigatedRef.current = true;
-              router.replace("/(main)/home");
-              await recordSuccessfulNavigation("/(main)/home");
-              await recordAppActive();
+              router.replace("/(onboarding)/create-group/name-type");
+              await recordSuccessfulNavigation("/(onboarding)/create-group/name-type");
             }
             return;
           }
           
-          // Non-timeout error - assume no membership
-          console.log("[boot] → onboarding/create-group/name-type");
-          if (!hasNavigatedRef.current) {
-            hasNavigatedRef.current = true;
-            router.replace("/(onboarding)/create-group/name-type");
-            await recordSuccessfulNavigation("/(onboarding)/create-group/name-type");
-          }
-          return;
+          membership = membershipResult;
         }
         
-        console.log("[boot] membership query result:", { membership, error: memErr?.message });
+        console.log("[boot] membership query result:", { membership, hasMembership: !!membership?.group_id });
 
         // Handle pending group join
         if (pendingGroupId) {
@@ -698,9 +791,9 @@ export default function Index() {
         });
         
         // CRITICAL: Set a timeout to ensure we don't get stuck in boot screen
-        // Faster timeout for background opens (3s) vs cold starts (5s)
-        // Background opens should be faster since we trust the session more
-        const navigationTimeoutMs = isBackgroundOpen ? 3000 : 5000;
+        // Much faster timeout for background opens (1.5s) vs cold starts (5s)
+        // Background opens should be very fast since we skip most checks
+        const navigationTimeoutMs = isBackgroundOpen ? 1500 : 5000;
         const navigationTimeout = setTimeout(() => {
           if (hasNavigatedRef.current) {
             clearTimeout(navigationTimeout);
@@ -813,6 +906,7 @@ export default function Index() {
   // 5. No route matched (prevents black screen)
   // 6. Explicitly set to show boot screen
   // 7. We haven't navigated yet (hasNavigatedRef is false)
+  // 8. We're on root route (prevents black screen when navigating to root from background)
   // Default behavior: Show boot screen unless we've explicitly navigated away from root
   // BUT: Don't show if we're handling a password reset link (let deep link handler navigate)
   const segmentsLength = (segments as string[]).length;
@@ -822,7 +916,9 @@ export default function Index() {
   // Always show boot screen by default when on root route - only hide if we've explicitly navigated away
   // This prevents black screens when opening from background (component shows boot screen immediately)
   const isOnRootRoute = !pathname || pathname === "/" || pathname === "";
-  const shouldShowBooting = !isPasswordResetLink && !hasNavigated && (isOnRootRoute || booting || authLoading || restoringSession || sessionRefreshing || (!err && hasNoRoute) || shouldShowBootScreen);
+  // CRITICAL: Show boot screen if on root route OR if explicitly set to show
+  // This ensures boot screen shows immediately when navigating to root from background
+  const shouldShowBooting = !isPasswordResetLink && (isOnRootRoute || booting || authLoading || restoringSession || sessionRefreshing || (!err && hasNoRoute) || shouldShowBootScreen);
   
   // Ensure minimum boot screen display time (1 second) for smooth UX
   const minBootTime = 1000;
@@ -851,9 +947,9 @@ export default function Index() {
   }
   
   // CRITICAL: Always show boot screen during boot to prevent black screens
-  // Show boot screen immediately if we're on root route and haven't navigated yet
+  // Show boot screen immediately if we're on root route OR if explicitly set to show
   // This prevents black screens when opening from background
-  const shouldRenderBootScreen = shouldShowBooting || shouldForceShowBoot || (isOnRootRoute && !hasNavigated && !isPasswordResetLink);
+  const shouldRenderBootScreen = shouldShowBooting || shouldForceShowBoot || (isOnRootRoute && !isPasswordResetLink);
   
   return (
     <View style={{ flex: 1, backgroundColor: colors.black }}>

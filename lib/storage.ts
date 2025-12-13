@@ -9,10 +9,27 @@ export async function uploadMedia(
   fileType: "photo" | "video" | "audio",
 ): Promise<string> {
   try {
-    // Validate file exists
+    // CRITICAL: Validate file exists and check size BEFORE reading into memory
+    // This prevents memory crashes with large files
     const fileInfo = await FileSystem.getInfoAsync(fileUri)
     if (!fileInfo.exists) {
       throw new Error("File does not exist")
+    }
+
+    // Check file size before attempting to read into memory
+    // This is critical to prevent crashes with large videos
+    if (fileInfo.size !== undefined) {
+      const MAX_VIDEO_SIZE = 100 * 1024 * 1024 // 100MB
+      const MAX_PHOTO_SIZE = 50 * 1024 * 1024 // 50MB
+      const MAX_AUDIO_SIZE = 50 * 1024 * 1024 // 50MB
+      
+      const maxSize = fileType === "video" ? MAX_VIDEO_SIZE : fileType === "audio" ? MAX_AUDIO_SIZE : MAX_PHOTO_SIZE
+      
+      if (fileInfo.size > maxSize) {
+        const sizeMB = (fileInfo.size / (1024 * 1024)).toFixed(1)
+        const maxMB = (maxSize / (1024 * 1024)).toFixed(0)
+        throw new Error(`File is too large (${sizeMB}MB). Maximum size for ${fileType}s is ${maxMB}MB. Please choose a smaller file.`)
+      }
     }
 
     // Read file as base64 - SDK 54 uses string literal
@@ -24,8 +41,8 @@ export async function uploadMedia(
       })
     } catch (readError: any) {
       // Check if it's a memory-related error
-      if (readError.message?.includes("memory") || readError.message?.includes("too large")) {
-        throw new Error("File is too large to upload. Please try a smaller file.")
+      if (readError.message?.includes("memory") || readError.message?.includes("too large") || readError.message?.includes("out of memory")) {
+        throw new Error("File is too large to upload. The app ran out of memory. Please try a smaller file.")
       }
       throw new Error(`Failed to read file: ${readError.message || "Unknown error"}`)
     }

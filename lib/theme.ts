@@ -22,7 +22,7 @@ export interface ThemeColors {
 const darkColors: ThemeColors = {
   black: "#000000",
   white: "#ffffff",
-  accent: "#de2f08",
+  accent: "#D35E3C",
   filmInner: "#0D0F1B",
   gray: {
     100: "#f5f5f5",
@@ -41,7 +41,7 @@ const darkColors: ThemeColors = {
 const lightColors: ThemeColors = {
   black: "#F9F4EC", // Background color (was black)
   white: "#000000", // Text color (was white)
-  accent: "#de2f08", // Accent stays red
+  accent: "#D35E3C", // Accent color
   filmInner: "#F9F4EC", // Film inner (was dark blue)
   gray: {
     100: "#171717", // Inverted from dark gray[900]

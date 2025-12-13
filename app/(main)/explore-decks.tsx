@@ -490,29 +490,42 @@ export default function ExploreDecks() {
     enabled: !!currentGroupId && activeDecks.some(d => d.status === "voting"),
   })
 
-  // Get current week Monday for query key (ensures refetch when week changes)
-  // Calculate inline to always get the current week
-  const getCurrentWeekMonday = () => {
+  // Get current week Monday for query key (memoized to ensure stability)
+  // CRITICAL: Memoize this value so the query key doesn't change on every render
+  // This prevents React Query from treating it as a new query each time
+  // Calculate based on current date, but memoize to prevent unnecessary recalculations
+  const currentWeekMonday = useMemo(() => {
     const today = new Date()
     const dayOfWeek = today.getDay() // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
     const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1
     const monday = new Date(today)
     monday.setDate(today.getDate() - daysToSubtract)
     return monday.toISOString().split("T")[0]
-  }
+  }, []) // Memoize this value - it will be recalculated on component remount
 
   // Get featured prompts for current week
   // CRITICAL: Include current week Monday in query key so it refetches when week changes
   // This ensures the section always shows when there are prompts for the current week
   // The query key changes when the week changes, forcing a refetch
-  const { data: featuredPrompts = [], error: featuredPromptsError, isLoading: isLoadingFeaturedPrompts, refetch: refetchFeaturedPrompts } = useQuery({
-    queryKey: ["featuredPrompts", getCurrentWeekMonday()],
+  const { data: featuredPrompts = [], error: featuredPromptsError, isLoading: isLoadingFeaturedPrompts, isFetching: isFetchingFeaturedPrompts, refetch: refetchFeaturedPrompts } = useQuery({
+    queryKey: ["featuredPrompts", currentWeekMonday], // Use memoized value
     queryFn: getFeaturedPromptsForCurrentWeek,
     staleTime: 0, // Always consider stale to ensure fresh data
     refetchOnMount: true, // Always refetch on mount
     refetchOnWindowFocus: true, // Refetch when screen comes into focus
     retry: 2, // Retry on failure
+    refetchInterval: 3600000, // Refetch every hour to catch week changes
   })
+  
+  // CRITICAL: Refetch when switching to featured tab to ensure fresh data
+  // This fixes the issue where prompts don't show when first opening the tab
+  useEffect(() => {
+    if (activeTab === "featured") {
+      // Invalidate and refetch to ensure fresh data
+      queryClient.invalidateQueries({ queryKey: ["featuredPrompts"] })
+      refetchFeaturedPrompts()
+    }
+  }, [activeTab, refetchFeaturedPrompts, queryClient])
   
   // Log errors for debugging
   useEffect(() => {
@@ -2027,7 +2040,7 @@ export default function ExploreDecks() {
         {/* Featured Questions Carousel */}
         {activeTab === "featured" && (
           <View style={styles.featuredSection}>
-            {isLoadingFeaturedPrompts ? (
+            {isLoadingFeaturedPrompts || isFetchingFeaturedPrompts ? (
               <View style={styles.swipeEmptyState}>
                 <Text style={styles.swipeEmptyText}>Loading featured questions...</Text>
               </View>
@@ -2037,6 +2050,8 @@ export default function ExploreDecks() {
                 <Text style={styles.swipeEmptySubtext}>Please try again later</Text>
               </View>
             ) : featuredPrompts.length === 0 ? (
+              // CRITICAL: Only show empty state if query has completed and confirmed no prompts
+              // This prevents showing empty state prematurely when data is still loading
               <View style={styles.swipeEmptyState}>
                 <Text style={styles.swipeEmptyText}>No featured questions this week</Text>
                 <Text style={styles.swipeEmptySubtext}>Check back next week for new featured questions!</Text>
