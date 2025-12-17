@@ -18,6 +18,30 @@ const EMAIL_TEMPLATES = {
     subject: "Welcome to Good Times!",
     templateId: null, // Uses inline HTML
   },
+  onboarding_day_2: {
+    subject: "How's it going?",
+    templateId: null, // Uses inline HTML
+  },
+  onboarding_day_3: {
+    subject: "Did you know?",
+    templateId: null, // Uses inline HTML
+  },
+  onboarding_day_4: {
+    subject: "Building deeper connections",
+    templateId: null, // Uses inline HTML
+  },
+  onboarding_day_5: {
+    subject: "Making it a habit",
+    templateId: null, // Uses inline HTML
+  },
+  onboarding_day_6: {
+    subject: "Share the love!",
+    templateId: null, // Uses inline HTML
+  },
+  onboarding_day_7: {
+    subject: "You're all set! 🎊",
+    templateId: null, // Uses inline HTML
+  },
   birthday_card: {
     subject: "Your birthday card is ready! 🎂",
     templateId: "birthday-card-email", // Resend template ID
@@ -54,27 +78,289 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Welcome to Good Times</title>
 </head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-  <div style="background-color: #000; color: #fff; padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
-    <h1 style="margin: 0; font-size: 28px;">Welcome to Good Times!</h1>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #ffffff; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #000000;">
+  <!-- Main container -->
+  <div style="background-color: #000000; border-radius: 12px; overflow: hidden;">
+    <!-- Content area -->
+    <div style="padding: 40px 30px; background-color: #000000;">
+      <p style="font-size: 18px; margin-bottom: 24px; color: #ffffff;">Hi ${memberName},</p>
+      
+      <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff; line-height: 1.7;">
+        ${welcomeMessage}
+      </p>
+      
+      <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff; line-height: 1.7;">
+        Good Times helps you and your loved ones capture and share meaningful moments together. 
+        You'll receive daily prompts to spark conversations and create lasting memories.
+      </p>
+      
+      <!-- CTA Section -->
+      <div style="background-color: #111111; border-left: 4px solid #D35E3C; padding: 20px; margin: 30px 0; border-radius: 4px;">
+        <p style="font-size: 16px; margin: 0; color: #ffffff; font-weight: 600;">
+          ✨ Get started by opening the app and responding to today's prompt!
+        </p>
+      </div>
+      
+      <!-- Features list -->
+      <div style="margin: 30px 0;">
+        <p style="font-size: 14px; font-weight: 600; color: #cccccc; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">What to expect:</p>
+        <ul style="font-size: 15px; color: #ffffff; line-height: 1.8; padding-left: 20px; margin: 0;">
+          <li style="margin-bottom: 8px;">Daily prompts delivered at 9 AM</li>
+          <li style="margin-bottom: 8px;">Share photos, videos, or text responses</li>
+          <li style="margin-bottom: 8px;">Build a beautiful timeline of memories</li>
+        </ul>
+      </div>
+      
+      <!-- Sign-off -->
+      <div style="margin-top: 40px; text-align: left;">
+        <p style="font-size: 16px; color: #ffffff; margin: 0 0 4px 0;">Have a good one!</p>
+        <p style="font-size: 16px; color: #ffffff; margin: 0 0 20px 0;"><em>Jaryd</em></p>
+        <p style="font-size: 14px; color: #ffffff; margin: 0;">
+          <a href="goodtimes://feedback" style="color: #ffffff; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+        </p>
+      </div>
+    </div>
+    
+    <!-- Footer with wordmark -->
+    <div style="background-color: #000000; padding: 30px; text-align: center; border-top: 1px solid #333333;">
+      <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
+    </div>
   </div>
-  <div style="background-color: #f9f9f9; padding: 40px; border-radius: 0 0 8px 8px;">
-    <p style="font-size: 18px; margin-bottom: 20px;">Hi ${memberName},</p>
-    <p style="font-size: 16px; margin-bottom: 20px;">
-      ${welcomeMessage}
+</body>
+</html>
+      `.trim()
+    }
+    case "onboarding_day_2": {
+      const memberName = templateData.member_name || "there"
+      return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Day 2 - Getting Started</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #ffffff; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #000000;">
+  <div style="background-color: #000000; padding: 40px 30px;">
+    <p style="font-size: 18px; margin-bottom: 20px; color: #ffffff;">Hi ${memberName},</p>
+    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
+      We hope you're enjoying Good Times! Have you had a chance to respond to today's prompt yet?
     </p>
-    <p style="font-size: 16px; margin-bottom: 20px;">
-      Good Times helps you and your loved ones capture and share meaningful moments together. 
-      You'll receive daily prompts to spark conversations and create lasting memories.
+    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
+      Every day at 9 AM, you'll receive a new question designed to spark meaningful conversations with your group. 
+      The best part? You can respond with text, photos, or videos to make your memories come alive.
     </p>
-    <p style="font-size: 16px; margin-bottom: 30px;">
-      Get started by opening the app and responding to today's prompt!
+    <p style="font-size: 16px; margin-bottom: 30px; color: #ffffff;">
+      If you haven't already, try responding to today's prompt and see how your group reacts!
     </p>
-    <div style="text-align: center; margin-top: 30px;">
-      <p style="font-size: 14px; color: #666; margin: 0;">
-        Thanks for being part of the Good Times community! 🎉
+    <div style="margin-top: 40px; text-align: left;">
+      <p style="font-size: 16px; color: #ffffff; margin: 0 0 4px 0;">Have a good one!</p>
+      <p style="font-size: 16px; color: #ffffff; margin: 0 0 20px 0;"><em>Jaryd</em></p>
+      <p style="font-size: 14px; color: #ffffff; margin: 0;">
+        <a href="goodtimes://feedback" style="color: #ffffff; text-decoration: underline;">Have feedback or an idea? Let me know</a>
       </p>
     </div>
+  </div>
+  <div style="background-color: #000000; padding: 30px; text-align: center; border-top: 1px solid #333333;">
+    <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
+  </div>
+</body>
+</html>
+      `.trim()
+    }
+    case "onboarding_day_3": {
+      const memberName = templateData.member_name || "there"
+      return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Day 3 - Exploring Features</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #ffffff; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #000000;">
+  <div style="background-color: #000000; padding: 40px 30px;">
+    <p style="font-size: 18px; margin-bottom: 20px; color: #ffffff;">Hi ${memberName},</p>
+    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
+      Good Times is more than just daily prompts! Here are some features you might not have discovered yet:
+    </p>
+    <ul style="font-size: 16px; margin-bottom: 20px; padding-left: 20px; color: #ffffff;">
+      <li style="margin-bottom: 10px;"><strong style="color: #ffffff;">Browse History:</strong> Look back at all your shared memories organized by day, week, month, or year</li>
+      <li style="margin-bottom: 10px;"><strong style="color: #ffffff;">React & Comment:</strong> Show love for entries with hearts and leave comments to keep the conversation going</li>
+      <li style="margin-bottom: 10px;"><strong style="color: #ffffff;">Custom Decks:</strong> Suggest new question decks tailored to your group's interests</li>
+    </ul>
+    <p style="font-size: 16px; margin-bottom: 30px; color: #ffffff;">
+      Take a moment to explore the app and see what else Good Times has to offer!
+    </p>
+    <div style="margin-top: 40px; text-align: left;">
+      <p style="font-size: 16px; color: #ffffff; margin: 0 0 4px 0;">Have a good one!</p>
+      <p style="font-size: 16px; color: #ffffff; margin: 0 0 20px 0;"><em>Jaryd</em></p>
+      <p style="font-size: 14px; color: #ffffff; margin: 0;">
+        <a href="goodtimes://feedback" style="color: #ffffff; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+      </p>
+    </div>
+  </div>
+  <div style="background-color: #000000; padding: 30px; text-align: center; border-top: 1px solid #333333;">
+    <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
+  </div>
+</body>
+</html>
+      `.trim()
+    }
+    case "onboarding_day_4": {
+      const memberName = templateData.member_name || "there"
+      return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Day 4 - Building Connections</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #ffffff; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #000000;">
+  <div style="background-color: #000000; padding: 40px 30px;">
+    <p style="font-size: 18px; margin-bottom: 20px; color: #ffffff;">Hi ${memberName},</p>
+    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
+      The magic of Good Times happens when everyone in your group participates. 
+      When you share your responses, you're creating a shared story that grows richer with each contribution.
+    </p>
+    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
+      <strong style="color: #ffffff;">Tip:</strong> Try responding with a photo or video this week! Visual memories often spark the most meaningful conversations and reactions from your group.
+    </p>
+    <p style="font-size: 16px; margin-bottom: 30px; color: #ffffff;">
+      Keep the momentum going - your group is counting on you! 💫
+    </p>
+    <div style="margin-top: 40px; text-align: left;">
+      <p style="font-size: 16px; color: #ffffff; margin: 0 0 4px 0;">Have a good one!</p>
+      <p style="font-size: 16px; color: #ffffff; margin: 0 0 20px 0;"><em>Jaryd</em></p>
+      <p style="font-size: 14px; color: #ffffff; margin: 0;">
+        <a href="goodtimes://feedback" style="color: #ffffff; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+      </p>
+    </div>
+  </div>
+  <div style="background-color: #000000; padding: 30px; text-align: center; border-top: 1px solid #333333;">
+    <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
+  </div>
+</body>
+</html>
+      `.trim()
+    }
+    case "onboarding_day_5": {
+      const memberName = templateData.member_name || "there"
+      return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Day 5 - Making It a Habit</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #ffffff; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #000000;">
+  <div style="background-color: #000000; padding: 40px 30px;">
+    <p style="font-size: 18px; margin-bottom: 20px; color: #ffffff;">Hi ${memberName},</p>
+    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
+      Consistency is key to building lasting memories. When you respond to prompts regularly, 
+      you're creating a beautiful timeline of your shared experiences.
+    </p>
+    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
+      <strong style="color: #ffffff;">Pro tip:</strong> Set a daily reminder or make responding to prompts part of your morning routine. 
+      Even a quick response is better than no response - your group will appreciate it!
+    </p>
+    <p style="font-size: 16px; margin-bottom: 30px; color: #ffffff;">
+      You're doing great! Keep up the amazing work. 🌟
+    </p>
+    <div style="margin-top: 40px; text-align: left;">
+      <p style="font-size: 16px; color: #ffffff; margin: 0 0 4px 0;">Have a good one!</p>
+      <p style="font-size: 16px; color: #ffffff; margin: 0 0 20px 0;"><em>Jaryd</em></p>
+      <p style="font-size: 14px; color: #ffffff; margin: 0;">
+        <a href="goodtimes://feedback" style="color: #ffffff; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+      </p>
+    </div>
+  </div>
+  <div style="background-color: #000000; padding: 30px; text-align: center; border-top: 1px solid #333333;">
+    <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
+  </div>
+</body>
+</html>
+      `.trim()
+    }
+    case "onboarding_day_6": {
+      const memberName = templateData.member_name || "there"
+      return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Day 6 - Invite Friends</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #ffffff; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #000000;">
+  <div style="background-color: #000000; padding: 40px 30px;">
+    <p style="font-size: 18px; margin-bottom: 20px; color: #ffffff;">Hi ${memberName},</p>
+    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
+      The more people in your group, the richer your shared memories become! 
+      Consider inviting more friends or family members to join your Good Times group.
+    </p>
+    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
+      You can invite people directly from the app - just look for the invite button in your group settings. 
+      Each new member brings new perspectives and stories to your shared timeline.
+    </p>
+    <p style="font-size: 16px; margin-bottom: 30px; color: #ffffff;">
+      Ready to grow your Good Times family? 🎉
+    </p>
+    <div style="margin-top: 40px; text-align: left;">
+      <p style="font-size: 16px; color: #ffffff; margin: 0 0 4px 0;">Have a good one!</p>
+      <p style="font-size: 16px; color: #ffffff; margin: 0 0 20px 0;"><em>Jaryd</em></p>
+      <p style="font-size: 14px; color: #ffffff; margin: 0;">
+        <a href="goodtimes://feedback" style="color: #ffffff; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+      </p>
+    </div>
+  </div>
+  <div style="background-color: #000000; padding: 30px; text-align: center; border-top: 1px solid #333333;">
+    <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
+  </div>
+</body>
+</html>
+      `.trim()
+    }
+    case "onboarding_day_7": {
+      const memberName = templateData.member_name || "there"
+      return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Day 7 - You're All Set!</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #ffffff; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #000000;">
+  <div style="background-color: #000000; padding: 40px 30px;">
+    <p style="font-size: 18px; margin-bottom: 20px; color: #ffffff;">Hi ${memberName},</p>
+    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
+      Congratulations! You've completed your first week with Good Times. 
+      You now know everything you need to make the most of your shared memories.
+    </p>
+    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
+      From here on out, you'll continue receiving daily prompts at 9 AM. 
+      Keep responding, keep sharing, and keep building those meaningful connections with your group.
+    </p>
+    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
+      If you ever have questions or feedback, we're here for you. 
+      Just reply to this email - we'd love to hear from you!
+    </p>
+    <p style="font-size: 16px; margin-bottom: 30px; color: #ffffff;">
+      Here's to many more good times ahead! 🥂
+    </p>
+    <div style="margin-top: 40px; text-align: left;">
+      <p style="font-size: 16px; color: #ffffff; margin: 0 0 4px 0;">Have a good one!</p>
+      <p style="font-size: 16px; color: #ffffff; margin: 0 0 20px 0;"><em>Jaryd</em></p>
+      <p style="font-size: 14px; color: #ffffff; margin: 0;">
+        <a href="goodtimes://feedback" style="color: #ffffff; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+      </p>
+    </div>
+  </div>
+  <div style="background-color: #000000; padding: 30px; text-align: center; border-top: 1px solid #333333;">
+    <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
   </div>
 </body>
 </html>
@@ -128,13 +414,13 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
       Open the app to see the heartfelt messages ${groupType === "family" ? "your family" : "your friends"} left for you on your special day.
     </p>
     <div style="text-align: center; margin: 30px 0;">
-      <a href="${cardLink}" style="display: inline-block; background-color: #de2f08; color: #fff; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">
+      <a href="${cardLink}" style="display: inline-block; background-color: #D35E3C; color: #fff; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">
         View Your Birthday Card
       </a>
     </div>
     <p style="font-size: 14px; color: #666; margin-top: 30px; text-align: center;">
       If the button doesn't work, copy and paste this link into your browser:<br>
-      <a href="${cardLink}" style="color: #de2f08; word-break: break-all;">${cardLink}</a>
+      <a href="${cardLink}" style="color: #D35E3C; word-break: break-all;">${cardLink}</a>
     </p>
     <div style="text-align: center; margin-top: 30px;">
       <p style="font-size: 14px; color: #666; margin: 0;">
@@ -182,7 +468,7 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
       <strong>Email:</strong> ${userEmail}<br>
       <strong>Group:</strong> ${groupName} (ID: ${groupId})
     </p>
-    <div style="background-color: #fff; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #de2f08;">
+    <div style="background-color: #fff; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #D35E3C;">
       <p style="font-size: 16px; margin: 0 0 10px 0;"><strong>Suggestion:</strong></p>
       <p style="font-size: 16px; margin: 0; white-space: pre-wrap;">${suggestion}</p>
     </div>
@@ -215,7 +501,7 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
       const questionsHTML = questions.map((q: string, idx: number) => {
         const escapedQ = escapeHtml(q)
         return `
-        <div style="background-color: #fff; padding: 20px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #de2f08;">
+        <div style="background-color: #fff; padding: 20px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #D35E3C;">
           <p style="font-size: 16px; margin: 0 0 10px 0;"><strong>Question ${idx + 1}:</strong></p>
           <p style="font-size: 16px; margin: 0; white-space: pre-wrap;">${escapedQ}</p>
         </div>
@@ -282,9 +568,125 @@ You'll receive daily prompts to spark conversations and create lasting memories.
 
 Get started by opening the app and responding to today's prompt!
 
-Thanks for being part of the Good Times community! 🎉
+Have a good one!
+*Jaryd*
 
-- The Good Times Team
+Have feedback or an idea? Let me know: goodtimes://feedback
+      `.trim()
+    }
+    case "onboarding_day_2": {
+      const memberName = templateData.member_name || "there"
+      return `
+Hi ${memberName},
+
+We hope you're enjoying Good Times! Have you had a chance to respond to today's prompt yet?
+
+Every day at 9 AM, you'll receive a new question designed to spark meaningful conversations with your group. 
+The best part? You can respond with text, photos, or videos to make your memories come alive.
+
+If you haven't already, try responding to today's prompt and see how your group reacts!
+
+Have a good one!
+*Jaryd*
+
+Have feedback or an idea? Let me know: goodtimes://feedback
+      `.trim()
+    }
+    case "onboarding_day_3": {
+      const memberName = templateData.member_name || "there"
+      return `
+Hi ${memberName},
+
+Good Times is more than just daily prompts! Here are some features you might not have discovered yet:
+
+• Browse History: Look back at all your shared memories organized by day, week, month, or year
+• React & Comment: Show love for entries with hearts and leave comments to keep the conversation going
+• Custom Decks: Suggest new question decks tailored to your group's interests
+
+Take a moment to explore the app and see what else Good Times has to offer!
+
+Have a good one!
+*Jaryd*
+
+Have feedback or an idea? Let me know: goodtimes://feedback
+      `.trim()
+    }
+    case "onboarding_day_4": {
+      const memberName = templateData.member_name || "there"
+      return `
+Hi ${memberName},
+
+The magic of Good Times happens when everyone in your group participates. 
+When you share your responses, you're creating a shared story that grows richer with each contribution.
+
+Tip: Try responding with a photo or video this week! Visual memories often spark the most meaningful conversations and reactions from your group.
+
+Keep the momentum going - your group is counting on you! 💫
+
+Have a good one!
+*Jaryd*
+
+Have feedback or an idea? Let me know: goodtimes://feedback
+      `.trim()
+    }
+    case "onboarding_day_5": {
+      const memberName = templateData.member_name || "there"
+      return `
+Hi ${memberName},
+
+Consistency is key to building lasting memories. When you respond to prompts regularly, 
+you're creating a beautiful timeline of your shared experiences.
+
+Pro tip: Set a daily reminder or make responding to prompts part of your morning routine. 
+Even a quick response is better than no response - your group will appreciate it!
+
+You're doing great! Keep up the amazing work. 🌟
+
+Have a good one!
+*Jaryd*
+
+Have feedback or an idea? Let me know: goodtimes://feedback
+      `.trim()
+    }
+    case "onboarding_day_6": {
+      const memberName = templateData.member_name || "there"
+      return `
+Hi ${memberName},
+
+The more people in your group, the richer your shared memories become! 
+Consider inviting more friends or family members to join your Good Times group.
+
+You can invite people directly from the app - just look for the invite button in your group settings. 
+Each new member brings new perspectives and stories to your shared timeline.
+
+Ready to grow your Good Times family? 🎉
+
+Have a good one!
+*Jaryd*
+
+Have feedback or an idea? Let me know: goodtimes://feedback
+      `.trim()
+    }
+    case "onboarding_day_7": {
+      const memberName = templateData.member_name || "there"
+      return `
+Hi ${memberName},
+
+Congratulations! You've completed your first week with Good Times. 
+You now know everything you need to make the most of your shared memories.
+
+From here on out, you'll continue receiving daily prompts at 9 AM. 
+Keep responding, keep sharing, and keep building those meaningful connections with your group.
+
+If you ever have questions or feedback, we're here for you. 
+Just reply to this email - we'd love to hear from you!
+
+Here's to many more good times ahead! 🥂
+
+Have a good one!
+*Jaryd*
+
+Have feedback or an idea? Let me know: goodtimes://feedback
       `.trim()
     }
     case "birthday_card": {
@@ -513,7 +915,23 @@ serve(async (req: Request) => {
 
     const resendData = await resendResponse.json()
 
-    // Log email send (optional - can be added to email_logs table if needed)
+    // Log email send to email_logs table
+    if (user_id) {
+      const { error: logError } = await supabaseClient
+        .from("email_logs")
+        .insert({
+          user_id: user_id,
+          email_type: email_type,
+          resend_id: resendData.id,
+          template_data: finalTemplateData,
+        })
+
+      if (logError) {
+        console.error("[send-email] Error logging email:", logError)
+        // Don't fail the request if logging fails
+      }
+    }
+
     console.log("[send-email] Email sent successfully:", {
       email_type,
       recipient_email: finalRecipientEmail,

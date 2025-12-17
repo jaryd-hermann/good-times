@@ -18,3 +18,6 @@ web-build/
 **/.DS_Store
 .vercel
 .env*.local
+
+# Email previews (generated files)
+email-previews/
