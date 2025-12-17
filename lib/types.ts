@@ -6,6 +6,7 @@ export interface User {
   avatar_url?: string
   theme_preference?: "dark" | "light"
   has_seen_custom_question_onboarding?: boolean
+  app_tutorial_seen?: boolean
   created_at: string
 }
 

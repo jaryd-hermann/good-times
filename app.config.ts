@@ -72,6 +72,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
   ],
+  updates: {
+    url: "https://u.expo.dev/ccd4fdb7-0126-46d1-a518-5839fae48a76",
+  },
+  runtimeVersion: {
+    policy: "appVersion", // Use app version for runtime versioning
+  },
   extra: {
     router: { origin: false },
     eas: { projectId: "ccd4fdb7-0126-46d1-a518-5839fae48a76" }, // your real EAS project id

@@ -4,8 +4,10 @@ import { useEffect, useState } from "react"
 import { View, Text, StyleSheet, ImageBackground, Dimensions, TouchableOpacity, Modal, Animated } from "react-native"
 import { LinearGradient } from "expo-linear-gradient"
 import { useRouter } from "expo-router"
+import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { colors, typography, spacing } from "../../lib/theme"
 import { Button } from "../../components/Button"
+import { OnboardingGallery } from "../../components/OnboardingGallery"
 import { 
   isBiometricAvailable, 
   getBiometricPreference, 
@@ -26,8 +28,10 @@ export default function Welcome1() {
   const router = useRouter()
   const { clear } = useOnboarding()
   const posthog = usePostHog()
+  const insets = useSafeAreaInsets()
   const [showModal, setShowModal] = useState(false)
   const [showJoinInfo, setShowJoinInfo] = useState(false)
+  const [onboardingGalleryVisible, setOnboardingGalleryVisible] = useState(false)
   const slideAnim = useState(new Animated.Value(height))[0]
   const overlayOpacity = useState(new Animated.Value(0))[0]
 
@@ -218,19 +222,28 @@ export default function Welcome1() {
       />
       <View style={styles.content}>
         <View style={styles.textContainer}>
-          <Text style={styles.title}>Good Times</Text>
-          <Text style={styles.subtitle}>
-          The group-based, low-effort, social app for friends & family to meaningfully hear from each other everyday in just 3 minutes.
-          </Text>
-        </View>
-
-        <View style={styles.buttonContainer}>
+          {/* Already in a group? Login - above title */}
           <View style={styles.loginContainer}>
             <Text style={styles.loginPrefix}>Already in a group? </Text>
             <TouchableOpacity onPress={handleLogin} activeOpacity={0.8}>
               <Text style={styles.loginText}>Login</Text>
             </TouchableOpacity>
           </View>
+          <Text style={styles.title}>Good Times</Text>
+          <Text style={styles.subtitle}>
+          Answer just one question a day with your favorite people
+          </Text>
+        </View>
+
+        <View style={styles.buttonContainer}>
+          {/* Show me first button - bottom left */}
+          <TouchableOpacity
+            style={styles.showMeFirstButton}
+            onPress={() => setOnboardingGalleryVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.showMeFirstText}>Show me first</Text>
+          </TouchableOpacity>
           <Button
             title="→"
             onPress={handleMainCTA}
@@ -307,6 +320,23 @@ export default function Welcome1() {
           </Animated.View>
         </View>
       </Modal>
+
+      {/* Onboarding Gallery Modal */}
+      <OnboardingGallery
+        visible={onboardingGalleryVisible}
+        screenshots={[
+          { id: "1", source: require("../../assets/images/onboarding-1-one-question.png") },
+          { id: "2", source: require("../../assets/images/onboarding-2-your-answer.png") },
+          { id: "3", source: require("../../assets/images/onboarding-3-their-answer.png") },
+          { id: "4", source: require("../../assets/images/onboarding-4-your-group.png") },
+          { id: "5", source: require("../../assets/images/onboarding-5-ask-them.png") },
+          { id: "6", source: require("../../assets/images/onboarding-6-themed-decks.png") },
+          { id: "7", source: require("../../assets/images/onboarding-7-set-your-vibe.png") },
+          { id: "8", source: require("../../assets/images/onboarding-8-remember.png") },
+        ]}
+        onComplete={() => setOnboardingGalleryVisible(false)}
+        returnRoute="/(onboarding)/welcome-1"
+      />
     </ImageBackground>
   )
 }
@@ -330,7 +360,7 @@ const styles = StyleSheet.create({
   loginContainer: {
     flexDirection: "row",
     alignItems: "center",
-    flex: 1,
+    marginBottom: spacing.lg,
   },
   loginPrefix: {
     fontFamily: "Roboto-Regular",
@@ -406,5 +436,18 @@ const styles = StyleSheet.create({
   },
   modalButtonText: {
     fontSize: 16,
+  },
+  showMeFirstButton: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.white,
+  },
+  showMeFirstText: {
+    ...typography.body,
+    fontSize: 14,
+    color: colors.white,
   },
 })

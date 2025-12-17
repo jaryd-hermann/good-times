@@ -6,6 +6,15 @@ import { Stack } from "expo-router"
 import { useFonts } from "expo-font"
 import * as SplashScreen from "expo-splash-screen"
 import { useEffect, useState, useRef } from "react"
+
+// Import Updates conditionally - only available in production builds
+let Updates: typeof import("expo-updates") | null = null
+try {
+  Updates = require("expo-updates")
+} catch (error) {
+  // Updates not available (development mode, Expo Go, or native module not built)
+  console.log("[_layout] expo-updates not available (this is normal in development)")
+}
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query"
 import { SafeAreaProvider } from "react-native-safe-area-context"
 import { AuthProvider, useAuth } from "../components/AuthProvider"
@@ -449,6 +458,44 @@ export default function RootLayout() {
     
     return () => clearTimeout(fontTimeout)
   }, [fontsLoaded, fontError])
+
+  // Check for EAS Updates (only in production builds, not in development)
+  useEffect(() => {
+    async function checkForUpdates() {
+      if (__DEV__) {
+        // Skip update checking in development
+        return
+      }
+
+      try {
+        // Check if Updates is enabled (only available in production builds)
+        if (!Updates || !Updates.isEnabled) {
+          console.log("[_layout] Updates not enabled (development build)")
+          return
+        }
+
+        const update = await Updates.checkForUpdateAsync()
+        
+        if (update.isAvailable) {
+          console.log("[_layout] Update available, downloading...")
+          await Updates.fetchUpdateAsync()
+          console.log("[_layout] Update downloaded, will reload on next app restart")
+          // Optionally reload immediately:
+          // await Updates.reloadAsync()
+        } else {
+          console.log("[_layout] No updates available")
+        }
+      } catch (error) {
+        console.error("[_layout] Error checking for updates:", error)
+        // Don't block app startup if update check fails
+      }
+    }
+
+    // Only check for updates after fonts are loaded
+    if (fontsLoaded || fontsTimedOut) {
+      checkForUpdates()
+    }
+  }, [fontsLoaded, fontsTimedOut])
 
   // Handle notification clicks
   useEffect(() => {

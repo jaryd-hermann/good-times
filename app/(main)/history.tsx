@@ -1309,6 +1309,7 @@ export default function History() {
     // No marginTop - header overlays content
   },
   contentContainer: {
+    paddingTop: spacing.xl,
     paddingBottom: spacing.xxl * 3,
   },
   daySection: {

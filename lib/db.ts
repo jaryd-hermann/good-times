@@ -75,6 +75,17 @@ export async function updateUser(userId: string, updates: Partial<User>) {
   return data
 }
 
+export async function markAppTutorialSeen(userId: string) {
+  const { data, error } = await supabase
+    .from("users")
+    .update({ app_tutorial_seen: true })
+    .eq("id", userId)
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
 // Group queries
 export async function getUserGroups(userId: string): Promise<Group[]> {
   const { data, error } = await supabase
@@ -2060,6 +2071,18 @@ export async function requestDeckVote(groupId: string, deckId: string, userId: s
     if (!members || members.length < 3) {
       throw new Error("Group must have at least 3 members to vote on decks")
     }
+  }
+
+  // Check if group already has 3 active decks (limit is 3)
+  const { data: activeDecks, error: activeDecksError } = await supabase
+    .from("group_active_decks")
+    .select("id")
+    .eq("group_id", groupId)
+    .eq("status", "active")
+
+  if (activeDecksError) throw activeDecksError
+  if (activeDecks && activeDecks.length >= 3) {
+    throw new Error("Group already has 3 active decks. Please finish or remove a deck before adding another.")
   }
 
   // Check if deck is already active/voting/rejected for this group

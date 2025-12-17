@@ -402,86 +402,93 @@ serve(async (req) => {
         }
       }
 
-      // If no queued prompt, check for deck questions first (1 per week per active deck)
+      // Check for deck questions (1 per week per active deck)
+      // Note: Queued items take priority, but deck questions should still be checked
+      // so they can be scheduled once queued items are processed
       let selectedDeckId: string | null = null
+      let deckPromptCandidate: any = null
       
-      if (!selectedPrompt) {
-        // Check active decks and see if we need to schedule a deck question this week
-        const { data: activeDecksData } = await supabaseClient
-          .from("group_active_decks")
-          .select("deck_id, deck:decks(id, name)")
-          .eq("group_id", group.id)
-          .eq("status", "active")
+      // Check active decks and see if we need to schedule a deck question this week
+      const { data: activeDecksData } = await supabaseClient
+        .from("group_active_decks")
+        .select("deck_id, deck:decks(id, name)")
+        .eq("group_id", group.id)
+        .eq("status", "active")
+      
+      if (activeDecksData && activeDecksData.length > 0) {
+        // Get week start date (Monday of current week)
+        // This matches the SQL function get_current_week_monday()
+        const todayDate = new Date(today)
+        const dayOfWeek = todayDate.getDay() // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+        const weekStart = new Date(todayDate)
         
-        if (activeDecksData && activeDecksData.length > 0) {
-          // Get week start date (Monday of current week)
-          // This matches the SQL function get_current_week_monday()
-          const todayDate = new Date(today)
-          const dayOfWeek = todayDate.getDay() // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-          const weekStart = new Date(todayDate)
+        // Calculate Monday of current week
+        if (dayOfWeek === 0) {
+          // If today is Sunday, subtract 6 days to get previous Monday
+          weekStart.setDate(todayDate.getDate() - 6)
+        } else {
+          // Otherwise, subtract (dayOfWeek - 1) days to get Monday of current week
+          weekStart.setDate(todayDate.getDate() - (dayOfWeek - 1))
+        }
+        
+        const weekStartStr = weekStart.toISOString().split("T")[0]
+        
+        // Check which decks have been used this week
+        const { data: weekDeckPrompts } = await supabaseClient
+          .from("daily_prompts")
+          .select("deck_id")
+          .eq("group_id", group.id)
+          .gte("date", weekStartStr)
+          .lte("date", today)
+          .not("deck_id", "is", null)
+          .is("user_id", null)
+        
+        const usedDeckIdsThisWeek = new Set((weekDeckPrompts || []).map((dp: any) => dp.deck_id))
+        
+        // Find decks that haven't been used this week
+        const unusedDecksThisWeek = activeDecksData.filter(
+          (ad: any) => !usedDeckIdsThisWeek.has(ad.deck_id)
+        )
+        
+        if (unusedDecksThisWeek.length > 0) {
+          // Pick a random unused deck
+          const deckToUse = unusedDecksThisWeek[Math.floor(Math.random() * unusedDecksThisWeek.length)]
           
-          // Calculate Monday of current week
-          if (dayOfWeek === 0) {
-            // If today is Sunday, subtract 6 days to get previous Monday
-            weekStart.setDate(todayDate.getDate() - 6)
-          } else {
-            // Otherwise, subtract (dayOfWeek - 1) days to get Monday of current week
-            weekStart.setDate(todayDate.getDate() - (dayOfWeek - 1))
-          }
-          
-          const weekStartStr = weekStart.toISOString().split("T")[0]
-          
-          // Check which decks have been used this week
-          const { data: weekDeckPrompts } = await supabaseClient
+          // Get prompts from this deck that haven't been used
+          const { data: usedPrompts } = await supabaseClient
             .from("daily_prompts")
-            .select("deck_id")
+            .select("prompt_id")
             .eq("group_id", group.id)
-            .gte("date", weekStartStr)
-            .lte("date", today)
-            .not("deck_id", "is", null)
             .is("user_id", null)
           
-          const usedDeckIdsThisWeek = new Set((weekDeckPrompts || []).map((dp: any) => dp.deck_id))
+          const usedPromptIds = usedPrompts?.map((p) => p.prompt_id) || []
           
-          // Find decks that haven't been used this week
-          const unusedDecksThisWeek = activeDecksData.filter(
-            (ad: any) => !usedDeckIdsThisWeek.has(ad.deck_id)
+          // Get available prompts from this deck
+          const { data: deckPromptsData } = await supabaseClient
+            .from("prompts")
+            .select("*")
+            .eq("deck_id", deckToUse.deck_id)
+            .not("deck_id", "is", null)
+            .order("deck_order", { ascending: true })
+          
+          const availableDeckPrompts = (deckPromptsData || []).filter(
+            (p: any) => !usedPromptIds.includes(p.id)
           )
           
-          if (unusedDecksThisWeek.length > 0) {
-            // Pick a random unused deck
-            const deckToUse = unusedDecksThisWeek[Math.floor(Math.random() * unusedDecksThisWeek.length)]
-            
-            // Get prompts from this deck that haven't been used
-            const { data: usedPrompts } = await supabaseClient
-              .from("daily_prompts")
-              .select("prompt_id")
-              .eq("group_id", group.id)
-              .is("user_id", null)
-            
-            const usedPromptIds = usedPrompts?.map((p) => p.prompt_id) || []
-            
-            // Get available prompts from this deck
-            const { data: deckPromptsData } = await supabaseClient
-              .from("prompts")
-              .select("*")
-              .eq("deck_id", deckToUse.deck_id)
-              .not("deck_id", "is", null)
-              .order("deck_order", { ascending: true })
-            
-            const availableDeckPrompts = (deckPromptsData || []).filter(
-              (p: any) => !usedPromptIds.includes(p.id)
-            )
-            
-            if (availableDeckPrompts.length > 0) {
-              // Select first available prompt (by deck_order)
-              selectedPrompt = availableDeckPrompts[0]
-              selectedDeckId = deckToUse.deck_id
-              selectionMethod = "deck"
-              console.log(`[schedule-daily-prompts] Scheduling deck question from "${deckToUse.deck?.name || 'Unknown'}" for ${today}`)
-            }
+          if (availableDeckPrompts.length > 0) {
+            // Store deck prompt candidate (will use if no queued prompt is selected)
+            deckPromptCandidate = availableDeckPrompts[0]
+            selectedDeckId = deckToUse.deck_id
           }
         }
+      }
+      
+      // Use deck prompt if no queued prompt was selected
+      // Queued items take priority, but deck questions should be scheduled once queued items are processed
+      if (!selectedPrompt && deckPromptCandidate) {
+        selectedPrompt = deckPromptCandidate
+        selectionMethod = "deck"
+        console.log(`[schedule-daily-prompts] Scheduling deck question from deck ${selectedDeckId} for ${today}`)
       }
       
       // PHASE 5: If no prompt selected yet, try personalized suggestions

@@ -40,6 +40,7 @@ import {
   testPasswordResetLink,
   type SessionState,
 } from "../../lib/test-session-utils"
+import { OnboardingGallery } from "../../components/OnboardingGallery"
 
 export default function SettingsScreen() {
   const router = useRouter()
@@ -54,6 +55,7 @@ export default function SettingsScreen() {
   const [biometricType, setBiometricType] = useState<"face" | "fingerprint" | "iris" | "none">("none")
   const [devForceCustomQuestion, setDevForceCustomQuestion] = useState(false)
   const [sessionState, setSessionState] = useState<SessionState | null>(null)
+  const [onboardingGalleryVisible, setOnboardingGalleryVisible] = useState(false)
   const posthog = usePostHog()
 
   // Track loaded_settings_screen event
@@ -553,6 +555,26 @@ export default function SettingsScreen() {
           </View>
         </TouchableOpacity>
 
+        {/* App Explainer Card */}
+        <TouchableOpacity 
+          style={styles.profileCard} 
+          onPress={() => setOnboardingGalleryVisible(true)} 
+          activeOpacity={0.7}
+        >
+          <View style={styles.profileCardContent}>
+            <View style={styles.profileCardIcon}>
+              <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.gray[800], justifyContent: "center", alignItems: "center" }}>
+                <FontAwesome name="info-circle" size={20} color={colors.gray[400]} />
+              </View>
+            </View>
+            <View style={styles.profileCardText}>
+              <Text style={styles.profileCardTitle}>App explainer</Text>
+              <Text style={styles.profileCardSubtitle}>Learn how Good Times works</Text>
+            </View>
+            <FontAwesome name="chevron-right" size={16} color={colors.gray[500]} style={{ marginLeft: spacing.md }} />
+          </View>
+        </TouchableOpacity>
+
         {/* Inline Settings */}
         <View style={styles.settingRow}>
           <View style={styles.settingRowText}>
@@ -730,6 +752,29 @@ export default function SettingsScreen() {
                 variant="secondary"
               />
             </View>
+
+            {/* Onboarding Gallery */}
+            <View style={[styles.profileCard, { marginTop: spacing.md }]}>
+              <View style={styles.profileCardContent}>
+                <View style={styles.profileCardIcon}>
+                  <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.gray[800], justifyContent: "center", alignItems: "center" }}>
+                    <FontAwesome name="images" size={20} color={colors.accent} />
+                  </View>
+                </View>
+                <View style={styles.profileCardText}>
+                  <Text style={styles.profileCardTitle}>Onboarding</Text>
+                  <Text style={styles.profileCardSubtitle}>View app screenshots gallery</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.actions}>
+              <Button
+                title="Onboarding"
+                onPress={() => setOnboardingGalleryVisible(true)}
+                variant="secondary"
+              />
+            </View>
           </>
         )}
 
@@ -754,6 +799,22 @@ export default function SettingsScreen() {
           />
         </View>
       </ScrollView>
+
+      {/* Onboarding Gallery Modal */}
+      <OnboardingGallery
+        visible={onboardingGalleryVisible}
+        screenshots={[
+          { id: "1", source: require("../../assets/images/onboarding-1-one-question.png") },
+          { id: "2", source: require("../../assets/images/onboarding-2-your-answer.png") },
+          { id: "3", source: require("../../assets/images/onboarding-3-their-answer.png") },
+          { id: "4", source: require("../../assets/images/onboarding-4-your-group.png") },
+          { id: "5", source: require("../../assets/images/onboarding-5-ask-them.png") },
+          { id: "6", source: require("../../assets/images/onboarding-6-themed-decks.png") },
+          { id: "7", source: require("../../assets/images/onboarding-7-set-your-vibe.png") },
+          { id: "8", source: require("../../assets/images/onboarding-8-remember.png") },
+        ]}
+        onComplete={() => setOnboardingGalleryVisible(false)}
+      />
     </View>
   )
 }

@@ -644,7 +644,7 @@ export default function SwipeOnboarding() {
       <View style={[styles.header, { paddingTop: insets.top + spacing.lg }]}>
         <Text style={styles.title}>Like some questions</Text>
         <Text style={styles.subtitle}>
-          Help us understand your group and set your early vibe by swiping some samples
+          Help us understand your group and set your early vibe by swiping on some samples
         </Text>
       </View>
 

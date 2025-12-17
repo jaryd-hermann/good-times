@@ -62,6 +62,7 @@ import { getInAppNotifications, markNotificationsAsChecked, markEntryAsVisited, 
 import { updateBadgeCount } from "../../lib/notifications-badge"
 import { UserProfileModal } from "../../components/UserProfileModal"
 import { useAuth } from "../../components/AuthProvider"
+import { OnboardingGallery } from "../../components/OnboardingGallery"
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 
@@ -178,6 +179,7 @@ export default function Home() {
   const [notificationModalVisible, setNotificationModalVisible] = useState(false)
   const [userProfileModalVisible, setUserProfileModalVisible] = useState(false)
   const [selectedMember, setSelectedMember] = useState<{ id: string; name: string; avatar_url?: string } | null>(null)
+  const [onboardingGalleryVisible, setOnboardingGalleryVisible] = useState(false)
   const scrollY = useRef(new Animated.Value(0)).current
   const headerTranslateY = useRef(new Animated.Value(0)).current
   const contentPaddingTop = useRef(new Animated.Value(0)).current
@@ -698,6 +700,17 @@ export default function Home() {
   const { data: allPrompts = [] } = useQuery({
     queryKey: ["allPrompts"],
     queryFn: getAllPrompts,
+  })
+
+  // Check if user has seen app tutorial
+  const { data: hasSeenAppTutorial } = useQuery({
+    queryKey: ["appTutorialSeen", userId],
+    queryFn: async () => {
+      if (!userId) return false
+      const user = await getCurrentUser()
+      return user?.app_tutorial_seen ?? false
+    },
+    enabled: !!userId,
   })
 
   const { data: members = [] } = useQuery({
@@ -2456,6 +2469,18 @@ export default function Home() {
       marginBottom: spacing.lg + spacing.md,
       marginHorizontal: spacing.lg,
     },
+    appTutorialLinkContainer: {
+      paddingVertical: spacing.xl,
+      paddingHorizontal: spacing.lg,
+      alignItems: "center",
+      marginTop: spacing.xl, // Double the space from prompt card divider
+    },
+    appTutorialLink: {
+      ...typography.body,
+      color: colors.gray[400],
+      fontSize: 14,
+      textAlign: "center",
+    },
   }), [colors, isDark])
 
   return (
@@ -2914,7 +2939,7 @@ export default function Home() {
                         )}
                       </View>
                     )}
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginBottom: spacing.sm }}>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginBottom: spacing.md }}>
                       {dailyPrompt?.prompt?.category && (
                         <CategoryTag category={dailyPrompt.prompt.category} />
                       )}
@@ -2922,27 +2947,15 @@ export default function Home() {
                         <CategoryTag category={entries[0].prompt.category} />
                       )}
                       {dailyPrompt?.deck_id && deckInfo && (
-                        <TouchableOpacity
-                          onPress={() => router.push(`/(main)/deck-detail?deckId=${dailyPrompt.deck_id}&groupId=${currentGroupId}`)}
-                          style={{
-                            alignSelf: "flex-start",
-                            paddingHorizontal: spacing.md,
-                            paddingVertical: spacing.xs,
-                            borderRadius: 16,
-                            backgroundColor: colors.gray[900],
-                            borderWidth: 1,
-                            borderColor: colors.white,
-                          }}
-                        >
-                          <Text style={{
-                            ...typography.caption,
-                            fontSize: 12,
-                            fontWeight: "600",
-                            color: colors.white,
-                          }}>
-                            {deckInfo.name}
-                          </Text>
-                        </TouchableOpacity>
+                        <Text style={{
+                          ...typography.body,
+                          fontSize: 14,
+                          fontWeight: "400",
+                          color: colors.gray[400],
+                          fontStyle: "italic",
+                        }}>
+                          from the deck, <Text style={{ fontWeight: "600" }}>{deckInfo.name}</Text>
+                        </Text>
                       )}
                     </View>
                     <Text style={styles.promptQuestion}>
@@ -2970,6 +2983,15 @@ export default function Home() {
               })()}
             </View>
             <View style={styles.promptDivider} />
+          </View>
+        )}
+
+        {/* App tutorial link - show when no entries and user hasn't seen tutorial */}
+        {!userEntry && entries.length === 0 && !isFuture && !hasSeenAppTutorial && (
+          <View style={styles.appTutorialLinkContainer}>
+            <TouchableOpacity onPress={() => setOnboardingGalleryVisible(true)} activeOpacity={0.7}>
+              <Text style={styles.appTutorialLink}>Need a quick app tour?</Text>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -3217,6 +3239,22 @@ export default function Home() {
             },
           })
         }}
+      />
+
+      {/* Onboarding Gallery Modal */}
+      <OnboardingGallery
+        visible={onboardingGalleryVisible}
+        screenshots={[
+          { id: "1", source: require("../../assets/images/onboarding-1-one-question.png") },
+          { id: "2", source: require("../../assets/images/onboarding-2-your-answer.png") },
+          { id: "3", source: require("../../assets/images/onboarding-3-their-answer.png") },
+          { id: "4", source: require("../../assets/images/onboarding-4-your-group.png") },
+          { id: "5", source: require("../../assets/images/onboarding-5-ask-them.png") },
+          { id: "6", source: require("../../assets/images/onboarding-6-themed-decks.png") },
+          { id: "7", source: require("../../assets/images/onboarding-7-set-your-vibe.png") },
+          { id: "8", source: require("../../assets/images/onboarding-8-remember.png") },
+        ]}
+        onComplete={() => setOnboardingGalleryVisible(false)}
       />
     </View>
   )

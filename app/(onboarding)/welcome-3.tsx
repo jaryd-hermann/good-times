@@ -46,10 +46,10 @@ export default function Welcome3() {
         </View>
         <View style={styles.textContainer}>
           <Text style={styles.body}>
-          Social media isn't real, and finding time for calls or texting can be tricky. This is a simple, free, and intentional alternative for private groups.
+          Social media isn't real, and finding time for calls or texting can be tricky.
           </Text>
           <Text style={[styles.body, styles.secondParagraph]}>
-            <Text style={styles.boldText}>Just one easy, shared Q&A a day</Text>.
+            Good Times is the group-based, low-effort, social app for friends & family to meaningfully <Text style={styles.boldText}>connect over one shared question a day</Text>.
           </Text>
         </View>
 
