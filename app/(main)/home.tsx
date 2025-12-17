@@ -1203,6 +1203,29 @@ export default function Home() {
     refetchOnMount: true,
   })
 
+  // Fetch prompt_name_usage for memorial_name to get the exact name that was stored
+  // CRITICAL: Use the stored name from prompt_name_usage, not recalculate
+  const { data: memorialNameUsage = [] } = useQuery({
+    queryKey: ["memorialNameUsage", currentGroupId, selectedDate],
+    queryFn: async () => {
+      if (!currentGroupId || !promptId) return []
+      const { data, error } = await supabase
+        .from("prompt_name_usage")
+        .select("prompt_id, date_used, name_used, created_at")
+        .eq("group_id", currentGroupId)
+        .eq("variable_type", "memorial_name")
+        .order("created_at", { ascending: true })
+      if (error) {
+        console.error("[home] Error fetching memorial name usage:", error)
+        return []
+      }
+      return (data || []) as Array<{ prompt_id: string; date_used: string; name_used: string; created_at: string }>
+    },
+    enabled: !!currentGroupId && !!promptId && !!basePrompt?.question?.match(/\{.*memorial_name.*\}/i),
+    staleTime: 0,
+    refetchOnMount: true,
+  })
+
   // Create a map of prompt_id + date -> member name used
   const memberUsageMap = useMemo(() => {
     const map = new Map<string, string>()
@@ -1215,6 +1238,19 @@ export default function Home() {
     })
     return map
   }, [memberNameUsage])
+
+  // Create a map of prompt_id + date -> memorial name used
+  const memorialUsageMap = useMemo(() => {
+    const map = new Map<string, string>()
+    memorialNameUsage.forEach((usage) => {
+      const normalizedDate = usage.date_used.split('T')[0]
+      const key = `${usage.prompt_id}-${normalizedDate}`
+      if (!map.has(key)) {
+        map.set(key, usage.name_used)
+      }
+    })
+    return map
+  }, [memorialNameUsage])
 
   // Check if today's question is about the current user (member_name matches userName)
   // CRITICAL: Only check for member_name prompts, not memorial_name
@@ -1252,22 +1288,55 @@ export default function Home() {
   // CRITICAL: Only work with actual prompts from dailyPrompt or entries - never fallback prompts
   const personalizedPromptQuestion = useMemo(() => {
     // If we have a prompt from dailyPrompt, use it directly (already personalized by getDailyPrompt)
-    if (dailyPrompt?.prompt?.question) {
+    const dailyPromptQuestion = dailyPrompt?.prompt?.question?.trim()
+    if (dailyPromptQuestion) {
       // Check if the question is already personalized (no variables)
-      const hasVariables = dailyPrompt.prompt.question.match(/\{.*memorial_name.*\}/i) || 
-                          dailyPrompt.prompt.question.match(/\{.*member_name.*\}/i)
+      const hasVariables = dailyPromptQuestion.match(/\{.*memorial_name.*\}/i) || 
+                          dailyPromptQuestion.match(/\{.*member_name.*\}/i)
       
       if (!hasVariables) {
         // Already personalized correctly by getDailyPrompt - use it EXACTLY as-is
-        return dailyPrompt.prompt.question
+        return dailyPromptQuestion
       } else {
         // This is a bug in getDailyPrompt - it should have personalized but didn't
         // But we should still check prompt_name_usage to get the correct name
-        let question = dailyPrompt.prompt.question
+        let question = dailyPromptQuestion
         const variables: Record<string, string> = {}
         
+        // Handle memorial_name variable - check prompt_name_usage first
+        if (question.match(/\{.*memorial_name.*\}/i) && dailyPrompt?.prompt_id && selectedDate) {
+          const normalizedDate = selectedDate.split('T')[0]
+          const usageKey = `${dailyPrompt.prompt_id}-${normalizedDate}`
+          const memorialNameUsed = memorialUsageMap.get(usageKey)
+          
+          if (memorialNameUsed) {
+            question = personalizeMemorialPrompt(question, memorialNameUsed)
+            // Verify the replacement worked - if question still has variables, something went wrong
+            if (question.match(/\{.*memorial_name.*\}/i)) {
+              console.warn(`[home] personalizeMemorialPrompt failed to replace variables. Question: ${question}, Memorial: ${memorialNameUsed}`)
+            }
+          } else if (memorials.length > 0) {
+            // Fallback: use deterministic logic to select memorial
+            const dayIndex = getDayIndex(selectedDate, currentGroupId || "")
+            const memorialIndex = dayIndex % memorials.length
+            const selectedMemorialName = memorials[memorialIndex]?.name
+            
+            if (selectedMemorialName) {
+              question = personalizeMemorialPrompt(question, selectedMemorialName)
+              // Verify the replacement worked
+              if (question.match(/\{.*memorial_name.*\}/i)) {
+                console.warn(`[home] personalizeMemorialPrompt failed to replace variables (fallback). Question: ${question}, Memorial: ${selectedMemorialName}`)
+              }
+            } else {
+              console.warn(`[home] getDailyPrompt returned unpersonalized memorial_name but no memorial found`)
+            }
+          } else {
+            console.warn(`[home] getDailyPrompt returned unpersonalized memorial_name but no memorials available`)
+          }
+        }
+        
         // Handle member_name variable - check prompt_name_usage first
-        if (question.match(/\{.*member_name.*\}/i) && dailyPrompt.prompt_id && selectedDate) {
+        if (question.match(/\{.*member_name.*\}/i) && dailyPrompt?.prompt_id && selectedDate) {
           const normalizedDate = selectedDate.split('T')[0]
           const usageKey = `${dailyPrompt.prompt_id}-${normalizedDate}`
           const memberNameUsed = memberUsageMap.get(usageKey)
@@ -1275,12 +1344,23 @@ export default function Home() {
           if (memberNameUsed) {
             variables.member_name = memberNameUsed
             question = replaceDynamicVariables(question, variables)
+            // Verify the replacement worked
+            if (question.match(/\{.*member_name.*\}/i)) {
+              console.warn(`[home] replaceDynamicVariables failed to replace member_name. Question: ${question}, Member: ${memberNameUsed}`)
+            }
           } else {
             console.warn(`[home] getDailyPrompt returned unpersonalized member_name but no prompt_name_usage found`)
           }
         }
         
-        return question
+        // Final check: if question is empty or still has variables, return empty string (will show fallback)
+        const finalQuestion = question.trim()
+        if (!finalQuestion || finalQuestion.match(/\{.*(memorial_name|member_name).*\}/i)) {
+          console.warn(`[home] Question is empty or still has variables after personalization: ${finalQuestion}`)
+          return ""
+        }
+        
+        return finalQuestion
       }
     }
     
@@ -1329,7 +1409,7 @@ export default function Home() {
     
     // No valid prompt available - return empty string (skeleton will be shown)
     return ""
-  }, [dailyPrompt?.prompt?.question, dailyPrompt?.prompt_id, entries, memorials, groupMembersForVariables, currentGroupId, selectedDate, memberUsageMap, memberNameUsage])
+  }, [dailyPrompt?.prompt?.question, dailyPrompt?.prompt_id, entries, memorials, groupMembersForVariables, currentGroupId, selectedDate, memberUsageMap, memberNameUsage, memorialUsageMap, memorialNameUsage])
 
   // Check if CTA should show (load immediately, not waiting for scroll)
   // Only show when viewing today's date
@@ -2661,7 +2741,7 @@ export default function Home() {
           <>
             {otherEntries.length === 0 ? (
               <View style={styles.notice}>
-                <Text style={styles.noticeText}>Nobody has shared today yet. Be the first.</Text>
+                <Text style={styles.noticeText}>Be the first to answer today's question</Text>
               </View>
             ) : (
               <View style={styles.notice}>
@@ -2866,10 +2946,17 @@ export default function Home() {
                       )}
                     </View>
                     <Text style={styles.promptQuestion}>
-                      {personalizedPromptQuestion || dailyPrompt?.prompt?.question || entries[0]?.prompt?.question}
-                    </Text>
-                    <Text style={styles.promptDescription}>
-                      {dailyPrompt?.prompt?.description || entries[0]?.prompt?.description || ""}
+                      {(() => {
+                        const question = personalizedPromptQuestion || dailyPrompt?.prompt?.question || entries[0]?.prompt?.question
+                        // If question is empty or whitespace, log warning and show fallback
+                        if (!question || !question.trim()) {
+                          if (__DEV__) {
+                            console.warn(`[home] Empty question detected. dailyPrompt: ${dailyPrompt?.prompt?.question}, entries: ${entries[0]?.prompt?.question}, personalized: ${personalizedPromptQuestion}`)
+                          }
+                          return "Question unavailable"
+                        }
+                        return question
+                      })()}
                     </Text>
                     {promptId && (
                       <Button

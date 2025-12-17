@@ -13,8 +13,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   // Disable New Architecture - causing crashes during native module registration
   newArchEnabled: false,
   splash: {
-    // image: "./assets/images/splash.png", //
-    resizeMode: "contain",
+    image: "./assets/images/welcome-home.png",
+    resizeMode: "cover",
     backgroundColor: "#000000",
   },
   assetBundlePatterns: ["assets/*"],

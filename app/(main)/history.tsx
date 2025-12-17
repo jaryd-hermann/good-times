@@ -1917,11 +1917,6 @@ export default function History() {
                               <Text style={{ ...typography.h2, fontSize: 20, color: colors.white, marginBottom: spacing.sm }}>
                                 {promptForDate.prompt?.question || "Question"}
                               </Text>
-                              {promptForDate.prompt?.description && (
-                                <Text style={{ ...typography.body, color: colors.gray[400], marginBottom: spacing.md }}>
-                                  {promptForDate.prompt.description}
-                                </Text>
-                              )}
                               <Button
                                 title="Answer"
                                 style={{ backgroundColor: "#D35E3C" }}

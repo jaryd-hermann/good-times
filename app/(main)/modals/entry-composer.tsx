@@ -1848,9 +1848,6 @@ export default function EntryComposer() {
           scrollEventThrottle={16}
         >
         <Text style={styles.question}>{personalizedQuestion || activePrompt?.question}</Text>
-        {activePrompt?.description && (
-          <Text style={styles.description}>{activePrompt.description}</Text>
-        )}
 
         {/* Media preview carousel - positioned between description and input */}
         {mediaItems.filter(item => item.type !== "audio").length > 0 && (
@@ -1968,7 +1965,7 @@ export default function EntryComposer() {
                 setShowMentionAutocomplete(false)
               }
             }}
-            placeholder="Start writing..."
+            placeholder="Tell the group what you think..."
             placeholderTextColor={colors.gray[500]}
             multiline
             autoFocus={true}

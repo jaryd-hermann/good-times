@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useRef, useEffect, useState, useMemo } from "react"
-import { View, Text, StyleSheet, TouchableOpacity, Modal, Animated, Dimensions, ScrollView, TextInput } from "react-native"
+import { View, Text, StyleSheet, TouchableOpacity, Modal, Animated, Dimensions, ScrollView, TextInput, Platform, Keyboard } from "react-native"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { colors, spacing } from "../lib/theme"
 import { useTheme } from "../lib/theme-context"
@@ -1197,9 +1197,12 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
   const scrollViewRef = useRef<ScrollView>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  const [keyboardHeight, setKeyboardHeight] = useState(0)
 
   useEffect(() => {
     if (visible) {
+      // Immediately set to final position to avoid lag
+      slideAnim.setValue(1)
       Animated.spring(slideAnim, {
         toValue: 1,
         useNativeDriver: true,
@@ -1215,10 +1218,34 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
     }
   }, [visible, slideAnim])
 
+  // Track keyboard height
+  useEffect(() => {
+    const keyboardWillShow = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      (e) => {
+        setKeyboardHeight(e.endCoordinates.height)
+      }
+    )
+    const keyboardWillHide = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => {
+        setKeyboardHeight(0)
+      }
+    )
+
+    return () => {
+      keyboardWillShow.remove()
+      keyboardWillHide.remove()
+    }
+  }, [])
+
   const translateY = slideAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [300, 0],
   })
+  
+  // Adjust container position based on keyboard height - move up immediately when keyboard appears
+  const containerBottomOffset = keyboardHeight > 0 ? keyboardHeight : 0
 
   const handleSelectEmoji = (emoji: string) => {
     onSelectEmoji(emoji)
@@ -1234,8 +1261,9 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
       if (selectedCategory) {
         emojis = EMOJI_CATEGORIES[selectedCategory as keyof typeof EMOJI_CATEGORIES] || []
       } else {
-        // Show popular emojis when no search/category
-        emojis = EMOJI_CATEGORIES["Smileys & People"].slice(0, 30)
+        // Show ALL emojis from all categories when no category is selected
+        // Users can swipe through everything
+        emojis = ALL_EMOJIS
       }
     } else {
       const query = searchQuery.toLowerCase().trim()
@@ -1249,21 +1277,24 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
     return Array.from(new Set(emojis))
   }, [searchQuery, selectedCategory])
 
-  // Group filtered emojis into pages (15 per page for 3 rows x 5 columns)
+  // Group filtered emojis into pages
+  // When keyboard is open: 5 per page (1 row x 5 columns)
+  // When no keyboard: 20 per page (4 rows x 5 columns)
   const emojiPages = useMemo(() => {
     const pages: string[][] = []
-    for (let i = 0; i < filteredEmojis.length; i += 15) {
-      pages.push(filteredEmojis.slice(i, i + 15))
+    const emojisPerPage = keyboardHeight > 0 ? 5 : 20
+    for (let i = 0; i < filteredEmojis.length; i += emojisPerPage) {
+      pages.push(filteredEmojis.slice(i, i + emojisPerPage))
     }
     return pages.length > 0 ? pages : [[]]
-  }, [filteredEmojis])
+  }, [filteredEmojis, keyboardHeight])
 
   const [currentPage, setCurrentPage] = useState(0)
 
   useEffect(() => {
     setCurrentPage(0)
     scrollViewRef.current?.scrollTo({ x: 0, y: 0, animated: false })
-  }, [searchQuery, selectedCategory])
+  }, [searchQuery, selectedCategory, keyboardHeight])
 
   const handleScroll = (event: any) => {
     const offsetX = event.nativeEvent.contentOffset.x
@@ -1289,14 +1320,20 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
             styles.container,
             {
               transform: [{ translateY }],
+              marginBottom: containerBottomOffset,
             },
+            // Immediately remove margin when keyboard closes to avoid lag
+            keyboardHeight === 0 && { marginBottom: 0 },
           ]}
         >
           <View style={[
             styles.content, 
             { 
               backgroundColor: themeColors.gray[900],
-              paddingBottom: insets.bottom + spacing.md,
+              paddingBottom: keyboardHeight > 0 ? spacing.xs : insets.bottom + spacing.md,
+              maxHeight: keyboardHeight > 0
+                ? undefined // Don't restrict height when keyboard is open - let it size naturally
+                : Dimensions.get("window").height * 0.7,
             }
           ]}>
             {/* Handle bar */}
@@ -1360,54 +1397,75 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
                   showsHorizontalScrollIndicator={false}
                   onScroll={handleScroll}
                   scrollEventThrottle={16}
-                  style={styles.scrollView}
+                  style={[
+                    styles.scrollView,
+                    {
+                      height: keyboardHeight > 0 
+                        ? (() => {
+                            // Calculate height for 1 row
+                            const buttonWidth = (SCREEN_WIDTH - spacing.lg * 2 - spacing.sm * 4) / 5
+                            const buttonHeight = buttonWidth
+                            return buttonHeight + spacing.sm * 2
+                          })()
+                        : (() => {
+                            // Calculate height for 4 rows
+                            const buttonWidth = (SCREEN_WIDTH - spacing.lg * 2 - spacing.sm * 4) / 5
+                            const buttonHeight = buttonWidth
+                            return (buttonHeight * 4) + (spacing.sm * 5) + spacing.sm * 2
+                          })(),
+                    }
+                  ]}
                   contentContainerStyle={styles.scrollViewContent}
                   decelerationRate="fast"
                   snapToInterval={SCREEN_WIDTH}
                   snapToAlignment="start"
+                  keyboardShouldPersistTaps="handled"
                 >
-                  {emojiPages.map((page, pageIndex) => (
-                    <View key={pageIndex} style={styles.emojiPage}>
-                      <View style={styles.emojiGrid}>
-                        {page.map((emoji, emojiIndex) => {
-                          const isSelected = currentReactions.includes(emoji)
-                          // Use combination of emoji and index for unique key
-                          const uniqueKey = `${emoji}-${pageIndex}-${emojiIndex}`
-                          return (
-                            <TouchableOpacity
-                              key={uniqueKey}
-                              style={[
-                                styles.emojiButton,
-                                isSelected && styles.emojiButtonSelected,
-                                isSelected && { backgroundColor: themeColors.gray[800] },
-                              ]}
-                              onPress={() => handleSelectEmoji(emoji)}
-                              activeOpacity={0.7}
-                            >
-                              <Text style={styles.emoji}>{emoji}</Text>
-                            </TouchableOpacity>
-                          )
-                        })}
+                  {emojiPages.map((page, pageIndex) => {
+                    // Calculate emoji button size
+                    const buttonWidth = (SCREEN_WIDTH - spacing.lg * 2 - spacing.sm * 4) / 5
+                    const buttonHeight = buttonWidth
+                    const rowsToShow = keyboardHeight > 0 ? 1 : 4
+                    // Calculate grid height: rows * buttonHeight + gaps between rows + padding
+                    // Reduce padding when keyboard is open
+                    const gridPadding = keyboardHeight > 0 ? spacing.xs : spacing.sm
+                    const gridHeight = rowsToShow * buttonHeight + (rowsToShow > 1 ? (rowsToShow - 1) * spacing.sm : 0) + gridPadding * 2
+                    
+                    return (
+                      <View key={pageIndex} style={styles.emojiPage}>
+                        <View style={[
+                          styles.emojiGrid, 
+                          { 
+                            height: gridHeight,
+                            maxHeight: gridHeight,
+                            minHeight: gridHeight, // Ensure minimum height so emojis are visible
+                            paddingVertical: keyboardHeight > 0 ? spacing.xs : spacing.sm, // Reduce padding when keyboard is open
+                          }
+                        ]}>
+                          {page.map((emoji, emojiIndex) => {
+                            const isSelected = currentReactions.includes(emoji)
+                            // Use combination of emoji and index for unique key
+                            const uniqueKey = `${emoji}-${pageIndex}-${emojiIndex}`
+                            return (
+                              <TouchableOpacity
+                                key={uniqueKey}
+                                style={[
+                                  styles.emojiButton,
+                                  isSelected && styles.emojiButtonSelected,
+                                  isSelected && { backgroundColor: themeColors.gray[800] },
+                                ]}
+                                onPress={() => handleSelectEmoji(emoji)}
+                                activeOpacity={0.7}
+                              >
+                                <Text style={styles.emoji}>{emoji}</Text>
+                              </TouchableOpacity>
+                            )
+                          })}
+                        </View>
                       </View>
-                    </View>
-                  ))}
+                    )
+                  })}
                 </ScrollView>
-
-                {/* Page indicators */}
-                {emojiPages.length > 1 && (
-                  <View style={styles.pageIndicators}>
-                    {emojiPages.map((_, index) => (
-                      <View
-                        key={index}
-                        style={[
-                          styles.pageIndicator,
-                          index === currentPage && styles.pageIndicatorActive,
-                          index === currentPage && { backgroundColor: themeColors.accent },
-                        ]}
-                      />
-                    ))}
-                  </View>
-                )}
               </>
             ) : (
               <View style={styles.noResults}>
@@ -1504,6 +1562,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: spacing.sm,
     paddingVertical: spacing.sm,
+    alignItems: "flex-start",
+    overflow: "hidden",
   },
   emojiButton: {
     width: (SCREEN_WIDTH - spacing.lg * 2 - spacing.sm * 4) / 5,

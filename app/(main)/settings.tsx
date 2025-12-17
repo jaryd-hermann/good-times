@@ -688,6 +688,48 @@ export default function SettingsScreen() {
                 variant="secondary"
               />
             </View>
+
+            {/* Boot Screen Testing */}
+            <View style={[styles.profileCard, { marginTop: spacing.md }]}>
+              <View style={styles.profileCardContent}>
+                <View style={styles.profileCardIcon}>
+                  <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.gray[800], justifyContent: "center", alignItems: "center" }}>
+                    <FontAwesome name="play-circle" size={20} color={colors.accent} />
+                  </View>
+                </View>
+                <View style={styles.profileCardText}>
+                  <Text style={styles.profileCardTitle}>Boot Screen Testing</Text>
+                  <Text style={styles.profileCardSubtitle}>Test boot screen flow with different durations</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.actions}>
+              <Button
+                title="Test Boot Screen (3s)"
+                onPress={async () => {
+                  await AsyncStorage.setItem("test_boot_screen", "3000");
+                  router.replace("/");
+                }}
+                variant="secondary"
+              />
+              <Button
+                title="Test Boot Screen (5s)"
+                onPress={async () => {
+                  await AsyncStorage.setItem("test_boot_screen", "5000");
+                  router.replace("/");
+                }}
+                variant="secondary"
+              />
+              <Button
+                title="Test Boot Screen (10s)"
+                onPress={async () => {
+                  await AsyncStorage.setItem("test_boot_screen", "10000");
+                  router.replace("/");
+                }}
+                variant="secondary"
+              />
+            </View>
           </>
         )}
 

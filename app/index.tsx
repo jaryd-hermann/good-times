@@ -58,9 +58,11 @@ export default function Index() {
   const [sessionRefreshing, setSessionRefreshing] = useState(false);
   const [forceBootRecheck, setForceBootRecheck] = useState<number>(0); // Trigger to force boot flow re-evaluation
   const [isPasswordResetLink, setIsPasswordResetLink] = useState(false); // Track if we're handling password reset
+  const [bootProgress, setBootProgress] = useState(0); // Progress bar (0-100)
   const hasNavigatedRef = useRef(false);
   const bootStartTimeRef = useRef<number>(Date.now()); // Initialize immediately
   const userRef = useRef(user); // Keep ref to latest user for AppState listener
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Keep userRef in sync with user
   useEffect(() => {
@@ -279,6 +281,43 @@ export default function Index() {
     };
   }, []);
 
+  // Track boot progress
+  useEffect(() => {
+    if (!shouldShowBootScreen && !booting) {
+      // Boot complete - clear progress
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      setBootProgress(0);
+      return;
+    }
+
+    // Start progress tracking
+    const startTime = bootStartTimeRef.current;
+    const estimatedBootTime = 5000; // 5 seconds estimated boot time
+    
+    // Update progress based on elapsed time
+    const updateProgress = () => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(95, (elapsed / estimatedBootTime) * 100); // Cap at 95% until navigation
+      setBootProgress(progress);
+    };
+
+    // Update immediately
+    updateProgress();
+    
+    // Update every 50ms for smooth animation
+    progressIntervalRef.current = setInterval(updateProgress, 50);
+
+    return () => {
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+    };
+  }, [shouldShowBootScreen, booting]);
+
   // CRITICAL: Boot flow with forced session refresh
   // Always ensure session is valid before navigating
   useEffect(() => {
@@ -322,11 +361,42 @@ export default function Index() {
 
     (async () => {
       try {
+        // Check for test boot screen duration
+        const testBootDuration = await AsyncStorage.getItem("test_boot_screen");
+        const testDuration = testBootDuration ? parseInt(testBootDuration, 10) : null;
+        
         // CRITICAL: Always show boot screen immediately when boot flow starts
         // This prevents black screens during the boot process
         setShouldShowBootScreen(true);
         setBooting(true);
         bootStartTimeRef.current = Date.now(); // Reset boot start time
+        
+        // If testing boot screen, wait for specified duration then navigate
+        if (testDuration) {
+          console.log(`[boot] Test boot screen mode: waiting ${testDuration}ms`);
+          await AsyncStorage.removeItem("test_boot_screen");
+          
+          // Simulate boot progress
+          const progressInterval = setInterval(() => {
+            const elapsed = Date.now() - bootStartTimeRef.current;
+            const progress = Math.min(95, (elapsed / testDuration) * 100);
+            setBootProgress(progress);
+          }, 50);
+          
+          await new Promise(resolve => setTimeout(resolve, testDuration));
+          clearInterval(progressInterval);
+          setBootProgress(100);
+          
+          // Navigate to home after test duration
+          hasNavigatedRef.current = true;
+          router.replace("/(main)/home");
+          await recordSuccessfulNavigation("/(main)/home");
+          await recordAppActive();
+          setBooting(false);
+          setShouldShowBootScreen(false);
+          setBootProgress(0);
+          return;
+        }
         
         // Wait for AuthProvider to finish loading
         if (authLoading) {
@@ -873,6 +943,9 @@ export default function Index() {
         );
       } finally {
         if (!cancelled) {
+          // Complete progress bar
+          setBootProgress(100);
+          
           // Ensure minimum boot screen display time (1 second) for smooth UX
           const bootElapsed = Date.now() - bootStartTimeRef.current;
           const remainingTime = Math.max(0, 1000 - bootElapsed);
@@ -882,11 +955,13 @@ export default function Index() {
               if (!cancelled) {
                 setBooting(false);
                 setShouldShowBootScreen(false);
+                setBootProgress(0);
               }
             }, remainingTime);
           } else {
             setBooting(false);
             setShouldShowBootScreen(false);
+            setBootProgress(0);
           }
         }
       }
@@ -960,7 +1035,20 @@ export default function Index() {
           resizeMode="cover"
         >
           <View style={styles.loadingOverlay}>
-            <Text style={styles.loadingText}>Loading Good Times{loadingDots}</Text>
+            <Text style={styles.loadingText}>Good Times loading{loadingDots}</Text>
+            {/* Progress bar */}
+            <View style={styles.progressBarContainer}>
+              <View style={styles.progressBarTrack}>
+                <View 
+                  style={[
+                    styles.progressBarFill,
+                    { width: `${bootProgress}%` }
+                  ]} 
+                />
+              </View>
+            </View>
+            {/* Quote text */}
+            <Text style={styles.quoteText}>"Where will today's question lead you?"</Text>
           </View>
         </ImageBackground>
       ) : (
@@ -982,12 +1070,40 @@ export default function Index() {
 
 const styles = StyleSheet.create({
   loadingOverlay: {
-    // No background - text directly over image
+    alignItems: "center",
+    gap: 20,
   },
   loadingText: {
-    ...typography.body,
     fontSize: 18,
     color: themeColors.white,
     textAlign: "center",
+    fontFamily: "LibreBaskerville-Regular",
+  },
+  progressBarContainer: {
+    width: 300,
+    alignItems: "center",
+  },
+  progressBarTrack: {
+    width: "100%",
+    height: 16,
+    backgroundColor: themeColors.white,
+    borderWidth: 2,
+    borderColor: themeColors.black,
+    borderRadius: 0,
+    overflow: "hidden",
+  },
+  progressBarFill: {
+    height: "100%",
+    backgroundColor: themeColors.accent,
+    borderRadius: 0,
+  },
+  quoteText: {
+    ...typography.body,
+    fontSize: 16,
+    fontStyle: "italic",
+    color: themeColors.white,
+    textAlign: "center",
+    marginTop: 20,
+    opacity: 0.9,
   },
 });

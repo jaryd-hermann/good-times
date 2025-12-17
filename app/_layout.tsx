@@ -151,29 +151,23 @@ function ForegroundQueryRefresher() {
           queryClient.clear()
           console.log("[_layout] ForegroundQueryRefresher: React Query cache cleared")
           
-          // CRITICAL: Don't navigate immediately - set a flag instead
-          // Boot flow will handle navigation once AuthProvider is ready
-          // This prevents race conditions and ensures smooth UX
+          // CRITICAL: Navigate to root immediately to show boot screen
+          // This prevents black screen when opening from background
+          // Set flags for boot flow
           await AsyncStorage.setItem("force_boot_screen", "true")
           await AsyncStorage.setItem("force_boot_refresh", Date.now().toString())
           console.log("[_layout] ForegroundQueryRefresher: Set flags for boot flow to handle navigation")
           
-          // Only navigate if AuthProvider is already loaded AND we're not already on root
-          // Otherwise, boot flow will handle navigation when it's ready
-          if (!authLoading) {
-            // Check if we're already on root - if so, don't navigate (prevents duplicate boot flow runs)
-            if (pathname === "/" || pathname === "") {
-              console.log("[_layout] ForegroundQueryRefresher: Already on root, skipping navigation", {
-                pathname,
-              })
-            } else {
-              console.log("[_layout] ForegroundQueryRefresher: AuthProvider already loaded, navigating to root", {
-                currentPath: pathname,
-              })
-              router.replace("/")
-            }
+          // Navigate to root immediately to show boot screen (prevents black screen)
+          if (pathname !== "/" && pathname !== "") {
+            console.log("[_layout] ForegroundQueryRefresher: Navigating to root to show boot screen immediately", {
+              currentPath: pathname,
+            })
+            router.replace("/")
           } else {
-            console.log("[_layout] ForegroundQueryRefresher: AuthProvider still loading, boot flow will handle navigation when ready")
+            console.log("[_layout] ForegroundQueryRefresher: Already on root, boot screen should show", {
+              pathname,
+            })
           }
         } else {
           console.log("[_layout] ForegroundQueryRefresher: Short inactivity, doing nothing (let normal app behavior handle it)")
