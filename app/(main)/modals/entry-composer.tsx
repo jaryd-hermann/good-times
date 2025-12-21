@@ -123,6 +123,7 @@ export default function EntryComposer() {
   const [selectedMentionUser, setSelectedMentionUser] = useState<{ id: string; name: string; avatar_url?: string } | null>(null)
   const [userProfileModalVisible, setUserProfileModalVisible] = useState(false)
   const cursorPositionRef = useRef<number>(0)
+  const [isNavigating, setIsNavigating] = useState(false) // Track when navigating to hide content immediately
   
   // CRITICAL: Reasonable file size limits to prevent memory crashes
   // Large files loaded entirely into memory can crash the app
@@ -1013,19 +1014,33 @@ export default function EntryComposer() {
   }
 
   async function exitComposer() {
+    // Hide composer content immediately to prevent flash
+    setIsNavigating(true)
+    
     // Reset to original prompt when closing (if user didn't post)
     // This ensures that if user shuffles but doesn't answer, they see original prompt next time
     if (originalPromptIdRef.current && prompt && prompt.id === originalPromptIdRef.current) {
       setActivePrompt(prompt as Prompt)
     }
     
-    // Force refetch of all entry-related queries before navigating to ensure fresh data
-    // This ensures Home screen shows the latest entries immediately
+    // Navigate immediately - don't wait for refetches
+    // This prevents the composer from being visible during refetch delays
+    if (returnTo && returnTo.includes("home")) {
+      router.replace("/(main)/home")
+    } else if (returnTo) {
+      router.replace(returnTo)
+    } else {
+      // Always navigate to home to ensure fresh load
+      router.replace("/(main)/home")
+    }
+    
+    // Invalidate and refetch queries in the background (don't await)
+    // Home screen's useFocusEffect will also refetch when it comes into focus
     if (currentGroupId && userId) {
       const todayDate = new Date().toISOString().split('T')[0]
       
-      // CRITICAL: Invalidate all relevant queries first to clear stale cache
-      await Promise.all([
+      // Invalidate queries in background (fire and forget)
+      Promise.all([
         queryClient.invalidateQueries({ queryKey: ["entries", currentGroupId], exact: false }),
         queryClient.invalidateQueries({ queryKey: ["allEntries", currentGroupId] }),
         queryClient.invalidateQueries({ queryKey: ["userEntry", currentGroupId], exact: false }),
@@ -1034,36 +1049,24 @@ export default function EntryComposer() {
         queryClient.invalidateQueries({ queryKey: ["promptsForHomeDates", currentGroupId], exact: false }),
         queryClient.invalidateQueries({ queryKey: ["entriesForHomeDatesWithoutUserEntry", currentGroupId], exact: false }),
       ]).catch(() => {
-        // Ignore errors - continue with refetch
+        // Ignore errors
+      }).then(() => {
+        // Refetch queries in background (fire and forget)
+        Promise.all([
+          queryClient.refetchQueries({ queryKey: ["entries", currentGroupId], exact: false }),
+          queryClient.refetchQueries({ queryKey: ["allEntries", currentGroupId] }),
+          queryClient.refetchQueries({ queryKey: ["userEntry", currentGroupId], exact: false }),
+          queryClient.refetchQueries({ queryKey: ["dailyPrompt", currentGroupId], exact: false }),
+          queryClient.refetchQueries({ queryKey: ["entries", currentGroupId, todayDate] }),
+          queryClient.refetchQueries({ queryKey: ["userEntry", currentGroupId, userId, todayDate] }),
+          queryClient.refetchQueries({ queryKey: ["dailyPrompt", currentGroupId, todayDate] }),
+          queryClient.refetchQueries({ queryKey: ["userEntriesForHomeDates", currentGroupId], exact: false }),
+          queryClient.refetchQueries({ queryKey: ["promptsForHomeDates", currentGroupId], exact: false }),
+          queryClient.refetchQueries({ queryKey: ["entriesForHomeDatesWithoutUserEntry", currentGroupId], exact: false }),
+        ]).catch(() => {
+          // Ignore errors - home screen will refetch anyway
+        })
       })
-      
-      // Then refetch all queries and wait for completion before navigating
-      await Promise.all([
-        queryClient.refetchQueries({ queryKey: ["entries", currentGroupId], exact: false }),
-        queryClient.refetchQueries({ queryKey: ["allEntries", currentGroupId] }),
-        queryClient.refetchQueries({ queryKey: ["userEntry", currentGroupId], exact: false }),
-        queryClient.refetchQueries({ queryKey: ["dailyPrompt", currentGroupId], exact: false }),
-        // Specifically refetch today's queries
-        queryClient.refetchQueries({ queryKey: ["entries", currentGroupId, todayDate] }),
-        queryClient.refetchQueries({ queryKey: ["userEntry", currentGroupId, userId, todayDate] }),
-        queryClient.refetchQueries({ queryKey: ["dailyPrompt", currentGroupId, todayDate] }),
-        queryClient.refetchQueries({ queryKey: ["userEntriesForHomeDates", currentGroupId], exact: false }),
-        queryClient.refetchQueries({ queryKey: ["promptsForHomeDates", currentGroupId], exact: false }),
-        queryClient.refetchQueries({ queryKey: ["entriesForHomeDatesWithoutUserEntry", currentGroupId], exact: false }),
-      ]).catch(() => {
-        // Ignore errors - navigation should proceed anyway
-      })
-    }
-    
-    // Always use replace (not back) to ensure fresh navigation to Home
-    // This ensures Home screen's useFocusEffect runs and refetches data
-    if (returnTo && returnTo.includes("home")) {
-      router.replace("/(main)/home")
-    } else if (returnTo) {
-      router.replace(returnTo)
-    } else {
-      // Always navigate to home to ensure fresh load
-      router.replace("/(main)/home")
     }
   }
 
@@ -2022,6 +2025,7 @@ export default function EntryComposer() {
         keyboardVerticalOffset={0}
         enabled={true} // Keep enabled - it only activates when keyboard appears (after user taps)
       >
+        {!isNavigating && (
         <ScrollView 
           ref={scrollViewRef}
           style={styles.content} 
@@ -2251,6 +2255,7 @@ export default function EntryComposer() {
         ))}
 
       </ScrollView>
+        )}
       </KeyboardAvoidingView>
 
       {/* User Profile Modal */}
@@ -2276,6 +2281,7 @@ export default function EntryComposer() {
       />
 
       {/* Toolbar - positioned above keyboard */}
+      {!isNavigating && (
       <View style={[styles.toolbar, { bottom: Platform.OS === "android" ? keyboardHeight + spacing.xl + spacing.md : keyboardHeight }]}>
         <View style={styles.toolbarButtons}>
           <View style={styles.toolCluster}>
@@ -2323,6 +2329,7 @@ export default function EntryComposer() {
           </View>
         </View>
       </View>
+      )}
 
       {/* Add Song Modal */}
       <Modal
@@ -2446,8 +2453,11 @@ export default function EntryComposer() {
         animationType="fade"
         transparent={false}
         onRequestClose={() => {
+          // Hide composer content immediately to prevent flash
+          setIsNavigating(true)
+          // Close modal and navigate immediately
           setShowSuccessModal(false)
-          exitComposer()
+          exitComposer() // Navigates immediately, refetches in background
         }}
       >
         <View style={styles.successBackdrop}>
@@ -2455,9 +2465,12 @@ export default function EntryComposer() {
             <Text style={styles.successTitle}>You've answered today's question!</Text>
             <TouchableOpacity
               style={styles.successButton}
-              onPress={async () => {
+              onPress={() => {
+                // Hide composer content immediately to prevent flash
+                setIsNavigating(true)
+                // Close modal and navigate immediately
                 setShowSuccessModal(false)
-                await exitComposer()
+                exitComposer() // Navigates immediately, refetches in background
               }}
               activeOpacity={0.7}
             >

@@ -303,7 +303,9 @@ export default function Home() {
   const [onboardingGalleryVisible, setOnboardingGalleryVisible] = useState(false)
   const scrollY = useRef(new Animated.Value(0)).current
   const headerTranslateY = useRef(new Animated.Value(0)).current
-  const contentPaddingTop = useRef(new Animated.Value(0)).current
+  // CRITICAL: Initialize with safe minimum padding to prevent content cropping before headerHeight is calculated
+  // This ensures content never renders with 0 padding
+  const contentPaddingTop = useRef(new Animated.Value(250)).current // Safe default, will be updated when headerHeight is known
   const lastScrollY = useRef(0)
   const lastScrollTime = useRef(0)
   const scrollViewRef = useRef<ScrollView>(null)
@@ -324,6 +326,11 @@ export default function Home() {
   const [selectedMembers, setSelectedMembers] = useState<string[]>([])
   const [selectedMemorials, setSelectedMemorials] = useState<string[]>([])
   const [selectedDecks, setSelectedDecks] = useState<string[]>([])
+  
+  // Paginated loading state for Days view (infinite scroll)
+  const [loadedDateRanges, setLoadedDateRanges] = useState<string[]>([]) // Array of dates that have been loaded
+  const [isLoadingMoreEntries, setIsLoadingMoreEntries] = useState(false)
+  const [hasMoreEntries, setHasMoreEntries] = useState(true) // Track if there are more entries to load
   const [showBirthdayCards, setShowBirthdayCards] = useState(false)
   const dateRefs = useRef<Record<string, any>>({}) // For scroll-to-day functionality
 
@@ -922,6 +929,31 @@ export default function Home() {
   // Get today's date - call directly to ensure fresh value
   const todayDate = getTodayDate()
   
+  // Helper function to generate date range (7 days going backwards from start date)
+  const generateDateRange = useCallback((startDate: string, daysBack: number = 7): string[] => {
+    const dates: string[] = []
+    const start = new Date(`${startDate}T00:00:00`)
+    for (let i = 0; i < daysBack; i++) {
+      const date = new Date(start)
+      date.setDate(start.getDate() - i)
+      dates.push(formatDateAsLocalISO(date))
+    }
+    return dates
+  }, [])
+  
+  // Initialize loaded date ranges on mount/group change (Days view only)
+  // Start with today + 6 days back (7 days total)
+  useEffect(() => {
+    if (viewMode === "Days" && currentGroupId && todayDate) {
+      const initialDates = generateDateRange(todayDate, 7)
+      setLoadedDateRanges(initialDates)
+      setHasMoreEntries(true) // Assume there are more entries until we check
+    } else if (viewMode !== "Days") {
+      // Clear loaded ranges when switching away from Days view
+      setLoadedDateRanges([])
+    }
+  }, [currentGroupId, todayDate, viewMode, generateDateRange])
+  
   // Query for today's user entry (always fetch, regardless of selectedDate)
   const { data: todayUserEntry } = useQuery({
     queryKey: ["userEntry", currentGroupId, userId, todayDate],
@@ -1022,15 +1054,15 @@ export default function Home() {
     }
   }, [createdDateLocal, todayDate])
 
-  // Build 5-day timeline:
-  // - If groupAgeDays < 5: [startDate .. startDate+4]
-  // - Else: [today-4 .. today]
+  // Build 4-day timeline:
+  // - If groupAgeDays < 4: [startDate .. startDate+3]
+  // - Else: [today-3 .. today]
   const weekDates = useMemo(() => {
     const dates: { date: string; day: string; dayNum: number }[] = []
     if (!currentGroup) {
-      // Fallback: return 5 days starting from today
+      // Fallback: return 4 days starting from today
       const today = new Date(`${todayDate}T00:00:00`)
-      for (let i = 4; i >= 0; i--) {
+      for (let i = 3; i >= 0; i--) {
         const d = new Date(today)
         d.setDate(today.getDate() - i)
         dates.push({
@@ -1050,7 +1082,7 @@ export default function Home() {
       groupAgeDays === 0 ? todayDate : createdDateLocal
 
     if (groupAgeDays < 4) {
-      // For very new groups, timeline starts at startDateForTimeline and shows 3 following days
+      // For very new groups, timeline starts at startDateForTimeline and shows 3 following days (4 total)
       let cursor = new Date(`${startDateForTimeline}T00:00:00`)
       for (let i = 0; i < 4; i++) {
         const d = new Date(cursor)
@@ -1062,7 +1094,7 @@ export default function Home() {
         cursor.setDate(cursor.getDate() + 1)
       }
     } else {
-      // After 4 days, show rolling window: today-3 .. today
+      // After 4 days, show rolling window: today-3 .. today (4 days total)
       const today = new Date(`${todayDate}T00:00:00`)
       for (let i = 3; i >= 0; i--) {
         const d = new Date(today)
@@ -1111,7 +1143,8 @@ export default function Home() {
     placeholderData: undefined,
   })
 
-  // Fetch ALL entries for the group (like history.tsx) for infinite scroll feed
+  // Fetch ALL entries for the group - ONLY for Weeks/Months/Years view (deferred for Days view)
+  // Days view uses paginated loading instead for better performance
   const { data: allEntries = [], isLoading: allEntriesLoading } = useQuery({
     queryKey: ["allEntries", currentGroupId],
     queryFn: async (): Promise<any[]> => {
@@ -1134,9 +1167,39 @@ export default function Home() {
       }
       return filteredData
     },
-    enabled: !!currentGroupId,
+    enabled: !!currentGroupId && viewMode !== "Days", // Only load for Weeks/Months/Years view
     staleTime: 0, // Always fetch fresh data when group changes
     gcTime: 1000 * 60 * 60 * 24, // Keep in cache for 24 hours
+  })
+
+  // Fetch paginated entries for Days view (only loads entries for dates in loadedDateRanges)
+  const { data: paginatedEntries = [], isLoading: isLoadingPaginatedEntries } = useQuery({
+    queryKey: ["paginatedEntries", currentGroupId, loadedDateRanges.join(",")],
+    queryFn: async (): Promise<any[]> => {
+      if (!currentGroupId || loadedDateRanges.length === 0) return []
+      
+      // Fetch entries for all loaded dates in parallel
+      const entriesPromises = loadedDateRanges.map((date) => 
+        getEntriesForDate(currentGroupId, date)
+      )
+      const entriesArrays = await Promise.all(entriesPromises)
+      
+      // Flatten and combine all entries
+      const allEntries = entriesArrays.flat()
+      
+      // Sort by date (descending) then created_at (descending)
+      return allEntries.sort((a, b) => {
+        if (a.date !== b.date) {
+          return b.date.localeCompare(a.date)
+        }
+        const aCreated = a.created_at ? new Date(a.created_at).getTime() : 0
+        const bCreated = b.created_at ? new Date(b.created_at).getTime() : 0
+        return bCreated - aCreated
+      })
+    },
+    enabled: !!currentGroupId && viewMode === "Days" && loadedDateRanges.length > 0,
+    staleTime: 2 * 60 * 1000, // Cache for 2 minutes
+    gcTime: 5 * 60 * 1000, // Keep in cache for 5 minutes
   })
 
   // Fetch all birthday cards for the user (for filtering) - must be before allDates
@@ -1192,16 +1255,23 @@ export default function Home() {
     return dates
   }, [todayDate, currentGroup?.created_at])
 
-  // Get all unique dates from entries, birthday cards, AND the date range for prompts
+  // Get all unique dates - use paginated data for Days view, allEntries for other views
   const allDates = useMemo(() => {
     const dates = new Set<string>()
     
-    // Add dates from entries
-    allEntries.forEach((entry) => {
-      if (entry.date) {
-        dates.add(entry.date)
-      }
-    })
+    if (viewMode === "Days") {
+      // For Days view, use loaded date ranges (paginated)
+      loadedDateRanges.forEach((date) => {
+        dates.add(date)
+      })
+    } else {
+      // For Weeks/Months/Years view, use allEntries
+      allEntries.forEach((entry) => {
+        if (entry.date) {
+          dates.add(entry.date)
+        }
+      })
+    }
     
     // Also include dates from birthday cards
     myBirthdayCards.forEach((card) => {
@@ -1211,12 +1281,19 @@ export default function Home() {
     })
     
     // CRITICAL: Also include dates from the date range (for prompts even if no entries)
-    dateRangeForPrompts.forEach((date) => {
-      dates.add(date)
-    })
+    // But only for Days view - limit to loaded ranges
+    if (viewMode === "Days") {
+      loadedDateRanges.forEach((date) => {
+        dates.add(date)
+      })
+    } else {
+      dateRangeForPrompts.forEach((date) => {
+        dates.add(date)
+      })
+    }
     
     return Array.from(dates)
-  }, [allEntries, myBirthdayCards, currentGroupId, dateRangeForPrompts])
+  }, [viewMode, loadedDateRanges, allEntries, myBirthdayCards, currentGroupId, dateRangeForPrompts])
 
   // Fetch user entries for all dates to check if user has answered
   const { data: userEntriesByDate = {} } = useQuery({
@@ -1421,19 +1498,22 @@ export default function Home() {
   })
 
   // Filter entries by active period if set
+  // Use paginatedEntries for Days view, allEntries for other views
   const entriesWithinPeriod = useMemo(() => {
+    const entriesToUse = viewMode === "Days" ? paginatedEntries : allEntries
+    
     if (!activePeriod) {
-      return allEntries
+      return entriesToUse
     }
     const start = parseISO(activePeriod.start)
     const end = parseISO(activePeriod.end)
-    return allEntries.filter((entry) => {
+    return entriesToUse.filter((entry) => {
       if (!entry?.date) return false
       const entryDate = parseISO(entry.date)
       if (Number.isNaN(entryDate.getTime())) return false
       return entryDate >= start && entryDate <= end
     })
-  }, [allEntries, activePeriod])
+  }, [viewMode, paginatedEntries, allEntries, activePeriod])
 
   // Group entries by date for feed (will be filtered later after memorials load)
   const entriesByDateUnfiltered = useMemo(() => {
@@ -1470,6 +1550,66 @@ export default function Home() {
     setShowFilter(false)
   }
 
+  // Function to load next batch of dates (7 days going backwards)
+  const loadNextBatch = useCallback(async () => {
+    if (viewMode !== "Days" || isLoadingMoreEntries || !hasMoreEntries || !currentGroupId) {
+      return
+    }
+
+    setIsLoadingMoreEntries(true)
+
+    try {
+      // Find the oldest loaded date
+      const sortedDates = [...loadedDateRanges].sort((a, b) => b.localeCompare(a))
+      const oldestLoadedDate = sortedDates[sortedDates.length - 1]
+
+      // Check if we've reached group creation date
+      const groupCreatedDate = currentGroup?.created_at 
+        ? utcStringToLocalDate(currentGroup.created_at)
+        : null
+
+      if (groupCreatedDate && oldestLoadedDate <= groupCreatedDate) {
+        // Reached group creation date, no more entries to load
+        setHasMoreEntries(false)
+        setIsLoadingMoreEntries(false)
+        return
+      }
+
+      // Generate next 7 days going backwards from 1 day before oldest loaded date
+      // Start from 1 day before oldest date to avoid overlap
+      const startDate = new Date(`${oldestLoadedDate}T00:00:00`)
+      startDate.setDate(startDate.getDate() - 1)
+      const newDates = generateDateRange(formatDateAsLocalISO(startDate), 7)
+
+      // Filter out dates that are already loaded and dates before group creation
+      const datesToAdd = newDates.filter((date) => {
+        if (!loadedDateRanges.includes(date)) {
+          if (groupCreatedDate && date < groupCreatedDate) {
+            return false
+          }
+          return true
+        }
+        return false
+      })
+
+      if (datesToAdd.length === 0) {
+        // No new dates to add, we've reached the end
+        setHasMoreEntries(false)
+      } else {
+        // Add new dates to loaded ranges
+        setLoadedDateRanges((prev) => {
+          const combined = [...prev, ...datesToAdd]
+          // Sort and deduplicate
+          return Array.from(new Set(combined)).sort((a, b) => b.localeCompare(a))
+        })
+      }
+    } catch (error) {
+      console.error("[home] Error loading next batch:", error)
+    } finally {
+      setIsLoadingMoreEntries(false)
+    }
+  }, [viewMode, isLoadingMoreEntries, hasMoreEntries, currentGroupId, loadedDateRanges, currentGroup, generateDateRange])
+
   // Function to scroll to a specific date in the feed
   function scrollToDate(date: string) {
     const ref = dateRefs.current[date]
@@ -1477,7 +1617,13 @@ export default function Home() {
       ref.measureLayout(
         scrollViewRef.current as any,
         (x: number, y: number) => {
-          scrollViewRef.current?.scrollTo({ y: y - 100, animated: true }) // Offset by 100px for header
+          // Scroll to the date header position, accounting for the sticky header
+          // Use headerHeight to ensure date header appears right below sticky header
+          const reducedPadding = headerHeight - spacing.xl
+          scrollViewRef.current?.scrollTo({ 
+            y: Math.max(0, y - reducedPadding), 
+            animated: true 
+          })
         },
         () => {
           console.warn(`[home] Failed to measure layout for date ${date}`)
@@ -3131,29 +3277,40 @@ export default function Home() {
     return category === "Remembering"
   }, [todayDailyPrompt?.prompt?.category, todayEntries[0]?.prompt?.category])
 
-  // Calculate full header height including day scroller and prompt card if visible
-  // Reduced bottom spacing to minimize gap between header and content
+  // Calculate full header height including all elements
   const headerHeight = useMemo(() => {
     const baseHeight = insets.top + spacing.xl + spacing.md + 36 + spacing.md + 32 + spacing.md + 48 + spacing.md + spacing.sm + 48 + spacing.xs
-    // Add prompt card height and spacing when visible (approximate 200px + margin + extra height for description text ~40px)
+    // Add prompt card height and spacing when visible
     const promptCardHeight = showPromptCardAtTop ? 240 + spacing.md : 0
-    // Add divider height and spacing (1px divider + spacing.lg above + spacing.xl below)
-    const dividerHeight = 1 + spacing.lg + spacing.xl
+    // Add divider height and spacing (includes divider bottom margin)
+    const dividerHeight = 1 + spacing.lg + spacing.sm // divider + top margin + bottom margin
     return baseHeight + promptCardHeight + dividerHeight
   }, [insets.top, showPromptCardAtTop])
 
-  useEffect(() => {
-    // Set initial padding to header height minus divider bottom margin
-    // The header is absolutely positioned, so we need padding to account for it
-    // The divider already has marginBottom: spacing.xl, so we subtract that to avoid double padding
-    const reducedPadding = headerHeight - spacing.xl
-    contentPaddingTop.setValue(reducedPadding)
+  // CRITICAL: Calculate padding - content starts a fixed distance below header
+  // Padding accounts for structural header height + minimal fixed gap
+  // Subtract visual spacing components to reduce gap (another 50% reduction)
+  const contentPaddingValue = useMemo(() => {
+    // Subtract divider's bottom margin (visual spacing, not structural)
+    const dividerBottomMargin = spacing.sm // 8px
+    // Subtract additional visual spacing for 50% reduction (increased from 16px to 32px)
+    const additionalVisualSpacing = spacing.xl // 32px additional reduction (50% more than before)
+    // Minimal fixed gap between header and content
+    const fixedGap = 4 // Reduced fixed gap (from 8px to 4px)
+    // Padding = headerHeight - visual spacing + minimal fixed gap
+    // This creates reduced spacing while ensuring content never gets cropped
+    return headerHeight - dividerBottomMargin - additionalVisualSpacing + fixedGap
   }, [headerHeight])
+
+  // CRITICAL: Initialize padding synchronously on mount and whenever headerHeight changes
+  // This ensures content never renders without proper padding
+  useEffect(() => {
+    // Set padding immediately (synchronously) to prevent content cropping
+    contentPaddingTop.setValue(contentPaddingValue)
+  }, [contentPaddingValue, contentPaddingTop])
 
   // Reset scroll position and header when selectedDate changes (e.g., clicking CTA to view previous day)
   useEffect(() => {
-    const reducedPadding = headerHeight - spacing.xl
-    
     // Set flag to prevent scroll handler from interfering
     isResettingScroll.current = true
     
@@ -3165,7 +3322,7 @@ export default function Home() {
         useNativeDriver: true,
       }),
       Animated.timing(contentPaddingTop, {
-        toValue: reducedPadding,
+        toValue: contentPaddingValue,
         duration: 0, // Instant reset
         useNativeDriver: false,
       }),
@@ -3188,13 +3345,11 @@ export default function Home() {
         isResettingScroll.current = false
       }, 100)
     }, 0)
-  }, [selectedDate, headerHeight, scrollY])
+  }, [selectedDate, contentPaddingValue, scrollY])
 
   // Reset animated values and scroll position when screen comes into focus (fixes content cut off when navigating back)
   useFocusEffect(
     useCallback(() => {
-      const reducedPadding = headerHeight - spacing.xl
-      
       // Set flag to prevent scroll handler from interfering
       isResettingScroll.current = true
       
@@ -3206,7 +3361,7 @@ export default function Home() {
           useNativeDriver: true,
         }),
         Animated.timing(contentPaddingTop, {
-          toValue: reducedPadding,
+          toValue: contentPaddingValue,
           duration: 0, // Instant reset
           useNativeDriver: false,
         }),
@@ -3243,7 +3398,7 @@ export default function Home() {
         queryClient.refetchQueries({ queryKey: ["entries", currentGroupId], exact: false })
         queryClient.refetchQueries({ queryKey: ["userEntry", currentGroupId], exact: false })
       }
-    }, [headerHeight, scrollY, currentGroupId, userId, queryClient])
+    }, [contentPaddingValue, scrollY, currentGroupId, userId, queryClient])
   )
 
   const handleScroll = Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
@@ -3286,19 +3441,18 @@ export default function Home() {
       } else if (scrollDiff < -5) {
         // Scrolling up - ALWAYS restore padding immediately to prevent content stuck behind header
         // This must happen regardless of scroll velocity or position
-        const reducedPadding = headerHeight - spacing.xl
         
         // Immediately restore padding (no animation delay)
-        contentPaddingTop.setValue(reducedPadding)
+        contentPaddingTop.setValue(contentPaddingValue)
         
         // Also animate to ensure smooth transition
         Animated.timing(contentPaddingTop, {
-          toValue: reducedPadding,
+          toValue: contentPaddingValue,
           duration: 200, // Faster animation for better responsiveness
           useNativeDriver: false,
         }).start(() => {
           // Ensure padding is set correctly after animation
-          contentPaddingTop.setValue(reducedPadding)
+          contentPaddingTop.setValue(contentPaddingValue)
         })
         
         // Only show header if:
@@ -3324,8 +3478,7 @@ export default function Home() {
         }
       } else if (currentScrollY <= 0) {
         // At the top - always ensure padding is correct and header is visible
-        const reducedPadding = headerHeight - spacing.xl
-        contentPaddingTop.setValue(reducedPadding)
+        contentPaddingTop.setValue(contentPaddingValue)
         
         Animated.parallel([
           Animated.timing(headerTranslateY, {
@@ -3334,7 +3487,7 @@ export default function Home() {
             useNativeDriver: true,
           }),
           Animated.timing(contentPaddingTop, {
-            toValue: reducedPadding,
+            toValue: contentPaddingValue,
             duration: 200,
             useNativeDriver: false,
           }),
@@ -3345,8 +3498,20 @@ export default function Home() {
           }),
         ]).start(() => {
           // Ensure padding is set correctly after animation
-          contentPaddingTop.setValue(reducedPadding)
+          contentPaddingTop.setValue(contentPaddingValue)
         })
+      }
+
+      // Infinite scroll detection for Days view
+      if (viewMode === "Days" && hasMoreEntries && !isLoadingMoreEntries) {
+        const { contentSize, layoutMeasurement } = event.nativeEvent
+        const distanceFromBottom = contentSize.height - currentScrollY - layoutMeasurement.height
+        
+        // Start loading when user is 500px from bottom (gives time to load before reaching bottom)
+        // This ensures smooth scrolling without visible loading delays
+        if (distanceFromBottom < 500) {
+          loadNextBatch()
+        }
       }
     },
   })
@@ -3441,16 +3606,18 @@ export default function Home() {
       fontSize: 20,
       color: theme2Colors.text,
     },
-    dayScroller: {
-      marginTop: spacing.xs, // Reduced padding
-      paddingVertical: spacing.xs, // Reduced padding
-      marginBottom: spacing.xs, // Reduced spacing below day navigation
-      overflow: "visible", // Allow dropdown to overflow scrollview bounds
-    },
-    dayScrollerContent: {
+    dayScrollerContainer: {
       flexDirection: "row",
       alignItems: "center",
-      paddingHorizontal: spacing.xs,
+      marginTop: spacing.xs,
+      marginBottom: spacing.xs,
+      overflow: "visible", // Allow dropdown to overflow bounds
+    },
+    dayScrollerContent: {
+      flex: 1, // Take available space, leaving room for fixed buttons
+      flexDirection: "row",
+      alignItems: "center",
+      paddingLeft: spacing.xs,
     },
     dayNavigationDivider: {
       width: "60%", // Small divider, not spanning full screen
@@ -3458,15 +3625,15 @@ export default function Home() {
       backgroundColor: "#3A5F8C", // Blue color
       alignSelf: "center",
       marginTop: spacing.lg, // Padding above divider
-      marginBottom: spacing.xl, // More padding below divider
+      marginBottom: spacing.sm, // Minimal padding below divider (reduced for target spacing)
     },
     dayButton: {
+      flex: 1, // Make buttons fill available space evenly
       paddingVertical: spacing.xs / 2, // Reduced vertical padding for more rectangular shape
-      paddingHorizontal: spacing.sm,
-      marginRight: spacing.xs,
+      paddingHorizontal: spacing.xs, // Horizontal padding
+      marginRight: spacing.xs, // Match spacing between period filter and filter card
       alignItems: "center",
       justifyContent: "center",
-      minWidth: 48,
       height: 36, // Reduced height for more rectangular shape
       backgroundColor: theme2Colors.white, // White inside for previous days
       borderRadius: 8,
@@ -3485,7 +3652,7 @@ export default function Home() {
     dayText: {
       ...typography.caption,
       fontSize: 12,
-      marginBottom: spacing.xs,
+      marginBottom: 0, // No spacing - check/dot should be very close to text
       color: theme2Colors.text,
     },
     dayTextSelected: {
@@ -3504,6 +3671,21 @@ export default function Home() {
     },
     dayNumFuture: {
       color: theme2Colors.textSecondary,
+    },
+    dayIndicator: {
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: 0, // No margin - already reduced spacing in dayText
+      paddingBottom: spacing.xs, // Add padding to prevent check/dot from touching bottom border
+    },
+    dayDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: "#E8E0D5", // Beige for unselected days
+    },
+    dayDotSelected: {
+      backgroundColor: "#3A5F8C", // Blue for selected days
     },
     content: {
       flex: 1,
@@ -4002,6 +4184,7 @@ export default function Home() {
       zIndex: 10000, // Ensure dropdown appears above everything
       elevation: 10000, // Android
       overflow: "visible", // Allow dropdown to overflow wrapper bounds
+      marginLeft: spacing.xs, // Minimal spacing from day buttons
     },
     filterText: {
       ...typography.bodyMedium,
@@ -4547,41 +4730,47 @@ export default function Home() {
           </TouchableOpacity>
         </ScrollView>
 
-        {/* Day scroller */}
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false} 
-          style={styles.dayScroller}
-          contentContainerStyle={styles.dayScrollerContent}
-        >
-          {weekDates.map((day) => {
-            const hasEntry = userEntryDates.has(day.date)
-            const isSelected = day.date === selectedDate
-            const isFutureDay = day.date > todayDate
-            return (
-              <TouchableOpacity
-                key={day.date}
-                style={[
-                  styles.dayButton,
-                  isSelected && styles.dayButtonSelected,
-                  !isSelected && isFutureDay && styles.dayButtonFuture,
-                ]}
-                onPress={() => handleDayPress(day.date)}
-              >
-                <Text
+        {/* Day navigation with fixed period/filter buttons */}
+        <View style={styles.dayScrollerContainer}>
+          <View style={styles.dayScrollerContent}>
+            {weekDates.map((day) => {
+              const hasEntry = userEntryDates.has(day.date)
+              const isSelected = day.date === selectedDate
+              const isFutureDay = day.date > todayDate
+              return (
+                <TouchableOpacity
+                  key={day.date}
                   style={[
-                    styles.dayText,
-                    isSelected && styles.dayTextSelected,
-                    !isSelected && isFutureDay && styles.dayTextFuture,
+                    styles.dayButton,
+                    isSelected && styles.dayButtonSelected,
+                    !isSelected && isFutureDay && styles.dayButtonFuture,
                   ]}
+                  onPress={() => handleDayPress(day.date)}
                 >
-                  {day.day}
-                </Text>
-                {/* Hide check mark and date number */}
-              </TouchableOpacity>
-            )
-          })}
-          {/* Dates dropdown */}
+                  <Text
+                    style={[
+                      styles.dayText,
+                      isSelected && styles.dayTextSelected,
+                      !isSelected && isFutureDay && styles.dayTextFuture,
+                    ]}
+                  >
+                    {day.day}
+                  </Text>
+                  {/* Show check mark if user has answered, dot if not */}
+                  {!isFutureDay && (
+                    <View style={styles.dayIndicator}>
+                      {hasEntry ? (
+                        <FontAwesome name="check" size={12} color={isSelected ? "#3A5F8C" : "#E8E0D5"} />
+                      ) : (
+                        <View style={[styles.dayDot, isSelected && styles.dayDotSelected]} />
+                      )}
+                    </View>
+                  )}
+                </TouchableOpacity>
+              )
+            })}
+          </View>
+          {/* Dates dropdown - fixed outside ScrollView */}
           <View 
             style={styles.filterButtonWrapper}
             ref={filterButtonRef}
@@ -4605,11 +4794,11 @@ export default function Home() {
               <Text style={styles.filterChevron}>▼</Text>
             </TouchableOpacity>
           </View>
-          {/* Filter button */}
+          {/* Filter button - fixed outside ScrollView */}
           <TouchableOpacity style={styles.filterCTA} onPress={() => setShowFilterModal(true)}>
             <FontAwesome name="sliders" size={16} color={theme2Colors.text} />
-              </TouchableOpacity>
-        </ScrollView>
+          </TouchableOpacity>
+        </View>
         
         {/* Divider line below day navigation */}
         <View style={styles.dayNavigationDivider} />
@@ -4986,8 +5175,9 @@ export default function Home() {
 
         {/* Feed Content - Period Grid or Date-based Feed */}
         {viewMode === "Days" ? (
-          // Date-based feed with headers
-          (() => {
+          <>
+          {/* Date-based feed with headers */}
+          {(() => {
             // Combine all dates: dates with entries + dates with prompts (user hasn't answered)
             // CRITICAL: Filter out dates before group creation
             const groupCreatedDate = currentGroup?.created_at 
@@ -5059,15 +5249,17 @@ export default function Home() {
                 <View 
                   key={date} 
                   style={styles.daySection}
-                  ref={(ref) => {
-                    if (ref) {
-                      dateRefs.current[date] = ref
-                    }
-                  }}
                 >
                   {/* Only show date header for past days, not today */}
                   {!isDateToday && (
-                    <View style={styles.dateHeader}>
+                    <View 
+                      style={styles.dateHeader}
+                      ref={(ref) => {
+                        if (ref) {
+                          dateRefs.current[date] = ref
+                        }
+                      }}
+                    >
                       <Text style={styles.dateHeaderDay}>{format(parseISO(date), "EEEE")}</Text>
                       <Text style={styles.dateHeaderDate}>
                         , {(() => {
@@ -5083,6 +5275,17 @@ export default function Home() {
                         })()}
                       </Text>
                     </View>
+                  )}
+                  {/* For today, attach ref to first entry or a marker at the top */}
+                  {isDateToday && (
+                    <View
+                      ref={(ref) => {
+                        if (ref) {
+                          dateRefs.current[date] = ref
+                        }
+                      }}
+                      style={{ height: 0, width: 0 }}
+                    />
                   )}
                   
                   {/* Removed "Answer to see what they said" - users can now view entries without answering */}
@@ -5265,7 +5468,24 @@ export default function Home() {
           </View>
               )
             })
-          })()
+          })()}
+          
+          {/* Loading indicator for infinite scroll (Days view only) */}
+          {viewMode === "Days" && isLoadingMoreEntries && (
+            <View style={{ padding: spacing.xl, alignItems: "center" }}>
+              <ActivityIndicator size="small" color={theme2Colors.text} />
+            </View>
+          )}
+          
+          {/* End of feed indicator (Days view only) */}
+          {viewMode === "Days" && !hasMoreEntries && loadedDateRanges.length > 7 && (
+            <View style={{ padding: spacing.lg, alignItems: "center" }}>
+              <Text style={{ ...typography.body, color: theme2Colors.textSecondary }}>
+                You've reached the beginning
+              </Text>
+            </View>
+          )}
+          </>
         ) : viewMode === "Weeks" ? (
           renderPeriodGrid(weekSummaries, "Weeks")
         ) : viewMode === "Months" ? (
