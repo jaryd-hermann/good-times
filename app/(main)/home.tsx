@@ -333,6 +333,8 @@ export default function Home() {
   const [hasMoreEntries, setHasMoreEntries] = useState(true) // Track if there are more entries to load
   const [showBirthdayCards, setShowBirthdayCards] = useState(false)
   const dateRefs = useRef<Record<string, any>>({}) // For scroll-to-day functionality
+  const [showLoadingOverlay, setShowLoadingOverlay] = useState(true) // Show overlay during initial load/group switch
+  const previousGroupIdRef = useRef<string | undefined>(undefined) // Track previous group to detect switches
 
   // Track loaded_home_screen event once per session
   useEffect(() => {
@@ -542,7 +544,7 @@ export default function Home() {
   })
 
   // Fetch members for all groups to show avatars in switcher
-  const { data: allGroupsMembers = {} } = useQuery({
+  const { data: allGroupsMembers = {}, isLoading: isLoadingAllGroupsMembers } = useQuery({
     queryKey: ["allGroupsMembers", groups.map((g) => g.id).join(","), userId],
     queryFn: async () => {
       if (groups.length === 0 || !userId) return {}
@@ -858,7 +860,7 @@ export default function Home() {
     enabled: !!userId,
   })
 
-  const { data: members = [] } = useQuery({
+  const { data: members = [], isLoading: isLoadingMembers } = useQuery({
     queryKey: ["members", currentGroupId],
     queryFn: () => (currentGroupId ? getGroupMembers(currentGroupId) : []),
     enabled: !!currentGroupId,
@@ -991,6 +993,35 @@ export default function Home() {
       calculated: getPreviousDay(todayDate),
     })
   }
+
+  // Manage loading overlay - show during group switches and initial load
+  useEffect(() => {
+    // Detect group switch
+    const groupChanged = previousGroupIdRef.current !== undefined && 
+                         previousGroupIdRef.current !== currentGroupId
+    
+    // Show overlay if:
+    // 1. Group is switching (using existing isGroupSwitching state)
+    // 2. Initial load (no previous group and we have a current group)
+    // 3. Critical data is still loading (prompt, entries, or members/avatars)
+    const shouldShowOverlay = (isGroupSwitching || groupChanged || previousGroupIdRef.current === undefined) &&
+                              currentGroupId &&
+                              (isLoadingTodayPrompt || isLoadingTodayEntries || isLoadingMembers || isLoadingAllGroupsMembers || isGroupSwitching)
+    
+    if (shouldShowOverlay) {
+      setShowLoadingOverlay(true)
+    } else if (!isLoadingTodayPrompt && !isLoadingTodayEntries && !isLoadingMembers && !isLoadingAllGroupsMembers && !isGroupSwitching) {
+      // Hide overlay when all critical data is loaded (prompt, entries, and members/avatars)
+      // Small delay to ensure smooth transition
+      const timer = setTimeout(() => {
+        setShowLoadingOverlay(false)
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+    
+    // Update previous group ID
+    previousGroupIdRef.current = currentGroupId
+  }, [currentGroupId, isLoadingTodayPrompt, isLoadingTodayEntries, isLoadingMembers, isLoadingAllGroupsMembers, isGroupSwitching])
 
   // Query for previous day's entries (always fetch on boot/refresh)
   // Include todayDate in query key to force refetch when date changes
@@ -4502,10 +4533,44 @@ export default function Home() {
       fontSize: 16,
       color: theme2Colors.white,
     },
+    loadingOverlay: {
+      flex: 1,
+      width: "100%",
+      height: "100%",
+      backgroundColor: theme2Colors.beige,
+    },
+    loadingOverlayImage: {
+      width: "100%",
+      height: "100%",
+    },
+    loadingOverlayMask: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(232, 224, 213, 0.7)", // Semi-transparent beige overlay on top of fuzzy.png
+    },
   }), [theme2Colors])
 
   return (
     <View style={styles.container}>
+      {/* Loading Overlay Modal - shows during group switches and initial load */}
+      {/* Uses Modal to ensure it covers tab bar and all content */}
+      <Modal
+        visible={showLoadingOverlay}
+        transparent={true}
+        animationType="fade"
+        statusBarTranslucent={true}
+      >
+        <View style={styles.loadingOverlay}>
+          <ImageBackground
+            source={require("../../assets/images/fuzzy.png")}
+            style={styles.loadingOverlayImage}
+            resizeMode="cover"
+          >
+            {/* Semi-transparent overlay on top of fuzzy.png */}
+            <View style={styles.loadingOverlayMask} />
+          </ImageBackground>
+        </View>
+      </Modal>
+      
       {/* Header */}
       <Animated.View
         style={[
