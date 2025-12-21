@@ -12,6 +12,7 @@ import {
   Modal,
   TouchableOpacity,
   ActivityIndicator,
+  Image,
 } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -26,6 +27,20 @@ import { safeCapture } from "../../lib/posthog"
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 const SWIPE_ONBOARDING_KEY_PREFIX = "has_completed_swipe_onboarding"
+
+// Theme 2 color palette matching new design system
+const theme2Colors = {
+  red: "#B94444",
+  yellow: "#E8A037",
+  green: "#2D6F4A",
+  blue: "#3A5F8C",
+  beige: "#E8E0D5",
+  cream: "#F5F0EA",
+  white: "#FFFFFF",
+  text: "#000000",
+  textSecondary: "#404040",
+  onboardingPink: "#D97393", // Pink for onboarding CTAs
+}
 
 // Helper function to get user+group-specific onboarding key
 function getSwipeOnboardingKey(userId: string, groupId: string): string {
@@ -625,7 +640,7 @@ export default function SwipeOnboarding() {
     console.log("[swipe-onboarding] Still checking, showing loading indicator")
     return (
       <View style={styles.checkingContainer}>
-        <ActivityIndicator size="large" color={colors.white} />
+        <ActivityIndicator size="large" color={theme2Colors.text} />
       </View>
     )
   }
@@ -652,7 +667,7 @@ export default function SwipeOnboarding() {
       <View style={styles.swipeContainer}>
         {swipeableQuestionsData.length === 0 ? (
           <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-            <Text style={{ ...typography.body, color: colors.gray[400], textAlign: "center" }}>
+            <Text style={{ fontFamily: "Roboto-Regular", fontSize: 16, color: theme2Colors.textSecondary, textAlign: "center" }}>
               Loading questions...
             </Text>
           </View>
@@ -673,6 +688,24 @@ export default function SwipeOnboarding() {
                       },
                     ]}
                   />
+                  {/* Star icon at current progress position */}
+                  <Animated.View
+                    style={[
+                      styles.progressStar,
+                      {
+                        left: progressBarWidth.interpolate({
+                          inputRange: [0, 100],
+                          outputRange: ["0%", "100%"],
+                        }),
+                      },
+                    ]}
+                  >
+                    <Image
+                      source={require("../../assets/images/star.png")}
+                      style={styles.progressStarImage}
+                      resizeMode="contain"
+                    />
+                  </Animated.View>
                 </View>
               </View>
             )}
@@ -699,24 +732,37 @@ export default function SwipeOnboarding() {
                   ]}
                   {...panResponder.panHandlers}
                 >
+                  <Image 
+                    source={require("../../assets/images/texture.png")} 
+                    style={styles.swipeCardTexture}
+                    resizeMode="cover"
+                  />
                   <Text style={styles.swipeCardQuestion}>
                     {swipeableQuestionsData[currentQuestionIndex].question}
                   </Text>
                 </Animated.View>
                 
-                {/* Yes/No Buttons */}
+                {/* Yes/No Icons */}
                 <View style={styles.swipeButtons}>
                   <TouchableOpacity
-                    style={[styles.swipeButton, styles.swipeButtonNo]}
                     onPress={() => handleSwipe("no")}
+                    activeOpacity={0.7}
                   >
-                    <Text style={styles.swipeButtonEmoji}>👎</Text>
+                    <Image 
+                      source={require("../../assets/images/No.png")} 
+                      style={styles.swipeButtonIcon}
+                      resizeMode="contain"
+                    />
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.swipeButton, styles.swipeButtonYes]}
                     onPress={() => handleSwipe("yes")}
+                    activeOpacity={0.7}
                   >
-                    <Text style={styles.swipeButtonEmoji}>👍</Text>
+                    <Image 
+                      source={require("../../assets/images/Yes.png")} 
+                      style={styles.swipeButtonIcon}
+                      resizeMode="contain"
+                    />
                   </TouchableOpacity>
                 </View>
               </>
@@ -727,12 +773,22 @@ export default function SwipeOnboarding() {
       </View>
 
       {/* Continue Button */}
-      <Button
-        title="Continue"
-        onPress={handleContinue}
-        style={styles.continueButton}
-        textStyle={styles.continueButtonText}
-      />
+      <View style={styles.continueButtonContainer}>
+        <TouchableOpacity
+          onPress={handleContinue}
+          style={styles.continueButton}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.continueButtonText}>Continue →</Text>
+          <View style={styles.continueButtonTexture} pointerEvents="none">
+            <Image
+              source={require("../../assets/images/texture.png")}
+              style={styles.continueButtonTextureImage}
+              resizeMode="cover"
+            />
+          </View>
+        </TouchableOpacity>
+      </View>
     </View>
   )
 }
@@ -740,24 +796,25 @@ export default function SwipeOnboarding() {
 const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
     },
     header: {
       paddingHorizontal: spacing.lg,
       paddingBottom: spacing.lg,
       alignItems: "center",
+      backgroundColor: theme2Colors.beige,
     },
     title: {
-      ...typography.h1,
+      fontFamily: "PMGothicLudington-Text115",
       fontSize: 32,
-      color: colors.white,
+      color: theme2Colors.text,
       marginBottom: spacing.sm,
       textAlign: "center",
     },
     subtitle: {
-      ...typography.body,
+      fontFamily: "Roboto-Regular",
       fontSize: 16,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       textAlign: "center",
       paddingHorizontal: spacing.md,
     },
@@ -766,119 +823,77 @@ const styles = StyleSheet.create({
       justifyContent: "flex-start",
       alignItems: "center",
       paddingHorizontal: spacing.md,
-      paddingTop: spacing.xl,
-      paddingBottom: spacing.xxl,
+      paddingTop: spacing.md,
+      paddingBottom: spacing.xxl * 2,
     },
     swipeCard: {
       width: SCREEN_WIDTH - spacing.md * 2,
-      height: 340,
-      backgroundColor: colors.gray[900],
-      borderRadius: 12,
+      height: 250, // Reduced height for swipe card
+      backgroundColor: theme2Colors.cream,
+      borderRadius: 20,
       padding: spacing.lg,
-      borderWidth: 1,
-      borderColor: colors.gray[700],
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary,
       justifyContent: "center",
-      alignItems: "center",
+      alignItems: "flex-start",
       alignSelf: "center",
+      position: "relative",
+      overflow: "hidden",
+    },
+    swipeCardTexture: {
+      ...StyleSheet.absoluteFillObject,
+      opacity: 0.3,
     },
     swipeCardQuestion: {
-      ...typography.h2,
+      fontFamily: "PMGothicLudington-Text115",
       fontSize: 24,
-      color: colors.white,
-      textAlign: "center",
+      color: theme2Colors.text,
+      textAlign: "left",
       lineHeight: 32,
     },
     swipeButtons: {
       flexDirection: "row",
       gap: spacing.md,
       paddingHorizontal: spacing.md,
-      marginTop: spacing.xl,
-      marginBottom: spacing.lg,
-    },
-    swipeButton: {
-      flex: 1,
-      paddingVertical: spacing.md,
-      paddingHorizontal: spacing.lg,
-      borderRadius: 0,
-      alignItems: "center",
+      marginTop: spacing.lg,
+      marginBottom: spacing.xl,
       justifyContent: "center",
-    },
-    swipeButtonNo: {
-      backgroundColor: "transparent",
-      borderWidth: 1,
-      borderColor: colors.white,
-    },
-    swipeButtonYes: {
-      backgroundColor: "transparent",
-      borderWidth: 1,
-      borderColor: colors.accent,
-    },
-    swipeButtonText: {
-      ...typography.bodyBold,
-      fontSize: 16,
-      color: colors.white,
-    },
-    swipeButtonYesText: {
-      color: colors.accent,
-    },
-    continueButton: {
-      marginHorizontal: spacing.lg,
-      marginTop: spacing.xl,
-      marginBottom: spacing.xxl,
-      backgroundColor: "transparent",
-      borderWidth: 1,
-      borderColor: colors.accent,
-    },
-    continueButtonText: {
-      color: colors.white,
-    },
-    swipeButtons: {
-      flexDirection: "row",
-      gap: spacing.md,
-      paddingHorizontal: spacing.md,
-      marginTop: spacing.xl,
-      marginBottom: spacing.lg,
-    },
-    swipeButton: {
-      flex: 1,
-      paddingVertical: spacing.md,
-      paddingHorizontal: spacing.lg,
-      borderRadius: 0,
       alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: colors.gray[800],
-      borderWidth: 1,
-      borderColor: colors.white,
     },
-    swipeButtonNo: {
-      backgroundColor: colors.gray[800],
-      borderWidth: 1,
-      borderColor: colors.white,
-    },
-    swipeButtonYes: {
-      backgroundColor: colors.gray[800],
-      borderWidth: 1,
-      borderColor: colors.white,
-    },
-    swipeButtonEmoji: {
-      fontSize: 24,
+    swipeButtonIcon: {
+      width: 80,
+      height: 80,
     },
     progressBarContainer: {
       width: "100%",
       paddingHorizontal: spacing.md,
-      marginBottom: spacing.lg,
+      marginBottom: spacing.md,
     },
     progressBarBackground: {
       width: "100%",
       height: 4,
-      backgroundColor: colors.gray[800],
+      backgroundColor: theme2Colors.white,
       borderRadius: 2,
-      overflow: "hidden",
+      overflow: "visible", // Changed to visible to allow star icon to show
+      position: "relative",
     },
     progressBarFill: {
       height: "100%",
-      backgroundColor: colors.white,
+      backgroundColor: theme2Colors.green,
       borderRadius: 2,
+    },
+    progressStar: {
+      position: "absolute",
+      top: -10, // Center vertically on the progress bar (4px bar + offset for 24px icon)
+      width: 24,
+      height: 24,
+      marginLeft: -12, // Center the star on the progress line
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    progressStarImage: {
+      width: 24,
+      height: 24,
     },
     modalBackdrop: {
       flex: 1,
@@ -915,9 +930,44 @@ const styles = StyleSheet.create({
     },
     checkingContainer: {
       flex: 1,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
       justifyContent: "center",
       alignItems: "center",
+    },
+    continueButtonContainer: {
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.xl,
+      paddingTop: spacing.md,
+      backgroundColor: theme2Colors.beige,
+    },
+    continueButton: {
+      width: "100%",
+      backgroundColor: theme2Colors.onboardingPink,
+      borderRadius: 25,
+      borderWidth: 1,
+      borderColor: theme2Colors.blue,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "hidden",
+      position: "relative",
+    },
+    continueButtonText: {
+      fontFamily: "Roboto-Bold",
+      fontSize: 18,
+      color: theme2Colors.white,
+      zIndex: 2,
+    },
+    continueButtonTexture: {
+      ...StyleSheet.absoluteFillObject,
+      opacity: 0.3,
+      zIndex: 1,
+    },
+    continueButtonTextureImage: {
+      ...StyleSheet.absoluteFillObject,
+      width: "100%",
+      height: "100%",
     },
   })
 

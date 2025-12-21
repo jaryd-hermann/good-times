@@ -20,10 +20,26 @@ import * as Contacts from "expo-contacts"
 import * as Clipboard from "expo-clipboard"
 import { colors, spacing, typography } from "../../../lib/theme"
 import { Button } from "../../../components/Button"
-import { OnboardingBack } from "../../../components/OnboardingBack"
 import { getCurrentUser } from "../../../lib/db"
 import { usePostHog } from "posthog-react-native"
 import { captureEvent } from "../../../lib/posthog"
+import { FontAwesome } from "@expo/vector-icons"
+import { useSafeAreaInsets } from "react-native-safe-area-context"
+import { Image } from "react-native"
+
+// Theme 2 color palette matching new design system
+const theme2Colors = {
+  red: "#B94444",
+  yellow: "#E8A037",
+  green: "#2D6F4A",
+  blue: "#3A5F8C",
+  beige: "#E8E0D5",
+  cream: "#F5F0EA",
+  white: "#FFFFFF",
+  text: "#000000",
+  textSecondary: "#404040",
+  onboardingPink: "#D97393", // Pink for onboarding CTAs
+}
 
 const POST_AUTH_ONBOARDING_KEY_PREFIX = "has_completed_post_auth_onboarding"
 
@@ -38,6 +54,8 @@ export default function Invite() {
   const groupId = params.groupId as string
   const mode = params.mode as string | undefined
   const posthog = usePostHog()
+  const insets = useSafeAreaInsets()
+  const [searchFocused, setSearchFocused] = useState(false)
 
   const [contactsModalVisible, setContactsModalVisible] = useState(false)
   const [contactsLoading, setContactsLoading] = useState(false)
@@ -313,7 +331,13 @@ export default function Invite() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.topBar}>
-        <OnboardingBack />
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => router.back()}
+          activeOpacity={0.8}
+        >
+          <FontAwesome name="angle-left" size={18} color={theme2Colors.text} />
+        </TouchableOpacity>
       </View>
       <View style={styles.header}>
         <Text style={styles.title}>Your people</Text>
@@ -321,41 +345,69 @@ export default function Invite() {
       </View>
 
       <View style={styles.form}>
-        <Button
-          title="Share your invite link →"
+        <TouchableOpacity
+          style={styles.shareButton}
           onPress={handleShare}
-          style={[styles.shareButton, styles.sharePrimary]}
-          textStyle={styles.sharePrimaryText}
-        />
-        <Button
-          title="Copy to clipboard"
+          activeOpacity={0.8}
+        >
+          <Text style={styles.shareButtonText}>Share your invite link →</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.secondaryButton}
           onPress={handleCopyToClipboard}
-          variant="ghost"
-          style={styles.contactsButton}
-          textStyle={styles.contactsButtonText}
-        />
-        <Button
-          title="Add from contacts"
+          activeOpacity={0.8}
+        >
+          <View style={styles.secondaryButtonTexture} pointerEvents="none">
+            <Image
+              source={require("../../../assets/images/texture.png")}
+              style={styles.secondaryButtonTextureImage}
+              resizeMode="cover"
+            />
+          </View>
+          <Text style={styles.secondaryButtonText}>Copy to clipboard →</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.secondaryButton}
           onPress={handleOpenContacts}
-          variant="ghost"
-          style={styles.contactsButton}
-          textStyle={styles.contactsButtonText}
-        />
+          activeOpacity={0.8}
+        >
+          <View style={styles.secondaryButtonTexture} pointerEvents="none">
+            <Image
+              source={require("../../../assets/images/texture.png")}
+              style={styles.secondaryButtonTextureImage}
+              resizeMode="cover"
+            />
+          </View>
+          <Text style={styles.secondaryButtonText}>Add from contacts →</Text>
+        </TouchableOpacity>
 
         <Text style={styles.label}>Contacts</Text>
         <Text style={styles.placeholder}>Select friends from your contacts or share the invite link directly.</Text>
       </View>
 
       <View style={styles.buttonContainer}>
-        <Button title="Finish →" onPress={handleFinish} style={styles.finishButton} />
+        <TouchableOpacity
+          style={styles.finishButton}
+          onPress={handleFinish}
+          activeOpacity={0.8}
+        >
+          <View style={styles.buttonTexture} pointerEvents="none">
+            <Image
+              source={require("../../../assets/images/texture.png")}
+              style={styles.textureImage}
+              resizeMode="cover"
+            />
+          </View>
+          <Text style={styles.finishButtonText}>Finish →</Text>
+        </TouchableOpacity>
       </View>
 
       <Modal visible={contactsModalVisible} animationType="slide" onRequestClose={() => setContactsModalVisible(false)}>
-        <View style={styles.modalContainer}>
+        <View style={[styles.modalContainer, { paddingTop: insets.top + spacing.lg }]}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Invite Contacts</Text>
             <TouchableOpacity onPress={() => setContactsModalVisible(false)} style={styles.modalCloseButton}>
-              <Text style={styles.modalCloseText}>✕</Text>
+              <FontAwesome name="times" size={16} color={theme2Colors.text} />
             </TouchableOpacity>
           </View>
 
@@ -364,14 +416,16 @@ export default function Invite() {
               value={searchQuery}
               onChangeText={setSearchQuery}
               placeholder="Search contacts"
-              placeholderTextColor={colors.gray[500]}
-              style={styles.searchInput}
+              placeholderTextColor={theme2Colors.textSecondary}
+              style={[styles.searchInput, searchFocused && styles.searchInputFocused]}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
             />
           </View>
 
           {contactsLoading ? (
             <View style={styles.loadingState}>
-              <ActivityIndicator size="large" color={colors.accent} />
+              <ActivityIndicator size="large" color={theme2Colors.text} />
               <Text style={styles.loadingText}>Loading contacts…</Text>
             </View>
           ) : (
@@ -404,7 +458,14 @@ export default function Invite() {
           )}
 
           <View style={styles.modalActions}>
-            <Button title="Send invites" onPress={handleSendInvites} disabled={contactsLoading} />
+            <TouchableOpacity
+              style={styles.sendInvitesButton}
+              onPress={handleSendInvites}
+              disabled={contactsLoading}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.sendInvitesButtonText}>Send invites</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -422,74 +483,139 @@ type InviteContact = {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.white,
+    backgroundColor: theme2Colors.beige,
   },
   content: {
     padding: spacing.lg,
     paddingTop: spacing.xxl * 2,
+    paddingBottom: spacing.xxl * 4,
   },
   topBar: {
     marginBottom: spacing.lg,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme2Colors.white,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   header: {
     marginBottom: spacing.xl,
   },
   title: {
-    fontFamily: "LibreBaskerville-Bold",
+    fontFamily: "PMGothicLudington-Text115",
     fontSize: 40,
-    color: colors.black,
+    color: theme2Colors.text,
     marginBottom: spacing.sm,
   },
   subtitle: {
     fontFamily: "Roboto-Regular",
     fontSize: 16,
     lineHeight: 24,
-    color: colors.black,
+    color: theme2Colors.text,
   },
   form: {
     marginBottom: spacing.xxl,
   },
   shareButton: {
     marginBottom: spacing.xl,
+    backgroundColor: theme2Colors.blue,
+    borderRadius: 25,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  sharePrimary: {
-    backgroundColor: colors.black,
+  shareButtonText: {
+    fontFamily: "Roboto-Bold",
+    fontSize: 18,
+    color: theme2Colors.white,
   },
-  sharePrimaryText: {
-    color: colors.white,
-  },
-  contactsButton: {
+  secondaryButton: {
     marginBottom: spacing.xl,
-    borderColor: colors.black,
+    backgroundColor: "#F5F0EA",
+    borderRadius: 25,
     borderWidth: 1,
-    backgroundColor: "transparent",
+    borderColor: theme2Colors.blue,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    position: "relative",
   },
-  contactsButtonText: {
-    color: colors.black,
+  secondaryButtonText: {
+    fontFamily: "Roboto-Bold",
+    fontSize: 18,
+    color: theme2Colors.text,
+    zIndex: 2,
+  },
+  secondaryButtonTexture: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.3,
+    zIndex: 1,
+  },
+  secondaryButtonTextureImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: "100%",
+    height: "100%",
   },
   label: {
     fontFamily: "Roboto-Bold",
     fontSize: 18,
-    color: colors.black,
+    color: theme2Colors.text,
     marginBottom: spacing.md,
   },
   placeholder: {
     fontFamily: "Roboto-Regular",
     fontSize: 14,
-    color: colors.gray[500],
+    color: theme2Colors.textSecondary,
     fontStyle: "italic",
   },
   buttonContainer: {
     alignItems: "flex-end",
   },
   finishButton: {
-    width: 100,
+    width: 140,
     height: 60,
+    backgroundColor: theme2Colors.onboardingPink,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: theme2Colors.blue,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    position: "relative",
+  },
+  finishButtonText: {
+    fontFamily: "Roboto-Bold",
+    fontSize: 18,
+    color: theme2Colors.white,
+    zIndex: 2,
+  },
+  buttonTexture: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.3,
+    zIndex: 1,
+  },
+  textureImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: "100%",
+    height: "100%",
   },
   modalContainer: {
     flex: 1,
-    backgroundColor: colors.black,
-    paddingTop: spacing.xxl * 2,
+    backgroundColor: theme2Colors.beige,
   },
   modalHeader: {
     flexDirection: "row",
@@ -499,28 +625,37 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
   },
   modalTitle: {
-    ...typography.h1,
-    color: colors.white,
+    fontFamily: "PMGothicLudington-Text115",
     fontSize: 32,
+    color: theme2Colors.text,
   },
   modalCloseButton: {
-    padding: spacing.sm,
-  },
-  modalCloseText: {
-    ...typography.h2,
-    color: colors.white,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: theme2Colors.white,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: theme2Colors.text,
   },
   searchContainer: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.md,
   },
   searchInput: {
-    borderWidth: 1,
-    borderColor: colors.gray[700],
-    paddingVertical: spacing.sm,
+    borderWidth: 2,
+    borderColor: theme2Colors.textSecondary,
+    paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
-    color: colors.white,
-    borderRadius: 8,
+    color: theme2Colors.text,
+    borderRadius: 12,
+    backgroundColor: theme2Colors.cream,
+    fontFamily: "Roboto-Regular",
+    fontSize: 16,
+  },
+  searchInputFocused: {
+    borderColor: theme2Colors.blue,
   },
   contactsList: {
     paddingHorizontal: spacing.lg,
@@ -533,40 +668,45 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: spacing.md,
     borderRadius: 12,
-    backgroundColor: colors.gray[900],
+    backgroundColor: theme2Colors.cream,
+    borderWidth: 1,
+    borderColor: theme2Colors.textSecondary,
   },
   contactRowSelected: {
-    borderWidth: 1,
-    borderColor: colors.white,
+    borderWidth: 2,
+    borderColor: theme2Colors.blue,
   },
   contactName: {
-    ...typography.bodyBold,
-    color: colors.white,
+    fontFamily: "Roboto-Bold",
+    color: theme2Colors.text,
     fontSize: 16,
   },
   contactDetail: {
-    ...typography.body,
-    color: colors.gray[400],
+    fontFamily: "Roboto-Regular",
+    color: theme2Colors.textSecondary,
     marginTop: spacing.xs,
+    fontSize: 14,
   },
   contactIndicator: {
     width: 20,
     height: 20,
     borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.gray[600],
+    borderWidth: 2,
+    borderColor: theme2Colors.textSecondary,
+    backgroundColor: theme2Colors.white,
   },
   contactIndicatorSelected: {
-    borderColor: colors.accent,
-    backgroundColor: colors.accent,
+    borderColor: theme2Colors.blue,
+    backgroundColor: theme2Colors.blue,
   },
   emptyContacts: {
     padding: spacing.lg,
     alignItems: "center",
   },
   emptyContactsText: {
-    ...typography.body,
-    color: colors.gray[400],
+    fontFamily: "Roboto-Regular",
+    color: theme2Colors.textSecondary,
+    fontSize: 14,
   },
   loadingState: {
     flex: 1,
@@ -575,10 +715,24 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   loadingText: {
-    ...typography.body,
-    color: colors.white,
+    fontFamily: "Roboto-Regular",
+    color: theme2Colors.text,
+    fontSize: 16,
   },
   modalActions: {
     padding: spacing.lg,
+  },
+  sendInvitesButton: {
+    backgroundColor: theme2Colors.blue,
+    borderRadius: 25,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sendInvitesButtonText: {
+    fontFamily: "Roboto-Bold",
+    fontSize: 18,
+    color: theme2Colors.white,
   },
 })

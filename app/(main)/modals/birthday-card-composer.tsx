@@ -16,6 +16,7 @@ import {
   ActivityIndicator,
   Keyboard,
   AppState,
+  Animated,
 } from "react-native"
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
 import * as ImagePicker from "expo-image-picker"
@@ -58,6 +59,19 @@ export default function BirthdayCardComposer() {
   const returnTo = (params.returnTo as string) || undefined
   const entryId = params.entryId as string | undefined
   const editMode = !!entryId
+
+  // Theme 2 color palette matching new design system
+  const theme2Colors = {
+    red: "#B94444",
+    yellow: "#E8A037",
+    green: "#2D6F4A",
+    blue: "#3A5F8C",
+    beige: "#E8E0D5",
+    cream: "#F5F0EA",
+    white: "#FFFFFF",
+    text: "#000000",
+    textSecondary: "#404040",
+  }
 
   const [text, setText] = useState("")
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([])
@@ -446,7 +460,7 @@ export default function BirthdayCardComposer() {
         if (status.isRecording) {
           setVoiceDuration(Math.floor(status.durationMillis / 1000))
         }
-      }, 300)
+      }, 300) as unknown as NodeJS.Timeout
     } catch (error: any) {
       // If error is about background state, show helpful message
       if (error.message?.includes("background")) {
@@ -727,7 +741,7 @@ export default function BirthdayCardComposer() {
 
         // Track updated_birthday_card_entry event
         const hasMedia = uploadedMedia.length > 0 || embeddedMedia.length > 0
-        const mediaTypes = uploadedMedia.map((item) => item.type)
+        const mediaTypes: string[] = uploadedMedia.map((item) => item.type)
         if (embeddedMedia.length > 0) {
           mediaTypes.push("embedded")
         }
@@ -760,7 +774,7 @@ export default function BirthdayCardComposer() {
 
         // Track created_birthday_card_entry event
         const hasMedia = uploadedMedia.length > 0 || embeddedMedia.length > 0
-        const mediaTypes = uploadedMedia.map((item) => item.type)
+        const mediaTypes: string[] = uploadedMedia.map((item) => item.type)
         if (embeddedMedia.length > 0) {
           mediaTypes.push("embedded")
         }
@@ -833,7 +847,7 @@ export default function BirthdayCardComposer() {
   const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
     },
     keyboardAvoidingView: {
       flex: 1,
@@ -848,14 +862,13 @@ export default function BirthdayCardComposer() {
     },
     headerTitle: {
       ...typography.h3,
-      color: colors.white,
+      color: theme2Colors.text,
       flex: 1,
-      textAlign: "center",
     },
     closeButton: {
       ...typography.h2,
       fontSize: 28,
-      color: colors.white,
+      color: theme2Colors.text,
     },
     content: {
       flex: 1,
@@ -865,22 +878,22 @@ export default function BirthdayCardComposer() {
       paddingBottom: spacing.xxl * 2 + 80, // Extra padding at bottom for toolbar clearance (toolbar height ~80px)
     },
     question: {
-      ...typography.h2,
+      fontFamily: "PMGothicLudington-Text115",
       fontSize: 24,
       marginBottom: spacing.sm,
       marginTop: spacing.xxl,
-      color: colors.white,
+      color: theme2Colors.text,
     },
     description: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       marginBottom: spacing.xl,
     },
     input: {
       ...typography.body,
       fontSize: 16,
       lineHeight: 24,
-      color: colors.white,
+      color: theme2Colors.text,
       minHeight: 200,
       textAlignVertical: "top",
     },
@@ -1064,8 +1077,8 @@ export default function BirthdayCardComposer() {
       paddingVertical: spacing.sm,
       paddingHorizontal: spacing.md,
       borderTopWidth: 1,
-      borderTopColor: colors.gray[800],
-      backgroundColor: colors.black,
+      borderTopColor: theme2Colors.textSecondary,
+      backgroundColor: theme2Colors.beige,
       position: "absolute",
       left: 0,
       right: 0,
@@ -1090,7 +1103,9 @@ export default function BirthdayCardComposer() {
       width: 48,
       height: 48,
       borderRadius: 24,
-      backgroundColor: isDark ? colors.gray[800] : colors.black,
+      backgroundColor: theme2Colors.cream,
+      borderWidth: 2,
+      borderColor: theme2Colors.blue,
       justifyContent: "center",
       alignItems: "center",
     },
@@ -1099,37 +1114,51 @@ export default function BirthdayCardComposer() {
     },
     closeButtonIcon: {
       marginLeft: spacing.sm,
+      backgroundColor: theme2Colors.white,
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
     },
     postButtonInline: {
-      backgroundColor: colors.accent,
+      backgroundColor: theme2Colors.blue,
       marginLeft: spacing.sm,
+      borderWidth: 0,
     },
     postButton: {
       width: "100%",
     },
     voiceBackdrop: {
       flex: 1,
-      backgroundColor: "rgba(0,0,0,0.9)",
+      backgroundColor: "transparent",
       justifyContent: "center",
       alignItems: "center",
       padding: spacing.lg,
     },
+    voiceBackdropOverlay1: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(232, 224, 213, 0.6)",
+    },
+    voiceBackdropOverlay2: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(0, 0, 0, 0.2)",
+    },
     voiceSheet: {
       width: "100%",
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
       borderRadius: 24,
       padding: spacing.xl,
       gap: spacing.md,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
     },
     voiceTitle: {
-      ...typography.h2,
+      fontFamily: "PMGothicLudington-Text115",
       fontSize: 22,
-      color: colors.white,
+      color: theme2Colors.text,
     },
     voiceTimer: {
       ...typography.h1,
       fontSize: 32,
-      color: colors.white,
+      color: theme2Colors.text,
       textAlign: "center",
     },
     voiceControlRow: {
@@ -1143,10 +1172,10 @@ export default function BirthdayCardComposer() {
       height: 56,
       borderRadius: 28,
       borderWidth: 1,
-      borderColor: colors.gray[700],
+      borderColor: theme2Colors.textSecondary,
       justifyContent: "center",
       alignItems: "center",
-      backgroundColor: colors.gray[900],
+      backgroundColor: theme2Colors.white,
     },
     voiceSendButton: {
       width: 56,
@@ -1154,7 +1183,7 @@ export default function BirthdayCardComposer() {
       borderRadius: 28,
       justifyContent: "center",
       alignItems: "center",
-      backgroundColor: colors.accent,
+      backgroundColor: theme2Colors.blue,
     },
     voiceIconDisabled: {
       opacity: 0.4,
@@ -1165,23 +1194,23 @@ export default function BirthdayCardComposer() {
     },
     voiceCancelText: {
       ...typography.caption,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
     },
     voiceDescription: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       textAlign: "center",
       marginBottom: spacing.md,
     },
     songUrlInput: {
       ...typography.body,
-      color: colors.white,
-      backgroundColor: colors.gray[900],
+      color: theme2Colors.text,
+      backgroundColor: theme2Colors.white,
       borderRadius: 12,
       padding: spacing.md,
       marginBottom: spacing.md,
       borderWidth: 1,
-      borderColor: colors.gray[700],
+      borderColor: theme2Colors.textSecondary,
     },
     voiceButtonLabel: {
       ...typography.caption,
@@ -1211,32 +1240,71 @@ export default function BirthdayCardComposer() {
     addSongButton: {
       marginTop: spacing.md,
       width: "100%",
+      backgroundColor: theme2Colors.blue,
+      borderRadius: 25,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 56,
+    },
+    addSongButtonText: {
+      ...typography.bodyBold,
+      fontSize: 18,
+      color: theme2Colors.white,
+      textAlign: "center",
     },
     successBackdrop: {
       flex: 1,
-      backgroundColor: "rgba(0,0,0,0.95)",
+      backgroundColor: theme2Colors.beige,
+    },
+    successBackdropOverlay1: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(232, 224, 213, 0.6)",
+    },
+    successBackdropOverlay2: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(0, 0, 0, 0.2)",
+    },
+    successContainer: {
+      flex: 1,
+      backgroundColor: theme2Colors.beige,
       justifyContent: "center",
       alignItems: "center",
       padding: spacing.xl,
-    },
-    successContainer: {
-      width: "100%",
-      maxWidth: 400,
-      alignItems: "center",
       gap: spacing.xl,
+      zIndex: 0,
+    },
+    successTexture: {
+      ...StyleSheet.absoluteFillObject,
+      opacity: 0.3,
+      zIndex: 1,
     },
     successTitle: {
-      ...typography.h1,
-      fontSize: 32,
-      color: "#ffffff", // Always white since modal background is black
+      fontFamily: "PMGothicLudington-Text115",
+      fontSize: 24,
+      color: theme2Colors.text,
       textAlign: "center",
     },
     successButton: {
       width: "100%",
+      backgroundColor: theme2Colors.blue,
+      borderRadius: 25,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 56,
+    },
+    successButtonText: {
+      ...typography.bodyBold,
+      fontSize: 18,
+      color: theme2Colors.white,
+      textAlign: "center",
     },
     uploadingSubtitle: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       textAlign: "center",
       marginTop: spacing.md,
     },
@@ -1310,7 +1378,7 @@ export default function BirthdayCardComposer() {
             onChangeText={setText}
             onBlur={handleTextBlur}
             placeholder="Start writing..."
-            placeholderTextColor={colors.gray[500]}
+            placeholderTextColor={theme2Colors.textSecondary}
             multiline
             autoFocus={true}
             showSoftInputOnFocus={true}
@@ -1399,13 +1467,13 @@ export default function BirthdayCardComposer() {
         <View style={styles.toolbarButtons}>
           <View style={styles.toolCluster}>
             <TouchableOpacity style={styles.iconButton} onPress={handleGalleryAction}>
-              <FontAwesome name="image" size={18} color={colors.white} />
+              <FontAwesome name="image" size={18} color={theme2Colors.text} />
             </TouchableOpacity>
             <TouchableOpacity style={styles.iconButton} onPress={openCamera}>
-              <FontAwesome name="camera" size={18} color={colors.white} />
+              <FontAwesome name="camera" size={18} color={theme2Colors.text} />
             </TouchableOpacity>
             <TouchableOpacity style={styles.iconButton} onPress={startRecording}>
-              <FontAwesome name="microphone" size={18} color={colors.white} />
+              <FontAwesome name="microphone" size={18} color={theme2Colors.text} />
             </TouchableOpacity>
             {/* Shuffle button commented out - everyone answers the same question */}
             {/* <TouchableOpacity 
@@ -1413,13 +1481,13 @@ export default function BirthdayCardComposer() {
               onPress={shufflePrompt}
               disabled={editMode}
             >
-              <FontAwesome name="random" size={18} color={editMode ? colors.gray[600] : colors.white} />
+              <FontAwesome name="random" size={18} color={editMode ? theme2Colors.textSecondary : theme2Colors.text} />
             </TouchableOpacity> */}
             <TouchableOpacity
               style={styles.iconButton}
               onPress={() => setShowSongModal(true)}
             >
-              <FontAwesome name="music" size={18} color={colors.white} />
+              <FontAwesome name="music" size={18} color={theme2Colors.text} />
             </TouchableOpacity>
           </View>
           <View style={styles.toolbarRight}>
@@ -1430,14 +1498,14 @@ export default function BirthdayCardComposer() {
                 disabled={loading}
               >
                 {loading ? (
-                  <ActivityIndicator size="small" color="#ffffff" />
+                  <ActivityIndicator size="small" color={theme2Colors.white} />
                 ) : (
-                  <FontAwesome name="arrow-right" size={18} color="#ffffff" />
+                  <FontAwesome name="arrow-right" size={18} color={theme2Colors.white} />
                 )}
               </TouchableOpacity>
             )}
             <TouchableOpacity style={[styles.iconButton, styles.closeButtonIcon]} onPress={exitComposer}>
-              <FontAwesome name="times" size={18} color={colors.white} />
+              <FontAwesome name="times" size={18} color={theme2Colors.text} />
             </TouchableOpacity>
           </View>
         </View>
@@ -1451,6 +1519,13 @@ export default function BirthdayCardComposer() {
         onRequestClose={() => setShowSongModal(false)}
       >
         <View style={styles.voiceBackdrop}>
+          <Animated.View style={styles.voiceBackdropOverlay1} />
+          <Animated.View style={styles.voiceBackdropOverlay2} />
+          <TouchableOpacity
+            style={StyleSheet.absoluteFillObject}
+            activeOpacity={1}
+            onPress={() => setShowSongModal(false)}
+          />
           <View style={styles.voiceSheet}>
             <Text style={styles.voiceTitle}>Add a song</Text>
             <Text style={styles.voiceDescription}>
@@ -1461,17 +1536,19 @@ export default function BirthdayCardComposer() {
               value={songUrlInput}
               onChangeText={setSongUrlInput}
               placeholder="https://open.spotify.com/track/..."
-              placeholderTextColor={colors.gray[500]}
+              placeholderTextColor={theme2Colors.textSecondary}
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="url"
             />
-            <Button
-              title="Add Song"
+            <TouchableOpacity
+              style={[styles.addSongButton, !songUrlInput.trim() && styles.voiceIconDisabled]}
               onPress={handleAddSong}
               disabled={!songUrlInput.trim()}
-              style={styles.addSongButton}
-            />
+              activeOpacity={0.7}
+            >
+              <Text style={styles.addSongButtonText}>Add Song</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={styles.voiceCancel} onPress={() => setShowSongModal(false)}>
               <Text style={styles.voiceCancelText}>Cancel</Text>
             </TouchableOpacity>
@@ -1488,6 +1565,15 @@ export default function BirthdayCardComposer() {
         }}
       >
         <View style={styles.voiceBackdrop}>
+          <Animated.View style={styles.voiceBackdropOverlay1} />
+          <Animated.View style={styles.voiceBackdropOverlay2} />
+          <TouchableOpacity
+            style={StyleSheet.absoluteFillObject}
+            activeOpacity={1}
+            onPress={() => {
+              if (!recording) cleanupVoiceModal()
+            }}
+          />
           <View style={styles.voiceSheet}>
             <Text style={styles.voiceTitle}>Voice memo</Text>
             <Text style={styles.voiceTimer}>{formatDuration(voiceDuration)}</Text>
@@ -1503,7 +1589,7 @@ export default function BirthdayCardComposer() {
                   }
                 }}
               >
-                <FontAwesome name={recording ? "stop" : "microphone"} size={22} color={colors.white} />
+                <FontAwesome name={recording ? "stop" : "microphone"} size={22} color={theme2Colors.text} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.voiceIconButton, !voiceUri && styles.voiceIconDisabled]}
@@ -1516,7 +1602,7 @@ export default function BirthdayCardComposer() {
                 <FontAwesome
                   name={isPlayingVoice ? "pause" : "play"}
                   size={22}
-                  color={voiceUri ? colors.white : colors.gray[600]}
+                  color={voiceUri ? theme2Colors.text : theme2Colors.textSecondary}
                 />
               </TouchableOpacity>
               <TouchableOpacity
@@ -1524,14 +1610,14 @@ export default function BirthdayCardComposer() {
                 disabled={!voiceUri}
                 onPress={cleanupVoiceModal}
               >
-                <FontAwesome name="trash" size={20} color={voiceUri ? colors.white : colors.gray[600]} />
+                <FontAwesome name="trash" size={20} color={voiceUri ? theme2Colors.text : theme2Colors.textSecondary} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.voiceSendButton, !voiceUri && styles.voiceIconDisabled]}
                 disabled={!voiceUri}
                 onPress={addVoiceMemoToEntry}
               >
-                <FontAwesome name="paper-plane" size={18} color={voiceUri ? colors.white : colors.gray[600]} />
+                <FontAwesome name="paper-plane" size={18} color={voiceUri ? theme2Colors.white : theme2Colors.textSecondary} />
               </TouchableOpacity>
             </View>
             <TouchableOpacity style={styles.voiceCancel} onPress={() => (!recording ? cleanupVoiceModal() : null)}>
@@ -1546,14 +1632,21 @@ export default function BirthdayCardComposer() {
       <Modal
         visible={showUploadingModal}
         animationType="fade"
-        transparent
+        transparent={false}
         onRequestClose={() => {}}
       >
         <View style={styles.successBackdrop}>
           <View style={styles.successContainer}>
-            <ActivityIndicator size="large" color={colors.white} />
+            <ActivityIndicator size="large" color={theme2Colors.text} />
             <Text style={styles.successTitle}>Uploading your media</Text>
             <Text style={styles.uploadingSubtitle}>Posting soon...</Text>
+          </View>
+          <View style={styles.successTexture} pointerEvents="none">
+            <Image
+              source={require("../../../assets/images/texture.png")}
+              style={StyleSheet.absoluteFillObject}
+              resizeMode="cover"
+            />
           </View>
         </View>
       </Modal>
@@ -1566,16 +1659,25 @@ export default function BirthdayCardComposer() {
         onRequestClose={() => setShowFileSizeModal(false)}
       >
         <View style={styles.successBackdrop}>
+          <Animated.View style={styles.successBackdropOverlay1} />
+          <Animated.View style={styles.successBackdropOverlay2} />
+          <TouchableOpacity
+            style={StyleSheet.absoluteFillObject}
+            activeOpacity={1}
+            onPress={() => setShowFileSizeModal(false)}
+          />
           <View style={styles.successContainer}>
             <Text style={styles.successTitle}>File too large</Text>
             <Text style={styles.uploadingSubtitle}>
               The file you selected is larger than 2GB. Please choose a smaller file.
             </Text>
-            <Button
-              title="OK"
-              onPress={() => setShowFileSizeModal(false)}
+            <TouchableOpacity
               style={styles.successButton}
-            />
+              onPress={() => setShowFileSizeModal(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.successButtonText}>OK</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>

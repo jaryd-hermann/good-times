@@ -1,8 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { View, Text, StyleSheet, ActivityIndicator, Alert, TouchableOpacity, ScrollView, ImageBackground, Dimensions, Modal } from "react-native"
-import { LinearGradient } from "expo-linear-gradient"
+import { View, Text, StyleSheet, ActivityIndicator, Alert, TouchableOpacity, ScrollView, Dimensions, Modal, Image } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { supabase } from "../../lib/supabase"
 import { colors, typography, spacing } from "../../lib/theme"
@@ -13,6 +12,21 @@ import { getGroupMembers } from "../../lib/db"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { usePostHog } from "posthog-react-native"
 import { captureEvent } from "../../lib/posthog"
+import { OnboardingGallery } from "../../components/OnboardingGallery"
+
+// Theme 2 color palette matching new design system
+const theme2Colors = {
+  red: "#B94444",
+  yellow: "#E8A037",
+  green: "#2D6F4A",
+  blue: "#3A5F8C",
+  beige: "#E8E0D5",
+  cream: "#F5F0EA",
+  white: "#FFFFFF",
+  text: "#000000",
+  textSecondary: "#404040",
+  onboardingPink: "#D97393", // Pink for onboarding CTAs
+}
 
 const { width, height } = Dimensions.get("window")
 const PENDING_GROUP_KEY = "pending_group_join"
@@ -34,6 +48,7 @@ export default function JoinGroup() {
   const [creator, setCreator] = useState<any>(null)
   const [members, setMembers] = useState<any[]>([])
   const [showAboutModal, setShowAboutModal] = useState(false)
+  const [onboardingGalleryVisible, setOnboardingGalleryVisible] = useState(false)
   const posthog = usePostHog()
 
   // Track loaded_invite_group_screen event
@@ -302,8 +317,8 @@ export default function JoinGroup() {
   if (loading) {
     return (
       <View style={styles.container}>
-        <ActivityIndicator size="large" color={colors.accent} />
-        <Text style={styles.text}>Loading...</Text>
+        <ActivityIndicator size="large" color={theme2Colors.text} />
+        <Text style={styles.loadingText}>Loading...</Text>
       </View>
     )
   }
@@ -327,266 +342,231 @@ export default function JoinGroup() {
   }
 
   return (
-    <ImageBackground source={require("../../assets/images/welcome-home.png")} style={styles.container} resizeMode="cover">
-      <LinearGradient
-        colors={["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0.3)", "rgba(0, 0, 0, 0.8)", "rgba(0, 0, 0, 1)"]}
-        locations={[0, 0.4, 0.7, 1]}
-        style={styles.gradientOverlay}
-      />
+    <View style={styles.container}>
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.xxl * 3 }]}
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.header}>
-          <Text style={styles.title}>Your invite</Text>
-        </View>
+        {/* Spacer at top to push invite content down */}
+        <View style={styles.topSpacer} />
 
-        <View style={styles.inviterSection}>
-          <Avatar uri={creator?.avatar_url} name={creator?.name || "User"} size={80} />
-          <View style={styles.inviterTextContainer}>
-            <Text style={styles.inviterName}>{creator?.name || "Someone"}</Text>
-            <Text style={styles.inviterText}>
-              invited you to join the closed group &quot;<Text style={styles.groupNameBold}>{group?.name}</Text>&quot;
-            </Text>
-          </View>
-        </View>
-
-        {members.length > 0 && (
-          <View style={styles.membersSection}>
-            <Text style={styles.membersTitle}>In the group already</Text>
-            <View style={styles.membersList}>
-              {members.slice(0, 6).map((member) => (
-                <View key={member.id} style={styles.memberItem}>
-                  <Avatar uri={member.user?.avatar_url} name={member.user?.name || "User"} size={48} />
-                  <Text style={styles.memberName} numberOfLines={1}>
-                    {member.user?.name || "User"}
-                  </Text>
-                </View>
-              ))}
-              {members.length > 6 && (
-                <View style={styles.memberItem}>
-                  <View style={styles.moreMembers}>
-                    <Text style={styles.moreMembersText}>+{members.length - 6}</Text>
-                  </View>
-                  <Text style={styles.memberName}>More</Text>
-                </View>
-              )}
+        {/* Invite Section - Inviter text and avatars */}
+        <View style={styles.topSection}>
+          {/* Inviter text */}
+          {creator && group && (
+            <View style={styles.inviterSection}>
+              <Text style={styles.inviterText}>
+                {creator.name || "Someone"} invited you to join the group, &quot;{group.name}&quot;
+              </Text>
             </View>
-          </View>
-        )}
+          )}
 
-        <View style={styles.buttonSection}>
-          <Button 
-            title={group?.type === "family" ? "Join Your Family" : "Join Your Friends"} 
-            onPress={handleJoinGroup} 
-            style={styles.joinButton} 
+          {/* Member avatars */}
+          {members.length > 0 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.membersScroll}>
+              {members.map((member, index) => {
+                // Cycle through theme colors: pink, yellow, green, blue
+                const avatarColors = [theme2Colors.onboardingPink, theme2Colors.yellow, theme2Colors.green, theme2Colors.blue]
+                const borderColor = avatarColors[index % avatarColors.length]
+                // Create slight rotation angles for overlapping effect
+                const rotationAngles = [-8, 5, -3, 7, -5, 4, -6]
+                const rotation = rotationAngles[index % rotationAngles.length]
+                return (
+                  <View
+                    key={member.id}
+                    style={[styles.memberAvatar, { transform: [{ rotate: `${rotation}deg` }] }]}
+                  >
+                    <Avatar uri={member.user?.avatar_url} name={member.user?.name || "User"} size={42} borderColor={borderColor} square={true} />
+                  </View>
+                )
+              })}
+            </ScrollView>
+          )}
+        </View>
+
+        {/* Bottom Section - Content (wordmark and CTA stay at bottom) */}
+        <View style={styles.content}>
+          {/* Wordmark */}
+          <Image 
+            source={require("../../assets/images/wordmark.png")} 
+            style={styles.wordmark}
+            resizeMode="contain"
           />
-          <View style={styles.aboutLinkContainer}>
-            <TouchableOpacity 
-              onPress={() => setShowAboutModal(true)}
-              style={styles.aboutLink}
+
+          {/* Tagline */}
+          <Text style={styles.subtitle}>
+            Answer just one question a day with your favorite people
+          </Text>
+
+          {/* Show me first link */}
+          <TouchableOpacity
+            style={styles.showMeFirstButton}
+            onPress={() => setOnboardingGalleryVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.showMeFirstText}>show and tell me more first</Text>
+          </TouchableOpacity>
+
+          {/* CTA Button */}
+          <View style={styles.buttonSection}>
+            <TouchableOpacity
+              style={styles.joinButton}
+              onPress={handleJoinGroup}
+              activeOpacity={0.8}
             >
-              <Text style={styles.aboutLinkText}>What&apos;s this app?</Text>
+              <Text style={styles.joinButtonText}>
+                {group?.type === "family" ? "Join your family" : "Join your friends"}
+              </Text>
+              <View style={styles.buttonTexture} pointerEvents="none">
+                <Image
+                  source={require("../../assets/images/texture.png")}
+                  style={styles.textureImage}
+                  resizeMode="cover"
+                />
+              </View>
             </TouchableOpacity>
           </View>
         </View>
-
-        <Modal
-          transparent
-          animationType="fade"
-          visible={showAboutModal}
-          onRequestClose={() => setShowAboutModal(false)}
-        >
-          <TouchableOpacity
-            style={styles.modalBackdrop}
-            activeOpacity={1}
-            onPress={() => setShowAboutModal(false)}
-          >
-            <View 
-              style={[styles.modalContent, { paddingBottom: insets.bottom + spacing.lg }]}
-              onStartShouldSetResponder={() => true}
-            >
-              <Text style={styles.modalTitle}>About Good Times</Text>
-              <Text style={styles.modalText}>
-                {creator?.name || "Someone"} has invited you to join their free private group on Good Times.
-              </Text>
-              <Text style={[styles.modalText, styles.modalTextSpacing]}>
-                Good Times is the group-based, low-effort, social app for friends & family to meaningfully hear from each other everyday in just 3 minutes.
-              </Text>
-              <Text style={[styles.modalText, styles.modalTextSpacing]}>
-                <Text style={styles.modalTextBold}>Just one easy, shared Q&A a day</Text>
-              </Text>
-              <Button
-                title={group?.type === "family" ? "Join Your Family" : "Join Your Friends"}
-                onPress={() => {
-                  setShowAboutModal(false)
-                  handleJoinGroup()
-                }}
-                style={styles.modalButton}
-              />
-            </View>
-          </TouchableOpacity>
-        </Modal>
       </ScrollView>
-    </ImageBackground>
+
+      {/* Onboarding Gallery Modal */}
+      <OnboardingGallery
+        visible={onboardingGalleryVisible}
+        screenshots={[
+          { id: "1", source: require("../../assets/images/onboarding-1-one-question.png") },
+          { id: "2", source: require("../../assets/images/onboarding-2-your-answer.png") },
+          { id: "3", source: require("../../assets/images/onboarding-3-their-answer.png") },
+          { id: "4", source: require("../../assets/images/onboarding-4-your-group.png") },
+          { id: "5", source: require("../../assets/images/onboarding-5-ask-them.png") },
+          { id: "6", source: require("../../assets/images/onboarding-6-themed-decks.png") },
+          { id: "7", source: require("../../assets/images/onboarding-7-set-your-vibe.png") },
+          { id: "8", source: require("../../assets/images/onboarding-8-remember.png") },
+        ]}
+        onComplete={() => setOnboardingGalleryVisible(false)}
+        returnRoute={`/join/${groupId}`}
+      />
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    width,
-    height,
+    backgroundColor: theme2Colors.beige,
   },
-  gradientOverlay: {
-    ...StyleSheet.absoluteFillObject,
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+  },
+  topSpacer: {
+    flex: 1,
+    minHeight: 400, // Increased to push all content down, matching image height from welcome-1
+  },
+  topSection: {
+    padding: spacing.lg,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.xs, // Minimal padding to bring avatars closer to wordmark
+    backgroundColor: theme2Colors.beige,
   },
   content: {
-    flex: 1,
     padding: spacing.lg,
-    paddingBottom: spacing.xxl * 2,
-    justifyContent: "flex-end",
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.xxl * 4,
+    backgroundColor: theme2Colors.beige,
   },
-  header: {
-    marginBottom: spacing.xl,
+  wordmark: {
+    width: 280,
+    height: 92,
+    marginBottom: spacing.xs,
+    marginTop: spacing.xs,
+    marginLeft: -spacing.sm,
+    alignSelf: "flex-start",
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
   },
-  title: {
-    ...typography.h1,
-    fontSize: 36,
-    color: colors.white,
-    textAlign: "left",
+  subtitle: {
+    fontFamily: "PMGothicLudington-Text115",
+    fontSize: 22,
+    lineHeight: 30,
+    color: theme2Colors.text,
+    marginBottom: spacing.md,
+  },
+  showMeFirstButton: {
+    alignSelf: "flex-start",
+    marginBottom: spacing.lg,
+  },
+  showMeFirstText: {
+    fontFamily: "Roboto-Regular",
+    fontSize: 14,
+    color: theme2Colors.text,
+    textDecorationLine: "underline",
   },
   inviterSection: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginBottom: spacing.xl,
-    gap: spacing.md,
-  },
-  inviterTextContainer: {
-    flex: 1,
-  },
-  inviterName: {
-    ...typography.h2,
-    fontSize: 24,
-    color: colors.white,
-    marginBottom: spacing.xs,
+    marginBottom: spacing.sm, // Reduced margin to bring closer to avatars
   },
   inviterText: {
-    ...typography.body,
+    fontFamily: "Roboto-Regular",
     fontSize: 16,
-    color: colors.white,
-    textAlign: "left",
+    color: theme2Colors.text,
     lineHeight: 24,
   },
-  groupNameBold: {
-    ...typography.bodyBold,
-    fontSize: 16,
-    color: colors.white,
+  membersScroll: {
+    paddingVertical: 3,
+    paddingLeft: 3,
+    paddingRight: spacing.sm,
   },
-  membersSection: {
-    marginBottom: spacing.xl,
-  },
-  membersTitle: {
-    ...typography.bodyBold,
-    fontSize: 18,
-    color: colors.white,
-    marginBottom: spacing.md,
-    textAlign: "left",
-  },
-  membersList: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "flex-start",
-    gap: spacing.md * 0.5, // 50% closer spacing
-  },
-  memberItem: {
-    alignItems: "center",
-    gap: spacing.xs,
-    width: 80,
-  },
-  memberName: {
-    ...typography.caption,
-    fontSize: 12,
-    color: colors.gray[300],
-    textAlign: "center",
-  },
-  moreMembers: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colors.gray[800],
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 2,
-    borderColor: colors.gray[600],
-  },
-  moreMembersText: {
-    ...typography.bodyBold,
-    fontSize: 16,
-    color: colors.white,
+  memberAvatar: {
+    marginRight: -4, // Slight overlap
   },
   buttonSection: {
     alignItems: "flex-start",
-    gap: spacing.md,
+    marginTop: spacing.md,
+    width: "100%",
   },
   joinButton: {
     width: "100%",
-    maxWidth: 400,
-  },
-  aboutLinkContainer: {
-    width: "100%",
+    backgroundColor: theme2Colors.onboardingPink,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: theme2Colors.blue,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
     alignItems: "center",
+    justifyContent: "center",
+    minHeight: 56,
+    overflow: "hidden",
+    position: "relative",
   },
-  aboutLink: {
-    paddingVertical: spacing.sm,
+  joinButtonText: {
+    fontFamily: "Roboto-Bold",
+    fontSize: 18,
+    color: theme2Colors.white,
+    zIndex: 2,
   },
-  aboutLinkText: {
+  buttonTexture: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.3,
+    zIndex: 1,
+  },
+  textureImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: "100%",
+    height: "100%",
+  },
+  loadingText: {
     ...typography.body,
-    fontSize: 16,
-    color: colors.white,
-    textDecorationLine: "underline",
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "flex-end",
-  },
-  modalContent: {
-    backgroundColor: colors.black,
-    padding: spacing.lg,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    gap: spacing.md,
-  },
-  modalTitle: {
-    ...typography.h2,
-    fontSize: 24,
-    color: colors.white,
-    marginBottom: spacing.sm,
-  },
-  modalText: {
-    ...typography.body,
-    fontSize: 16,
-    lineHeight: 24,
-    color: colors.gray[300],
-  },
-  modalTextSpacing: {
-    marginTop: spacing.md,
-  },
-  modalTextBold: {
-    fontWeight: "bold",
-  },
-  modalButton: {
-    marginTop: spacing.md,
-  },
-  text: {
-    ...typography.body,
-    color: colors.white,
+    color: theme2Colors.text,
     textAlign: "center",
+    marginTop: spacing.md,
   },
   errorText: {
     ...typography.body,
-    color: colors.accent,
+    color: theme2Colors.red,
     textAlign: "center",
     marginBottom: spacing.md,
   },
@@ -594,11 +574,13 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.lg,
-    backgroundColor: colors.accent,
-    borderRadius: 8,
+    backgroundColor: theme2Colors.onboardingPink,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: theme2Colors.blue,
   },
   retryButtonText: {
     ...typography.bodyBold,
-    color: colors.white,
+    color: theme2Colors.white,
   },
 })

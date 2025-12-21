@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard } from "react-native"
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard, Linking } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { supabase } from "../../../lib/supabase"
@@ -18,12 +18,29 @@ import type { EmbeddedMedia } from "../../../lib/types"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { usePostHog } from "posthog-react-native"
 import { captureEvent } from "../../../lib/posthog"
+import { PhotoLightbox } from "../../../components/PhotoLightbox"
+import { MentionableText } from "../../../components/MentionableText"
+import { UserProfileModal } from "../../../components/UserProfileModal"
 
 export default function BirthdayCardEntryDetail() {
   const router = useRouter()
   const params = useLocalSearchParams()
   const queryClient = useQueryClient()
   const { colors, isDark } = useTheme()
+  
+  // Theme 2 color palette matching new design system
+  const theme2Colors = {
+    red: "#B94444",
+    yellow: "#E8A037",
+    green: "#2D6F4A",
+    blue: "#3A5F8C",
+    beige: "#E8E0D5",
+    cream: "#F5F0EA",
+    white: "#FFFFFF",
+    text: "#000000",
+    textSecondary: "#404040",
+  }
+  
   const entryId = params.entryId as string
   const cardId = params.cardId as string
   const rawEntryIds = params.entryIds as string | undefined
@@ -49,6 +66,10 @@ export default function BirthdayCardEntryDetail() {
   const [audioLoading, setAudioLoading] = useState<Record<string, boolean>>({})
   const [imageDimensions, setImageDimensions] = useState<Record<number, { width: number; height: number }>>({})
   const [keyboardHeight, setKeyboardHeight] = useState(0)
+  const [lightboxVisible, setLightboxVisible] = useState(false)
+  const [lightboxIndex, setLightboxIndex] = useState(0)
+  const [userProfileModalVisible, setUserProfileModalVisible] = useState(false)
+  const [selectedMentionUser, setSelectedMentionUser] = useState<{ id: string; name: string; avatar_url?: string } | null>(null)
   const insets = useSafeAreaInsets()
   const posthog = usePostHog()
 
@@ -258,7 +279,7 @@ export default function BirthdayCardEntryDetail() {
   const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
     },
     containerInner: {
       flex: 1,
@@ -272,25 +293,33 @@ export default function BirthdayCardEntryDetail() {
       paddingTop: spacing.xxl * 2,
     },
     navAction: {
-      paddingHorizontal: spacing.sm,
-      paddingVertical: spacing.xs,
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: theme2Colors.white,
+      justifyContent: "center",
+      alignItems: "center",
+      shadowColor: "#000",
+      shadowOffset: {
+        width: 0,
+        height: 2,
+      },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 3,
+    },
+    navActionNext: {
+      backgroundColor: theme2Colors.yellow,
     },
     navActionDisabled: {
       opacity: 0.4,
-    },
-    navActionDisabledText: {
-      color: colors.gray[500],
-    },
-    backButton: {
-      ...typography.bodyBold,
-      color: colors.white,
     },
     content: {
       flex: 1,
     },
     contentContainer: {
       padding: spacing.lg,
-      paddingBottom: Platform.OS === "android" ? spacing.xxl * 2 + 80 : spacing.xxl * 2, // Extra padding for fixed comment input on Android
+      paddingBottom: Platform.OS === "android" ? spacing.xxl * 2 + 80 : spacing.xxl * 2,
     },
     entryHeader: {
       flexDirection: "row",
@@ -309,8 +338,8 @@ export default function BirthdayCardEntryDetail() {
     },
     userName: {
       ...typography.bodyBold,
-      fontSize: 14,
-      color: colors.white,
+      fontSize: 16,
+      color: theme2Colors.text,
     },
     editLink: {
       ...typography.bodyMedium,
@@ -323,18 +352,19 @@ export default function BirthdayCardEntryDetail() {
       fontSize: 12,
       color: colors.gray[400],
     },
-    question: {
-      ...typography.h2,
-      fontSize: 20,
-      marginBottom: spacing.md,
-      color: colors.white,
-    },
     text: {
       ...typography.body,
       fontSize: 14,
       lineHeight: 22,
       marginBottom: spacing.md,
-      color: colors.white, // colors.white is #000000 (black) in light mode, #ffffff (white) in dark mode
+      color: theme2Colors.text,
+    },
+    link: {
+      ...typography.body,
+      fontSize: 14,
+      lineHeight: 22,
+      color: colors.accent,
+      textDecorationLine: "underline",
     },
     mediaContainer: {
       gap: spacing.xl, // Increased by 150% (from spacing.sm to spacing.xl)
@@ -393,99 +423,17 @@ export default function BirthdayCardEntryDetail() {
       height: 280,
       backgroundColor: colors.gray[900],
     },
-    reactionsSection: {
-      flexDirection: "row",
-      gap: spacing.md,
-      paddingVertical: spacing.lg,
-      borderTopWidth: 1,
-      borderBottomWidth: 1,
-      borderColor: colors.gray[800],
-    },
-    reactionButton: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.xs,
-      paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.md,
-      borderRadius: 20,
-      backgroundColor: colors.gray[800],
-    },
-    reactionButtonActive: {
-      backgroundColor: colors.accent,
-    },
-    reactionCount: {
-      ...typography.bodyBold,
-      fontSize: 14,
-      color: colors.white,
-    },
-    commentsSection: {
-      marginTop: spacing.lg,
-    },
-    commentsTitle: {
-      ...typography.h3,
-      fontSize: 18,
-      marginBottom: spacing.md,
-      color: colors.white,
-    },
-    comment: {
-      flexDirection: "row",
-      marginBottom: spacing.md,
-    },
-    commentContent: {
-      marginLeft: spacing.sm,
-      flex: 1,
-    },
-    commentUser: {
-      ...typography.bodyBold,
-      fontSize: 14,
-      marginBottom: spacing.xs,
-      color: colors.white,
-    },
-    commentText: {
-      ...typography.body,
-      fontSize: 14,
-      lineHeight: 20,
-      color: colors.gray[300],
-    },
-    fixedCommentInput: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      gap: spacing.sm,
-      paddingHorizontal: spacing.lg,
-      paddingTop: spacing.md,
-      paddingBottom: spacing.md,
-      backgroundColor: colors.black,
-      borderTopWidth: 1,
-      borderTopColor: colors.gray[800],
-    },
-    addComment: {
-      marginTop: spacing.md,
-      flexDirection: "row",
-      alignItems: "flex-start",
-      gap: spacing.sm,
-    },
-    commentInput: {
-      flex: 1,
-      ...typography.body,
-      color: colors.white,
-      paddingVertical: 0,
-      minHeight: 40,
-    },
-    sendButton: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: colors.accent,
-      justifyContent: "center",
-      alignItems: "center",
-    },
-    sendButtonDisabled: {
-      backgroundColor: colors.gray[700],
-    },
     embeddedMediaContainer: {
       marginTop: spacing.md,
       marginBottom: spacing.md,
       gap: spacing.sm,
+    },
+    mention: {
+      ...typography.body,
+      fontSize: 14,
+      lineHeight: 22,
+      color: colors.accent,
+      fontWeight: "bold",
     },
   }), [colors])
 
@@ -498,15 +446,20 @@ export default function BirthdayCardEntryDetail() {
     >
       <View style={styles.containerInner}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={handleBack} style={styles.navAction}>
-            <Text style={styles.backButton}>← Back</Text>
+          <TouchableOpacity onPress={handleBack} style={styles.navAction} activeOpacity={0.7}>
+            <FontAwesome name="angle-left" size={18} color={theme2Colors.text} />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={handleNext}
             disabled={!effectiveNextEntryId}
-            style={[styles.navAction, !effectiveNextEntryId && styles.navActionDisabled]}
+            style={[
+              styles.navAction,
+              styles.navActionNext,
+              !effectiveNextEntryId && styles.navActionDisabled
+            ]}
+            activeOpacity={0.7}
           >
-            <Text style={[styles.backButton, !effectiveNextEntryId && styles.navActionDisabledText]}>Next →</Text>
+            <FontAwesome name="angle-right" size={18} color={theme2Colors.text} />
           </TouchableOpacity>
         </View>
 
@@ -519,36 +472,29 @@ export default function BirthdayCardEntryDetail() {
           {entry && (
             <>
               <View style={styles.entryHeader}>
-                <Avatar uri={entry.user?.avatar_url} name={entry.user?.name || "User"} size={48} />
+                <Avatar uri={entry.contributor?.avatar_url} name={entry.contributor?.name || "User"} size={48} />
                 <View style={styles.headerText}>
                   <View style={styles.headerTextRow}>
-                  <Text style={styles.userName}>{entry.user?.name}</Text>
-                    {userId === entry.user_id && entry.date === getTodayDate() && (
-                      <TouchableOpacity
-                        onPress={() => {
-                          router.push({
-                            pathname: "/(main)/modals/entry-composer",
-                            params: {
-                              entryId: entry.id,
-                              editMode: "true",
-                              promptId: entry.prompt_id,
-                              date: entry.date,
-                              groupId: entry.group_id,
-                              returnTo: returnTo || `/(main)/modals/entry-detail?entryId=${entryId}${returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : ""}`,
-                            },
-                          })
-                        }}
-                      >
-                        <Text style={styles.editLink}>Edit</Text>
-                      </TouchableOpacity>
-                    )}
+                    <Text style={styles.userName}>{entry.contributor?.name}</Text>
                   </View>
                   <Text style={styles.time}>{formatTime(entry.created_at)}</Text>
                 </View>
               </View>
 
 
-              {entry.text_content && <Text style={styles.text}>{entry.text_content}</Text>}
+              {entry.text_content && (
+                <MentionableText 
+                  text={entry.text_content} 
+                  textStyle={styles.text} 
+                  linkStyle={styles.link}
+                  mentionStyle={styles.mention}
+                  groupId={entry.card?.group_id}
+                  onMentionPress={(userId, userName, avatarUrl) => {
+                    setSelectedMentionUser({ id: userId, name: userName, avatar_url: avatarUrl })
+                    setUserProfileModalVisible(true)
+                  }}
+                />
+              )}
 
               {/* Embedded media (Spotify/Soundcloud) */}
               {entry.embedded_media && entry.embedded_media.length > 0 && (
@@ -598,7 +544,7 @@ export default function BirthdayCardEntryDetail() {
                           </View>
                           <View style={styles.audioInfo}>
                             <Text style={styles.audioLabel}>
-                              Listen to what {entry.user?.name || "they"} said
+                              Listen to what {entry.contributor?.name || "they"} said
                             </Text>
                             <View style={styles.audioProgressTrack}>
                               <View style={[styles.audioProgressFill, { width: `${Math.max(progressRatio, 0.02) * 100}%` }]} />
@@ -623,22 +569,37 @@ export default function BirthdayCardEntryDetail() {
                             aspectRatio: dimensions.width / dimensions.height,
                           }
                         : styles.mediaImage
+                      
+                      // Get all photo URLs for lightbox
+                      const photoUrls = (entry.media_urls || [])
+                        .map((u, i) => entry.media_types?.[i] === "photo" ? u : null)
+                        .filter((u): u is string => u !== null)
+                      const photoIndex = photoUrls.indexOf(url)
+                      
                       return (
-                        <Image
+                        <TouchableOpacity
                           key={index}
-                          source={{ uri: url }}
-                          style={imageStyle}
-                          resizeMode="contain"
-                          onLoad={(e) => {
-                            const { width, height } = e.nativeEvent.source
-                            if (width && height) {
-                              setImageDimensions((prev) => ({
-                                ...prev,
-                                [index]: { width, height },
-                              }))
-                            }
+                          activeOpacity={0.9}
+                          onPress={() => {
+                            setLightboxIndex(photoIndex >= 0 ? photoIndex : 0)
+                            setLightboxVisible(true)
                           }}
-                        />
+                        >
+                          <Image
+                            source={{ uri: url }}
+                            style={imageStyle}
+                            resizeMode="contain"
+                            onLoad={(e) => {
+                              const { width, height } = e.nativeEvent.source
+                              if (width && height) {
+                                setImageDimensions((prev) => ({
+                                  ...prev,
+                                  [index]: { width, height },
+                                }))
+                              }
+                            }}
+                          />
+                        </TouchableOpacity>
                       )
                     }
                     if (mediaType === "video") {
@@ -660,8 +621,43 @@ export default function BirthdayCardEntryDetail() {
             </>
           )}
         </ScrollView>
-
       </View>
+
+      {/* Photo Lightbox */}
+      {entry && (
+        <PhotoLightbox
+          visible={lightboxVisible}
+          photos={
+            entry.media_urls
+              ?.map((url, index) => (entry.media_types?.[index] === "photo" ? url : null))
+              .filter((url): url is string => url !== null) || []
+          }
+          initialIndex={lightboxIndex}
+          onClose={() => setLightboxVisible(false)}
+        />
+      )}
+
+      {/* User Profile Modal */}
+      <UserProfileModal
+        visible={userProfileModalVisible}
+        userId={selectedMentionUser?.id || null}
+        userName={selectedMentionUser?.name || null}
+        userAvatarUrl={selectedMentionUser?.avatar_url}
+        groupId={entry?.card?.group_id}
+        onClose={() => {
+          setUserProfileModalVisible(false)
+          setSelectedMentionUser(null)
+        }}
+        onViewHistory={(userId) => {
+          router.push({
+            pathname: "/(main)/history",
+            params: {
+              focusGroupId: entry?.card?.group_id,
+              filterMemberId: userId,
+            },
+          })
+        }}
+      />
     </KeyboardAvoidingView>
   )
 }

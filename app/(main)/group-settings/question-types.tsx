@@ -23,7 +23,7 @@ type Preference = "more" | "less" | "none" | null
 export default function QuestionTypesSettings() {
   const router = useRouter()
   const params = useLocalSearchParams()
-  const { colors } = useTheme()
+  const { colors, isDark } = useTheme()
   const groupId = params.groupId as string
   const insets = useSafeAreaInsets()
   const queryClient = useQueryClient()
@@ -31,6 +31,19 @@ export default function QuestionTypesSettings() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [saving, setSaving] = useState<string | null>(null)
   const [groupType, setGroupType] = useState<"family" | "friends" | null>(null)
+
+  // Theme 2 color palette matching new design system
+  const theme2Colors = {
+    red: "#B94444",
+    yellow: "#E8A037",
+    green: "#2D6F4A",
+    blue: "#3A5F8C",
+    beige: "#E8E0D5",
+    cream: "#F5F0EA",
+    white: "#FFFFFF",
+    text: "#000000",
+    textSecondary: "#404040",
+  }
 
   const { data: preferences = [] } = useQuery({
     queryKey: ["questionPreferences", groupId],
@@ -135,7 +148,7 @@ export default function QuestionTypesSettings() {
   const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
     },
     header: {
       flexDirection: "row",
@@ -143,20 +156,21 @@ export default function QuestionTypesSettings() {
       justifyContent: "space-between",
       paddingHorizontal: spacing.md,
       paddingBottom: spacing.md,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.gray[800],
     },
     closeButton: {
-      padding: spacing.sm,
-    },
-    closeText: {
-      ...typography.h2,
-      color: colors.white,
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: theme2Colors.white,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
     },
     title: {
-      ...typography.h1,
-      fontSize: 28,
-      color: colors.white,
+      fontFamily: "PMGothicLudington-Text115",
+      fontSize: 32,
+      color: theme2Colors.text,
     },
     content: {
       flex: 1,
@@ -167,23 +181,25 @@ export default function QuestionTypesSettings() {
     },
     description: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       marginBottom: spacing.sm,
     },
     categoryCard: {
-      backgroundColor: colors.gray[900],
+      backgroundColor: theme2Colors.cream,
       borderRadius: 16,
       padding: spacing.md,
       gap: spacing.sm,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
     },
     categoryTitle: {
       ...typography.bodyBold,
       fontSize: 16,
-      color: colors.white,
+      color: theme2Colors.text,
     },
     categoryDescription: {
       ...typography.caption,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       fontSize: 13,
       marginBottom: spacing.xs,
     },
@@ -196,23 +212,23 @@ export default function QuestionTypesSettings() {
       paddingVertical: spacing.sm,
       paddingHorizontal: spacing.md,
       borderRadius: 8,
-      backgroundColor: colors.gray[800],
+      backgroundColor: theme2Colors.textSecondary,
       alignItems: "center",
     },
     preferenceButtonActive: {
-      backgroundColor: colors.accent,
+      backgroundColor: theme2Colors.blue,
     },
     preferenceButtonDisabled: {
       opacity: 0.5,
     },
     preferenceButtonText: {
       ...typography.bodyMedium,
-      color: colors.gray[300],
+      color: theme2Colors.text,
     },
     preferenceButtonTextActive: {
-      color: colors.white,
+      color: theme2Colors.white,
     },
-  }), [colors])
+  }), [colors, isDark])
 
   if (!isAdmin) {
     return null
@@ -230,8 +246,9 @@ export default function QuestionTypesSettings() {
             })
           }
           style={styles.closeButton}
+          activeOpacity={0.7}
         >
-          <Text style={styles.closeText}>✕</Text>
+          <FontAwesome name="times" size={16} color={theme2Colors.text} />
         </TouchableOpacity>
       </View>
 

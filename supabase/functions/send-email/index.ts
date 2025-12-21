@@ -78,33 +78,33 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Welcome to Good Times</title>
 </head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #ffffff; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #000000;">
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #000000; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #F5F0EA;">
   <!-- Main container -->
-  <div style="background-color: #000000; border-radius: 12px; overflow: hidden;">
+  <div style="background-color: #F5F0EA; border-radius: 12px; overflow: hidden;">
     <!-- Content area -->
-    <div style="padding: 40px 30px; background-color: #000000;">
-      <p style="font-size: 18px; margin-bottom: 24px; color: #ffffff;">Hi ${memberName},</p>
+    <div style="padding: 40px 30px; background-color: #F5F0EA;">
+      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Hi ${memberName},</p>
       
-      <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff; line-height: 1.7;">
-        ${welcomeMessage}
-      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+      ${welcomeMessage}
+    </p>
       
-      <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff; line-height: 1.7;">
-        Good Times helps you and your loved ones capture and share meaningful moments together. 
-        You'll receive daily prompts to spark conversations and create lasting memories.
-      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+      Good Times helps you and your loved ones capture and share meaningful moments together. 
+      You'll receive daily prompts to spark conversations and create lasting memories.
+    </p>
       
       <!-- CTA Section -->
-      <div style="background-color: #111111; border-left: 4px solid #D35E3C; padding: 20px; margin: 30px 0; border-radius: 4px;">
-        <p style="font-size: 16px; margin: 0; color: #ffffff; font-weight: 600;">
+      <div style="background-color: #F5F0EA; border-left: 4px solid #D97393; padding: 20px; margin: 30px 0; border-radius: 4px;">
+        <p style="font-size: 16px; margin: 0; color: #000000; font-weight: 600;">
           ✨ Get started by opening the app and responding to today's prompt!
         </p>
       </div>
       
       <!-- Features list -->
       <div style="margin: 30px 0;">
-        <p style="font-size: 14px; font-weight: 600; color: #cccccc; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">What to expect:</p>
-        <ul style="font-size: 15px; color: #ffffff; line-height: 1.8; padding-left: 20px; margin: 0;">
+        <p style="font-size: 14px; font-weight: 600; color: #404040; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">What to expect:</p>
+        <ul style="font-size: 15px; color: #000000; line-height: 1.8; padding-left: 20px; margin: 0;">
           <li style="margin-bottom: 8px;">Daily prompts delivered at 9 AM</li>
           <li style="margin-bottom: 8px;">Share photos, videos, or text responses</li>
           <li style="margin-bottom: 8px;">Build a beautiful timeline of memories</li>
@@ -113,16 +113,16 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
       
       <!-- Sign-off -->
       <div style="margin-top: 40px; text-align: left;">
-        <p style="font-size: 16px; color: #ffffff; margin: 0 0 4px 0;">Have a good one!</p>
-        <p style="font-size: 16px; color: #ffffff; margin: 0 0 20px 0;"><em>Jaryd</em></p>
-        <p style="font-size: 14px; color: #ffffff; margin: 0;">
-          <a href="goodtimes://feedback" style="color: #ffffff; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+        <p style="font-size: 16px; color: #000000; margin: 0 0 4px 0;">Have a good one!</p>
+        <p style="font-size: 16px; color: #000000; margin: 0 0 20px 0;"><em>Jaryd</em></p>
+        <p style="font-size: 14px; color: #000000; margin: 0;">
+          <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">Have feedback or an idea? Let me know</a>
         </p>
       </div>
     </div>
     
     <!-- Footer with wordmark -->
-    <div style="background-color: #000000; padding: 30px; text-align: center; border-top: 1px solid #333333;">
+    <div style="background-color: #F5F0EA; padding: 30px; text-align: center; border-top: 1px solid #E8E0D5;">
       <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
     </div>
   </div>
@@ -140,29 +140,31 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Day 2 - Getting Started</title>
 </head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #ffffff; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #000000;">
-  <div style="background-color: #000000; padding: 40px 30px;">
-    <p style="font-size: 18px; margin-bottom: 20px; color: #ffffff;">Hi ${memberName},</p>
-    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
-      We hope you're enjoying Good Times! Have you had a chance to respond to today's prompt yet?
-    </p>
-    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
-      Every day at 9 AM, you'll receive a new question designed to spark meaningful conversations with your group. 
-      The best part? You can respond with text, photos, or videos to make your memories come alive.
-    </p>
-    <p style="font-size: 16px; margin-bottom: 30px; color: #ffffff;">
-      If you haven't already, try responding to today's prompt and see how your group reacts!
-    </p>
-    <div style="margin-top: 40px; text-align: left;">
-      <p style="font-size: 16px; color: #ffffff; margin: 0 0 4px 0;">Have a good one!</p>
-      <p style="font-size: 16px; color: #ffffff; margin: 0 0 20px 0;"><em>Jaryd</em></p>
-      <p style="font-size: 14px; color: #ffffff; margin: 0;">
-        <a href="goodtimes://feedback" style="color: #ffffff; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #000000; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #F5F0EA;">
+  <div style="background-color: #F5F0EA; border-radius: 12px; overflow: hidden;">
+    <div style="padding: 40px 30px; background-color: #F5F0EA;">
+      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Hi ${memberName},</p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        We hope you're enjoying Good Times! Have you had a chance to respond to today's prompt yet?
       </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        Every day at 9 AM, you'll receive a new question designed to spark meaningful conversations with your group. 
+        The best part? You can respond with text, photos, or videos to make your memories come alive.
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        If you haven't already, try responding to today's prompt and see how your group reacts!
+      </p>
+      <div style="margin-top: 40px; text-align: left;">
+        <p style="font-size: 16px; color: #000000; margin: 0 0 4px 0;">Have a good one!</p>
+        <p style="font-size: 16px; color: #000000; margin: 0 0 20px 0;"><em>Jaryd</em></p>
+        <p style="font-size: 14px; color: #000000; margin: 0;">
+          <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+        </p>
+      </div>
     </div>
-  </div>
-  <div style="background-color: #000000; padding: 30px; text-align: center; border-top: 1px solid #333333;">
-    <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
+    <div style="background-color: #F5F0EA; padding: 30px; text-align: center; border-top: 1px solid #E8E0D5;">
+      <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
+    </div>
   </div>
 </body>
 </html>
@@ -178,30 +180,32 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Day 3 - Exploring Features</title>
 </head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #ffffff; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #000000;">
-  <div style="background-color: #000000; padding: 40px 30px;">
-    <p style="font-size: 18px; margin-bottom: 20px; color: #ffffff;">Hi ${memberName},</p>
-    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
-      Good Times is more than just daily prompts! Here are some features you might not have discovered yet:
-    </p>
-    <ul style="font-size: 16px; margin-bottom: 20px; padding-left: 20px; color: #ffffff;">
-      <li style="margin-bottom: 10px;"><strong style="color: #ffffff;">Browse History:</strong> Look back at all your shared memories organized by day, week, month, or year</li>
-      <li style="margin-bottom: 10px;"><strong style="color: #ffffff;">React & Comment:</strong> Show love for entries with hearts and leave comments to keep the conversation going</li>
-      <li style="margin-bottom: 10px;"><strong style="color: #ffffff;">Custom Decks:</strong> Suggest new question decks tailored to your group's interests</li>
-    </ul>
-    <p style="font-size: 16px; margin-bottom: 30px; color: #ffffff;">
-      Take a moment to explore the app and see what else Good Times has to offer!
-    </p>
-    <div style="margin-top: 40px; text-align: left;">
-      <p style="font-size: 16px; color: #ffffff; margin: 0 0 4px 0;">Have a good one!</p>
-      <p style="font-size: 16px; color: #ffffff; margin: 0 0 20px 0;"><em>Jaryd</em></p>
-      <p style="font-size: 14px; color: #ffffff; margin: 0;">
-        <a href="goodtimes://feedback" style="color: #ffffff; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #000000; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #F5F0EA;">
+  <div style="background-color: #F5F0EA; border-radius: 12px; overflow: hidden;">
+    <div style="padding: 40px 30px; background-color: #F5F0EA;">
+      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Hi ${memberName},</p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        Good Times is more than just daily prompts! Here are some features you might not have discovered yet:
       </p>
+      <ul style="font-size: 15px; color: #000000; line-height: 1.8; padding-left: 20px; margin: 0;">
+        <li style="margin-bottom: 8px;"><strong style="color: #000000;">Browse History:</strong> Look back at all your shared memories organized by day, week, month, or year</li>
+        <li style="margin-bottom: 8px;"><strong style="color: #000000;">React & Comment:</strong> Show love for entries with hearts and leave comments to keep the conversation going</li>
+        <li style="margin-bottom: 8px;"><strong style="color: #000000;">Custom Decks:</strong> Suggest new question decks tailored to your group's interests</li>
+      </ul>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        Take a moment to explore the app and see what else Good Times has to offer!
+      </p>
+      <div style="margin-top: 40px; text-align: left;">
+        <p style="font-size: 16px; color: #000000; margin: 0 0 4px 0;">Have a good one!</p>
+        <p style="font-size: 16px; color: #000000; margin: 0 0 20px 0;"><em>Jaryd</em></p>
+        <p style="font-size: 14px; color: #000000; margin: 0;">
+          <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+        </p>
+      </div>
     </div>
-  </div>
-  <div style="background-color: #000000; padding: 30px; text-align: center; border-top: 1px solid #333333;">
-    <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
+    <div style="background-color: #F5F0EA; padding: 30px; text-align: center; border-top: 1px solid #E8E0D5;">
+      <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
+    </div>
   </div>
 </body>
 </html>
@@ -217,29 +221,31 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Day 4 - Building Connections</title>
 </head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #ffffff; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #000000;">
-  <div style="background-color: #000000; padding: 40px 30px;">
-    <p style="font-size: 18px; margin-bottom: 20px; color: #ffffff;">Hi ${memberName},</p>
-    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
-      The magic of Good Times happens when everyone in your group participates. 
-      When you share your responses, you're creating a shared story that grows richer with each contribution.
-    </p>
-    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
-      <strong style="color: #ffffff;">Tip:</strong> Try responding with a photo or video this week! Visual memories often spark the most meaningful conversations and reactions from your group.
-    </p>
-    <p style="font-size: 16px; margin-bottom: 30px; color: #ffffff;">
-      Keep the momentum going - your group is counting on you! 💫
-    </p>
-    <div style="margin-top: 40px; text-align: left;">
-      <p style="font-size: 16px; color: #ffffff; margin: 0 0 4px 0;">Have a good one!</p>
-      <p style="font-size: 16px; color: #ffffff; margin: 0 0 20px 0;"><em>Jaryd</em></p>
-      <p style="font-size: 14px; color: #ffffff; margin: 0;">
-        <a href="goodtimes://feedback" style="color: #ffffff; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #000000; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #F5F0EA;">
+  <div style="background-color: #F5F0EA; border-radius: 12px; overflow: hidden;">
+    <div style="padding: 40px 30px; background-color: #F5F0EA;">
+      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Hi ${memberName},</p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        The magic of Good Times happens when everyone in your group participates. 
+        When you share your responses, you're creating a shared story that grows richer with each contribution.
       </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        <strong style="color: #000000;">Tip:</strong> Try responding with a photo or video this week! Visual memories often spark the most meaningful conversations and reactions from your group.
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        Keep the momentum going - your group is counting on you! 💫
+      </p>
+      <div style="margin-top: 40px; text-align: left;">
+        <p style="font-size: 16px; color: #000000; margin: 0 0 4px 0;">Have a good one!</p>
+        <p style="font-size: 16px; color: #000000; margin: 0 0 20px 0;"><em>Jaryd</em></p>
+        <p style="font-size: 14px; color: #000000; margin: 0;">
+          <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+        </p>
+      </div>
     </div>
-  </div>
-  <div style="background-color: #000000; padding: 30px; text-align: center; border-top: 1px solid #333333;">
-    <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
+    <div style="background-color: #F5F0EA; padding: 30px; text-align: center; border-top: 1px solid #E8E0D5;">
+      <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
+    </div>
   </div>
 </body>
 </html>
@@ -255,30 +261,32 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Day 5 - Making It a Habit</title>
 </head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #ffffff; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #000000;">
-  <div style="background-color: #000000; padding: 40px 30px;">
-    <p style="font-size: 18px; margin-bottom: 20px; color: #ffffff;">Hi ${memberName},</p>
-    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
-      Consistency is key to building lasting memories. When you respond to prompts regularly, 
-      you're creating a beautiful timeline of your shared experiences.
-    </p>
-    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
-      <strong style="color: #ffffff;">Pro tip:</strong> Set a daily reminder or make responding to prompts part of your morning routine. 
-      Even a quick response is better than no response - your group will appreciate it!
-    </p>
-    <p style="font-size: 16px; margin-bottom: 30px; color: #ffffff;">
-      You're doing great! Keep up the amazing work. 🌟
-    </p>
-    <div style="margin-top: 40px; text-align: left;">
-      <p style="font-size: 16px; color: #ffffff; margin: 0 0 4px 0;">Have a good one!</p>
-      <p style="font-size: 16px; color: #ffffff; margin: 0 0 20px 0;"><em>Jaryd</em></p>
-      <p style="font-size: 14px; color: #ffffff; margin: 0;">
-        <a href="goodtimes://feedback" style="color: #ffffff; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #000000; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #F5F0EA;">
+  <div style="background-color: #F5F0EA; border-radius: 12px; overflow: hidden;">
+    <div style="padding: 40px 30px; background-color: #F5F0EA;">
+      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Hi ${memberName},</p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        Consistency is key to building lasting memories. When you respond to prompts regularly, 
+        you're creating a beautiful timeline of your shared experiences.
       </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        <strong style="color: #000000;">Pro tip:</strong> Set a daily reminder or make responding to prompts part of your morning routine. 
+        Even a quick response is better than no response - your group will appreciate it!
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        You're doing great! Keep up the amazing work. 🌟
+      </p>
+      <div style="margin-top: 40px; text-align: left;">
+        <p style="font-size: 16px; color: #000000; margin: 0 0 4px 0;">Have a good one!</p>
+        <p style="font-size: 16px; color: #000000; margin: 0 0 20px 0;"><em>Jaryd</em></p>
+        <p style="font-size: 14px; color: #000000; margin: 0;">
+          <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+        </p>
+      </div>
     </div>
-  </div>
-  <div style="background-color: #000000; padding: 30px; text-align: center; border-top: 1px solid #333333;">
-    <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
+    <div style="background-color: #F5F0EA; padding: 30px; text-align: center; border-top: 1px solid #E8E0D5;">
+      <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
+    </div>
   </div>
 </body>
 </html>
@@ -294,30 +302,32 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Day 6 - Invite Friends</title>
 </head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #ffffff; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #000000;">
-  <div style="background-color: #000000; padding: 40px 30px;">
-    <p style="font-size: 18px; margin-bottom: 20px; color: #ffffff;">Hi ${memberName},</p>
-    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
-      The more people in your group, the richer your shared memories become! 
-      Consider inviting more friends or family members to join your Good Times group.
-    </p>
-    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
-      You can invite people directly from the app - just look for the invite button in your group settings. 
-      Each new member brings new perspectives and stories to your shared timeline.
-    </p>
-    <p style="font-size: 16px; margin-bottom: 30px; color: #ffffff;">
-      Ready to grow your Good Times family? 🎉
-    </p>
-    <div style="margin-top: 40px; text-align: left;">
-      <p style="font-size: 16px; color: #ffffff; margin: 0 0 4px 0;">Have a good one!</p>
-      <p style="font-size: 16px; color: #ffffff; margin: 0 0 20px 0;"><em>Jaryd</em></p>
-      <p style="font-size: 14px; color: #ffffff; margin: 0;">
-        <a href="goodtimes://feedback" style="color: #ffffff; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #000000; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #F5F0EA;">
+  <div style="background-color: #F5F0EA; border-radius: 12px; overflow: hidden;">
+    <div style="padding: 40px 30px; background-color: #F5F0EA;">
+      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Hi ${memberName},</p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        The more people in your group, the richer your shared memories become! 
+        Consider inviting more friends or family members to join your Good Times group.
       </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        You can invite people directly from the app - just look for the invite button in your group settings. 
+        Each new member brings new perspectives and stories to your shared timeline.
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        Ready to grow your Good Times family? 🎉
+      </p>
+      <div style="margin-top: 40px; text-align: left;">
+        <p style="font-size: 16px; color: #000000; margin: 0 0 4px 0;">Have a good one!</p>
+        <p style="font-size: 16px; color: #000000; margin: 0 0 20px 0;"><em>Jaryd</em></p>
+        <p style="font-size: 14px; color: #000000; margin: 0;">
+          <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+        </p>
+      </div>
     </div>
-  </div>
-  <div style="background-color: #000000; padding: 30px; text-align: center; border-top: 1px solid #333333;">
-    <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
+    <div style="background-color: #F5F0EA; padding: 30px; text-align: center; border-top: 1px solid #E8E0D5;">
+      <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
+    </div>
   </div>
 </body>
 </html>
@@ -333,34 +343,36 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Day 7 - You're All Set!</title>
 </head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #ffffff; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #000000;">
-  <div style="background-color: #000000; padding: 40px 30px;">
-    <p style="font-size: 18px; margin-bottom: 20px; color: #ffffff;">Hi ${memberName},</p>
-    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
-      Congratulations! You've completed your first week with Good Times. 
-      You now know everything you need to make the most of your shared memories.
-    </p>
-    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
-      From here on out, you'll continue receiving daily prompts at 9 AM. 
-      Keep responding, keep sharing, and keep building those meaningful connections with your group.
-    </p>
-    <p style="font-size: 16px; margin-bottom: 20px; color: #ffffff;">
-      If you ever have questions or feedback, we're here for you. 
-      Just reply to this email - we'd love to hear from you!
-    </p>
-    <p style="font-size: 16px; margin-bottom: 30px; color: #ffffff;">
-      Here's to many more good times ahead! 🥂
-    </p>
-    <div style="margin-top: 40px; text-align: left;">
-      <p style="font-size: 16px; color: #ffffff; margin: 0 0 4px 0;">Have a good one!</p>
-      <p style="font-size: 16px; color: #ffffff; margin: 0 0 20px 0;"><em>Jaryd</em></p>
-      <p style="font-size: 14px; color: #ffffff; margin: 0;">
-        <a href="goodtimes://feedback" style="color: #ffffff; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #000000; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #F5F0EA;">
+  <div style="background-color: #F5F0EA; border-radius: 12px; overflow: hidden;">
+    <div style="padding: 40px 30px; background-color: #F5F0EA;">
+      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Hi ${memberName},</p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        Congratulations! You've completed your first week with Good Times. 
+        You now know everything you need to make the most of your shared memories.
       </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        From here on out, you'll continue receiving daily prompts at 9 AM. 
+        Keep responding, keep sharing, and keep building those meaningful connections with your group.
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        If you ever have questions or feedback, we're here for you. 
+        Just reply to this email - we'd love to hear from you!
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        Here's to many more good times ahead! 🥂
+      </p>
+      <div style="margin-top: 40px; text-align: left;">
+        <p style="font-size: 16px; color: #000000; margin: 0 0 4px 0;">Have a good one!</p>
+        <p style="font-size: 16px; color: #000000; margin: 0 0 20px 0;"><em>Jaryd</em></p>
+        <p style="font-size: 14px; color: #000000; margin: 0;">
+          <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+        </p>
+      </div>
     </div>
-  </div>
-  <div style="background-color: #000000; padding: 30px; text-align: center; border-top: 1px solid #333333;">
-    <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
+    <div style="background-color: #F5F0EA; padding: 30px; text-align: center; border-top: 1px solid #E8E0D5;">
+      <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
+    </div>
   </div>
 </body>
 </html>
@@ -399,33 +411,37 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Your Birthday Card is Ready!</title>
 </head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-  <div style="background-color: #000; color: #fff; padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
-    <h1 style="margin: 0; font-size: 28px;">🎂 Happy Birthday! 🎉</h1>
-  </div>
-  <div style="background-color: #f9f9f9; padding: 40px; border-radius: 0 0 8px 8px;">
-    <p style="font-size: 18px; margin-bottom: 20px;">Hi ${userName},</p>
-    <p style="font-size: 16px; margin-bottom: 20px;">
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #000000; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #F5F0EA;">
+  <div style="background-color: #F5F0EA; border-radius: 12px; overflow: hidden;">
+    <div style="padding: 40px 30px; background-color: #F5F0EA;">
+      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Hi ${userName},</p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
       ${contributorNames.length > 0 
-        ? `<strong>${contributorsText}</strong> wrote you a special birthday card!` 
+          ? `<strong style="color: #000000;">${contributorsText}</strong> wrote you a special birthday card!` 
         : `You have a special birthday card from ${groupGreeting}!`}
     </p>
-    <p style="font-size: 16px; margin-bottom: 30px;">
+      <p style="font-size: 16px; margin-bottom: 30px; color: #000000; line-height: 1.7;">
       Open the app to see the heartfelt messages ${groupType === "family" ? "your family" : "your friends"} left for you on your special day.
     </p>
     <div style="text-align: center; margin: 30px 0;">
-      <a href="${cardLink}" style="display: inline-block; background-color: #D35E3C; color: #fff; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">
+        <a href="${cardLink}" style="display: inline-block; background-color: #D97393; color: #fff; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">
         View Your Birthday Card
       </a>
     </div>
-    <p style="font-size: 14px; color: #666; margin-top: 30px; text-align: center;">
+      <p style="font-size: 14px; color: #404040; margin-top: 30px; text-align: center;">
       If the button doesn't work, copy and paste this link into your browser:<br>
-      <a href="${cardLink}" style="color: #D35E3C; word-break: break-all;">${cardLink}</a>
-    </p>
-    <div style="text-align: center; margin-top: 30px;">
-      <p style="font-size: 14px; color: #666; margin: 0;">
-        Have a wonderful birthday! 🎈
+        <a href="${cardLink}" style="color: #E8A037; word-break: break-all;">${cardLink}</a>
       </p>
+      <div style="margin-top: 40px; text-align: left;">
+        <p style="font-size: 16px; color: #000000; margin: 0 0 4px 0;">Have a good one!</p>
+        <p style="font-size: 16px; color: #000000; margin: 0 0 20px 0;"><em>Jaryd</em></p>
+        <p style="font-size: 14px; color: #000000; margin: 0;">
+          <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+        </p>
+      </div>
+    </div>
+    <div style="background-color: #F5F0EA; padding: 30px; text-align: center; border-top: 1px solid #E8E0D5;">
+      <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
     </div>
   </div>
 </body>
@@ -458,23 +474,33 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Deck Suggestion</title>
 </head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-  <div style="background-color: #000; color: #fff; padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
-    <h1 style="margin: 0; font-size: 28px;">Deck Suggestion</h1>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #000000; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #F5F0EA;">
+  <div style="background-color: #F5F0EA; border-radius: 12px; overflow: hidden;">
+    <div style="padding: 40px 30px; background-color: #F5F0EA;">
+      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Deck Suggestion</p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        <strong style="color: #000000;">User:</strong> ${userName}<br>
+        <strong style="color: #000000;">Email:</strong> ${userEmail}<br>
+        <strong style="color: #000000;">Group:</strong> ${groupName} (ID: ${groupId})
+      </p>
+      <div style="background-color: #F5F0EA; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #D97393;">
+        <p style="font-size: 16px; margin: 0 0 10px 0; color: #000000;"><strong style="color: #000000;">Suggestion:</strong></p>
+        <p style="font-size: 16px; margin: 0; white-space: pre-wrap; color: #000000;">${suggestion}</p>
+      </div>
+      <div style="background-color: #F5F0EA; padding: 20px; border-radius: 8px; border-left: 4px solid #E8E0D5;">
+        <p style="font-size: 16px; margin: 0 0 10px 0; color: #000000;"><strong style="color: #000000;">Sample Question:</strong></p>
+        <p style="font-size: 16px; margin: 0; white-space: pre-wrap; color: #000000;">${sampleQuestion}</p>
   </div>
-  <div style="background-color: #f9f9f9; padding: 40px; border-radius: 0 0 8px 8px;">
-    <p style="font-size: 16px; margin-bottom: 20px;">
-      <strong>User:</strong> ${userName}<br>
-      <strong>Email:</strong> ${userEmail}<br>
-      <strong>Group:</strong> ${groupName} (ID: ${groupId})
-    </p>
-    <div style="background-color: #fff; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #D35E3C;">
-      <p style="font-size: 16px; margin: 0 0 10px 0;"><strong>Suggestion:</strong></p>
-      <p style="font-size: 16px; margin: 0; white-space: pre-wrap;">${suggestion}</p>
+      <div style="margin-top: 40px; text-align: left;">
+        <p style="font-size: 16px; color: #000000; margin: 0 0 4px 0;">Have a good one!</p>
+        <p style="font-size: 16px; color: #000000; margin: 0 0 20px 0;"><em>Jaryd</em></p>
+        <p style="font-size: 14px; color: #000000; margin: 0;">
+          <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+        </p>
+      </div>
     </div>
-    <div style="background-color: #fff; padding: 20px; border-radius: 8px; border-left: 4px solid #666;">
-      <p style="font-size: 16px; margin: 0 0 10px 0;"><strong>Sample Question:</strong></p>
-      <p style="font-size: 16px; margin: 0; white-space: pre-wrap;">${sampleQuestion}</p>
+    <div style="background-color: #F5F0EA; padding: 30px; text-align: center; border-top: 1px solid #E8E0D5;">
+      <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
     </div>
   </div>
 </body>
@@ -501,9 +527,9 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
       const questionsHTML = questions.map((q: string, idx: number) => {
         const escapedQ = escapeHtml(q)
         return `
-        <div style="background-color: #fff; padding: 20px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #D35E3C;">
-          <p style="font-size: 16px; margin: 0 0 10px 0;"><strong>Question ${idx + 1}:</strong></p>
-          <p style="font-size: 16px; margin: 0; white-space: pre-wrap;">${escapedQ}</p>
+        <div style="background-color: #F5F0EA; padding: 20px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #D97393;">
+          <p style="font-size: 16px; margin: 0 0 10px 0; color: #000000;"><strong style="color: #000000;">Question ${idx + 1}:</strong></p>
+          <p style="font-size: 16px; margin: 0; white-space: pre-wrap; color: #000000;">${escapedQ}</p>
         </div>
         `
       }).join("")
@@ -516,26 +542,36 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Featured Question Suggestion</title>
 </head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-  <div style="background-color: #000; color: #fff; padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
-    <h1 style="margin: 0; font-size: 28px;">Featured Question Suggestion</h1>
-  </div>
-  <div style="background-color: #f9f9f9; padding: 40px; border-radius: 0 0 8px 8px;">
-    <p style="font-size: 16px; margin-bottom: 20px;">
-      <strong>User:</strong> ${userName}<br>
-      <strong>Email:</strong> ${userEmail}<br>
-      <strong>Group:</strong> ${groupName} (ID: ${groupId})
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #000000; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #F5F0EA;">
+  <div style="background-color: #F5F0EA; border-radius: 12px; overflow: hidden;">
+    <div style="padding: 40px 30px; background-color: #F5F0EA;">
+      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Featured Question Suggestion</p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        <strong style="color: #000000;">User:</strong> ${userName}<br>
+        <strong style="color: #000000;">Email:</strong> ${userEmail}<br>
+        <strong style="color: #000000;">Group:</strong> ${groupName} (ID: ${groupId})
     </p>
     ${questions.length > 0 ? `
     <div style="margin-top: 20px;">
-      <p style="font-size: 18px; margin-bottom: 15px;"><strong>Suggested Questions:</strong></p>
+        <p style="font-size: 18px; margin-bottom: 15px; color: #000000;"><strong style="color: #000000;">Suggested Questions:</strong></p>
       ${questionsHTML}
     </div>
     ` : `
-    <div style="background-color: #fff; padding: 20px; border-radius: 8px; border-left: 4px solid #666;">
-      <p style="font-size: 16px; margin: 0; color: #666;">No questions provided.</p>
+      <div style="background-color: #F5F0EA; padding: 20px; border-radius: 8px; border-left: 4px solid #E8E0D5;">
+        <p style="font-size: 16px; margin: 0; color: #404040;">No questions provided.</p>
+      </div>
+      `}
+      <div style="margin-top: 40px; text-align: left;">
+        <p style="font-size: 16px; color: #000000; margin: 0 0 4px 0;">Have a good one!</p>
+        <p style="font-size: 16px; color: #000000; margin: 0 0 20px 0;"><em>Jaryd</em></p>
+        <p style="font-size: 14px; color: #000000; margin: 0;">
+          <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+        </p>
+      </div>
     </div>
-    `}
+    <div style="background-color: #F5F0EA; padding: 30px; text-align: center; border-top: 1px solid #E8E0D5;">
+      <img src="https://thegoodtimes.app/wordmark.png" alt="Good Times" style="max-width: 200px; height: auto; margin: 0 auto; display: block;" />
+    </div>
   </div>
 </body>
 </html>
@@ -727,9 +763,10 @@ Open the app to see the heartfelt messages ${groupType === "family" ? "your fami
 
 View your card: ${cardLink}
 
-Have a wonderful birthday! 🎈
+Have a good one!
+*Jaryd*
 
-- The Good Times Team
+Have feedback or an idea? Let me know: goodtimes://feedback
       `.trim()
     }
     case "deck_suggestion": {

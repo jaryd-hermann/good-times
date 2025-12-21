@@ -27,6 +27,19 @@ import { safeCapture } from "../../lib/posthog"
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 const QUESTION_CARD_WIDTH = SCREEN_WIDTH - spacing.md * 2
 
+// Theme 2 color palette matching new design system
+const theme2Colors = {
+  red: "#B94444",
+  yellow: "#E8A037",
+  green: "#2D6F4A",
+  blue: "#3A5F8C",
+  beige: "#E8E0D5",
+  cream: "#F5F0EA",
+  white: "#FFFFFF",
+  text: "#000000",
+  textSecondary: "#404040",
+}
+
 export default function DeckDetail() {
   const router = useRouter()
   const params = useLocalSearchParams()
@@ -172,22 +185,25 @@ export default function DeckDetail() {
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
     },
     header: {
       paddingTop: insets.top + spacing.md + 50, // Move content down to avoid back button
       paddingHorizontal: spacing.md,
       paddingBottom: spacing.md,
       alignItems: "center", // Centered content
+      backgroundColor: theme2Colors.beige,
     },
     backButton: {
       position: "absolute",
       top: insets.top + spacing.md,
       left: spacing.md,
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: colors.gray[900],
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: theme2Colors.white,
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
       justifyContent: "center",
       alignItems: "center",
       zIndex: 10,
@@ -198,30 +214,30 @@ export default function DeckDetail() {
     },
     collectionName: {
       fontFamily: "Roboto-Bold",
-      fontSize: 16, // Bigger
-      color: colors.gray[400],
-      marginBottom: spacing.md, // More space
+      fontSize: 16,
+      color: theme2Colors.textSecondary,
+      marginBottom: spacing.md,
       fontWeight: "700",
     },
     deckName: {
-      ...typography.h1,
-      fontSize: 28,
-      color: colors.white,
-      marginBottom: spacing.md, // More space
-      textAlign: "center", // Centered
+      fontFamily: "PMGothicLudington-Text115",
+      fontSize: 32,
+      color: theme2Colors.text,
+      marginBottom: spacing.md,
+      textAlign: "center",
     },
     deckDescription: {
-      ...typography.body,
-      fontSize: 16, // Bigger description
-      color: colors.gray[400],
-      textAlign: "center", // Centered
+      fontFamily: "Roboto-Regular",
+      fontSize: 16,
+      color: theme2Colors.textSecondary,
+      textAlign: "center",
       lineHeight: 22,
-      marginBottom: spacing.lg, // More space
+      marginBottom: spacing.lg,
     },
     separator: {
       width: "100%",
       height: 1,
-      backgroundColor: colors.gray[800],
+      backgroundColor: theme2Colors.textSecondary,
       marginBottom: spacing.lg,
     },
     content: {
@@ -231,7 +247,7 @@ export default function DeckDetail() {
     questionsTitle: {
       fontFamily: "Roboto-Regular",
       fontSize: 14,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       marginBottom: spacing.md,
       paddingHorizontal: spacing.md,
       textAlign: "center",
@@ -240,11 +256,11 @@ export default function DeckDetail() {
       paddingHorizontal: spacing.md,
     },
     questionCard: {
-      width: SCREEN_WIDTH * 0.85, // Bigger cards like screenshot
-      backgroundColor: colors.gray[900], // Dark gray background
-      borderWidth: 1,
-      borderColor: colors.white,
-      borderRadius: 0, // Square edges
+      width: SCREEN_WIDTH * 0.85,
+      backgroundColor: theme2Colors.cream,
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary,
+      borderRadius: 20,
       padding: spacing.lg,
       marginRight: spacing.md,
       opacity: 1,
@@ -255,7 +271,10 @@ export default function DeckDetail() {
     },
     carouselMessage: {
       width: SCREEN_WIDTH * 0.85,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary,
+      borderRadius: 20,
       padding: spacing.lg,
       marginRight: spacing.md,
       justifyContent: "center",
@@ -263,9 +282,9 @@ export default function DeckDetail() {
       minHeight: 200,
     },
     carouselMessageText: {
-      ...typography.body,
+      fontFamily: "Roboto-Regular",
       fontSize: 14,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       textAlign: "center",
       lineHeight: 20,
     },
@@ -274,17 +293,16 @@ export default function DeckDetail() {
       top: spacing.md,
       right: spacing.md,
       fontFamily: "Roboto-Bold",
-      fontSize: 16, // Larger
-      color: colors.gray[400],
+      fontSize: 16,
+      color: theme2Colors.textSecondary,
       fontWeight: "700",
     },
     questionText: {
-      ...typography.bodyBold,
-      fontSize: 20, // Bigger font
-      color: colors.white,
+      fontFamily: "PMGothicLudington-Text115",
+      fontSize: 22,
+      color: theme2Colors.text,
       lineHeight: 28,
       marginTop: spacing.md,
-      fontWeight: "700",
     },
     ctaContainer: {
       paddingHorizontal: spacing.md,
@@ -294,7 +312,7 @@ export default function DeckDetail() {
     ctaSubtext: {
       fontFamily: "Roboto-Regular",
       fontSize: 14,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       textAlign: "center",
       marginTop: spacing.md,
       paddingHorizontal: spacing.lg,
@@ -302,67 +320,109 @@ export default function DeckDetail() {
     voteStatusContainer: {
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.md,
-      backgroundColor: colors.gray[900],
-      borderRadius: 12,
+      backgroundColor: theme2Colors.cream,
+      borderRadius: 20,
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary,
       marginBottom: spacing.md,
+      marginHorizontal: spacing.md,
     },
     voteStatusText: {
-      ...typography.body,
-      color: colors.white,
+      fontFamily: "Roboto-Regular",
+      fontSize: 14,
+      color: theme2Colors.text,
       marginBottom: spacing.xs,
     },
     voteStatusSubtext: {
-      ...typography.caption,
-      color: colors.gray[400],
+      fontFamily: "Roboto-Regular",
+      fontSize: 12,
+      color: theme2Colors.textSecondary,
     },
     activeStatusContainer: {
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.md,
-      backgroundColor: colors.gray[900],
-      borderRadius: 12,
+      backgroundColor: theme2Colors.cream,
+      borderRadius: 20,
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary,
       marginBottom: spacing.md,
       marginHorizontal: spacing.md,
     },
     activeStatusText: {
-      ...typography.body,
-      color: colors.white,
+      fontFamily: "PMGothicLudington-Text115",
+      fontSize: 18,
+      color: theme2Colors.text,
       marginBottom: spacing.xs,
       textAlign: "center",
     },
     activeStatusSubtext: {
-      ...typography.caption,
-      color: colors.gray[400],
+      fontFamily: "Roboto-Regular",
+      fontSize: 12,
+      color: theme2Colors.textSecondary,
       textAlign: "center",
     },
     // Modal styles (bottom slide-up)
     modalBackdrop: {
       flex: 1,
-      backgroundColor: "rgba(0, 0, 0, 0.85)",
+      backgroundColor: "transparent",
       justifyContent: "flex-end",
     },
+    modalBackdropOverlay1: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(232, 224, 213, 0.4)",
+    },
+    modalBackdropOverlay2: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(0, 0, 0, 0.1)",
+    },
     modalContent: {
-      backgroundColor: colors.black,
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
+      backgroundColor: theme2Colors.beige,
+      borderTopLeftRadius: 32,
+      borderTopRightRadius: 32,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
       padding: spacing.xl,
       paddingBottom: insets.bottom + spacing.xl,
     },
     modalTitle: {
-      ...typography.h2,
-      fontSize: 24,
-      color: colors.white,
+      fontFamily: "PMGothicLudington-Text115",
+      fontSize: 32,
+      color: theme2Colors.text,
       marginBottom: spacing.md,
       textAlign: "center",
     },
     modalText: {
-      ...typography.body,
-      color: colors.gray[300],
+      fontFamily: "Roboto-Regular",
+      fontSize: 16,
+      color: theme2Colors.textSecondary,
       lineHeight: 24,
       marginBottom: spacing.xl,
       textAlign: "center",
     },
     modalButton: {
+      backgroundColor: theme2Colors.blue,
+      borderRadius: 25,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 56,
       marginTop: spacing.md,
+    },
+    modalButtonText: {
+      ...typography.bodyBold,
+      fontSize: 16,
+      color: theme2Colors.white,
+    },
+    modalCancelButton: {
+      marginTop: spacing.md,
+      paddingVertical: spacing.sm,
+    },
+    modalCancelButtonText: {
+      fontFamily: "Roboto-Regular",
+      fontSize: 14,
+      color: theme2Colors.textSecondary,
+      textAlign: "center",
     },
   })
 
@@ -386,7 +446,7 @@ export default function DeckDetail() {
             }
           }}
         >
-          <FontAwesome name="arrow-left" size={16} color={colors.white} />
+          <FontAwesome name="angle-left" size={16} color={theme2Colors.text} />
         </TouchableOpacity>
         <View style={styles.headerContent}>
           {collection && (
@@ -472,11 +532,24 @@ export default function DeckDetail() {
         {/* CTA Button */}
         {showVoteCTA && (
           <View style={styles.ctaContainer}>
-            <Button
-              title="Add this deck →"
+            <TouchableOpacity
+              style={{
+                backgroundColor: theme2Colors.blue,
+                borderRadius: 25,
+                paddingVertical: spacing.md,
+                paddingHorizontal: spacing.xl,
+                alignItems: "center",
+                justifyContent: "center",
+                minHeight: 56,
+                width: "100%",
+              }}
               onPress={() => setVoteModalVisible(true)}
-              loading={requestingVote}
-            />
+              disabled={requestingVote}
+            >
+              <Text style={{ ...typography.bodyBold, fontSize: 16, color: theme2Colors.white }}>
+                {requestingVote ? "Loading..." : "Add this deck →"}
+              </Text>
+            </TouchableOpacity>
             <Text style={styles.ctaSubtext}>
               If the majority vote yes, we'll shuffle this deck of questions into your list.
             </Text>
@@ -496,6 +569,8 @@ export default function DeckDetail() {
           activeOpacity={1}
           onPress={() => setVoteModalVisible(false)}
         >
+          <View style={styles.modalBackdropOverlay1} />
+          <View style={styles.modalBackdropOverlay2} />
           <View
             style={styles.modalContent}
             onStartShouldSetResponder={() => true}
@@ -504,8 +579,8 @@ export default function DeckDetail() {
             <Text style={styles.modalText}>
               We'll ask your group if they're interested in this deck, and if the majority vote yes, we'll shuffle these into your upcoming days. We'll let you know too.
             </Text>
-            <Button
-              title="Vote yes to start"
+            <TouchableOpacity
+              style={styles.modalButton}
               onPress={async () => {
                 if (!groupId || !deckId || !userId) {
                   alert("Missing required information")
@@ -554,9 +629,12 @@ export default function DeckDetail() {
                   setRequestingVote(false)
                 }
               }}
-              loading={requestingVote}
-              style={styles.modalButton}
-            />
+              disabled={requestingVote}
+            >
+              <Text style={styles.modalButtonText}>
+                {requestingVote ? "Loading..." : "Vote yes to start"}
+              </Text>
+            </TouchableOpacity>
             {__DEV__ && (
               <TouchableOpacity
                 onPress={async () => {
@@ -568,16 +646,16 @@ export default function DeckDetail() {
                 }}
                 style={{ marginTop: spacing.md, padding: spacing.sm }}
               >
-                <Text style={{ ...typography.caption, color: colors.gray[500], textAlign: "center", fontSize: 10 }}>
+                <Text style={{ fontFamily: "Roboto-Regular", fontSize: 10, color: theme2Colors.textSecondary, textAlign: "center" }}>
                   [DEV] Override 3-member limit: {devOverrideMemberLimit ? "ON" : "OFF"}
                 </Text>
               </TouchableOpacity>
             )}
             <TouchableOpacity
               onPress={() => setVoteModalVisible(false)}
-              style={{ marginTop: spacing.md }}
+              style={styles.modalCancelButton}
             >
-              <Text style={{ ...typography.body, color: colors.gray[400], textAlign: "center" }}>
+              <Text style={styles.modalCancelButtonText}>
                 Cancel
               </Text>
             </TouchableOpacity>

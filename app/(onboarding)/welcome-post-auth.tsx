@@ -1,15 +1,28 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { View, Text, StyleSheet, ImageBackground, Dimensions, ActivityIndicator, Alert } from "react-native"
-import { LinearGradient } from "expo-linear-gradient"
+import { View, Text, StyleSheet, Dimensions, ActivityIndicator, TouchableOpacity, Image, ScrollView } from "react-native"
 import { useRouter } from "expo-router"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { colors, typography, spacing } from "../../lib/theme"
-import { Button } from "../../components/Button"
 import { supabase } from "../../lib/supabase"
 import { usePostHog } from "posthog-react-native"
 import { captureEvent } from "../../lib/posthog"
+import { FontAwesome } from "@expo/vector-icons"
+
+// Theme 2 color palette matching new design system
+const theme2Colors = {
+  red: "#B94444",
+  yellow: "#E8A037",
+  green: "#2D6F4A",
+  blue: "#3A5F8C",
+  beige: "#E8E0D5",
+  cream: "#F5F0EA",
+  white: "#FFFFFF",
+  text: "#000000",
+  textSecondary: "#404040",
+  onboardingPink: "#D97393", // Pink for onboarding CTAs
+}
 
 const { width, height } = Dimensions.get("window")
 const POST_AUTH_ONBOARDING_KEY_PREFIX = "has_completed_post_auth_onboarding"
@@ -106,7 +119,7 @@ export default function WelcomePostAuth() {
   if (isChecking) {
     return (
       <View style={styles.checkingContainer}>
-        <ActivityIndicator size="large" color={colors.white} />
+        <ActivityIndicator size="large" color={theme2Colors.text} />
       </View>
     )
   }
@@ -121,91 +134,130 @@ export default function WelcomePostAuth() {
   }
 
   return (
-    <ImageBackground
-      source={require("../../assets/images/friends.png")}
-      style={styles.container}
-      resizeMode="cover"
-    >
-      <LinearGradient
-        colors={["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0.4)", "rgba(0, 0, 0, 0.8)", "rgba(0, 0, 0, 1)"]}
-        locations={[0, 0.4, 0.7, 1]}
-        style={styles.gradientOverlay}
-      />
-      <View style={styles.content}>
-        <View style={styles.textContainer}>
-          <Text style={styles.title}>Welcome</Text>
-          <Text style={styles.body}>
-            Thanks for joining! This is a new app, so if you see any problems or have any ideas...find me in
-            "Settings". Email, text, or WhatsApp, I'd love to hear your feedback.
-          </Text>
-        </View>
+    <View style={styles.container}>
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Bottom Section - Content */}
+        <View style={styles.content}>
+          {/* Image */}
+          <Image
+            source={require("../../assets/images/feedback-onboarding.png")}
+            style={styles.image}
+            resizeMode="contain"
+          />
+          {/* Text Content */}
+          <View style={styles.textContainer}>
+            <Text style={styles.title}>Welcome</Text>
+            <Text style={styles.body}>
+              Thanks for joining! This is a new app, so if you see any problems or have any ideas...find me in
+              "Settings". Email, text, or WhatsApp, I'd love to hear your feedback.
+            </Text>
+          </View>
 
-        <View style={styles.bottomContainer}>
-          <View style={styles.buttonContainer}>
-            <Button
-              title="→"
+          {/* Bottom Container */}
+          <View style={styles.bottomContainer}>
+            <TouchableOpacity
+              style={styles.ctaButton}
               onPress={handleContinue}
-              style={styles.button}
-              textStyle={styles.buttonText}
-            />
+              activeOpacity={0.8}
+            >
+              <Text style={styles.ctaButtonText}>→</Text>
+              <View style={styles.buttonTexture} pointerEvents="none">
+                <Image
+                  source={require("../../assets/images/texture.png")}
+                  style={styles.textureImage}
+                  resizeMode="cover"
+                />
+              </View>
+            </TouchableOpacity>
           </View>
         </View>
-      </View>
-    </ImageBackground>
+      </ScrollView>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    width,
-    height,
+    backgroundColor: theme2Colors.beige,
   },
-  gradientOverlay: {
-    ...StyleSheet.absoluteFillObject,
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: "flex-end",
+    minHeight: "100%",
   },
   content: {
-    flex: 1,
-    justifyContent: "space-between",
     padding: spacing.lg,
-    paddingTop: spacing.xxl * 2,
-    paddingBottom: spacing.xxl * 2,
+    paddingTop: spacing.xxl * 4, // Increased from spacing.xxl * 2 to shift content lower
+    paddingBottom: spacing.xxl * 4,
+    backgroundColor: theme2Colors.beige,
+  },
+  image: {
+    width: "100%",
+    height: 200,
+    marginBottom: spacing.xl,
+    alignSelf: "flex-start",
   },
   textContainer: {
-    flex: 1,
-    justifyContent: "flex-end",
-    paddingBottom: spacing.xxl,
+    marginBottom: spacing.lg,
+  },
+  title: {
+    fontFamily: "PMGothicLudington-Text115",
+    fontSize: 40,
+    lineHeight: 48,
+    color: theme2Colors.text,
+    marginBottom: spacing.lg,
+  },
+  body: {
+    fontFamily: "Roboto-Regular",
+    fontSize: 16,
+    lineHeight: 24,
+    color: theme2Colors.text,
+    marginBottom: spacing.md,
   },
   bottomContainer: {
     flexDirection: "row",
     justifyContent: "flex-end",
-    alignItems: "flex-end",
+    alignItems: "center",
+    marginTop: spacing.md,
   },
-  title: {
-    ...typography.h1,
-    fontSize: 40,
-    marginBottom: spacing.lg,
-  },
-  body: {
-    ...typography.body,
-    fontSize: 16,
-    lineHeight: 24,
-    color: colors.white,
-    marginBottom: spacing.md,
-  },
-  buttonContainer: {
-    alignItems: "flex-end",
-  },
-  button: {
+  ctaButton: {
     width: 100,
     height: 60,
+    backgroundColor: theme2Colors.onboardingPink,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: theme2Colors.blue,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
-  buttonText: {
+  ctaButtonText: {
+    fontFamily: "Roboto-Bold",
     fontSize: 32,
+    color: theme2Colors.white,
+    zIndex: 2,
+  },
+  buttonTexture: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.3,
+    zIndex: 1,
+  },
+  textureImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: "100%",
+    height: "100%",
   },
   checkingContainer: {
     flex: 1,
-    backgroundColor: colors.black,
+    backgroundColor: theme2Colors.beige,
     justifyContent: "center",
     alignItems: "center",
   },

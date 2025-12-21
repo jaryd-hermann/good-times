@@ -1,12 +1,25 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { View, Text, StyleSheet, ImageBackground, Dimensions, TouchableOpacity, Modal, Animated } from "react-native"
-import { LinearGradient } from "expo-linear-gradient"
+import { View, Text, StyleSheet, Dimensions, TouchableOpacity, Modal, Animated, Image, ScrollView } from "react-native"
 import { useRouter } from "expo-router"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { colors, typography, spacing } from "../../lib/theme"
 import { Button } from "../../components/Button"
+
+// Theme 2 color palette matching new design system
+const theme2Colors = {
+  red: "#B94444",
+  yellow: "#E8A037",
+  green: "#2D6F4A",
+  blue: "#3A5F8C",
+  beige: "#E8E0D5",
+  cream: "#F5F0EA",
+  white: "#FFFFFF",
+  text: "#000000",
+  textSecondary: "#404040",
+  onboardingPink: "#D97393", // Pink for onboarding CTAs
+}
 import { OnboardingGallery } from "../../components/OnboardingGallery"
 import { 
   isBiometricAvailable, 
@@ -214,44 +227,87 @@ export default function Welcome1() {
   }, [router])
 
   return (
-    <ImageBackground source={require("../../assets/images/welcome-home.png")} style={styles.container} resizeMode="cover">
-      <LinearGradient
-        colors={["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0.3)", "rgba(0, 0, 0, 0.8)", "rgba(0, 0, 0, 1)"]}
-        locations={[0, 0.4, 0.7, 1]}
-        style={styles.gradientOverlay}
-      />
-      <View style={styles.content}>
-        <View style={styles.textContainer}>
-          {/* Already in a group? Login - above title */}
-          <View style={styles.loginContainer}>
-            <Text style={styles.loginPrefix}>Already in a group? </Text>
-            <TouchableOpacity onPress={handleLogin} activeOpacity={0.8}>
-              <Text style={styles.loginText}>Login</Text>
-            </TouchableOpacity>
+    <View style={styles.container}>
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Top Section - Image */}
+        <View style={styles.imageContainer}>
+          <View style={styles.imageWrapper}>
+            <Image
+              source={require("../../assets/images/welcome-home.png")}
+              style={styles.image}
+              resizeMode="cover"
+            />
+            {/* Texture overlay */}
+            <View style={styles.imageTexture} pointerEvents="none">
+              <Image
+                source={require("../../assets/images/texture.png")}
+                style={styles.textureImage}
+                resizeMode="cover"
+              />
+            </View>
           </View>
-          <Text style={styles.title}>Good Times</Text>
-          <Text style={styles.subtitle}>
-          Answer just one question a day with your favorite people
-          </Text>
         </View>
 
-        <View style={styles.buttonContainer}>
-          {/* Show me first button - bottom left */}
+        {/* Bottom Section - Content */}
+        <View style={styles.content}>
+          {/* Wordmark */}
+          <Image 
+            source={require("../../assets/images/wordmark.png")} 
+            style={styles.wordmark}
+            resizeMode="contain"
+          />
+
+          {/* Tagline */}
+          <Text style={styles.subtitle}>
+            Answer just one question a day with your favorite people
+          </Text>
+
+          {/* Show me first link */}
           <TouchableOpacity
             style={styles.showMeFirstButton}
             onPress={() => setOnboardingGalleryVisible(true)}
             activeOpacity={0.7}
           >
-            <Text style={styles.showMeFirstText}>Show me first</Text>
+            <Text style={styles.showMeFirstText}>show and tell me more first</Text>
           </TouchableOpacity>
-          <Button
-            title="→"
-            onPress={handleMainCTA}
-            style={styles.button}
-            textStyle={styles.buttonText}
-          />
+
+          {/* CTA Buttons */}
+          <View style={styles.buttonContainer}>
+            <TouchableOpacity
+              style={styles.loginButton}
+              onPress={handleLogin}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.loginButtonText}>Login</Text>
+              <View style={styles.buttonTexture} pointerEvents="none">
+                <Image
+                  source={require("../../assets/images/texture.png")}
+                  style={styles.textureImage}
+                  resizeMode="cover"
+                />
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.joinButton}
+              onPress={handleMainCTA}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.joinButtonText}>Join</Text>
+              <View style={styles.buttonTexture} pointerEvents="none">
+                <Image
+                  source={require("../../assets/images/texture.png")}
+                  style={styles.textureImage}
+                  resizeMode="cover"
+                />
+              </View>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      </ScrollView>
 
       <Modal
         visible={showModal}
@@ -289,19 +345,20 @@ export default function Welcome1() {
                     Are you creating a new group, or joining an existing one?
                   </Text>
                   <View style={styles.modalButtons}>
-                    <Button
-                      title="Create Group"
+                    <TouchableOpacity
+                      style={styles.modalButtonPrimary}
                       onPress={handleCreateGroup}
-                      style={styles.modalButton}
-                      textStyle={styles.modalButtonText}
-                    />
-                    <Button
-                      title="Join Group"
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.modalButtonTextPrimary}>Create Group</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.modalButtonSecondary}
                       onPress={handleJoinGroup}
-                      variant="secondary"
-                      style={styles.modalButton}
-                      textStyle={styles.modalButtonText}
-                    />
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.modalButtonTextSecondary}>Join Group</Text>
+                    </TouchableOpacity>
                   </View>
                 </>
               ) : (
@@ -309,12 +366,13 @@ export default function Welcome1() {
                   <Text style={styles.modalTitle}>
                     To join a group, follow the invite link shared with you. If you don't have one, ask anyone in your group
                   </Text>
-                  <Button
-                    title="Got it"
+                  <TouchableOpacity
+                    style={styles.modalButtonPrimary}
                     onPress={handleGotIt}
-                    style={styles.modalButton}
-                    textStyle={styles.modalButtonText}
-                  />
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.modalButtonTextPrimary}>Got it</Text>
+                  </TouchableOpacity>
                 </>
               )}
           </Animated.View>
@@ -332,76 +390,144 @@ export default function Welcome1() {
           { id: "5", source: require("../../assets/images/onboarding-5-ask-them.png") },
           { id: "6", source: require("../../assets/images/onboarding-6-themed-decks.png") },
           { id: "7", source: require("../../assets/images/onboarding-7-set-your-vibe.png") },
-          { id: "8", source: require("../../assets/images/onboarding-8-remember.png") },
         ]}
         onComplete={() => setOnboardingGalleryVisible(false)}
         returnRoute="/(onboarding)/welcome-1"
       />
-    </ImageBackground>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    width,
-    height,
+    backgroundColor: theme2Colors.beige,
   },
-  gradientOverlay: {
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+  },
+  imageContainer: {
+    padding: spacing.lg,
+    paddingTop: spacing.xxl * 2,
+    paddingBottom: spacing.xs,
+    justifyContent: "flex-start",
+    alignItems: "center",
+  },
+  imageWrapper: {
+    width: "100%",
+    aspectRatio: 0.8,
+    borderRadius: 20,
+    overflow: "hidden",
+    backgroundColor: theme2Colors.beige,
+    borderWidth: 2,
+    borderColor: theme2Colors.text,
+  },
+  image: {
+    width: "100%",
+    height: "100%",
+  },
+  imageTexture: {
     ...StyleSheet.absoluteFillObject,
+    opacity: 0.3,
+    zIndex: 1,
+  },
+  textureImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: "100%",
+    height: "100%",
   },
   content: {
-    flex: 1,
-    justifyContent: "space-between",
     padding: spacing.lg,
-    paddingTop: spacing.xxl * 3,
-    paddingBottom: spacing.xxl * 2,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.xxl * 4,
+    backgroundColor: theme2Colors.beige,
   },
-  loginContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: spacing.lg,
-  },
-  loginPrefix: {
-    fontFamily: "Roboto-Regular",
-    fontSize: 16,
-    color: colors.white,
-  },
-  loginText: {
-    fontFamily: "Roboto-Bold",
-    fontSize: 16,
-    color: colors.white,
-    textDecorationLine: "underline",
-  },
-  textContainer: {
-    flex: 1,
-    justifyContent: "flex-end",
-    paddingBottom: spacing.xxl,
-  },
-  title: {
-    fontFamily: "LibreBaskerville-Bold",
-    fontSize: 48,
-    lineHeight: 56,
-    color: colors.white,
-    marginBottom: spacing.md,
+  wordmark: {
+    width: 280,
+    height: 92,
+    marginBottom: spacing.xs,
+    marginTop: spacing.xs,
+    marginLeft: -spacing.sm,
+    alignSelf: "flex-start",
+    // Remove any shadow or outline effects
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
   },
   subtitle: {
-    ...typography.body,
-    fontSize: 18,
-    lineHeight: 28,
-    color: colors.white,
+    fontFamily: "PMGothicLudington-Text115",
+    fontSize: 22,
+    lineHeight: 30,
+    color: theme2Colors.text,
+    marginBottom: spacing.md,
+  },
+  showMeFirstButton: {
+    alignSelf: "flex-start",
+    marginBottom: spacing.lg,
+  },
+  showMeFirstText: {
+    fontFamily: "Roboto-Regular",
+    fontSize: 14,
+    color: theme2Colors.text,
+    textDecorationLine: "underline",
   },
   buttonContainer: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: spacing.md,
+    marginTop: spacing.md,
   },
-  button: {
-    width: 100,
-    height: 60,
+  loginButton: {
+    flex: 1,
+    backgroundColor: theme2Colors.white,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: theme2Colors.blue,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 56,
+    overflow: "hidden",
   },
-  buttonText: {
-    fontSize: 32,
+  loginButtonText: {
+    fontFamily: "Roboto-Bold",
+    fontSize: 18,
+    color: theme2Colors.text,
+    zIndex: 2,
+  },
+  joinButton: {
+    flex: 1,
+    backgroundColor: theme2Colors.onboardingPink,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: theme2Colors.blue,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 56,
+    overflow: "hidden",
+  },
+  buttonTexture: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.3,
+    zIndex: 1,
+  },
+  textureImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: "100%",
+    height: "100%",
+  },
+  joinButtonText: {
+    fontFamily: "Roboto-Bold",
+    fontSize: 18,
+    color: theme2Colors.white,
+    zIndex: 2,
   },
   modalContainer: {
     flex: 1,
@@ -409,45 +535,61 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.75)",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
   },
   modalContent: {
-    backgroundColor: colors.black,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    backgroundColor: theme2Colors.beige,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
     padding: spacing.lg,
     paddingTop: spacing.xl,
     paddingBottom: spacing.xxl,
     width: "100%",
   },
   modalTitle: {
-    ...typography.body,
-    fontSize: 18,
-    lineHeight: 26,
-    color: colors.white,
+    fontFamily: "PMGothicLudington-Text115",
+    fontSize: 24,
+    lineHeight: 32,
+    color: theme2Colors.text,
     marginBottom: spacing.xl,
     textAlign: "center",
   },
   modalButtons: {
     gap: spacing.md,
   },
-  modalButton: {
+  modalButtonPrimary: {
     width: "100%",
-  },
-  modalButtonText: {
-    fontSize: 16,
-  },
-  showMeFirstButton: {
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.md,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    borderRadius: 20,
+    backgroundColor: theme2Colors.onboardingPink,
+    borderRadius: 25,
     borderWidth: 1,
-    borderColor: colors.white,
+    borderColor: theme2Colors.blue,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 56,
   },
-  showMeFirstText: {
-    ...typography.body,
-    fontSize: 14,
-    color: colors.white,
+  modalButtonTextPrimary: {
+    fontFamily: "Roboto-Bold",
+    fontSize: 18,
+    color: theme2Colors.white,
+  },
+  modalButtonSecondary: {
+    width: "100%",
+    backgroundColor: theme2Colors.white,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: theme2Colors.text,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 56,
+  },
+  modalButtonTextSecondary: {
+    fontFamily: "Roboto-Bold",
+    fontSize: 18,
+    color: theme2Colors.text,
   },
 })
+

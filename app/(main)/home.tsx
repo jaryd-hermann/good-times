@@ -16,6 +16,7 @@ import {
   AppState,
   Platform,
   Image,
+  ImageBackground,
   ActivityIndicator,
 } from "react-native"
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
@@ -37,8 +38,11 @@ import {
   getMyCardEntriesForDate,
   getMyBirthdayCard,
   getBirthdayCardEntries,
+  getMyBirthdayCards,
+  hasReceivedBirthdayCards,
 } from "../../lib/db"
 import { getTodayDate, getWeekDates, getPreviousDay, utcStringToLocalDate, formatDateAsLocalISO } from "../../lib/utils"
+import { format, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns"
 import { typography, spacing } from "../../lib/theme"
 import { useTheme } from "../../lib/theme-context"
 import { Avatar } from "../../components/Avatar"
@@ -58,7 +62,7 @@ import { BirthdayCardEditBanner } from "../../components/BirthdayCardEditBanner"
 import { BirthdayCardYourCardBanner } from "../../components/BirthdayCardYourCardBanner"
 import { NotificationBell } from "../../components/NotificationBell"
 import { NotificationModal } from "../../components/NotificationModal"
-import { getInAppNotifications, markNotificationsAsChecked, markEntryAsVisited, markGroupAsVisited, clearAllNotifications, type InAppNotification } from "../../lib/notifications-in-app"
+import { getInAppNotifications, markNotificationsAsChecked, markEntryAsVisited, markGroupAsVisited, clearAllNotifications, markQuestionAsAnswered, markDeckAsVoted, markBirthdayCardAsAdded, markCustomQuestionAsSubmitted, type InAppNotification } from "../../lib/notifications-in-app"
 import { updateBadgeCount } from "../../lib/notifications-badge"
 import { UserProfileModal } from "../../components/UserProfileModal"
 import { useAuth } from "../../components/AuthProvider"
@@ -69,7 +73,8 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window")
 // Helper function to get deck image source based on deck name
 function getDeckImageSource(deckName: string | undefined, iconUrl: string | undefined) {
   if (!deckName) {
-    return require("../../assets/images/deck-icon-default.png")
+    // Use icon-daily as default fallback
+    return require("../../assets/images/icon-daily.png")
   }
   
   const nameLower = deckName.toLowerCase()
@@ -148,7 +153,8 @@ function getDeckImageSource(deckName: string | undefined, iconUrl: string | unde
     return { uri: iconUrl }
   }
   
-  return require("../../assets/images/deck-icon-default.png")
+  // Use icon-daily as default fallback
+  return require("../../assets/images/icon-daily.png")
 }
 
 function getDayIndex(dateString: string, groupId?: string) {
@@ -157,6 +163,121 @@ function getDayIndex(dateString: string, groupId?: string) {
   const diff = Math.floor((base.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
   const groupOffset = groupId ? groupId.length : 0
   return diff + groupOffset
+}
+
+// Helper function to get memorial name for a prompt on a specific date (matches history.tsx logic)
+function getMemorialForPrompt(promptId: string, date: string, groupId: string, memorials: any[], memorialUsageMap: Map<string, string>): string | null {
+  if (!memorials || !memorialUsageMap) return null
+  const normalizedDate = date.split('T')[0]
+  const usageKey = `${promptId}-${normalizedDate}`
+  const used = memorialUsageMap.get(usageKey)
+  if (used) return used
+  if (memorials.length === 0) return null
+  const dayIndex = getDayIndex(date, groupId)
+  const memorialIndex = dayIndex % memorials.length
+  return memorials[memorialIndex]?.name || null
+}
+
+// Helper functions from history.tsx for period summaries
+function getFirstMediaImage(entry: any): string | undefined {
+  if (!entry?.media_urls || entry.media_urls.length === 0) {
+    return undefined
+  }
+
+  if (entry.media_types && Array.isArray(entry.media_types)) {
+    const photoIndex = entry.media_types.findIndex((type: string) => type === "photo")
+    if (photoIndex >= 0 && entry.media_urls[photoIndex]) {
+      return entry.media_urls[photoIndex]
+    }
+  }
+
+  return entry.media_urls[0]
+}
+
+interface PeriodSummary {
+  key: string
+  start: string
+  end: string
+  title: string
+  subtitle: string
+  count: number
+  image?: string
+}
+
+type PeriodMode = "Weeks" | "Months" | "Years"
+
+function buildPeriodSummaries(entries: any[], mode: PeriodMode): PeriodSummary[] {
+  const groups = new Map<
+    string,
+    {
+      start: Date
+      end: Date
+      entries: any[]
+      image?: string
+    }
+  >()
+
+  entries.forEach((entry) => {
+    if (!entry?.date) return
+    const entryDate = parseISO(entry.date)
+    if (Number.isNaN(entryDate.getTime())) return
+
+    let start: Date
+    let end: Date
+
+    if (mode === "Weeks") {
+      start = startOfWeek(entryDate, { weekStartsOn: 0 })
+      end = endOfWeek(entryDate, { weekStartsOn: 0 })
+    } else if (mode === "Months") {
+      start = startOfMonth(entryDate)
+      end = endOfMonth(entryDate)
+    } else {
+      start = startOfYear(entryDate)
+      end = endOfYear(entryDate)
+    }
+
+    const key = start.toISOString()
+    const existing = groups.get(key) ?? { start, end, entries: [], image: undefined }
+    existing.entries.push(entry)
+
+    if (!existing.image) {
+      const image = getFirstMediaImage(entry)
+      if (image) {
+        existing.image = image
+      }
+    }
+
+    groups.set(key, existing)
+  })
+
+  const ordered = Array.from(groups.values()).sort((a, b) => b.start.getTime() - a.start.getTime())
+
+  return ordered.map((group, index) => {
+    const order = ordered.length - index
+    let title: string
+    let subtitle: string
+
+    if (mode === "Weeks") {
+      title = format(group.start, "d-MMMM yyyy")
+      subtitle = `Week ${order} of your history`
+    } else if (mode === "Months") {
+      title = format(group.start, "MMMM yyyy")
+      subtitle = `Month ${order} of your history`
+    } else {
+      title = format(group.start, "yyyy")
+      subtitle = `Year ${order} of your history`
+    }
+
+    return {
+      key: `${mode}-${group.start.toISOString()}`,
+      start: group.start.toISOString(),
+      end: group.end.toISOString(),
+      title,
+      subtitle,
+      count: group.entries.length,
+      image: group.image,
+    }
+  })
 }
 
 export default function Home() {
@@ -184,10 +305,27 @@ export default function Home() {
   const headerTranslateY = useRef(new Animated.Value(0)).current
   const contentPaddingTop = useRef(new Animated.Value(0)).current
   const lastScrollY = useRef(0)
+  const lastScrollTime = useRef(0)
   const scrollViewRef = useRef<ScrollView>(null)
   const isResettingScroll = useRef(false)
   const { opacity: tabBarOpacity } = useTabBar()
   const posthog = usePostHog()
+  
+  // Filtering and view mode state (like history.tsx)
+  type ViewMode = "Days" | "Weeks" | "Months" | "Years"
+  type PeriodMode = Exclude<ViewMode, "Days">
+  const [viewMode, setViewMode] = useState<ViewMode>("Days")
+  const [showFilter, setShowFilter] = useState(false)
+  const [showFilterModal, setShowFilterModal] = useState(false)
+  const filterButtonRef = useRef<View>(null)
+  const [filterButtonLayout, setFilterButtonLayout] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
+  const [activePeriod, setActivePeriod] = useState<{ mode: PeriodMode; start: string; end: string; title: string; subtitle: string } | null>(null)
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([])
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([])
+  const [selectedMemorials, setSelectedMemorials] = useState<string[]>([])
+  const [selectedDecks, setSelectedDecks] = useState<string[]>([])
+  const [showBirthdayCards, setShowBirthdayCards] = useState(false)
+  const dateRefs = useRef<Record<string, any>>({}) // For scroll-to-day functionality
 
   // Track loaded_home_screen event once per session
   useEffect(() => {
@@ -784,6 +922,30 @@ export default function Home() {
   // Get today's date - call directly to ensure fresh value
   const todayDate = getTodayDate()
   
+  // Query for today's user entry (always fetch, regardless of selectedDate)
+  const { data: todayUserEntry } = useQuery({
+    queryKey: ["userEntry", currentGroupId, userId, todayDate],
+    queryFn: () => (currentGroupId && userId ? getUserEntryForDate(currentGroupId, userId, todayDate) : null),
+    enabled: !!currentGroupId && !!userId,
+  })
+  
+  // Query for today's prompt (always fetch, regardless of selectedDate)
+  const { data: todayDailyPrompt, isLoading: isLoadingTodayPrompt, isFetching: isFetchingTodayPrompt } = useQuery({
+    queryKey: ["dailyPrompt", currentGroupId, todayDate, userId],
+    queryFn: () => (currentGroupId ? getDailyPrompt(currentGroupId, todayDate, userId) : null),
+    enabled: !!currentGroupId && !!todayDate,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  })
+  
+  // Query for today's entries (always fetch, regardless of selectedDate)
+  const { data: todayEntries = [], isLoading: isLoadingTodayEntries, isFetching: isFetchingTodayEntries } = useQuery({
+    queryKey: ["entries", currentGroupId, todayDate],
+    queryFn: () => (currentGroupId ? getEntriesForDate(currentGroupId, todayDate) : []),
+    enabled: !!currentGroupId,
+    staleTime: 0,
+  })
+  
   // Get previous day's date (yesterday relative to TODAY, not selectedDate)
   // This ensures CTA logic works correctly when user is viewing today
   // Calculate directly without memoization to ensure it's always fresh
@@ -860,13 +1022,24 @@ export default function Home() {
     }
   }, [createdDateLocal, todayDate])
 
-  // Build 7-day timeline:
-  // - If groupAgeDays < 7: [startDate .. startDate+6]
-  // - Else: [today-6 .. today]
+  // Build 5-day timeline:
+  // - If groupAgeDays < 5: [startDate .. startDate+4]
+  // - Else: [today-4 .. today]
   const weekDates = useMemo(() => {
     const dates: { date: string; day: string; dayNum: number }[] = []
     if (!currentGroup) {
-      return getWeekDates()
+      // Fallback: return 5 days starting from today
+      const today = new Date(`${todayDate}T00:00:00`)
+      for (let i = 4; i >= 0; i--) {
+        const d = new Date(today)
+        d.setDate(today.getDate() - i)
+        dates.push({
+          date: formatDateAsLocalISO(d),
+          day: d.toLocaleDateString(undefined, { weekday: "short" }),
+          dayNum: d.getDate(),
+        })
+      }
+      return dates
     }
 
     // For truly "brand new" groups (no full day of age yet), the timeline
@@ -876,10 +1049,10 @@ export default function Home() {
     const startDateForTimeline =
       groupAgeDays === 0 ? todayDate : createdDateLocal
 
-    if (groupAgeDays < 7) {
-      // For very new groups, timeline starts at startDateForTimeline and shows 6 following days
+    if (groupAgeDays < 4) {
+      // For very new groups, timeline starts at startDateForTimeline and shows 3 following days
       let cursor = new Date(`${startDateForTimeline}T00:00:00`)
-      for (let i = 0; i < 7; i++) {
+      for (let i = 0; i < 4; i++) {
         const d = new Date(cursor)
         dates.push({
           date: formatDateAsLocalISO(d),
@@ -889,9 +1062,9 @@ export default function Home() {
         cursor.setDate(cursor.getDate() + 1)
       }
     } else {
-      // After 7 days, show rolling window: today-6 .. today
+      // After 4 days, show rolling window: today-3 .. today
       const today = new Date(`${todayDate}T00:00:00`)
-      for (let i = 6; i >= 0; i--) {
+      for (let i = 3; i >= 0; i--) {
         const d = new Date(today)
         d.setDate(today.getDate() - i)
         dates.push({
@@ -925,6 +1098,7 @@ export default function Home() {
     return new Set(userEntriesForWeek.map((entry) => entry.date))
   }, [userEntriesForWeek])
 
+  // Fetch entries for selected date (for backward compatibility)
   const { data: entries = [], isLoading: isLoadingEntries, isFetching: isFetchingEntries } = useQuery({
     queryKey: ["entries", currentGroupId, selectedDate],
     queryFn: () => (currentGroupId ? getEntriesForDate(currentGroupId, selectedDate) : []),
@@ -936,6 +1110,443 @@ export default function Home() {
     // Never show placeholder data from different group/date
     placeholderData: undefined,
   })
+
+  // Fetch ALL entries for the group (like history.tsx) for infinite scroll feed
+  const { data: allEntries = [], isLoading: allEntriesLoading } = useQuery({
+    queryKey: ["allEntries", currentGroupId],
+    queryFn: async (): Promise<any[]> => {
+      if (!currentGroupId) return []
+      const { data, error } = await supabase
+        .from("entries")
+        .select("*, user:users(*), prompt:prompts(*)")
+        .eq("group_id", currentGroupId)
+        .order("date", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(100) // Limit to prevent performance issues
+      if (error) {
+        console.error("[home] allEntries query error:", error)
+        return []
+      }
+      // CRITICAL: Double-check all entries belong to the correct group (safety filter)
+      const filteredData = (data || []).filter((entry: any) => entry.group_id === currentGroupId)
+      if (filteredData.length !== (data?.length || 0)) {
+        console.warn(`[home] Found ${(data?.length || 0) - filteredData.length} entries with wrong group_id - filtered out`)
+      }
+      return filteredData
+    },
+    enabled: !!currentGroupId,
+    staleTime: 0, // Always fetch fresh data when group changes
+    gcTime: 1000 * 60 * 60 * 24, // Keep in cache for 24 hours
+  })
+
+  // Fetch all birthday cards for the user (for filtering) - must be before allDates
+  const { data: myBirthdayCards = [] } = useQuery({
+    queryKey: ["myBirthdayCards", currentGroupId, userId],
+    queryFn: async () => {
+      if (!currentGroupId || !userId) return []
+      const cards = await getMyBirthdayCards(currentGroupId, userId)
+      // CRITICAL: Double-check that all cards belong to the current group
+      const filteredCards = cards.filter((card) => card.group_id === currentGroupId)
+      if (filteredCards.length !== cards.length) {
+        console.warn(`[home] ⚠️ Filtered out ${cards.length - filteredCards.length} birthday cards from wrong group`)
+      }
+      return filteredCards
+    },
+    enabled: !!currentGroupId && !!userId,
+    staleTime: 0,
+    refetchOnMount: true,
+    placeholderData: undefined,
+  })
+
+  // Generate date range for fetching prompts (from group creation date to today, never before group creation)
+  const dateRangeForPrompts = useMemo(() => {
+    const dates: string[] = []
+    const today = new Date(`${todayDate}T00:00:00`)
+    const groupCreatedDate = currentGroup?.created_at 
+      ? new Date(utcStringToLocalDate(currentGroup.created_at))
+      : null
+    
+    // CRITICAL: Always start from group creation date, never before
+    // If group was created more than 30 days ago, still only show dates from creation date
+    if (!groupCreatedDate) {
+      // No group creation date - fallback to 30 days ago (shouldn't happen in practice)
+      const startDate = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000)
+      const currentDate = new Date(startDate)
+      while (currentDate <= today) {
+        dates.push(formatDateAsLocalISO(currentDate))
+        currentDate.setDate(currentDate.getDate() + 1)
+      }
+      return dates
+    }
+    
+    // Start from group creation date (never before)
+    const startDate = new Date(groupCreatedDate)
+    
+    // Generate dates from startDate to today
+    const currentDate = new Date(startDate)
+    while (currentDate <= today) {
+      dates.push(formatDateAsLocalISO(currentDate))
+      currentDate.setDate(currentDate.getDate() + 1)
+    }
+    
+    return dates
+  }, [todayDate, currentGroup?.created_at])
+
+  // Get all unique dates from entries, birthday cards, AND the date range for prompts
+  const allDates = useMemo(() => {
+    const dates = new Set<string>()
+    
+    // Add dates from entries
+    allEntries.forEach((entry) => {
+      if (entry.date) {
+        dates.add(entry.date)
+      }
+    })
+    
+    // Also include dates from birthday cards
+    myBirthdayCards.forEach((card) => {
+      if (card.birthday_date && card.group_id === currentGroupId) {
+        dates.add(card.birthday_date)
+      }
+    })
+    
+    // CRITICAL: Also include dates from the date range (for prompts even if no entries)
+    dateRangeForPrompts.forEach((date) => {
+      dates.add(date)
+    })
+    
+    return Array.from(dates)
+  }, [allEntries, myBirthdayCards, currentGroupId, dateRangeForPrompts])
+
+  // Fetch user entries for all dates to check if user has answered
+  const { data: userEntriesByDate = {} } = useQuery({
+    queryKey: ["userEntriesForHomeDates", currentGroupId, userId, allDates.join(",")],
+    queryFn: async () => {
+      if (!currentGroupId || !userId || allDates.length === 0) return {}
+      const entries: Record<string, any> = {}
+      await Promise.all(
+        allDates.map(async (date) => {
+          const userEntry = await getUserEntryForDate(currentGroupId, userId, date)
+          if (userEntry) {
+            entries[date] = userEntry
+          }
+        })
+      )
+      return entries
+    },
+    enabled: !!currentGroupId && !!userId && allDates.length > 0,
+    staleTime: 0, // Always consider stale to ensure fresh data
+    refetchOnMount: true, // Always refetch on mount
+    refetchOnWindowFocus: true, // Refetch when screen comes into focus
+  })
+
+  // Fetch prompts for dates where user hasn't answered (to show prompt card)
+  // CRITICAL: Filter out dates before group creation
+  const datesWithoutUserEntry = useMemo(() => {
+    const groupCreatedDate = currentGroup?.created_at 
+      ? utcStringToLocalDate(currentGroup.created_at)
+      : null
+    
+    return allDates.filter((date) => {
+      // Exclude dates before group creation
+      if (groupCreatedDate && date < groupCreatedDate) {
+        return false
+      }
+      return !userEntriesByDate[date]
+    })
+  }, [allDates, userEntriesByDate, currentGroup?.created_at])
+
+  const { data: promptsForDatesWithoutEntry = {} } = useQuery({
+    queryKey: ["promptsForHomeDates", currentGroupId, userId, datesWithoutUserEntry.join(",")],
+    queryFn: async () => {
+      if (!currentGroupId || !userId || datesWithoutUserEntry.length === 0) return {}
+      const prompts: Record<string, any> = {}
+      const groupCreatedDate = currentGroup?.created_at 
+        ? utcStringToLocalDate(currentGroup.created_at)
+        : null
+      
+      await Promise.all(
+        datesWithoutUserEntry.map(async (date) => {
+          // CRITICAL: Skip dates before group creation
+          if (groupCreatedDate && date < groupCreatedDate) {
+            return
+          }
+          try {
+            const prompt = await getDailyPrompt(currentGroupId, date, userId)
+            if (prompt) {
+              prompts[date] = prompt
+            }
+          } catch (error) {
+            console.warn(`[home] Failed to fetch prompt for date ${date}:`, error)
+          }
+        })
+      )
+      return prompts
+    },
+    enabled: !!currentGroupId && !!userId && datesWithoutUserEntry.length > 0,
+  })
+
+  // Fetch entries for dates where user hasn't answered (to show who answered)
+  const { data: entriesForDatesWithoutUserEntry = {} } = useQuery({
+    queryKey: ["entriesForHomeDatesWithoutUserEntry", currentGroupId, datesWithoutUserEntry.join(",")],
+    queryFn: async () => {
+      if (!currentGroupId || datesWithoutUserEntry.length === 0) return {}
+      const entriesByDate: Record<string, any[]> = {}
+      await Promise.all(
+        datesWithoutUserEntry.map(async (date) => {
+          try {
+            const entries = await getEntriesForDate(currentGroupId, date)
+            if (entries && entries.length > 0) {
+              entriesByDate[date] = entries
+            }
+          } catch (error) {
+            console.warn(`[home] Failed to fetch entries for date ${date}:`, error)
+          }
+        })
+      )
+      return entriesByDate
+    },
+    enabled: !!currentGroupId && datesWithoutUserEntry.length > 0,
+  })
+
+  // Fetch group for filtering
+  const { data: group } = useQuery({
+    queryKey: ["home-group", currentGroupId],
+    queryFn: async () => {
+      if (!currentGroupId) return null
+      const { data } = await supabase
+        .from("groups")
+        .select("*")
+        .eq("id", currentGroupId)
+        .single()
+      return data
+    },
+    enabled: !!currentGroupId,
+  })
+
+  // Fetch active decks for filtering
+  const { data: activeDecks = [] } = useQuery({
+    queryKey: ["home-activeDecks", currentGroupId],
+    queryFn: async () => {
+      if (!currentGroupId) return []
+      try {
+        const { getGroupActiveDecks } = await import("../../lib/db")
+        return await getGroupActiveDecks(currentGroupId)
+      } catch (error) {
+        console.error("[home] Error fetching active decks:", error)
+        return []
+      }
+    },
+    enabled: !!currentGroupId,
+  })
+
+  const availableDecks = activeDecks.filter((deck: any) => deck.status === "active" || deck.status === "finished")
+
+  const { data: hasReceivedCards } = useQuery({
+    queryKey: ["hasReceivedBirthdayCards", currentGroupId, userId],
+    queryFn: () => (currentGroupId && userId ? hasReceivedBirthdayCards(currentGroupId, userId) : false),
+    enabled: !!currentGroupId && !!userId,
+  })
+
+  // Fetch entries for all birthday cards (myBirthdayCards is defined above)
+  const cardIds = useMemo(() => myBirthdayCards.map((card) => card.id), [myBirthdayCards])
+  const { data: allCardEntries = {} } = useQuery<Record<string, any[]>>({
+    queryKey: ["birthdayCardEntriesForHome", cardIds.join(",")],
+    queryFn: async () => {
+      if (cardIds.length === 0) return {}
+      // Fetch entries for all cards in parallel
+      const entriesPromises = cardIds.map((cardId) => getBirthdayCardEntries(cardId))
+      const entriesArrays = await Promise.all(entriesPromises)
+      // Flatten and group by card_id
+      const entriesByCardId: Record<string, any[]> = {}
+      entriesArrays.forEach((entries, index) => {
+        entriesByCardId[cardIds[index]] = entries
+      })
+      return entriesByCardId
+    },
+    enabled: cardIds.length > 0,
+    staleTime: 0,
+  })
+
+  // Fetch categories for filtering
+  const { data: categories = [] } = useQuery({
+    queryKey: ["home-categories", currentGroupId, group?.type],
+    queryFn: async () => {
+      if (!currentGroupId || !group) return []
+      
+      // Fetch entries to get categories that are actually used
+      const { data: entriesData } = await supabase
+        .from("entries")
+        .select("prompt:prompts(category, is_custom)")
+        .eq("group_id", currentGroupId)
+        .limit(1000)
+      
+      const entryCategories = new Set<string>()
+      entriesData?.forEach((entry: any) => {
+        if (entry.prompt) {
+          const isCustom = entry.prompt.is_custom === true
+          const category = isCustom ? "Custom" : (entry.prompt.category ?? "")
+          if (category) {
+            entryCategories.add(category)
+          }
+        }
+      })
+      
+      const groupWithNSFW = group as any
+      const enableNSFW = groupWithNSFW?.enable_nsfw === true
+      
+      let filteredCategories = Array.from(entryCategories)
+      
+      if (group.type === "family") {
+        filteredCategories = filteredCategories.filter(
+          (cat) => cat !== "Edgy/NSFW" && cat !== "Friends" && cat !== "Seasonal"
+        )
+      } else if (group.type === "friends") {
+        filteredCategories = filteredCategories.filter((cat) => {
+          if (cat === "Family" || cat === "Seasonal") return false
+          if (cat === "Edgy/NSFW" && !enableNSFW) return false
+          return true
+        })
+      } else {
+        filteredCategories = filteredCategories.filter((cat) => cat !== "Seasonal")
+      }
+      
+      if (memorials.length === 0) {
+        filteredCategories = filteredCategories.filter((cat) => cat !== "Remembering")
+      }
+      
+      return filteredCategories.sort()
+    },
+    enabled: !!currentGroupId && !!group,
+  })
+
+  // Filter entries by active period if set
+  const entriesWithinPeriod = useMemo(() => {
+    if (!activePeriod) {
+      return allEntries
+    }
+    const start = parseISO(activePeriod.start)
+    const end = parseISO(activePeriod.end)
+    return allEntries.filter((entry) => {
+      if (!entry?.date) return false
+      const entryDate = parseISO(entry.date)
+      if (Number.isNaN(entryDate.getTime())) return false
+      return entryDate >= start && entryDate <= end
+    })
+  }, [allEntries, activePeriod])
+
+  // Group entries by date for feed (will be filtered later after memorials load)
+  const entriesByDateUnfiltered = useMemo(() => {
+    const grouped = entriesWithinPeriod.reduce(
+      (acc, entry) => {
+        const date = entry.date
+        if (!acc[date]) {
+          acc[date] = []
+        }
+        acc[date].push(entry)
+        return acc
+      },
+      {} as Record<string, any[]>,
+    )
+    return grouped
+  }, [entriesWithinPeriod])
+
+  // Build period summaries for filtering (Weeks/Months/Years) - will be updated after filteredEntries is defined
+  // These are placeholders that will be replaced after filteredEntries is defined
+  let weekSummaries = useMemo(() => buildPeriodSummaries(entriesWithinPeriod, "Weeks"), [entriesWithinPeriod])
+  let monthSummaries = useMemo(() => buildPeriodSummaries(entriesWithinPeriod, "Months"), [entriesWithinPeriod])
+  let yearSummaries = useMemo(() => buildPeriodSummaries(entriesWithinPeriod, "Years"), [entriesWithinPeriod])
+
+  // Function to handle period selection (from period cards)
+  function handlePeriodSelect(mode: PeriodMode, period: PeriodSummary) {
+    setActivePeriod({
+      mode,
+      start: period.start,
+      end: period.end,
+      title: period.title,
+      subtitle: period.subtitle,
+    })
+    setViewMode("Days")
+    setShowFilter(false)
+  }
+
+  // Function to scroll to a specific date in the feed
+  function scrollToDate(date: string) {
+    const ref = dateRefs.current[date]
+    if (ref && scrollViewRef.current) {
+      ref.measureLayout(
+        scrollViewRef.current as any,
+        (x: number, y: number) => {
+          scrollViewRef.current?.scrollTo({ y: y - 100, animated: true }) // Offset by 100px for header
+        },
+        () => {
+          console.warn(`[home] Failed to measure layout for date ${date}`)
+        }
+      )
+    }
+  }
+
+  // Function to handle day button press - scroll to date and clear filters
+  function handleDayPress(date: string) {
+    setSelectedDate(date)
+    setActivePeriod(null) // Clear filters
+    setViewMode("Days") // Return to Days view
+    // Scroll to date after a brief delay to ensure feed is rendered
+    setTimeout(() => {
+      scrollToDate(date)
+    }, 100)
+  }
+
+  // Function to render period grid (like history.tsx)
+  function renderPeriodGrid(periods: PeriodSummary[], mode: PeriodMode) {
+    if (periods.length === 0) {
+      return (
+        <View style={{ padding: spacing.xl, alignItems: "center" }}>
+          <Text style={{ ...typography.body, color: theme2Colors.textSecondary }}>
+            No {mode.toLowerCase()} captured yet
+          </Text>
+        </View>
+      )
+    }
+
+    return (
+      <View style={styles.periodGrid}>
+        {periods.map((period) => {
+          const textContent = (
+            <View style={styles.periodOverlay}>
+              <Text style={styles.periodTitle}>{period.title}</Text>
+              <Text style={styles.periodSubtitle}>{period.subtitle}</Text>
+              <Text style={styles.periodCount}>
+                {period.count} {period.count === 1 ? "entry" : "entries"}
+              </Text>
+            </View>
+          )
+
+          return (
+            <TouchableOpacity
+              key={period.key}
+              style={styles.periodCard}
+              onPress={() => handlePeriodSelect(mode, period)}
+              activeOpacity={0.85}
+            >
+              {period.image ? (
+                <ImageBackground
+                  source={{ uri: period.image }}
+                  style={styles.periodBackground}
+                  imageStyle={styles.periodImage}
+                >
+                  <View style={styles.periodShade} />
+                  {textContent}
+                </ImageBackground>
+              ) : (
+                <View style={[styles.periodBackground, styles.periodFallback]}>{textContent}</View>
+              )}
+            </TouchableOpacity>
+          )
+        })}
+      </View>
+    )
+  }
 
   // Check for custom question opportunity (only on today's date)
   const isToday = selectedDate === todayDate
@@ -1186,6 +1797,7 @@ export default function Home() {
 
   // Only use actual prompts from dailyPrompt or entries - NO fallback prompts
   const promptId = dailyPrompt?.prompt_id ?? entries[0]?.prompt_id
+  const todayPromptId = todayDailyPrompt?.prompt_id ?? todayEntries[0]?.prompt_id
 
   const { data: groupMembersForVariables = [] } = useQuery({
     queryKey: ["membersForVariables", currentGroupId],
@@ -1265,7 +1877,353 @@ export default function Home() {
     return map
   }, [memorialNameUsage])
 
+  // Filter entries by selected filters - must be defined after memorials and memorialUsageMap
+  const filteredEntries = useMemo(() => {
+    if (!memorials || !memorialUsageMap) {
+      // If memorials haven't loaded yet, return entriesWithinPeriod (will re-filter when loaded)
+      return entriesWithinPeriod
+    }
+    
+    return entriesWithinPeriod.filter((entry) => {
+      const isCustom = entry.prompt?.is_custom === true
+      const category = isCustom ? "Custom" : (entry.prompt?.category ?? "")
+
+      if (selectedCategories.length > 0 && (!category || !selectedCategories.includes(category))) {
+        return false
+      }
+
+      if (selectedDecks.length > 0) {
+        const entryDeckId = entry.prompt?.deck_id || null
+        if (!entryDeckId || !selectedDecks.includes(entryDeckId)) {
+          return false
+        }
+      }
+
+      if (selectedMembers.length > 0 && !selectedMembers.includes(entry.user_id)) {
+        return false
+      }
+      
+      if (selectedMemorials.length > 0 && currentGroupId) {
+        const entryQuestion = entry.prompt?.question || ""
+        const prompt = entry.prompt
+        
+        const hasMemorialVariable = prompt?.dynamic_variables?.includes("memorial_name") || 
+                                    entryQuestion.match(/\{.*memorial_name.*\}/i)
+        
+        if (hasMemorialVariable) {
+          // Determine which memorial was used for this prompt on this date
+          const memorialNameUsed = getMemorialForPrompt(entry.prompt_id, entry.date, currentGroupId, memorials, memorialUsageMap)
+          
+          if (memorialNameUsed) {
+            const matchesSelectedMemorial = selectedMemorials.some((memorialId) => {
+              const memorial = memorials.find((m) => m.id === memorialId)
+              return memorial && memorial.name === memorialNameUsed
+            })
+            
+            if (!matchesSelectedMemorial) {
+              return false
+            }
+          } else {
+            // Memorials are loaded but calculation returned null - exclude the entry
+            return false
+          }
+        } else {
+          // For prompts without memorial_name variable, check if question directly contains memorial name
+          const containsMemorialName = selectedMemorials.some((memorialId) => {
+            const memorial = memorials.find((m) => m.id === memorialId)
+            return memorial && entryQuestion.includes(memorial.name)
+          })
+          
+          if (!containsMemorialName) {
+            return false
+          }
+        }
+      }
+      return true
+    })
+  }, [entriesWithinPeriod, selectedCategories, selectedMembers, selectedMemorials, selectedDecks, memorials, memorialUsageMap, currentGroupId])
+
+  // Check if any filters are active (excluding birthday cards filter)
+  const hasActiveFilters = useMemo(() => {
+    return selectedCategories.length > 0 || 
+           selectedMembers.length > 0 || 
+           selectedMemorials.length > 0 || 
+           selectedDecks.length > 0 ||
+           activePeriod !== null
+  }, [selectedCategories, selectedMembers, selectedMemorials, selectedDecks, activePeriod])
+
+  // Mix birthday cards with regular entries (like history.tsx)
+  // When showBirthdayCards filter is active, show ONLY birthday cards
+  // CRITICAL: Only include cards that have entries
+  // IMPORTANT: Only add birthday cards when showBirthdayCards is true OR when no other filters are active
+  const entriesWithBirthdayCards = useMemo(() => {
+    // Filter birthday cards to only include cards from the current group AND that have entries
+    const filteredBirthdayCards = myBirthdayCards.filter((card) => {
+      // Must belong to current group
+      if (card.group_id !== currentGroupId) return false
+      // Must have entries
+      const cardEntries = allCardEntries[card.id] || []
+      if (cardEntries.length === 0) return false
+      return true
+    })
+    
+    // Create a map of birthday cards by date
+    const cardsByDate = new Map<string, typeof filteredBirthdayCards>()
+    filteredBirthdayCards.forEach((card) => {
+      if (!cardsByDate.has(card.birthday_date)) {
+        cardsByDate.set(card.birthday_date, [])
+      }
+      cardsByDate.get(card.birthday_date)!.push(card)
+    })
+    
+    // If birthday card filter is active, show ONLY birthday cards
+    if (showBirthdayCards) {
+      const entries: any[] = []
+      cardsByDate.forEach((cards, date) => {
+        cards.forEach((card) => {
+          // Create a special entry-like object for the birthday card
+          entries.push({
+            id: `birthday-card-${card.id}`,
+            group_id: card.group_id,
+            user_id: card.birthday_user_id,
+            prompt_id: null,
+            date: card.birthday_date,
+            text_content: null,
+            media_urls: null,
+            media_types: null,
+            embedded_media: null,
+            created_at: card.published_at || card.created_at,
+            user: card.birthday_user,
+            prompt: null,
+            is_birthday_card: true, // Flag to identify birthday cards
+            birthday_card_id: card.id,
+          })
+        })
+      })
+      
+      // Sort by date descending, then by created_at descending
+      return entries.sort((a, b) => {
+        const dateCompare = new Date(b.date).getTime() - new Date(a.date).getTime()
+        if (dateCompare !== 0) return dateCompare
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      })
+    }
+    
+    // Otherwise, only mix birthday cards with regular entries if NO other filters are active
+    const entries: any[] = [...filteredEntries]
+    if (!hasActiveFilters) {
+      // Only add birthday cards when no other filters are active
+      cardsByDate.forEach((cards, date) => {
+        cards.forEach((card) => {
+          // Create a special entry-like object for the birthday card
+          entries.push({
+            id: `birthday-card-${card.id}`,
+            group_id: card.group_id,
+            user_id: card.birthday_user_id,
+            prompt_id: null,
+            date: card.birthday_date,
+            text_content: null,
+            media_urls: null,
+            media_types: null,
+            embedded_media: null,
+            created_at: card.published_at || card.created_at,
+            user: card.birthday_user,
+            prompt: null,
+            is_birthday_card: true, // Flag to identify birthday cards
+            birthday_card_id: card.id,
+          })
+        })
+      })
+    }
+    
+    // Sort by date descending, then by created_at descending
+    return entries.sort((a, b) => {
+      const dateCompare = new Date(b.date).getTime() - new Date(a.date).getTime()
+      if (dateCompare !== 0) return dateCompare
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    })
+  }, [filteredEntries, showBirthdayCards, myBirthdayCards, currentGroupId, allCardEntries, hasActiveFilters])
+
+  // Group entries with birthday cards by date for feed
+  const entriesByDate = useMemo(() => {
+    const grouped = entriesWithBirthdayCards.reduce(
+      (acc, entry) => {
+        const date = entry.date
+        if (!acc[date]) {
+          acc[date] = []
+        }
+        acc[date].push(entry)
+        return acc
+      },
+      {} as Record<string, any[]>,
+    )
+    return grouped
+  }, [entriesWithBirthdayCards])
+
+  // Update period summaries with filtered entries
+  weekSummaries = useMemo(() => buildPeriodSummaries(filteredEntries, "Weeks"), [filteredEntries])
+  monthSummaries = useMemo(() => buildPeriodSummaries(filteredEntries, "Months"), [filteredEntries])
+  yearSummaries = useMemo(() => buildPeriodSummaries(filteredEntries, "Years"), [filteredEntries])
+
+  // Check if today's prompt matches the active filters
+  const promptMatchesFilters = useMemo(() => {
+    // If no filters are active, show the prompt
+    if (selectedCategories.length === 0 && selectedMembers.length === 0 && selectedMemorials.length === 0 && selectedDecks.length === 0) {
+      return true
+    }
+
+    const prompt = dailyPrompt?.prompt
+    if (!prompt) return false
+
+    // Check category filter
+    if (selectedCategories.length > 0) {
+      const isCustom = prompt.is_custom === true
+      const category = isCustom ? "Custom" : (prompt.category ?? "")
+      if (!category || !selectedCategories.includes(category)) {
+        return false
+      }
+    }
+
+    // Check deck filter
+    if (selectedDecks.length > 0) {
+      const promptDeckId = prompt.deck_id || null
+      if (!promptDeckId || !selectedDecks.includes(promptDeckId)) {
+        return false
+      }
+    }
+
+    // Check memorial filter
+    if (selectedMemorials.length > 0 && currentGroupId && dailyPrompt?.prompt_id && selectedDate && memorials && memorialUsageMap) {
+      const promptQuestion = prompt.question || ""
+      const hasMemorialVariable = prompt.dynamic_variables?.includes("memorial_name") || 
+                                  promptQuestion.match(/\{.*memorial_name.*\}/i)
+      
+      if (hasMemorialVariable) {
+        const memorialNameUsed = getMemorialForPrompt(dailyPrompt.prompt_id, selectedDate, currentGroupId, memorials, memorialUsageMap)
+        
+        if (memorialNameUsed) {
+          const matchesSelectedMemorial = selectedMemorials.some((memorialId) => {
+            const memorial = memorials.find((m) => m.id === memorialId)
+            return memorial && memorial.name === memorialNameUsed
+          })
+          
+          if (!matchesSelectedMemorial) {
+            return false
+          }
+        } else if (memorials.length > 0) {
+          return false
+        }
+      } else {
+        const containsMemorialName = selectedMemorials.some((memorialId) => {
+          const memorial = memorials.find((m) => m.id === memorialId)
+          return memorial && promptQuestion.includes(memorial.name)
+        })
+        
+        if (!containsMemorialName) {
+          return false
+        }
+      }
+    }
+
+    return true
+  }, [dailyPrompt?.prompt, dailyPrompt?.prompt_id, selectedDate, selectedCategories, selectedMembers, selectedMemorials, selectedDecks, memorials, memorialUsageMap, currentGroupId])
+
+  // Check if today's prompt matches the active filters (for showing prompt card at top)
+  const todayPromptMatchesFilters = useMemo(() => {
+    // If no filters are active, show the prompt
+    if (selectedCategories.length === 0 && selectedMembers.length === 0 && selectedMemorials.length === 0 && selectedDecks.length === 0) {
+      return true
+    }
+
+    const prompt = todayDailyPrompt?.prompt
+    if (!prompt) return false
+
+    // Check category filter
+    if (selectedCategories.length > 0) {
+      const isCustom = prompt.is_custom === true
+      const category = isCustom ? "Custom" : (prompt.category ?? "")
+      if (!category || !selectedCategories.includes(category)) {
+        return false
+      }
+    }
+
+    // Check deck filter
+    if (selectedDecks.length > 0) {
+      const promptDeckId = prompt.deck_id || null
+      if (!promptDeckId || !selectedDecks.includes(promptDeckId)) {
+        return false
+      }
+    }
+
+    // Check memorial filter
+    if (selectedMemorials.length > 0 && currentGroupId && todayDailyPrompt?.prompt_id && todayDate && memorials && memorialUsageMap) {
+      const promptQuestion = prompt.question || ""
+      const hasMemorialVariable = prompt.dynamic_variables?.includes("memorial_name") || 
+                                  promptQuestion.match(/\{.*memorial_name.*\}/i)
+      
+      if (hasMemorialVariable) {
+        const memorialNameUsed = getMemorialForPrompt(todayDailyPrompt.prompt_id, todayDate, currentGroupId, memorials, memorialUsageMap)
+        
+        if (memorialNameUsed) {
+          const matchesSelectedMemorial = selectedMemorials.some((memorialId) => {
+            const memorial = memorials.find((m) => m.id === memorialId)
+            return memorial && memorial.name === memorialNameUsed
+          })
+          
+          if (!matchesSelectedMemorial) {
+            return false
+          }
+        } else if (memorials.length > 0) {
+          return false
+        }
+      } else {
+        const containsMemorialName = selectedMemorials.some((memorialId) => {
+          const memorial = memorials.find((m) => m.id === memorialId)
+          return memorial && promptQuestion.includes(memorial.name)
+        })
+        
+        if (!containsMemorialName) {
+          return false
+        }
+      }
+    }
+
+    return true
+  }, [todayDailyPrompt?.prompt, todayDailyPrompt?.prompt_id, todayDate, selectedCategories, selectedMembers, selectedMemorials, selectedDecks, memorials, memorialUsageMap, currentGroupId])
+
   // Check if today's question is about the current user (member_name matches userName)
+  // CRITICAL: Only check for member_name prompts, not memorial_name
+  const isTodayQuestionAboutMe = useMemo(() => {
+    // Only check if we have a prompt with member_name variable
+    const promptQuestion = todayDailyPrompt?.prompt?.question
+    if (!promptQuestion || !promptQuestion.match(/\{.*member_name.*\}/i)) {
+      return false
+    }
+    
+    // Need prompt ID and date to look up the member name used
+    const currentPromptId = todayDailyPrompt?.prompt_id
+    if (!currentPromptId || !todayDate || !userName) {
+      return false
+    }
+    
+    // Get the member name that was used for this prompt on today's date
+    const normalizedDate = todayDate.split('T')[0]
+    const usageKey = `${currentPromptId}-${normalizedDate}`
+    const memberNameUsed = memberUsageMap.get(usageKey)
+    
+    if (!memberNameUsed) {
+      // No usage record found - can't determine if it's about me
+      return false
+    }
+    
+    // Compare names (case-insensitive, trimmed)
+    const normalizedUsedName = memberNameUsed.trim().toLowerCase()
+    const normalizedUserName = userName.trim().toLowerCase()
+    
+    return normalizedUsedName === normalizedUserName
+  }, [todayDailyPrompt?.prompt?.question, todayDailyPrompt?.prompt_id, todayDate, userName, memberUsageMap])
+
+  // Check if selected date's question is about the current user (member_name matches userName)
   // CRITICAL: Only check for member_name prompts, not memorial_name
   const isQuestionAboutMe = useMemo(() => {
     // Only check if we have a prompt with member_name variable
@@ -1423,6 +2381,201 @@ export default function Home() {
     // No valid prompt available - return empty string (skeleton will be shown)
     return ""
   }, [dailyPrompt?.prompt?.question, dailyPrompt?.prompt_id, entries, memorials, groupMembersForVariables, currentGroupId, selectedDate, memberUsageMap, memberNameUsage, memorialUsageMap, memorialNameUsage])
+
+  // Fetch prompt_name_usage for today's member_name (for prompt card at top)
+  const { data: todayMemberNameUsage = [] } = useQuery({
+    queryKey: ["memberNameUsage", currentGroupId, todayDate],
+    queryFn: async () => {
+      if (!currentGroupId || !todayPromptId) return []
+      const { data, error } = await supabase
+        .from("prompt_name_usage")
+        .select("prompt_id, date_used, name_used, created_at")
+        .eq("group_id", currentGroupId)
+        .eq("variable_type", "member_name")
+        .order("created_at", { ascending: true })
+      if (error) {
+        console.error("[home] Error fetching today's member name usage:", error)
+        return []
+      }
+      return (data || []) as Array<{ prompt_id: string; date_used: string; name_used: string; created_at: string }>
+    },
+    enabled: !!currentGroupId && !!todayPromptId && !!todayDailyPrompt?.prompt?.question?.match(/\{.*member_name.*\}/i),
+    staleTime: 0,
+    refetchOnMount: true,
+  })
+
+  // Fetch prompt_name_usage for today's memorial_name (for prompt card at top)
+  const { data: todayMemorialNameUsage = [] } = useQuery({
+    queryKey: ["memorialNameUsage", currentGroupId, todayDate],
+    queryFn: async () => {
+      if (!currentGroupId || !todayPromptId) return []
+      const { data, error } = await supabase
+        .from("prompt_name_usage")
+        .select("prompt_id, date_used, name_used, created_at")
+        .eq("group_id", currentGroupId)
+        .eq("variable_type", "memorial_name")
+        .order("created_at", { ascending: true })
+      if (error) {
+        console.error("[home] Error fetching today's memorial name usage:", error)
+        return []
+      }
+      return (data || []) as Array<{ prompt_id: string; date_used: string; name_used: string; created_at: string }>
+    },
+    enabled: !!currentGroupId && !!todayPromptId && !!todayDailyPrompt?.prompt?.question?.match(/\{.*memorial_name.*\}/i),
+    staleTime: 0,
+    refetchOnMount: true,
+  })
+
+  // Create maps for today's name usage
+  const todayMemberUsageMap = useMemo(() => {
+    const map = new Map<string, string>()
+    todayMemberNameUsage.forEach((usage) => {
+      const normalizedDate = usage.date_used.split('T')[0]
+      const key = `${usage.prompt_id}-${normalizedDate}`
+      if (!map.has(key)) {
+        map.set(key, usage.name_used)
+      }
+    })
+    return map
+  }, [todayMemberNameUsage])
+
+  const todayMemorialUsageMap = useMemo(() => {
+    const map = new Map<string, string>()
+    todayMemorialNameUsage.forEach((usage) => {
+      const normalizedDate = usage.date_used.split('T')[0]
+      const key = `${usage.prompt_id}-${normalizedDate}`
+      if (!map.has(key)) {
+        map.set(key, usage.name_used)
+      }
+    })
+    return map
+  }, [todayMemorialNameUsage])
+
+  // Personalize today's prompt question with variables (for prompt card at top)
+  const todayPersonalizedPromptQuestion = useMemo(() => {
+    // If we have a prompt from todayDailyPrompt, use it directly (already personalized by getDailyPrompt)
+    const todayDailyPromptQuestion = todayDailyPrompt?.prompt?.question?.trim()
+    if (todayDailyPromptQuestion) {
+      // Check if the question is already personalized (no variables)
+      const hasVariables = todayDailyPromptQuestion.match(/\{.*memorial_name.*\}/i) || 
+                          todayDailyPromptQuestion.match(/\{.*member_name.*\}/i)
+      
+      if (!hasVariables) {
+        // Already personalized correctly by getDailyPrompt - use it EXACTLY as-is
+        return todayDailyPromptQuestion
+      } else {
+        // This is a bug in getDailyPrompt - it should have personalized but didn't
+        // But we should still check prompt_name_usage to get the correct name
+        let question = todayDailyPromptQuestion
+        const variables: Record<string, string> = {}
+        
+        // Handle memorial_name variable - check prompt_name_usage first
+        if (question.match(/\{.*memorial_name.*\}/i) && todayDailyPrompt?.prompt_id && todayDate) {
+          const normalizedDate = todayDate.split('T')[0]
+          const usageKey = `${todayDailyPrompt.prompt_id}-${normalizedDate}`
+          const memorialNameUsed = todayMemorialUsageMap.get(usageKey)
+          
+          if (memorialNameUsed) {
+            question = personalizeMemorialPrompt(question, memorialNameUsed)
+            // Verify the replacement worked - if question still has variables, something went wrong
+            if (question.match(/\{.*memorial_name.*\}/i)) {
+              console.warn(`[home] personalizeMemorialPrompt failed to replace variables. Question: ${question}, Memorial: ${memorialNameUsed}`)
+            }
+          } else if (memorials.length > 0) {
+            // Fallback: use deterministic logic to select memorial
+            const dayIndex = getDayIndex(todayDate, currentGroupId || "")
+            const memorialIndex = dayIndex % memorials.length
+            const selectedMemorialName = memorials[memorialIndex]?.name
+            
+            if (selectedMemorialName) {
+              question = personalizeMemorialPrompt(question, selectedMemorialName)
+              // Verify the replacement worked
+              if (question.match(/\{.*memorial_name.*\}/i)) {
+                console.warn(`[home] personalizeMemorialPrompt failed to replace variables (fallback). Question: ${question}, Memorial: ${selectedMemorialName}`)
+              }
+            } else {
+              console.warn(`[home] getDailyPrompt returned unpersonalized memorial_name but no memorial found`)
+            }
+          } else {
+            console.warn(`[home] getDailyPrompt returned unpersonalized memorial_name but no memorials available`)
+          }
+        }
+        
+        // Handle member_name variable - check prompt_name_usage first
+        if (question.match(/\{.*member_name.*\}/i) && todayDailyPrompt?.prompt_id && todayDate) {
+          const normalizedDate = todayDate.split('T')[0]
+          const usageKey = `${todayDailyPrompt.prompt_id}-${normalizedDate}`
+          const memberNameUsed = todayMemberUsageMap.get(usageKey)
+          
+          if (memberNameUsed) {
+            variables.member_name = memberNameUsed
+            question = replaceDynamicVariables(question, variables)
+            // Verify the replacement worked
+            if (question.match(/\{.*member_name.*\}/i)) {
+              console.warn(`[home] replaceDynamicVariables failed to replace member_name. Question: ${question}, Member: ${memberNameUsed}`)
+            }
+          } else {
+            console.warn(`[home] getDailyPrompt returned unpersonalized member_name but no prompt_name_usage found`)
+          }
+        }
+        
+        // Final check: if question is empty or still has variables, return empty string (will show fallback)
+        const finalQuestion = question.trim()
+        if (!finalQuestion || finalQuestion.match(/\{.*(memorial_name|member_name).*\}/i)) {
+          console.warn(`[home] Question is empty or still has variables after personalization: ${finalQuestion}`)
+          return ""
+        }
+        
+        return finalQuestion
+      }
+    }
+    
+    // If we have a prompt from todayEntries, use it (may need personalization)
+    if (todayEntries[0]?.prompt?.question) {
+      let question = todayEntries[0].prompt.question
+      const variables: Record<string, string> = {}
+      
+      // Handle memorial_name variable
+      if (question.match(/\{.*memorial_name.*\}/i)) {
+        if (memorials.length > 0) {
+          // Use deterministic logic to select memorial
+          const dayIndex = getDayIndex(todayDate, currentGroupId || "")
+          const memorialIndex = dayIndex % memorials.length
+          const selectedMemorialName = memorials[memorialIndex]?.name
+          
+          if (selectedMemorialName) {
+            question = personalizeMemorialPrompt(question, selectedMemorialName)
+          }
+        }
+      }
+      
+      // Handle member_name variable - check prompt_name_usage first
+      if (question.match(/\{.*member_name.*\}/i)) {
+        const entryPromptId = todayEntries[0].prompt_id
+        if (entryPromptId && todayDate) {
+          const normalizedDate = todayDate.split('T')[0]
+          const usageKey = `${entryPromptId}-${normalizedDate}`
+          const memberNameUsed = todayMemberUsageMap.get(usageKey)
+          
+          if (memberNameUsed) {
+            // Use the exact name from prompt_name_usage (ensures consistency)
+            variables.member_name = memberNameUsed
+            question = replaceDynamicVariables(question, variables)
+          } else if (groupMembersForVariables.length > 0) {
+            // Fallback: if no usage record exists, use first member
+            console.warn(`[home] No prompt_name_usage found for member_name, using first member as fallback`)
+            variables.member_name = groupMembersForVariables[0].user?.name || "them"
+            question = replaceDynamicVariables(question, variables)
+          }
+        }
+      }
+      
+      return question
+    }
+    
+    // No valid prompt available - return empty string (skeleton will be shown)
+    return ""
+  }, [todayDailyPrompt?.prompt?.question, todayDailyPrompt?.prompt_id, todayEntries, memorials, groupMembersForVariables, currentGroupId, todayDate, todayMemberUsageMap, todayMemberNameUsage, todayMemorialUsageMap, todayMemorialNameUsage])
 
   // Check if CTA should show (load immediately, not waiting for scroll)
   // Only show when viewing today's date
@@ -1612,14 +2765,36 @@ export default function Home() {
   }
 
   async function handleNotificationPress(notification: InAppNotification) {
-    // Mark entry as visited if it's a reply notification
-    if (notification.entryId) {
-      await markEntryAsVisited(notification.entryId)
-    }
-
-    // Mark group as visited if it's a new_answers notification
-    if (notification.type === "new_answers") {
+    // Mark specific notifications as cleared based on their type
+    // Only clear the notification that was clicked, not all notifications
+    
+    if (notification.type === "new_question") {
+      // Clear when user navigates to answer the question (they'll answer it)
+      // Don't clear here - let it clear when they actually answer
+      // But we can mark it as "seen" if they navigate to it
+      if (notification.date && notification.promptId) {
+        // Only mark as answered if they navigate to answer it
+        // For now, we'll let it persist until they answer
+      }
+    } else if (notification.type === "reply_to_entry" || notification.type === "reply_to_thread" || notification.type === "mentioned_in_entry") {
+      // Clear when user views the entry detail
+      if (notification.entryId) {
+        await markEntryAsVisited(notification.entryId)
+      }
+    } else if (notification.type === "new_answers") {
+      // Clear when user actually views the group content (not just clicks notification)
+      // Don't clear here - let it clear when they actually view the group
+      // For now, we'll mark group as visited when they navigate
       await markGroupAsVisited(notification.groupId)
+    } else if (notification.type === "deck_vote_requested") {
+      // Clear when user votes (handled in deck-vote screen)
+      // Don't clear here - let it clear when they vote
+    } else if (notification.type === "birthday_card") {
+      // Clear when user adds to birthday card (handled in birthday card screen)
+      // Don't clear here - let it clear when they add to card
+    } else if (notification.type === "custom_question_opportunity") {
+      // Clear when user submits custom question (handled in entry-composer)
+      // Don't clear here - let it clear when they submit
     }
 
     // Switch group if notification is for a different group
@@ -1670,6 +2845,16 @@ export default function Home() {
         // Fallback to explore decks if deckId is missing
         router.push(`/(main)/explore-decks?groupId=${notification.groupId}`)
       }
+    } else if (notification.type === "birthday_card") {
+      // Navigate to birthday card screen
+      if (notification.birthdayPersonId && notification.birthdayDate) {
+        router.push(`/(main)/birthday-card?userId=${notification.birthdayPersonId}&date=${notification.birthdayDate}&groupId=${notification.groupId}`)
+      } else {
+        router.replace("/(main)/home")
+      }
+    } else if (notification.type === "custom_question_opportunity") {
+      // Navigate to explore decks to ask custom question
+      router.push(`/(main)/explore-decks?groupId=${notification.groupId}&showCustomQuestion=true`)
     } else if (notification.entryId) {
       // Navigate to entry detail - get all entries for the group to build navigation list
       const { data: entries } = await supabase
@@ -1706,14 +2891,11 @@ export default function Home() {
     // Show modal immediately for better UX
     setNotificationModalVisible(true)
     
-    // Do async work in the background after showing modal
-    // Mark notifications as checked when opening modal
-    markNotificationsAsChecked().catch((error) => {
-      if (__DEV__) console.error("[home] Failed to mark notifications as checked:", error)
-    })
-    // Refetch notifications to clear the badge
+    // Do NOT mark notifications as checked when opening modal
+    // Notifications should persist until individually actioned
+    // Only refetch to update badge count
     queryClient.invalidateQueries({ queryKey: ["inAppNotifications", userId] })
-    // Update badge count after marking as checked
+    // Update badge count
     if (userId) {
       updateBadgeCount(userId).catch((error) => {
         if (__DEV__) console.error("[home] Failed to update badge count:", error)
@@ -1763,8 +2945,11 @@ export default function Home() {
     }
   }
 
-  function handleAnswerPrompt() {
-    if (!promptId || !currentGroupId) {
+  function handleAnswerPrompt(useToday = false) {
+    const effectivePromptId = useToday ? todayPromptId : promptId
+    const effectiveDate = useToday ? todayDate : selectedDate
+    
+    if (!effectivePromptId || !currentGroupId) {
       Alert.alert("No prompt available", "Please check back shortly — today's prompt is still loading.")
       return
     }
@@ -1775,8 +2960,8 @@ export default function Home() {
     router.push({
       pathname: "/(main)/modals/entry-composer",
       params: {
-        promptId,
-        date: selectedDate,
+        promptId: effectivePromptId,
+        date: effectiveDate,
         groupId: currentGroupId, // Pass current group ID explicitly
       },
     })
@@ -1900,23 +3085,74 @@ export default function Home() {
     router.push("/(onboarding)/start-new-group")
   }
 
-  // Calculate full header height including day scroller
+  // Calculate if prompt card should be shown at top
+  // Always check today's question, regardless of selectedDate
+  const showPromptCardAtTop = viewMode === "Days" && !todayUserEntry && !(isTodayQuestionAboutMe && todayEntries.length > 0) && todayPromptMatchesFilters
+
+  // Get today's entries excluding current user (to see who has answered)
+  const todayEntriesExcludingUser = useMemo(() => {
+    if (!todayEntries || !userId) return []
+    return todayEntries.filter((entry) => entry.user_id !== userId)
+  }, [todayEntries, userId])
+
+  // Get names of people who have answered today's question
+  const todayAnswererNames = useMemo(() => {
+    if (!todayEntriesExcludingUser || todayEntriesExcludingUser.length === 0) return []
+    
+    // Get unique user names from entries
+    const nameMap = new Map<string, string>()
+    for (const entry of todayEntriesExcludingUser) {
+      if (entry.user?.name && !nameMap.has(entry.user_id)) {
+        nameMap.set(entry.user_id, entry.user.name)
+      }
+    }
+    
+    return Array.from(nameMap.values())
+  }, [todayEntriesExcludingUser])
+
+  // Format answerer names text
+  const answererNamesText = useMemo(() => {
+    if (todayAnswererNames.length === 0) return null
+    
+    if (todayAnswererNames.length === 1) {
+      return `${todayAnswererNames[0]} has answered today's question`
+    } else if (todayAnswererNames.length === 2) {
+      return `${todayAnswererNames[0]} and ${todayAnswererNames[1]} have answered today's question`
+    } else {
+      const allButLast = todayAnswererNames.slice(0, -1).join(", ")
+      const last = todayAnswererNames[todayAnswererNames.length - 1]
+      return `${allButLast}, and ${last} have answered today's question`
+    }
+  }, [todayAnswererNames])
+
+  // Check if today's prompt is a Remembering category question
+  const isRememberingCategory = useMemo(() => {
+    const category = todayDailyPrompt?.prompt?.category || todayEntries[0]?.prompt?.category
+    return category === "Remembering"
+  }, [todayDailyPrompt?.prompt?.category, todayEntries[0]?.prompt?.category])
+
+  // Calculate full header height including day scroller and prompt card if visible
   // Reduced bottom spacing to minimize gap between header and content
   const headerHeight = useMemo(() => {
-    return insets.top + spacing.xl + spacing.md + 36 + spacing.md + 32 + spacing.md + 48 + spacing.md + spacing.sm + 48 + spacing.xs
-  }, [insets.top])
+    const baseHeight = insets.top + spacing.xl + spacing.md + 36 + spacing.md + 32 + spacing.md + 48 + spacing.md + spacing.sm + 48 + spacing.xs
+    // Add prompt card height and spacing when visible (approximate 200px + margin + extra height for description text ~40px)
+    const promptCardHeight = showPromptCardAtTop ? 240 + spacing.md : 0
+    // Add divider height and spacing (1px divider + spacing.lg above + spacing.xl below)
+    const dividerHeight = 1 + spacing.lg + spacing.xl
+    return baseHeight + promptCardHeight + dividerHeight
+  }, [insets.top, showPromptCardAtTop])
 
   useEffect(() => {
-    // Set initial padding to header height minus extra bottom spacing
+    // Set initial padding to header height minus divider bottom margin
     // The header is absolutely positioned, so we need padding to account for it
-    // but we reduce the bottom padding to minimize gap between header and content
-    const reducedPadding = headerHeight - spacing.lg // Remove extra bottom spacing
+    // The divider already has marginBottom: spacing.xl, so we subtract that to avoid double padding
+    const reducedPadding = headerHeight - spacing.xl
     contentPaddingTop.setValue(reducedPadding)
   }, [headerHeight])
 
   // Reset scroll position and header when selectedDate changes (e.g., clicking CTA to view previous day)
   useEffect(() => {
-    const reducedPadding = headerHeight - spacing.lg
+    const reducedPadding = headerHeight - spacing.xl
     
     // Set flag to prevent scroll handler from interfering
     isResettingScroll.current = true
@@ -1957,7 +3193,7 @@ export default function Home() {
   // Reset animated values and scroll position when screen comes into focus (fixes content cut off when navigating back)
   useFocusEffect(
     useCallback(() => {
-      const reducedPadding = headerHeight - spacing.lg
+      const reducedPadding = headerHeight - spacing.xl
       
       // Set flag to prevent scroll handler from interfering
       isResettingScroll.current = true
@@ -1983,6 +3219,7 @@ export default function Home() {
       
       // Reset scroll tracking
       lastScrollY.current = 0
+      lastScrollTime.current = Date.now()
       scrollY.setValue(0)
       
       // Reset scroll position to top
@@ -1993,7 +3230,20 @@ export default function Home() {
           isResettingScroll.current = false
         }, 100)
       }, 0)
-    }, [headerHeight, scrollY])
+      
+      // Refetch entry-related queries when screen comes into focus to ensure fresh data
+      // This is especially important after posting an entry
+      if (currentGroupId && userId) {
+        const todayDate = getTodayDate()
+        // Refetch today's data to ensure we see the latest entries
+        queryClient.refetchQueries({ queryKey: ["entries", currentGroupId, todayDate] })
+        queryClient.refetchQueries({ queryKey: ["userEntry", currentGroupId, userId, todayDate] })
+        queryClient.refetchQueries({ queryKey: ["dailyPrompt", currentGroupId, todayDate] })
+        // Also refetch general entry queries
+        queryClient.refetchQueries({ queryKey: ["entries", currentGroupId], exact: false })
+        queryClient.refetchQueries({ queryKey: ["userEntry", currentGroupId], exact: false })
+      }
+    }, [headerHeight, scrollY, currentGroupId, userId, queryClient])
   )
 
   const handleScroll = Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
@@ -2003,8 +3253,16 @@ export default function Home() {
       if (isResettingScroll.current) return
       
       const currentScrollY = event.nativeEvent.contentOffset.y
+      const currentTime = Date.now()
       const scrollDiff = currentScrollY - lastScrollY.current
+      const timeDiff = currentTime - lastScrollTime.current
+      
+      // Calculate scroll velocity (pixels per millisecond)
+      const scrollVelocity = timeDiff > 0 ? Math.abs(scrollDiff) / timeDiff : 0
+      
+      // Update refs
       lastScrollY.current = currentScrollY
+      lastScrollTime.current = currentTime
 
       if (scrollDiff > 5 && currentScrollY > 50) {
         // Scrolling down - hide header and reduce padding, fade tab bar
@@ -2026,46 +3284,105 @@ export default function Home() {
           }),
         ]).start()
       } else if (scrollDiff < -5) {
-        // Scrolling up - show header and restore padding, show tab bar
+        // Scrolling up - ALWAYS restore padding immediately to prevent content stuck behind header
+        // This must happen regardless of scroll velocity or position
+        const reducedPadding = headerHeight - spacing.xl
+        
+        // Immediately restore padding (no animation delay)
+        contentPaddingTop.setValue(reducedPadding)
+        
+        // Also animate to ensure smooth transition
+        Animated.timing(contentPaddingTop, {
+          toValue: reducedPadding,
+          duration: 200, // Faster animation for better responsiveness
+          useNativeDriver: false,
+        }).start(() => {
+          // Ensure padding is set correctly after animation
+          contentPaddingTop.setValue(reducedPadding)
+        })
+        
+        // Only show header if:
+        // 1. User is scrolling up very fast (velocity > 2.0 pixels/ms = intentional fast swipe)
+        // 2. OR user has reached/near the top (within 50px of top)
+        const isFastScrollUp = scrollVelocity > 2.0
+        const isNearTop = currentScrollY < 50
+        
+        if (isFastScrollUp || isNearTop) {
+          // Show header and tab bar
+          Animated.parallel([
+            Animated.timing(headerTranslateY, {
+              toValue: 0,
+              duration: 300,
+              useNativeDriver: true,
+            }),
+            Animated.timing(tabBarOpacity, {
+              toValue: 1,
+              duration: 300,
+              useNativeDriver: true,
+            }),
+          ]).start()
+        }
+      } else if (currentScrollY <= 0) {
+        // At the top - always ensure padding is correct and header is visible
+        const reducedPadding = headerHeight - spacing.xl
+        contentPaddingTop.setValue(reducedPadding)
+        
         Animated.parallel([
           Animated.timing(headerTranslateY, {
             toValue: 0,
-            duration: 300,
+            duration: 200,
             useNativeDriver: true,
           }),
           Animated.timing(contentPaddingTop, {
-            toValue: headerHeight,
-            duration: 300,
+            toValue: reducedPadding,
+            duration: 200,
             useNativeDriver: false,
           }),
           Animated.timing(tabBarOpacity, {
             toValue: 1,
-            duration: 300,
+            duration: 200,
             useNativeDriver: true,
           }),
-        ]).start()
+        ]).start(() => {
+          // Ensure padding is set correctly after animation
+          contentPaddingTop.setValue(reducedPadding)
+        })
       }
     },
   })
+
+  // Theme 2 color palette
+  const theme2Colors = {
+    red: "#B94444",
+    yellow: "#E8A037",
+    green: "#2D6F4A",
+    blue: "#3A5F8C",
+    beige: "#E8E0D5",
+    cream: "#F5F0EA",
+    white: "#FFFFFF",
+    text: "#000000",
+    textSecondary: "#404040",
+    onboardingPink: "#D97393", // Pink for onboarding CTAs
+  }
 
   // Create dynamic styles based on theme
   const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
     },
     header: {
       paddingTop: spacing.sm,
       paddingHorizontal: spacing.md,
       paddingBottom: 0, // Remove bottom padding to minimize gap
-      borderBottomWidth: 1,
-      borderBottomColor: isDark ? colors.gray[800] : "#000000",
+      borderBottomWidth: 0, // Remove underline div below dates
       position: "absolute",
       top: 0,
       left: 0,
       right: 0,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
       zIndex: 10,
+      overflow: "visible", // Allow dropdown to overflow header bounds
     },
     headerTop: {
       flexDirection: "row",
@@ -2089,18 +3406,22 @@ export default function Home() {
     groupName: {
       ...typography.h2,
       fontSize: 22,
-      color: colors.white,
+      color: theme2Colors.text,
+      fontFamily: "PMGothicLudington-Text115",
     },
     chevron: {
       ...typography.body,
       fontSize: 12,
-      color: isDark ? "#ffffff" : "#000000",
+      color: theme2Colors.text,
     },
     membersScroll: {
       marginBottom: spacing.md,
+      paddingVertical: 3, // Add vertical padding to prevent cropping from top/bottom
+      paddingLeft: 3, // Add left padding to prevent cropping from left side
+      paddingRight: spacing.sm, // Add right padding for last item
     },
     memberAvatar: {
-      marginRight: spacing.sm,
+      marginRight: -4, // Slight overlap
     },
     addMemberButton: {
       marginRight: spacing.sm,
@@ -2109,32 +3430,54 @@ export default function Home() {
       width: 32,
       height: 32,
       borderRadius: 16,
-      backgroundColor: colors.gray[700],
+      backgroundColor: theme2Colors.cream,
       justifyContent: "center",
       alignItems: "center",
       borderWidth: 2,
-      borderColor: colors.gray[600],
+      borderColor: theme2Colors.yellow,
     },
     addMemberText: {
       ...typography.h2,
       fontSize: 20,
-      color: colors.white,
+      color: theme2Colors.text,
     },
     dayScroller: {
-      marginTop: spacing.sm,
-      paddingVertical: spacing.sm,
+      marginTop: spacing.xs, // Reduced padding
+      paddingVertical: spacing.xs, // Reduced padding
+      marginBottom: spacing.xs, // Reduced spacing below day navigation
+      overflow: "visible", // Allow dropdown to overflow scrollview bounds
+    },
+    dayScrollerContent: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: spacing.xs,
+    },
+    dayNavigationDivider: {
+      width: "60%", // Small divider, not spanning full screen
+      height: 1,
+      backgroundColor: "#3A5F8C", // Blue color
+      alignSelf: "center",
+      marginTop: spacing.lg, // Padding above divider
+      marginBottom: spacing.xl, // More padding below divider
     },
     dayButton: {
-      paddingVertical: spacing.xs,
+      paddingVertical: spacing.xs / 2, // Reduced vertical padding for more rectangular shape
       paddingHorizontal: spacing.sm,
       marginRight: spacing.xs,
       alignItems: "center",
+      justifyContent: "center",
       minWidth: 48,
+      height: 36, // Reduced height for more rectangular shape
+      backgroundColor: theme2Colors.white, // White inside for previous days
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: theme2Colors.text, // Black stroke for previous days
     },
     dayButtonSelected: {
       borderWidth: 2,
-      borderRadius: 4,
-      borderColor: colors.white,
+      borderRadius: 8,
+      borderColor: theme2Colors.blue,
+      backgroundColor: theme2Colors.yellow,
     },
     dayButtonFuture: {
       opacity: 0.5,
@@ -2143,24 +3486,24 @@ export default function Home() {
       ...typography.caption,
       fontSize: 12,
       marginBottom: spacing.xs,
-      color: colors.white,
+      color: theme2Colors.text,
     },
     dayTextSelected: {
-      color: colors.white,
+      color: theme2Colors.text,
     },
     dayTextFuture: {
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
     },
     dayNum: {
       ...typography.bodyBold,
       fontSize: 16,
-      color: colors.white,
+      color: theme2Colors.text,
     },
     dayNumSelected: {
-      color: colors.white,
+      color: theme2Colors.text,
     },
     dayNumFuture: {
-      color: colors.gray[500],
+      color: theme2Colors.textSecondary,
     },
     content: {
       flex: 1,
@@ -2171,47 +3514,110 @@ export default function Home() {
       paddingBottom: spacing.xxl * 4, // Increased bottom padding for scrolling
     },
     promptCardWrapper: {
-      marginBottom: 0, // No margin - entries start immediately after
+      marginBottom: spacing.xl, // Add padding below future question card
       width: "100%",
+      alignItems: "center", // Center align content
     },
-    promptDivider: {
-      width: "100%",
-      height: 1,
-      backgroundColor: isDark ? "#3D3D3D" : "#E5E5E5", // Lighter divider in light mode
-    },
+    // Removed futureCardFuzzyOverlay and futureCardFuzzyImage styles - no longer needed
     promptCard: {
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.cream,
       padding: spacing.lg,
+      borderRadius: 20, // More rounded edges
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary, // Gray outline
+      marginTop: spacing.md,
+      marginHorizontal: spacing.lg, // Consistent width matching EntryCard and dateHeader
+      shadowColor: "#000",
+      shadowOffset: {
+        width: 0,
+        height: 4,
+      },
+      shadowOpacity: 0.15,
+      shadowRadius: 8,
+      elevation: 8, // Android shadow
+      overflow: "hidden", // Ensure texture overlay stays within card bounds
+      position: "relative", // For absolute positioning of texture
+      width: SCREEN_WIDTH - (spacing.lg * 2), // Fixed width to match EntryCard
     },
-    futureImage: {
-      width: "100%",
-      height: 120,
-      marginBottom: spacing.md,
-      alignSelf: "center",
+    promptCardRemembering: {
+      backgroundColor: "#1A1A1C", // Dark background for Remembering category
+      borderColor: theme2Colors.white, // White outline for Remembering category
     },
-    futurePromptQuestion: {
-      textAlign: "center",
+    promptCardToday: {
+      backgroundColor: "#E8A037", // Yellow for today's question
+      padding: spacing.lg,
+      borderRadius: 20,
+      borderWidth: 2,
+      borderColor: theme2Colors.blue, // Blue outline for today's card
+      marginHorizontal: spacing.lg, // Match dateHeader and EntryCard margins
+      shadowColor: "#000",
+      shadowOffset: {
+        width: 0,
+        height: 4,
+      },
+      shadowOpacity: 0.15,
+      shadowRadius: 8,
+      elevation: 8,
+      overflow: "hidden",
+      position: "relative",
     },
-    futurePromptDescription: {
-      textAlign: "center",
+    promptCardTodayRemembering: {
+      backgroundColor: "#1A1A1C", // Dark background for Remembering category
+      borderColor: theme2Colors.white, // White outline for Remembering category
+    },
+    promptCardTexture: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      opacity: 0.4, // Adjust opacity to taste
+      zIndex: 999, // Very high z-index to ensure it's on top of everything
+      pointerEvents: "none", // Allow touches to pass through to TouchableOpacity
+      borderRadius: 20, // Match card border radius exactly
+      overflow: "hidden", // Ensure texture stays within bounds
+    },
+    birthdayCardEntryTexture: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      opacity: 0.4, // Adjust opacity to taste
+      zIndex: 999, // Very high z-index to ensure it's on top of everything
+      pointerEvents: "none", // Allow touches to pass through to TouchableOpacity
+      borderRadius: 20, // Match card border radius exactly
+      overflow: "hidden", // Ensure texture stays within bounds
+    },
+    promptCardContent: {
+      position: "relative",
+      zIndex: 1, // Below texture overlay
     },
     promptQuestion: {
       ...typography.h3,
       fontSize: 22,
       marginBottom: spacing.sm,
-      color: colors.white,
-      fontFamily: "LibreBaskerville-Bold", // Explicitly set Baskerville Bold for Android compatibility
+      color: theme2Colors.text,
+      fontFamily: "PMGothicLudington-Text115",
+      width: "100%", // Take full width of card to ensure consistent wrapping
     },
-  promptDescription: {
-    ...typography.body,
-    color: colors.gray[400],
-    marginBottom: spacing.md,
-  },
+    promptQuestionRemembering: {
+      color: theme2Colors.white, // White text for Remembering category
+    },
+    promptDescription: {
+      ...typography.body,
+      fontSize: 14,
+      color: theme2Colors.textSecondary,
+      marginBottom: spacing.md,
+    },
+    promptDescriptionRemembering: {
+      color: theme2Colors.white, // White text for Remembering category
+    },
   customQuestionBanner: {
     marginBottom: spacing.md,
     paddingBottom: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: colors.gray[800],
+    borderBottomColor: theme2Colors.blue, // Blue line instead of yellow
   },
   customQuestionHeader: {
     flexDirection: "row",
@@ -2221,7 +3627,7 @@ export default function Home() {
   customQuestionLabel: {
     ...typography.bodyMedium,
     fontSize: 14,
-    color: colors.gray[400],
+    color: theme2Colors.text, // Black font instead of textSecondary
     marginLeft: spacing.sm,
   },
   loadingContainer: {
@@ -2232,11 +3638,21 @@ export default function Home() {
     },
     loadingText: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
     },
     answerButton: {
       marginTop: spacing.md,
-      backgroundColor: "#D35E3C",
+      backgroundColor: theme2Colors.blue,
+      borderRadius: 25, // Rounded pill shape
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+    },
+    answerButtonToday: {
+      marginTop: spacing.md,
+      backgroundColor: theme2Colors.cream, // Cream CTA for today's card
+      borderRadius: 25,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
     },
     lockedMessage: {
       padding: spacing.xl,
@@ -2246,7 +3662,7 @@ export default function Home() {
     lockedText: {
       ...typography.body,
       textAlign: "center",
-      color: colors.gray[500],
+      color: theme2Colors.textSecondary,
     },
     entriesContainer: {
       gap: spacing.lg,
@@ -2262,34 +3678,64 @@ export default function Home() {
     },
     postingStatusText: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       textAlign: "center",
     },
     notice: {
+      marginTop: spacing.xs, // Reduced spacing below day navigation
       marginBottom: spacing.lg, // Add space between notice and question card divider
-      paddingHorizontal: spacing.md,
+      marginHorizontal: spacing.lg, // Match dateHeader alignment
     },
     noticeText: {
       ...typography.body,
-      color: colors.gray[300],
+      color: theme2Colors.text,
     },
     groupModalBackdrop: {
       flex: 1,
-      backgroundColor: "rgba(0,0,0,0.85)",
-      justifyContent: "flex-end",
+      backgroundColor: "transparent", // Use transparent base, opacity handled by overlays
+      justifyContent: "flex-end", // Position at bottom
+      alignItems: "stretch", // Full width
     },
     groupModalSheet: {
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige, // #E8E0D5
       padding: spacing.lg,
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
+      borderTopLeftRadius: 32, // Rounded corners on top only
+      borderTopRightRadius: 32,
+      borderBottomLeftRadius: 0, // No rounding on bottom
+      borderBottomRightRadius: 0,
       gap: spacing.md,
       maxHeight: "70%",
+      width: "100%",
+      shadowColor: "#000",
+      shadowOffset: {
+        width: 0,
+        height: -10, // Shadow above (for bottom sheet)
+      },
+      shadowOpacity: 0.3,
+      shadowRadius: 20,
+      elevation: 20,
+      position: "relative",
+      overflow: "visible", // Allow close button to overflow
+    },
+    groupModalCloseButton: {
+      position: "absolute",
+      top: spacing.md, // More padding from top corner
+      right: spacing.md, // More padding from right corner
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: theme2Colors.white, // White background for X button
+      justifyContent: "center",
+      alignItems: "center",
+      zIndex: 10,
+      borderWidth: 1,
+      borderColor: theme2Colors.text, // Black outline
     },
     groupModalTitle: {
       ...typography.h2,
-      color: colors.white,
+      color: theme2Colors.text,
       fontSize: 24,
+      fontFamily: "PMGothicLudington-Text115", // Match question font
     },
     groupList: {
       gap: spacing.sm,
@@ -2306,95 +3752,116 @@ export default function Home() {
       paddingVertical: spacing.md,
       paddingHorizontal: spacing.sm,
       borderRadius: 12,
-      backgroundColor: colors.gray[900],
+      backgroundColor: theme2Colors.white, // White for non-selected groups
       flex: 1,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary, // Gray stroke for non-selected
     },
     groupRowActive: {
-      borderWidth: 1,
-      borderColor: colors.white,
+      borderWidth: 2,
+      borderColor: theme2Colors.onboardingPink, // Pink stroke for selected group
+      backgroundColor: theme2Colors.cream, // Cream #F5F0EA for selected
     },
     groupRowContent: {
+      flexDirection: "column",
+      alignItems: "flex-start",
+      justifyContent: "flex-start",
+      flex: 1,
+      gap: spacing.xs,
+      minWidth: 0, // Allow content to shrink
+    },
+    groupAvatarsRow: {
       flexDirection: "row",
       alignItems: "center",
-      justifyContent: "space-between",
-      flex: 1,
-      gap: spacing.sm,
-      minWidth: 0, // Allow content to shrink
+      gap: spacing.xs,
+      marginBottom: spacing.xs,
     },
     groupRowTextContainer: {
       flex: 1,
-      marginLeft: spacing.xs, // Add spacing after avatars
       minWidth: 0, // Allow content to shrink
+    },
+    groupNameRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
     },
     groupRowText: {
       ...typography.bodyBold,
-      color: colors.white,
+      color: theme2Colors.text,
       fontSize: 18,
     },
-    newAnswersContainer: {
-      flexDirection: "row",
-      alignItems: "center",
-      marginTop: spacing.xs,
-      gap: spacing.xs,
-    },
-    groupAvatarsContainer: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: colors.gray[800],
-      marginRight: spacing.sm,
-      position: "relative",
-      overflow: "hidden", // Clip to circle
-    },
-    groupAvatarMini: {
-      width: 24,
-      height: 24,
-      borderRadius: 12,
-      borderWidth: 1.5,
-      borderColor: colors.black,
+    groupAvatarSmall: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      borderWidth: 0, // Remove border outline
       overflow: "hidden",
-      backgroundColor: colors.gray[700],
+      backgroundColor: theme2Colors.beige,
+    },
+    groupAvatarSmallActive: {
+      // No border for active state either
     },
     groupAvatarMore: {
-      backgroundColor: colors.gray[600],
+      backgroundColor: theme2Colors.yellow,
       justifyContent: "center",
       alignItems: "center",
     },
     groupAvatarMoreText: {
       ...typography.caption,
-      fontSize: 9,
-      color: colors.white,
+      fontSize: 10,
+      color: theme2Colors.text,
       fontWeight: "600",
     },
     groupSettingsButton: {
       width: 40,
       height: 40,
       borderRadius: 20,
-      backgroundColor: colors.gray[900],
+      backgroundColor: theme2Colors.white, // White fill
       justifyContent: "center",
       alignItems: "center",
+      borderWidth: 1,
+      borderColor: theme2Colors.text, // Black stroke
     },
     unseenDot: {
       width: 8,
       height: 8,
       borderRadius: 4,
-      backgroundColor: colors.accent,
+      backgroundColor: theme2Colors.yellow,
     },
     newAnswersText: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       fontSize: 14,
     },
     createGroupButton: {
+      width: "100%",
+      backgroundColor: theme2Colors.onboardingPink, // Pink matching onboarding CTAs
+      borderRadius: 25,
       paddingVertical: spacing.md,
-      alignItems: "center",
-      borderWidth: 1,
-      borderColor: colors.gray[700],
-      borderRadius: 12,
+      paddingHorizontal: spacing.xl,
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary, // Gray border matching profile modal CTA
+      position: "relative", // For absolute positioning of texture
+      overflow: "hidden", // Ensure texture stays within bounds
+    },
+    createGroupButtonTexture: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      opacity: 0.4, // Adjust opacity to taste
+      zIndex: 1, // Above button background but below text
+      pointerEvents: "none", // Allow touches to pass through
+      borderRadius: 25, // Match button border radius
     },
     createGroupText: {
-      ...typography.bodyBold,
-      color: colors.white,
+      color: theme2Colors.white,
+      fontSize: 16,
+      fontWeight: "600",
+      textAlign: "center", // Center the text
+      position: "relative",
+      zIndex: 2, // Above texture overlay
     },
     voteBannerWrapper: {
       marginBottom: spacing.md, // Reduced padding below banner (50% of xl)
@@ -2402,15 +3869,15 @@ export default function Home() {
       elevation: 10, // Android elevation
     },
     voteBanner: {
-      backgroundColor: colors.gray[900],
+      backgroundColor: theme2Colors.cream,
       paddingRight: spacing.md,
       paddingLeft: spacing.md, // Add left padding
       paddingVertical: spacing.sm, // Reduced vertical padding (50% of md)
-      borderRadius: 0, // Square edges
-      borderWidth: 1,
-      borderColor: isDark ? "#ffffff" : "#000000", // White in dark mode, black in light mode
+      borderRadius: 12,
+      borderWidth: 2,
+      borderColor: theme2Colors.yellow,
       marginHorizontal: spacing.lg,
-      marginTop: spacing.xs,
+      marginTop: 0, // Reduced spacing below day navigation
       flexDirection: "row",
       alignItems: "center", // Center content vertically
       justifyContent: "space-between",
@@ -2437,14 +3904,14 @@ export default function Home() {
     voteBannerSubtext: {
       ...typography.body,
       fontSize: 14,
-      color: colors.gray[300],
+      color: theme2Colors.textSecondary,
       opacity: 0.9,
       marginBottom: spacing.xs,
     },
     voteBannerText: {
       ...typography.bodyBold,
       fontSize: 16,
-      color: isDark ? "#ffffff" : "#000000",
+      color: theme2Colors.text,
     },
     voteBannerChevron: {
       marginLeft: spacing.md,
@@ -2461,7 +3928,7 @@ export default function Home() {
     },
     previousDayCTALink: {
       ...typography.body,
-      color: colors.white, // In dark mode: white, in light mode: black (colors.white = #000000 in light mode)
+      color: theme2Colors.text,
       fontSize: 14,
       textAlign: "center",
       textDecorationLine: "underline",
@@ -2470,18 +3937,389 @@ export default function Home() {
       marginHorizontal: spacing.lg,
     },
     appTutorialLinkContainer: {
-      paddingVertical: spacing.xl,
+      paddingVertical: spacing.md, // Reduced padding
       paddingHorizontal: spacing.lg,
       alignItems: "center",
-      marginTop: spacing.xl, // Double the space from prompt card divider
+      marginTop: spacing.md, // Reduced spacing between app tour and "Be the first to answer"
+    },
+    appTutorialCard: {
+      backgroundColor: theme2Colors.cream,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.lg,
+      borderRadius: 20,
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary,
+      width: "100%",
+      alignItems: "center",
+      position: "relative",
+      overflow: "hidden",
     },
     appTutorialLink: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       fontSize: 14,
       textAlign: "center",
+      zIndex: 2,
+      position: "relative",
     },
-  }), [colors, isDark])
+    appTutorialCardTexture: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      opacity: 0.4,
+      zIndex: 1,
+      pointerEvents: "none",
+      borderRadius: 20,
+      overflow: "hidden",
+    },
+    appTutorialCardTextureImage: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      width: "100%",
+      height: "100%",
+    },
+    filterButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: spacing.xs / 2,
+      paddingHorizontal: spacing.md,
+      borderRadius: 8,
+      backgroundColor: theme2Colors.cream,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
+      marginRight: spacing.xs,
+      height: 36, // Match dayButton height
+      minWidth: 80,
+    },
+    filterButtonWrapper: {
+      position: "relative",
+      zIndex: 10000, // Ensure dropdown appears above everything
+      elevation: 10000, // Android
+      overflow: "visible", // Allow dropdown to overflow wrapper bounds
+    },
+    filterText: {
+      ...typography.bodyMedium,
+      color: theme2Colors.text,
+    },
+    filterChevron: {
+      ...typography.caption,
+      color: theme2Colors.textSecondary,
+    },
+    filterCTA: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: spacing.xs / 2,
+      paddingHorizontal: spacing.md,
+      borderRadius: 8,
+      backgroundColor: theme2Colors.cream,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
+      height: 36, // Match dayButton height
+      width: 36, // Square button
+      marginLeft: spacing.xs,
+    },
+    filterMenu: {
+      position: "absolute",
+      top: "100%",
+      right: 0,
+      backgroundColor: theme2Colors.cream,
+      borderRadius: 12,
+      paddingVertical: spacing.xs,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
+      width: 140,
+      zIndex: 10001, // Above wrapper and everything else
+      elevation: 10001, // Android
+      marginTop: spacing.xs,
+      shadowColor: "#000",
+      shadowOffset: {
+        width: 0,
+        height: 2,
+      },
+      shadowOpacity: 0.25,
+      shadowRadius: 3.84,
+    },
+    filterOption: {
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+    },
+    filterOptionText: {
+      ...typography.body,
+      color: theme2Colors.textSecondary,
+    },
+    filterOptionTextActive: {
+      color: theme2Colors.text,
+      fontWeight: "600",
+    },
+    dateHeader: {
+      ...typography.h2,
+      fontSize: 22,
+      marginBottom: spacing.xl,
+      marginHorizontal: spacing.lg,
+      flexDirection: "row",
+      alignItems: "center", // Align text vertically
+    },
+    dateHeaderDay: {
+      fontFamily: "Roboto-Regular",
+      fontSize: 22,
+      lineHeight: 32,
+      color: theme2Colors.text,
+      fontWeight: "600",
+    },
+    dateHeaderDate: {
+      fontFamily: "Roboto-Regular",
+      fontSize: 22,
+      color: theme2Colors.textSecondary,
+    },
+    daySection: {
+      marginBottom: spacing.xl,
+    },
+    periodBanner: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      marginHorizontal: spacing.md,
+      marginTop: 0, // Reduced spacing from divider
+      marginBottom: spacing.lg, // Increased padding below filter banners
+      backgroundColor: theme2Colors.cream,
+      borderRadius: 12,
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary,
+    },
+    periodBannerTitle: {
+      ...typography.bodyBold,
+      color: theme2Colors.text,
+    },
+    periodBannerSubtitle: {
+      ...typography.caption,
+      color: theme2Colors.textSecondary,
+    },
+    periodBannerAction: {
+      padding: spacing.xs,
+    },
+    periodBannerClear: {
+      ...typography.bodyMedium,
+      color: theme2Colors.blue,
+    },
+    periodGrid: {
+      gap: spacing.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
+    },
+    periodCard: {
+      overflow: "hidden",
+      borderRadius: 20,
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary,
+      backgroundColor: theme2Colors.cream,
+      marginBottom: spacing.md,
+    },
+    periodBackground: {
+      height: 220,
+      overflow: "hidden",
+      justifyContent: "flex-end",
+      borderRadius: 18, // Slightly smaller than card to account for border
+    },
+    periodImage: {
+      borderRadius: 18, // Match periodBackground
+    },
+    periodFallback: {
+      backgroundColor: theme2Colors.cream,
+    },
+    periodShade: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(232, 224, 213, 0.3)", // Light beige overlay instead of dark
+    },
+    periodOverlay: {
+      padding: spacing.xxl,
+      gap: spacing.sm,
+    },
+    periodTitle: {
+      ...typography.bodyBold,
+      fontSize: 24,
+      color: theme2Colors.white,
+    },
+    periodSubtitle: {
+      ...typography.caption,
+      fontSize: 16,
+      color: theme2Colors.white,
+    },
+    periodCount: {
+      ...typography.caption,
+      fontSize: 14,
+      color: theme2Colors.white,
+    },
+    modalContainer: {
+      flex: 1,
+      backgroundColor: theme2Colors.beige,
+    },
+    modalHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.md,
+    },
+    modalTitle: {
+      ...typography.h1,
+      fontSize: 32,
+      color: theme2Colors.text,
+      fontFamily: "PMGothicLudington-Text115",
+    },
+    modalCloseButton: {
+      padding: spacing.sm,
+    },
+    modalClose: {
+      ...typography.bodyBold,
+      fontSize: 24,
+      color: theme2Colors.text,
+    },
+    modalContent: {
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.xxl * 2,
+    },
+    modalSection: {
+      ...typography.bodyMedium,
+      fontSize: 14,
+      color: theme2Colors.textSecondary,
+      marginTop: spacing.sm,
+    },
+    modalSectionSpacing: {
+      marginTop: spacing.lg,
+    },
+    selectionGrid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: spacing.sm,
+      marginTop: spacing.sm,
+    },
+    selectionCard: {
+      width: "48%",
+      backgroundColor: theme2Colors.cream,
+      borderRadius: 16,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.sm,
+      alignItems: "center",
+      gap: spacing.sm,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
+    },
+    selectionCardActive: {
+      borderWidth: 2,
+      borderColor: theme2Colors.blue,
+    },
+    selectionLabel: {
+      ...typography.bodyMedium,
+      color: theme2Colors.text,
+      textAlign: "center",
+    },
+    memorialList: {
+      gap: spacing.sm,
+      marginTop: spacing.sm,
+    },
+    memorialRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.md,
+      backgroundColor: theme2Colors.cream,
+      borderRadius: 16,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.md,
+      width: "100%",
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
+    },
+    memorialRowActive: {
+      borderWidth: 2,
+      borderColor: theme2Colors.blue,
+    },
+    memorialName: {
+      ...typography.bodyMedium,
+      color: theme2Colors.text,
+      fontSize: 16,
+    },
+    birthdayCardEntry: {
+      backgroundColor: theme2Colors.cream,
+      borderRadius: 20,
+      padding: spacing.lg,
+      marginHorizontal: spacing.lg,
+      marginBottom: spacing.md,
+      borderWidth: 2,
+      borderColor: theme2Colors.green,
+      minHeight: 200,
+      position: "relative",
+      overflow: "hidden",
+    },
+    birthdayCardEntryShapes: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      marginBottom: spacing.md,
+      gap: spacing.sm,
+    },
+    birthdayCardEntryQuarterCircle: {
+      width: 40,
+      height: 40,
+      borderTopLeftRadius: 40,
+      backgroundColor: theme2Colors.yellow,
+    },
+    birthdayCardEntryFullCircle: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: theme2Colors.red,
+    },
+    birthdayCardEntryHalfCircle: {
+      width: 40,
+      height: 20,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      backgroundColor: theme2Colors.blue,
+    },
+    birthdayCardEntryContent: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: spacing.md,
+    },
+    birthdayCardEntryTitle: {
+      ...typography.h2,
+      fontSize: 24,
+      color: theme2Colors.text,
+      fontFamily: "PMGothicLudington-Text115",
+      marginBottom: spacing.xs,
+      textAlign: "center",
+    },
+    birthdayCardEntrySubtitle: {
+      ...typography.body,
+      fontSize: 14,
+      color: theme2Colors.textSecondary,
+      textAlign: "center",
+      marginBottom: spacing.lg,
+    },
+    birthdayCardEntryButton: {
+      backgroundColor: theme2Colors.green,
+      borderRadius: 25,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      alignItems: "center",
+      justifyContent: "center",
+      minWidth: 120,
+    },
+    birthdayCardEntryButtonText: {
+      ...typography.bodyBold,
+      fontSize: 16,
+      color: theme2Colors.white,
+    },
+  }), [theme2Colors])
 
   return (
     <View style={styles.container}>
@@ -2489,12 +4327,176 @@ export default function Home() {
       <Animated.View
         style={[
           styles.header,
-          { paddingTop: insets.top + spacing.md },
+          { 
+            paddingTop: insets.top + spacing.md,
+          },
           {
             transform: [{ translateY: headerTranslateY }],
           },
         ]}
       >
+        {/* Daily prompt card at top - inside header so it scrolls with it */}
+        {showPromptCardAtTop && (
+          <View style={{ 
+            marginBottom: spacing.md,
+            marginTop: spacing.xs, // Reduced padding above card
+            marginLeft: -spacing.md, // Counteract header paddingHorizontal
+            marginRight: -spacing.md, // Counteract header paddingHorizontal
+          }}>
+            <TouchableOpacity 
+              style={[
+                styles.promptCardToday,
+                isRememberingCategory && styles.promptCardTodayRemembering
+              ]}
+              onPress={() => handleAnswerPrompt(true)}
+              activeOpacity={0.95}
+            >
+              <View style={styles.promptCardContent}>
+              {isLoadingGroupData ? (
+                // Show loading state during group switch
+                <View style={styles.loadingContainer}>
+                  <Text style={styles.loadingText}>Loading...</Text>
+                </View>
+              ) : (() => {
+                // Use TODAY's data for the prompt card at top
+                const hasValidPrompt = todayDailyPrompt?.prompt || todayEntries[0]?.prompt
+                const hasValidQuestion = todayPersonalizedPromptQuestion || todayDailyPrompt?.prompt?.question || todayEntries[0]?.prompt?.question
+                const isLoading = isLoadingTodayPrompt || isFetchingTodayPrompt || isLoadingTodayEntries || isFetchingTodayEntries
+                
+                // Show skeleton ONLY when actively loading and no valid prompt/question yet
+                // CRITICAL: Don't show skeleton if query completed but returned null (no prompt scheduled)
+                // This prevents infinite loading state when prompt doesn't exist for a date
+                if (isLoading && !hasValidQuestion) {
+                  return <PromptSkeleton />
+                }
+                
+                // If query completed but no valid question, check if we're still waiting for entries
+                // Only show skeleton if we're still loading entries (might have prompt in entries)
+                if (!hasValidQuestion && (isLoadingTodayEntries || isFetchingTodayEntries)) {
+                  return <PromptSkeleton />
+                }
+                
+                // If query completed and no valid question found, don't show skeleton
+                // (This means no prompt is scheduled for this date, which is valid)
+                if (!hasValidQuestion) {
+                  // Return empty state instead of skeleton
+                  return null
+                }
+                
+                // CRITICAL: If question is about the current user and no entries yet, show message
+                if (isTodayQuestionAboutMe && todayEntries.length === 0) {
+                  // No entries yet - show message asking user to come back later
+                  return (
+                    <View style={{ paddingVertical: spacing.xl, alignItems: "center" }}>
+                      <Text style={[styles.promptQuestion, { textAlign: "center", marginBottom: spacing.md }]}>
+                        Today's question is about you
+                      </Text>
+                      <Text style={[typography.body, { textAlign: "center", color: theme2Colors.textSecondary, paddingHorizontal: spacing.lg }]}>
+                        Come back later to see what everyone said.
+                      </Text>
+                    </View>
+                  )
+                }
+                
+                // Show actual prompt content (not about current user)
+                return (
+                  <>
+                    {/* Custom Question Branding - check today's custom question */}
+                    {todayDailyPrompt?.is_custom && todayDailyPrompt?.custom_question_data && (
+                      <View style={styles.customQuestionBanner}>
+                        {todayDailyPrompt.custom_question_data.is_anonymous ? (
+                          <View style={styles.customQuestionHeader}>
+                            <FontAwesome name="question-circle" size={20} color={theme2Colors.yellow} style={{ marginRight: spacing.sm }} />
+                            <Text style={styles.customQuestionLabel}>
+                              Custom question! Someone in your group asked everyone this:
+                            </Text>
+                          </View>
+                        ) : (
+                          <View style={styles.customQuestionHeader}>
+                            <Avatar
+                              uri={todayDailyPrompt.custom_question_data.user?.avatar_url}
+                              name={todayDailyPrompt.custom_question_data.user?.name || "User"}
+                              size={32}
+                              borderColor={theme2Colors.text}
+                            />
+                            <Text style={styles.customQuestionLabel}>
+                              {todayDailyPrompt.custom_question_data.user?.name || "Someone"} has a question for you
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginBottom: spacing.md }}>
+                      {todayDailyPrompt?.prompt?.category && (
+                        <CategoryTag category={todayDailyPrompt.prompt.category} />
+                      )}
+                      {todayEntries[0]?.prompt?.category && !todayDailyPrompt?.prompt?.category && (
+                        <CategoryTag category={todayEntries[0].prompt.category} />
+                      )}
+                    </View>
+                    <Text style={[
+                      styles.promptQuestion,
+                      isRememberingCategory && styles.promptQuestionRemembering
+                    ]}>
+                      {(() => {
+                        const question = todayPersonalizedPromptQuestion || todayDailyPrompt?.prompt?.question || todayEntries[0]?.prompt?.question
+                        // If question is empty or whitespace, log warning and show fallback
+                        if (!question || !question.trim()) {
+                          if (__DEV__) {
+                            console.warn(`[home] Empty question detected. todayDailyPrompt: ${todayDailyPrompt?.prompt?.question}, todayEntries: ${todayEntries[0]?.prompt?.question}, personalized: ${todayPersonalizedPromptQuestion}`)
+                          }
+                          return "Question unavailable"
+                        }
+                        return question
+                      })()}
+                    </Text>
+                    {/* Conditional description text */}
+                    {todayAnswererNames.length === 0 ? (
+                      <Text style={[
+                        styles.promptDescription,
+                        isRememberingCategory && styles.promptDescriptionRemembering
+                      ]}>
+                        Be the first to answer today's question and spark the conversation
+                      </Text>
+                    ) : answererNamesText ? (
+                      <Text style={[
+                        styles.promptDescription,
+                        isRememberingCategory && styles.promptDescriptionRemembering
+                      ]}>
+                        {answererNamesText}
+                      </Text>
+                    ) : null}
+                    {todayPromptId && (
+                      <Button
+                        title="Answer"
+                        onPress={() => handleAnswerPrompt(true)}
+                        style={styles.answerButtonToday}
+                        textStyle={{ color: theme2Colors.text }}
+                      />
+                    )}
+                  </>
+                )
+              })()}
+            </View>
+              {/* Texture overlay - placed after content so it renders on top */}
+              <View style={styles.promptCardTexture} pointerEvents="none">
+                <Image
+                  source={require("../../assets/images/texture.png")}
+                  style={{ 
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    width: "100%",
+                    height: "100%",
+                  }}
+                  resizeMode="stretch"
+                />
+              </View>
+            </TouchableOpacity>
+          </View>
+        )}
         <View style={styles.headerTop}>
           <TouchableOpacity style={styles.groupSelector} onPress={() => setGroupPickerVisible(true)}>
             <Text style={styles.groupName}>{currentGroup?.name || "Loading..."}</Text>
@@ -2507,17 +4509,24 @@ export default function Home() {
               size={25}
             />
             <TouchableOpacity onPress={() => router.push("/(main)/settings")} style={styles.avatarButton}>
-              <Avatar uri={userAvatarUrl} name={userName} size={36} />
+              <Avatar uri={userAvatarUrl} name={userName} size={36} borderColor={theme2Colors.green} />
             </TouchableOpacity>
           </View>
         </View>
 
         {/* Member avatars with + button */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.membersScroll}>
-          {members.map((member) => (
+          {members.map((member, index) => {
+            // Cycle through theme colors: pink, yellow, green, blue
+            const avatarColors = [theme2Colors.onboardingPink, theme2Colors.yellow, theme2Colors.green, theme2Colors.blue]
+            const borderColor = avatarColors[index % avatarColors.length]
+            // Create slight rotation angles for overlapping effect
+            const rotationAngles = [-8, 5, -3, 7, -5, 4, -6]
+            const rotation = rotationAngles[index % rotationAngles.length]
+            return (
             <TouchableOpacity
               key={member.id}
-              style={styles.memberAvatar}
+                style={[styles.memberAvatar, { transform: [{ rotate: `${rotation}deg` }] }]}
               onPress={() => {
                 setSelectedMember({
                   id: member.user_id,
@@ -2527,9 +4536,10 @@ export default function Home() {
                 setUserProfileModalVisible(true)
               }}
             >
-              <Avatar uri={member.user.avatar_url} name={member.user.name || "User"} size={32} />
+                <Avatar uri={member.user.avatar_url} name={member.user.name || "User"} size={42} borderColor={borderColor} square={true} />
             </TouchableOpacity>
-          ))}
+            )
+          })}
           <TouchableOpacity style={styles.addMemberButton} onPress={handleShareInvite}>
             <View style={styles.addMemberCircle}>
               <Text style={styles.addMemberText}>+</Text>
@@ -2538,7 +4548,12 @@ export default function Home() {
         </ScrollView>
 
         {/* Day scroller */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.dayScroller}>
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false} 
+          style={styles.dayScroller}
+          contentContainerStyle={styles.dayScrollerContent}
+        >
           {weekDates.map((day) => {
             const hasEntry = userEntryDates.has(day.date)
             const isSelected = day.date === selectedDate
@@ -2551,19 +4566,7 @@ export default function Home() {
                   isSelected && styles.dayButtonSelected,
                   !isSelected && isFutureDay && styles.dayButtonFuture,
                 ]}
-                onPress={() => {
-                  const oldDate = selectedDate
-                  setSelectedDate(day.date)
-                  
-                  // Track changed_dates event
-                  if (oldDate !== day.date && currentGroupId) {
-                    safeCapture(posthog, "changed_dates", {
-                      from_date: oldDate,
-                      to_date: day.date,
-                      group_id: currentGroupId,
-                    })
-                  }
-                }}
+                onPress={() => handleDayPress(day.date)}
               >
                 <Text
                   style={[
@@ -2574,24 +4577,100 @@ export default function Home() {
                 >
                   {day.day}
                 </Text>
-                {hasEntry ? (
-                  <FontAwesome name="check" size={12} color={colors.gray[400]} style={{ marginTop: spacing.xs }} />
-                ) : (
-                  <Text
-                    style={[
-                      styles.dayNum,
-                      isSelected && styles.dayNumSelected,
-                      !isSelected && isFutureDay && styles.dayNumFuture,
-                    ]}
-                  >
-                    {day.dayNum}
-                  </Text>
-                )}
+                {/* Hide check mark and date number */}
               </TouchableOpacity>
             )
           })}
+          {/* Dates dropdown */}
+          <View 
+            style={styles.filterButtonWrapper}
+            ref={filterButtonRef}
+            onLayout={() => {
+              filterButtonRef.current?.measureInWindow((x, y, width, height) => {
+                setFilterButtonLayout({ x, y, width, height })
+              })
+            }}
+          >
+            <TouchableOpacity 
+              style={styles.filterButton} 
+              onPress={() => {
+                // Re-measure button position when pressed to ensure accurate positioning
+                filterButtonRef.current?.measureInWindow((x, y, width, height) => {
+                  setFilterButtonLayout({ x, y, width, height })
+                  setShowFilter((prev) => !prev)
+                })
+              }}
+            >
+              <Text style={styles.filterText}>{viewMode}</Text>
+              <Text style={styles.filterChevron}>▼</Text>
+            </TouchableOpacity>
+          </View>
+          {/* Filter button */}
+          <TouchableOpacity style={styles.filterCTA} onPress={() => setShowFilterModal(true)}>
+            <FontAwesome name="sliders" size={16} color={theme2Colors.text} />
+              </TouchableOpacity>
         </ScrollView>
+        
+        {/* Divider line below day navigation */}
+        <View style={styles.dayNavigationDivider} />
       </Animated.View>
+
+      {/* Period dropdown modal - rendered outside ScrollView to avoid clipping */}
+      <Modal
+        visible={showFilter}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowFilter(false)}
+      >
+        <TouchableOpacity
+          style={{ flex: 1 }}
+          activeOpacity={1}
+          onPress={() => setShowFilter(false)}
+        >
+          <View style={{ flex: 1 }} />
+        </TouchableOpacity>
+        {filterButtonLayout && (
+          <View
+            style={{
+              position: "absolute",
+              top: filterButtonLayout.y + filterButtonLayout.height,
+              left: filterButtonLayout.x, // Use left positioning for more reliable placement
+              backgroundColor: theme2Colors.cream,
+              borderRadius: 12,
+              paddingVertical: spacing.xs,
+              borderWidth: 1,
+              borderColor: theme2Colors.textSecondary,
+              width: 140,
+              shadowColor: "#000",
+              shadowOffset: {
+                width: 0,
+                height: 2,
+              },
+              shadowOpacity: 0.25,
+              shadowRadius: 3.84,
+              elevation: 10002,
+            }}
+          >
+            {(["Days", "Weeks", "Months", "Years"] as ViewMode[]).map((mode) => (
+              <TouchableOpacity
+                key={mode}
+                style={styles.filterOption}
+                onPress={() => {
+                  if (mode !== "Days") {
+                    setActivePeriod(null)
+                  }
+                  setViewMode(mode)
+                  setShowFilter(false)
+                }}
+              >
+                <Text style={[styles.filterOptionText, viewMode === mode && styles.filterOptionTextActive]}>
+                  {mode}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+      </Modal>
 
       {/* Content */}
       <Animated.ScrollView
@@ -2603,14 +4682,113 @@ export default function Home() {
             paddingTop: contentPaddingTop,
           },
         ]}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.white} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme2Colors.text} />}
         onScroll={handleScroll}
         scrollEventThrottle={16}
       >
         {/* Refresh Indicator */}
         {showRefreshIndicator && (
           <View style={styles.refreshIndicator}>
-            <ActivityIndicator size="small" color={colors.gray[400]} />
+            <ActivityIndicator size="small" color={theme2Colors.textSecondary} />
+          </View>
+        )}
+
+        {/* Period Banner - show when filtering by period */}
+        {activePeriod && (
+          <View style={styles.periodBanner}>
+            <View>
+              <Text style={styles.periodBannerTitle}>{activePeriod.title}</Text>
+              <Text style={styles.periodBannerSubtitle}>{activePeriod.subtitle}</Text>
+            </View>
+            <TouchableOpacity onPress={() => setActivePeriod(null)} style={styles.periodBannerAction}>
+              <Text style={styles.periodBannerClear}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        
+        {/* Filter Banners - show when filtering */}
+        {selectedMembers.length > 0 && (
+          <View style={styles.periodBanner}>
+            <View>
+              <Text style={styles.periodBannerTitle}>
+                {selectedMembers.length === 1 
+                  ? members.find(m => m.user_id === selectedMembers[0])?.user?.name || "Member"
+                  : `${selectedMembers.length} Members`}
+              </Text>
+              <Text style={styles.periodBannerSubtitle}>
+                {selectedMembers.length === 1 ? "Showing entries from this member" : "Showing entries from these members"}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => setSelectedMembers([])} style={styles.periodBannerAction}>
+              <Text style={styles.periodBannerClear}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        
+        {selectedMemorials.length > 0 && (
+          <View style={styles.periodBanner}>
+            <View>
+              <Text style={styles.periodBannerTitle}>
+                {selectedMemorials.length === 1
+                  ? memorials.find(m => m.id === selectedMemorials[0])?.name || "Memorial"
+                  : `${selectedMemorials.length} Memorials`}
+              </Text>
+              <Text style={styles.periodBannerSubtitle}>
+                {selectedMemorials.length === 1 ? "Showing entries about this memorial" : "Showing entries about these memorials"}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => setSelectedMemorials([])} style={styles.periodBannerAction}>
+              <Text style={styles.periodBannerClear}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        
+        {selectedCategories.length > 0 && (
+          <View style={styles.periodBanner}>
+            <View>
+              <Text style={styles.periodBannerTitle}>
+                {selectedCategories.length === 1
+                  ? selectedCategories[0]
+                  : `${selectedCategories.length} Categories`}
+              </Text>
+              <Text style={styles.periodBannerSubtitle}>
+                {selectedCategories.length === 1 ? "Showing entries in this category" : "Showing entries in these categories"}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => setSelectedCategories([])} style={styles.periodBannerAction}>
+              <Text style={styles.periodBannerClear}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        
+        {selectedDecks.length > 0 && (
+          <View style={styles.periodBanner}>
+            <View>
+              <Text style={styles.periodBannerTitle}>
+                {selectedDecks.length === 1
+                  ? availableDecks.find(d => d.deck_id === selectedDecks[0])?.deck?.name || "Deck"
+                  : `${selectedDecks.length} Decks`}
+              </Text>
+              <Text style={styles.periodBannerSubtitle}>
+                {selectedDecks.length === 1 ? "Showing entries from this deck" : "Showing entries from these decks"}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => setSelectedDecks([])} style={styles.periodBannerAction}>
+              <Text style={styles.periodBannerClear}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        
+        {/* Birthday Cards Filter Banner - show when filtering by birthday cards */}
+        {showBirthdayCards && (
+          <View style={styles.periodBanner}>
+            <View>
+              <Text style={styles.periodBannerTitle}>Birthday Cards</Text>
+              <Text style={styles.periodBannerSubtitle}>Showing your birthday cards</Text>
+            </View>
+            <TouchableOpacity onPress={() => setShowBirthdayCards(false)} style={styles.periodBannerAction}>
+              <Text style={styles.periodBannerClear}>Clear</Text>
+            </TouchableOpacity>
           </View>
         )}
         
@@ -2757,97 +4935,19 @@ export default function Home() {
                 </View>
               </View>
               {/* Chevron on the right */}
-              <FontAwesome name="chevron-right" size={16} color={isDark ? "#ffffff" : "#000000"} style={styles.voteBannerChevron} />
+              <FontAwesome name="chevron-right" size={16} color={theme2Colors.text} style={styles.voteBannerChevron} />
             </TouchableOpacity>
           </View>
         )}
-        {/* Notice above daily question - mutually exclusive messages */}
-        {!userEntry && !isFuture && (
-          <>
-            {otherEntries.length === 0 ? (
-              <View style={styles.notice}>
-                <Text style={styles.noticeText}>Be the first to answer today's question</Text>
-              </View>
-            ) : (
-              <View style={styles.notice}>
-                {(() => {
-                  // Get unique users who answered (from otherEntries, which already excludes current user)
-                  const uniqueUsers = Array.from(
-                    new Map(
-                      otherEntries.map((entry) => [
-                        entry.user_id,
-                        {
-                          id: entry.user_id,
-                          name: entry.user?.name || "User",
-                          avatar_url: entry.user?.avatar_url,
-                        },
-                      ])
-                    ).values()
-                  )
-                  
-                  return (
-                    <View style={{ flexDirection: "row", alignItems: "center" }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", marginRight: spacing.sm }}>
-                        {uniqueUsers.slice(0, 5).map((user: any, index: number) => (
-                          <View
-                            key={user.id}
-                            style={{
-                              marginLeft: index === 0 ? 0 : -8,
-                              borderWidth: 2,
-                              borderColor: colors.black,
-                              borderRadius: 16,
-                            }}
-                          >
-                            <Avatar
-                              uri={user.avatar_url}
-                              name={user.name}
-                              size={32}
-                            />
-                          </View>
-                        ))}
-                        {uniqueUsers.length > 5 && (
-                          <View
-                            style={{
-                              marginLeft: -8,
-                              borderWidth: 2,
-                              borderColor: colors.black,
-                              borderRadius: 16,
-                              backgroundColor: colors.gray[700],
-                              width: 32,
-                              height: 32,
-                              justifyContent: "center",
-                              alignItems: "center",
-                            }}
-                          >
-                            <Text style={{ ...typography.bodyBold, fontSize: 10, color: colors.white }}>
-                              +{uniqueUsers.length - 5}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                      <Text style={{ ...typography.body, color: colors.gray[300], fontSize: 14 }}>
-                        Answer to see what they said today.
-                      </Text>
-                    </View>
-                  )
-                })()}
-              </View>
-            )}
-          </>
-        )}
+        {/* Notice removed - now shown in prompt card at top */}
         {/* Future day empty state */}
         {!userEntry && isFuture && (
           <View style={styles.promptCardWrapper}>
             <View style={styles.promptCard}>
-              <Image
-                source={require("../../assets/images/future.png")}
-                style={styles.futureImage}
-                resizeMode="contain"
-              />
-              <Text style={[styles.promptQuestion, styles.futurePromptQuestion]}>
+              <Text style={styles.promptQuestion}>
                 This question isn't available for the group yet.
               </Text>
-              <Text style={[styles.promptDescription, styles.futurePromptDescription]}>
+              <Text style={styles.promptDescription}>
                 {(() => {
                   const selected = new Date(`${selectedDate}T00:00:00`)
                   const today = new Date(`${todayDate}T00:00:00`)
@@ -2857,236 +4957,472 @@ export default function Home() {
                   return `Come back in ${daysAhead} ${unit} to answer it.`
                 })()}
               </Text>
+              {/* Removed fuzzy overlay for future questions */}
             </View>
           </View>
         )}
 
-        {/* Daily prompt */}
-        {!userEntry && !isFuture && !(isQuestionAboutMe && entries.length > 0) && (
-          <View style={styles.promptCardWrapper}>
-            <View style={styles.promptDivider} />
-            <View style={styles.promptCard}>
-              {isLoadingGroupData ? (
-                // Show loading state during group switch
-                <View style={styles.loadingContainer}>
-                  <Text style={styles.loadingText}>Loading...</Text>
-                </View>
-              ) : (() => {
-                // Determine if we have a valid prompt to show
-                const hasValidPrompt = dailyPrompt?.prompt || entries[0]?.prompt
-                const hasValidQuestion = personalizedPromptQuestion || dailyPrompt?.prompt?.question || entries[0]?.prompt?.question
-                const isLoading = isLoadingPrompt || isFetchingPrompt || isLoadingEntries || isFetchingEntries
-                
-                // Show skeleton ONLY when actively loading and no valid prompt/question yet
-                // CRITICAL: Don't show skeleton if query completed but returned null (no prompt scheduled)
-                // This prevents infinite loading state when prompt doesn't exist for a date
-                if (isLoading && !hasValidQuestion) {
-                  return <PromptSkeleton />
-                }
-                
-                // If query completed but no valid question, check if we're still waiting for entries
-                // Only show skeleton if we're still loading entries (might have prompt in entries)
-                if (!hasValidQuestion && (isLoadingEntries || isFetchingEntries)) {
-                  return <PromptSkeleton />
-                }
-                
-                // If query completed and no valid question found, don't show skeleton
-                // (This means no prompt is scheduled for this date, which is valid)
-                if (!hasValidQuestion) {
-                  // Return empty state instead of skeleton
-                  return null
-                }
-                
-                // CRITICAL: If question is about the current user and no entries yet, show message
-                if (isQuestionAboutMe && entries.length === 0) {
-                  // No entries yet - show message asking user to come back later
-                  return (
-                    <View style={{ paddingVertical: spacing.xl, alignItems: "center" }}>
-                      <Text style={[styles.promptQuestion, { textAlign: "center", marginBottom: spacing.md }]}>
-                        Today's question is about you
-                      </Text>
-                      <Text style={[typography.body, { textAlign: "center", color: colors.textSecondary, paddingHorizontal: spacing.lg }]}>
-                        Come back later to see what everyone said.
-                      </Text>
-                    </View>
-                  )
-                }
-                
-                // Show actual prompt content (not about current user)
-                return (
-                  <>
-                    {/* Custom Question Branding */}
-                    {isCustomQuestion && customQuestionData && (
-                      <View style={styles.customQuestionBanner}>
-                        {customQuestionData.is_anonymous ? (
-                          <View style={styles.customQuestionHeader}>
-                            <FontAwesome name="question-circle" size={20} color={colors.accent} style={{ marginRight: spacing.sm }} />
-                            <Text style={styles.customQuestionLabel}>
-                              Custom question! Someone in your group asked everyone this:
-                            </Text>
-                          </View>
-                        ) : (
-                          <View style={styles.customQuestionHeader}>
-                            <Avatar
-                              uri={customQuestionData.user?.avatar_url}
-                              name={customQuestionData.user?.name || "User"}
-                              size={24}
-                            />
-                            <Text style={styles.customQuestionLabel}>
-                              {customQuestionData.user?.name || "Someone"} has a question for you
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    )}
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginBottom: spacing.md }}>
-                      {dailyPrompt?.prompt?.category && (
-                        <CategoryTag category={dailyPrompt.prompt.category} />
-                      )}
-                      {entries[0]?.prompt?.category && !dailyPrompt?.prompt?.category && (
-                        <CategoryTag category={entries[0].prompt.category} />
-                      )}
-                      {dailyPrompt?.deck_id && deckInfo && (
-                        <Text style={{
-                          ...typography.body,
-                          fontSize: 14,
-                          fontWeight: "400",
-                          color: colors.gray[400],
-                          fontStyle: "italic",
-                        }}>
-                          from the deck, <Text style={{ fontWeight: "600" }}>{deckInfo.name}</Text>
-                        </Text>
-                      )}
-                    </View>
-                    <Text style={styles.promptQuestion}>
-                      {(() => {
-                        const question = personalizedPromptQuestion || dailyPrompt?.prompt?.question || entries[0]?.prompt?.question
-                        // If question is empty or whitespace, log warning and show fallback
-                        if (!question || !question.trim()) {
-                          if (__DEV__) {
-                            console.warn(`[home] Empty question detected. dailyPrompt: ${dailyPrompt?.prompt?.question}, entries: ${entries[0]?.prompt?.question}, personalized: ${personalizedPromptQuestion}`)
-                          }
-                          return "Question unavailable"
-                        }
-                        return question
-                      })()}
-                    </Text>
-                    {promptId && (
-                      <Button
-                        title="Answer"
-                        onPress={handleAnswerPrompt}
-                        style={styles.answerButton}
-                      />
-                    )}
-                  </>
-                )
-              })()}
-            </View>
-            <View style={styles.promptDivider} />
-          </View>
-        )}
 
         {/* App tutorial link - show when no entries and user hasn't seen tutorial */}
-        {!userEntry && entries.length === 0 && !isFuture && !hasSeenAppTutorial && (
+        {!userEntry && entries.length === 0 && !isFuture && !hasSeenAppTutorial && viewMode === "Days" && (
           <View style={styles.appTutorialLinkContainer}>
-            <TouchableOpacity onPress={() => setOnboardingGalleryVisible(true)} activeOpacity={0.7}>
+            <TouchableOpacity 
+              style={styles.appTutorialCard}
+              onPress={() => setOnboardingGalleryVisible(true)} 
+              activeOpacity={0.7}
+            >
               <Text style={styles.appTutorialLink}>Need a quick app tour?</Text>
+              {/* Texture overlay */}
+              <View style={styles.appTutorialCardTexture} pointerEvents="none">
+                <Image
+                  source={require("../../assets/images/texture.png")}
+                  style={styles.appTutorialCardTextureImage}
+                  resizeMode="cover"
+                />
+              </View>
             </TouchableOpacity>
           </View>
         )}
 
-        {/* Entries feed */}
-        {userEntry ? (
-          <View style={[
-            styles.entriesContainer, 
-            (pendingVotes.length > 0 && isToday) || shouldShowCustomQuestionBanner || 
-            // CRITICAL: Only count cards that have entries
-            (myBirthdayCard && myBirthdayCard.group_id === currentGroupId && myBirthdayCard.birthday_date === selectedDate && cardEntries.length > 0) ||
-            (upcomingBirthdayCards.filter((card) => card.group_id === currentGroupId).length > 0) || myCardEntries.length > 0
-              ? styles.entriesContainerWithBanners 
+        {/* Feed Content - Period Grid or Date-based Feed */}
+        {viewMode === "Days" ? (
+          // Date-based feed with headers
+          (() => {
+            // Combine all dates: dates with entries + dates with prompts (user hasn't answered)
+            // CRITICAL: Filter out dates before group creation
+            const groupCreatedDate = currentGroup?.created_at 
+              ? utcStringToLocalDate(currentGroup.created_at)
               : null
-          ]}>
-            {entries.map((entry, entryIndex) => (
-              <EntryCard
-                key={entry.id}
-                entry={entry}
-                entryIds={entryIdList}
-                index={entryIndex}
-                returnTo="/(main)/home"
-              />
-            ))}
-            {/* Show message if all members posted or if some haven't */}
-            {(() => {
-              const entriesForDate = entries.filter(e => e.date === selectedDate)
-              const uniqueUserIds = new Set(entriesForDate.map(e => e.user_id))
-              const allMembersPosted = members.length > 0 && uniqueUserIds.size === members.length
-              const someMembersPosted = uniqueUserIds.size > 0 && uniqueUserIds.size < members.length
-              
-              if (allMembersPosted) {
-                return (
-                  <>
-                    {/* Only show "Everyone in the group posted today" if CTA is not showing */}
-                    {!shouldShowCTA && (
-                      <View style={styles.postingStatusContainer}>
-                        <Text style={styles.postingStatusText}>Everyone in the group posted today.</Text>
-                      </View>
-                    )}
-                    {/* Previous Day CTA */}
-                    {shouldShowCTA && (
-                      <TouchableOpacity
-                        onPress={() => {
-                          setSelectedDate(previousDate)
-                        }}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={styles.previousDayCTALink}>
-                          {getPreviousDayCTAText()}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-                  </>
-                )
-              } else if (someMembersPosted) {
-                return (
-                  <>
-                    {/* Only show "Come back later" if CTA is not showing */}
-                    {!shouldShowCTA && (
-                      <View style={styles.postingStatusContainer}>
-                        <Text style={styles.postingStatusText}>Come back later to see what the others said</Text>
-                      </View>
-                    )}
-                    {/* Previous Day CTA */}
-                    {shouldShowCTA && (
-                      <TouchableOpacity
-                        onPress={() => {
-                          setSelectedDate(previousDate)
-                        }}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={styles.previousDayCTALink}>
-                          {getPreviousDayCTAText()}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-                  </>
-                )
+            
+            const allDatesToShow = new Set([
+              ...Object.keys(entriesByDate),
+              ...datesWithoutUserEntry,
+            ])
+            
+            // Filter out dates before group creation
+            const filteredDatesToShow = groupCreatedDate
+              ? Array.from(allDatesToShow).filter((date) => date >= groupCreatedDate)
+              : Array.from(allDatesToShow)
+            
+            // Sort dates descending (most recent first)
+            const sortedDates = filteredDatesToShow.sort((a, b) => {
+              return new Date(b).getTime() - new Date(a).getTime()
+            })
+            
+            // Use entriesWithBirthdayCards (which includes birthday cards mixed with regular entries)
+            // Also merge entriesForDatesWithoutUserEntry for dates where user hasn't answered
+            // This ensures entries are visible with fuzzy overlay even when user hasn't answered
+            // CRITICAL: Filter out dates before group creation
+            const entriesByDateFiltered: Record<string, any[]> = {}
+            
+            Object.keys(entriesByDate).forEach((date) => {
+              // Skip dates before group creation
+              if (groupCreatedDate && date < groupCreatedDate) {
+                return
               }
-              return null
-            })()}
+              entriesByDateFiltered[date] = entriesByDate[date]
+            })
+            
+            Object.keys(entriesForDatesWithoutUserEntry).forEach((date) => {
+              // Skip dates before group creation
+              if (groupCreatedDate && date < groupCreatedDate) {
+                return
+              }
+              if (!entriesByDateFiltered[date]) {
+                entriesByDateFiltered[date] = []
+              }
+              // Merge entries, avoiding duplicates
+              const existingIds = new Set(entriesByDateFiltered[date].map((e: any) => e.id))
+              entriesForDatesWithoutUserEntry[date].forEach((entry: any) => {
+                if (!existingIds.has(entry.id)) {
+                  entriesByDateFiltered[date].push(entry)
+                }
+              })
+            })
+            
+            return sortedDates.map((date) => {
+              // CRITICAL: Double-check date is not before group creation (safety check)
+              if (groupCreatedDate && date < groupCreatedDate) {
+                return null // Skip rendering dates before group creation
+              }
+              
+              const dateEntries = entriesByDateFiltered[date] || []
+              const hasUserEntry = !!userEntriesByDate[date]
+              const promptForDate = promptsForDatesWithoutEntry[date]
+              const isDateToday = date === todayDate
+              
+              // Show all entries (they will have fuzzy overlay if user hasn't answered)
+              // Birthday cards always show without fuzzy overlay
+              const visibleEntries = dateEntries
+              
+              return (
+                <View 
+                  key={date} 
+                  style={styles.daySection}
+                  ref={(ref) => {
+                    if (ref) {
+                      dateRefs.current[date] = ref
+                    }
+                  }}
+                >
+                  {/* Only show date header for past days, not today */}
+                  {!isDateToday && (
+                    <View style={styles.dateHeader}>
+                      <Text style={styles.dateHeaderDay}>{format(parseISO(date), "EEEE")}</Text>
+                      <Text style={styles.dateHeaderDate}>
+                        , {(() => {
+                          const dateObj = parseISO(date)
+                          const currentYear = new Date().getFullYear()
+                          const dateYear = dateObj.getFullYear()
+                          // Only show year if it's not the current year
+                          if (dateYear !== currentYear) {
+                            return format(dateObj, "d MMMM yyyy")
+                          } else {
+                            return format(dateObj, "d MMMM")
+                          }
+                        })()}
+                      </Text>
+                    </View>
+                  )}
+                  
+                  {/* Removed "Answer to see what they said" - users can now view entries without answering */}
+                  
+                  {/* Show prompt card if user hasn't answered (only show for today at top, or in feed for past dates) */}
+                  {!hasUserEntry && promptForDate && !isDateToday && (() => {
+                    // Check if this prompt is a Remembering category question
+                    const isRememberingCategory = promptForDate.prompt?.category === "Remembering"
+                    
+                    return (
+                      <View style={{ marginBottom: spacing.md }}>
+                        <View style={styles.promptCardWrapper}>
+                          <TouchableOpacity
+                            style={[
+                              styles.promptCard,
+                              isRememberingCategory && styles.promptCardRemembering
+                            ]}
+                            onPress={() => {
+                              if (promptForDate.prompt_id && currentGroupId) {
+                                router.push({
+                                  pathname: "/(main)/modals/entry-composer",
+                                  params: {
+                                    promptId: promptForDate.prompt_id,
+                                    date: date,
+                                    returnTo: "/(main)/home",
+                                    groupId: currentGroupId,
+                                  },
+                                })
+                              }
+                            }}
+                            activeOpacity={0.95}
+                          >
+                            <View style={styles.promptCardContent}>
+                              <Text style={[
+                                styles.promptQuestion,
+                                isRememberingCategory && styles.promptQuestionRemembering
+                              ]}>
+                                {promptForDate.prompt?.question || "Question"}
+                              </Text>
+                              <Button
+                                title="Answer"
+                                style={{ 
+                                  backgroundColor: isRememberingCategory ? theme2Colors.white : theme2Colors.blue,
+                                  borderRadius: 25,
+                                  paddingVertical: spacing.md,
+                                  paddingHorizontal: spacing.xl,
+                                  marginTop: spacing.md,
+                                }}
+                                textStyle={{ 
+                                  color: isRememberingCategory ? theme2Colors.text : theme2Colors.white 
+                                }}
+                                onPress={() => {
+                                  if (promptForDate.prompt_id && currentGroupId) {
+                                    router.push({
+                                      pathname: "/(main)/modals/entry-composer",
+                                      params: {
+                                        promptId: promptForDate.prompt_id,
+                                        date: date,
+                                        returnTo: "/(main)/home",
+                                        groupId: currentGroupId,
+                                      },
+                                    })
+                                  }
+                                }}
+                              />
+                            </View>
+                            {/* Texture overlay */}
+                            <View style={styles.promptCardTexture} pointerEvents="none">
+                              <Image
+                                source={require("../../assets/images/texture.png")}
+                                style={{ 
+                                  position: "absolute",
+                                  top: 0,
+                                  left: 0,
+                                  right: 0,
+                                  bottom: 0,
+                                  width: "100%",
+                                  height: "100%",
+                                }}
+                                resizeMode="stretch"
+                              />
+                            </View>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )
+                  })()}
+                  
+                  {/* Show entries for this date (filtered to show birthday cards always, regular entries only if user answered) */}
+                  {visibleEntries.length > 0 && visibleEntries.map((entry: any, entryIndex: number) => {
+                    // Handle birthday card entries specially (styled like the image)
+                    if (entry.is_birthday_card) {
+                      return (
+                        <View key={entry.id} style={{ position: "relative" }}>
+                          <TouchableOpacity
+                            style={styles.birthdayCardEntry}
+                            onPress={() => {
+                              if (hasUserEntry) {
+                                router.push({
+                                  pathname: "/(main)/birthday-card-details",
+                                  params: {
+                                    cardId: entry.birthday_card_id,
+                                    groupId: currentGroupId!,
+                                    returnTo: "/(main)/home",
+                                  },
+                                })
+                              }
+                            }}
+                            disabled={!hasUserEntry}
+                            activeOpacity={0.9}
+                          >
+                            {/* Geometric shapes at top left */}
+                            <View style={styles.birthdayCardEntryShapes}>
+                              <View style={styles.birthdayCardEntryQuarterCircle} />
+                              <View style={styles.birthdayCardEntryFullCircle} />
+                              <View style={styles.birthdayCardEntryHalfCircle} />
+                            </View>
+                            
+                            {/* Content */}
+                            <View style={styles.birthdayCardEntryContent}>
+                              <Text style={styles.birthdayCardEntryTitle}>🎂 Your birthday card</Text>
+                              <Text style={styles.birthdayCardEntrySubtitle}>Happy birthday, {userName}. Your group wrote you a card</Text>
+                              
+                              {/* CTA Button */}
+                              {hasUserEntry && (
+                                <TouchableOpacity
+                                  style={styles.birthdayCardEntryButton}
+                                  onPress={() => {
+                                    router.push({
+                                      pathname: "/(main)/birthday-card-details",
+                                      params: {
+                                        cardId: entry.birthday_card_id,
+                                        groupId: currentGroupId!,
+                                        returnTo: "/(main)/home",
+                                      },
+                                    })
+                                  }}
+                                >
+                                  <Text style={styles.birthdayCardEntryButtonText}>Open card</Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                            {/* Texture overlay */}
+                            <View style={styles.birthdayCardEntryTexture} pointerEvents="none">
+                              <Image
+                                source={require("../../assets/images/texture.png")}
+                                style={{ 
+                                  position: "absolute",
+                                  top: 0,
+                                  left: 0,
+                                  right: 0,
+                                  bottom: 0,
+                                  width: "100%",
+                                  height: "100%",
+                                }}
+                                resizeMode="stretch"
+                              />
+                            </View>
+                          </TouchableOpacity>
+                          {/* Removed fuzzy overlay - users can now view entries without answering */}
+                        </View>
+                      )
+                    }
+                    
+                    // Regular entry card
+                    const entryIdList = visibleEntries.map((item: any) => item.id)
+                    const shouldShowFuzzy = !hasUserEntry && !entry.is_birthday_card
+                    
+                    return (
+                      <EntryCard
+                        key={entry.id}
+                        entry={entry}
+                        entryIds={entryIdList}
+                        index={entryIndex}
+                        returnTo="/(main)/home"
+                        showFuzzyOverlay={shouldShowFuzzy}
+                      />
+                    )
+                  })}
           </View>
-        ) : null}
+              )
+            })
+          })()
+        ) : viewMode === "Weeks" ? (
+          renderPeriodGrid(weekSummaries, "Weeks")
+        ) : viewMode === "Months" ? (
+          renderPeriodGrid(monthSummaries, "Months")
+        ) : (
+          renderPeriodGrid(yearSummaries, "Years")
+        )}
       </Animated.ScrollView>
+
+      {/* Filter Modal */}
+      <Modal
+        animationType="slide"
+        visible={showFilterModal}
+        onRequestClose={() => setShowFilterModal(false)}
+        presentationStyle="fullScreen"
+      >
+        <View style={[styles.modalContainer, { paddingTop: insets.top + spacing.lg }]}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Filters</Text>
+            <TouchableOpacity onPress={() => setShowFilterModal(false)} style={styles.modalCloseButton}>
+              <Text style={styles.modalClose}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.modalContent}>
+            <Text style={styles.modalSection}>Group Members</Text>
+            <View style={styles.selectionGrid}>
+              {members.map((member) => {
+                const isSelected = selectedMembers.includes(member.user_id)
+                return (
+                  <TouchableOpacity
+                    key={member.id}
+                    style={[styles.selectionCard, isSelected && styles.selectionCardActive]}
+                    onPress={() =>
+                      setSelectedMembers((prev) =>
+                        prev.includes(member.user_id)
+                          ? prev.filter((id) => id !== member.user_id)
+                          : [...prev, member.user_id],
+                      )
+                    }
+                  >
+                    <Avatar uri={member.user?.avatar_url} name={member.user?.name || ""} size={40} />
+                    <Text style={styles.selectionLabel}>{member.user?.name}</Text>
+                  </TouchableOpacity>
+                )
+              })}
+            </View>
+
+            {/* Memorials filter - only show if group has memorials */}
+            {memorials.length > 0 && (
+              <>
+                <Text style={[styles.modalSection, styles.modalSectionSpacing]}>Memorials</Text>
+                <View style={styles.memorialList}>
+                  {memorials.map((memorial) => {
+                    const isSelected = selectedMemorials.includes(memorial.id)
+                    return (
+                      <TouchableOpacity
+                        key={memorial.id}
+                        style={[styles.memorialRow, isSelected && styles.memorialRowActive]}
+                        onPress={() =>
+                          setSelectedMemorials((prev) =>
+                            prev.includes(memorial.id)
+                              ? prev.filter((id) => id !== memorial.id)
+                              : [...prev, memorial.id],
+                          )
+                        }
+                      >
+                        <Avatar uri={memorial.photo_url} name={memorial.name} size={40} />
+                        <Text style={styles.memorialName}>{memorial.name}</Text>
+                      </TouchableOpacity>
+                    )
+                  })}
+                      </View>
+              </>
+            )}
+
+            <Text style={[styles.modalSection, styles.modalSectionSpacing]}>Question Categories</Text>
+            <View style={styles.selectionGrid}>
+              {categories.map((category, index) => {
+                const isSelected = selectedCategories.includes(category)
+                return (
+                      <TouchableOpacity
+                    key={`category-${category}-${index}`}
+                    style={[styles.selectionCard, isSelected && styles.selectionCardActive]}
+                    onPress={() =>
+                      setSelectedCategories((prev) =>
+                        prev.includes(category) ? prev.filter((c) => c !== category) : [...prev, category],
+                      )
+                    }
+                  >
+                    <Text style={styles.selectionLabel}>{category}</Text>
+                      </TouchableOpacity>
+                )
+              })}
+            </View>
+
+            {/* Decks filter - only show if group has active decks */}
+            {availableDecks.length > 0 && (
+              <>
+                <Text style={[styles.modalSection, styles.modalSectionSpacing]}>Question Decks</Text>
+                <View style={styles.selectionGrid}>
+                  {availableDecks.map((deck: any, index) => {
+                    const isSelected = selectedDecks.includes(deck.deck_id)
+                    return (
+                      <TouchableOpacity
+                        key={`deck-${deck.deck_id}-${index}`}
+                        style={[styles.selectionCard, isSelected && styles.selectionCardActive]}
+                        onPress={() =>
+                          setSelectedDecks((prev) =>
+                            prev.includes(deck.deck_id)
+                              ? prev.filter((id) => id !== deck.deck_id)
+                              : [...prev, deck.deck_id],
+                          )
+                        }
+                      >
+                        <Text style={styles.selectionLabel}>{deck.deck?.name || "Unknown Deck"}</Text>
+                      </TouchableOpacity>
+                    )
+                  })}
+                      </View>
+              </>
+            )}
+
+            {/* Birthday Cards filter - only show if user has received cards */}
+            {hasReceivedCards && (
+              <>
+                <Text style={[styles.modalSection, styles.modalSectionSpacing]}>Birthday Cards</Text>
+                      <TouchableOpacity
+                  style={[styles.memorialRow, showBirthdayCards && styles.memorialRowActive]}
+                  onPress={() => setShowBirthdayCards((prev) => !prev)}
+                >
+                  <Text style={[styles.memorialName, { textAlign: "center", width: "100%" }]}>Show my birthday cards</Text>
+                      </TouchableOpacity>
+              </>
+            )}
+          </ScrollView>
+          </View>
+      </Modal>
 
       <Modal visible={groupPickerVisible} transparent animationType="fade" onRequestClose={() => setGroupPickerVisible(false)}>
         <TouchableOpacity style={styles.groupModalBackdrop} activeOpacity={1} onPress={() => setGroupPickerVisible(false)}>
-          <View style={[styles.groupModalSheet, Platform.OS === "android" && { paddingBottom: spacing.lg + insets.bottom }]}>
+          {/* Backdrop overlays matching Profile Modal opacity */}
+          <View style={[StyleSheet.absoluteFillObject, { backgroundColor: "rgba(232, 224, 213, 0.4)" }]} />
+          <View style={[StyleSheet.absoluteFillObject, { backgroundColor: "rgba(0, 0, 0, 0.1)" }]} />
+          <View style={[styles.groupModalSheet, Platform.OS === "android" && { paddingBottom: spacing.lg + insets.bottom }, { paddingBottom: spacing.lg + insets.bottom }]}>
+            {/* Close Button - positioned at top right of card */}
+            <TouchableOpacity
+              style={styles.groupModalCloseButton}
+              onPress={() => setGroupPickerVisible(false)}
+              activeOpacity={0.7}
+            >
+              <FontAwesome name="times" size={16} color={theme2Colors.text} />
+            </TouchableOpacity>
             <Text style={styles.groupModalTitle}>Switch group</Text>
             <ScrollView contentContainerStyle={styles.groupList}>
               {groups.map((group) => {
                 const groupMembers = allGroupsMembers[group.id] || []
-                const maxAvatars = 3 // Show max 3 avatars
-                const displayMembers = groupMembers.slice(0, maxAvatars)
-                const remainingCount = Math.max(0, groupMembers.length - maxAvatars)
                 
                 return (
                   <View key={group.id} style={styles.groupRowContainer}>
@@ -3099,91 +5435,36 @@ export default function Home() {
                       onPress={() => handleSelectGroup(group.id)}
                     >
                       <View style={styles.groupRowContent}>
-                        {/* Avatar circles - single circle with mini avatars inside (Apple iMessage style) */}
-                        {displayMembers.length > 0 && (
-                          <View style={styles.groupAvatarsContainer}>
-                            {displayMembers.slice(0, 4).map((member, index) => {
-                              // Calculate position for each avatar within the circle
-                              const total = Math.min(displayMembers.length, 4)
-                              let x = 0, y = 0
-                              
-                              if (total === 1) {
-                                // Single avatar: center
-                                x = 0
-                                y = 0
-                              } else if (total === 2) {
-                                // Two avatars: side by side
-                                x = index === 0 ? -5 : 5
-                                y = 0
-                              } else if (total === 3) {
-                                // Three avatars: triangle arrangement
-                                const angle = (index * 2 * Math.PI) / 3 - Math.PI / 2 // Start from top
-                                const radius = 6
-                                x = Math.cos(angle) * radius
-                                y = Math.sin(angle) * radius
-                              } else {
-                                // Four avatars: square arrangement
-                                const angle = (index * 2 * Math.PI) / 4 - Math.PI / 4 // Rotate 45 degrees
-                                const radius = 6
-                                x = Math.cos(angle) * radius
-                                y = Math.sin(angle) * radius
-                              }
-                              
-                              return (
-                                <View
-                                  key={member.id}
-                                  style={[
-                                    styles.groupAvatarMini,
-                                    {
-                                      position: "absolute",
-                                      left: 20 + x - 12, // Center (20) + offset - half width (12)
-                                      top: 20 + y - 12, // Center (20) + offset - half height (12)
-                                      zIndex: total - index,
-                                    },
-                                  ]}
-                                >
-                                  <Avatar
-                                    uri={member.user?.avatar_url}
-                                    name={member.user?.name || "User"}
-                                    size={total === 1 ? 24 : 20}
-                                  />
-                                </View>
-                              )
-                            })}
-                            {remainingCount > 0 && (
+                        {/* Small avatar circles above group name - show all members */}
+                        {groupMembers.length > 0 && (
+                          <View style={styles.groupAvatarsRow}>
+                            {groupMembers.map((member) => (
                               <View
+                                key={member.id}
                                 style={[
-                                  styles.groupAvatarMini,
-                                  styles.groupAvatarMore,
-                                  {
-                                    position: "absolute",
-                                    left: 8, // Bottom right corner
-                                    top: 8,
-                                    zIndex: 10,
-                                  },
+                                  styles.groupAvatarSmall,
+                                  group.id === currentGroupId && styles.groupAvatarSmallActive
                                 ]}
                               >
-                                <Text style={styles.groupAvatarMoreText}>+{remainingCount}</Text>
+                                <Avatar
+                                  uri={member.user?.avatar_url}
+                                  name={member.user?.name || "User"}
+                                  size={28}
+                                />
                               </View>
-                            )}
+                            ))}
                           </View>
                         )}
                         <View style={styles.groupRowTextContainer}>
-                          <Text style={styles.groupRowText}>{group.name}</Text>
-                          {/* Only show count for non-current groups with multiple groups */}
-                          {groups.length > 1 && 
-                           group.id !== currentGroupId && 
-                           groupUnseenCount[group.id]?.hasNew && 
-                           groupUnseenCount[group.id]?.newCount > 0 && (
-                            <View style={styles.newAnswersContainer}>
-                              {groupUnseenStatus[group.id] && (
-                                <View style={styles.unseenDot} />
-                              )}
-                              <Text style={styles.newAnswersText}>
-                                {groupUnseenCount[group.id].newCount} new {groupUnseenCount[group.id].newCount === 1 ? "answer" : "answers"}
-                              </Text>
-                            </View>
-                          )}
+                          <View style={styles.groupNameRow}>
+                            <Text style={styles.groupRowText}>{group.name}</Text>
+                            {/* Show yellow indicator next to group name if there are new answers */}
+                            {groups.length > 1 && 
+                             group.id !== currentGroupId && 
+                             groupUnseenStatus[group.id] && (
+                              <View style={styles.unseenDot} />
+                            )}
+                          </View>
                         </View>
                       </View>
                     </TouchableOpacity>
@@ -3197,13 +5478,29 @@ export default function Home() {
                         })
                       }}
                     >
-                      <FontAwesome name="cog" size={16} color={colors.gray[400]} />
+                      <FontAwesome name="cog" size={16} color={theme2Colors.textSecondary} />
                     </TouchableOpacity>
                   </View>
                 )
               })}
             </ScrollView>
-            <TouchableOpacity style={styles.createGroupButton} onPress={handleCreateGroupSoon}>
+            <TouchableOpacity style={styles.createGroupButton} onPress={handleCreateGroupSoon} activeOpacity={0.8}>
+              {/* Texture overlay */}
+              <View style={styles.createGroupButtonTexture} pointerEvents="none">
+                <Image
+                  source={require("../../assets/images/texture.png")}
+                  style={{ 
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    width: "100%",
+                    height: "100%",
+                  }}
+                  resizeMode="cover"
+                />
+              </View>
               <Text style={styles.createGroupText}>Create another group</Text>
             </TouchableOpacity>
           </View>
@@ -3231,13 +5528,13 @@ export default function Home() {
           setSelectedMember(null)
         }}
         onViewHistory={(userId) => {
-          router.push({
-            pathname: "/(main)/history",
-            params: {
-              focusGroupId: currentGroupId,
-              filterMemberId: userId,
-            },
-          })
+          // Filter on Home screen instead of History
+          setSelectedMembers([userId])
+          setShowFilterModal(false)
+          setUserProfileModalVisible(false)
+          setSelectedMember(null)
+          // Scroll to top to show filtered results
+          scrollViewRef.current?.scrollTo({ y: 0, animated: true })
         }}
       />
 

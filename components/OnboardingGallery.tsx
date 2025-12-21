@@ -22,6 +22,20 @@ import { supabase } from "../lib/supabase"
 import { usePostHog } from "posthog-react-native"
 import { captureEvent, safeCapture } from "../lib/posthog"
 
+// Theme 2 color palette matching new design system
+const theme2Colors = {
+  red: "#B94444",
+  yellow: "#E8A037",
+  green: "#2D6F4A",
+  blue: "#3A5F8C",
+  beige: "#E8E0D5",
+  cream: "#F5F0EA",
+  white: "#FFFFFF",
+  text: "#000000",
+  textSecondary: "#404040",
+  onboardingPink: "#D97393",
+}
+
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window")
 const CARD_SCALE = 0.9 // Scale for cards behind the focal card
 const CARD_OPACITY = 0.4 // Opacity for cards behind the focal card
@@ -40,18 +54,11 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
   const { colors } = useTheme()
   const posthog = usePostHog()
   
-  const dynamicStyles = {
-    closeText: {
-      ...typography.h2,
-      color: colors.white,
-    },
-  }
-  
   const [currentIndex, setCurrentIndex] = useState(0)
   const [hasViewedAll, setHasViewedAll] = useState(false)
   const currentIndexRef = useRef(0) // Keep ref in sync for panResponder
   
-  // Animated values for deck effect - one for each visible card
+  // Animated values for deck effect
   const pan = useRef(new Animated.ValueXY()).current
   const scale = useRef(new Animated.Value(1)).current
   const opacity = useRef(new Animated.Value(1)).current
@@ -80,14 +87,12 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
       setHasViewedAll(true)
       // Auto-route after a short delay
       const timeout = setTimeout(() => {
-        onComplete()
-        const route = returnRoute || "/(main)/home"
-        router.replace(route as any)
+        handleSkip()
       }, 2000) // 2 second delay to let them see the last image
       
       return () => clearTimeout(timeout)
     }
-  }, [currentIndex, screenshots.length, visible, onComplete, router, returnRoute])
+  }, [currentIndex, screenshots.length, visible])
 
   // Reset when gallery opens
   useEffect(() => {
@@ -218,7 +223,7 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
     if (idx < screenshots.length - 1) {
       const newIndex = idx + 1
       
-      // Start fade out animation first
+      // Fade out current image
       Animated.parallel([
         Animated.timing(pan, {
           toValue: { x: -SCREEN_WIDTH, y: 0 },
@@ -236,7 +241,7 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
           useNativeDriver: true,
         }),
       ]).start(() => {
-        // Update index after fade out completes
+        // Update index while opacity is 0 (image is invisible)
         setCurrentIndex(newIndex)
         currentIndexRef.current = newIndex
         
@@ -244,13 +249,21 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
         pan.setValue({ x: 0, y: 0 })
         scale.setValue(1)
         
-        // Immediately fade in the new image
-        Animated.timing(opacity, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }).start()
+        // Use requestAnimationFrame to ensure React has rendered the new image before fading in
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            // Now fade in the new image
+            Animated.timing(opacity, {
+              toValue: 1,
+              duration: 300,
+              useNativeDriver: true,
+            }).start()
+          })
+        })
       })
+    } else {
+      // Reached last screen - handle routing
+      handleSkip()
     }
   }
 
@@ -259,7 +272,7 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
     if (idx > 0) {
       const newIndex = idx - 1
       
-      // Start fade out animation first
+      // Fade out current image
       Animated.parallel([
         Animated.timing(pan, {
           toValue: { x: SCREEN_WIDTH, y: 0 },
@@ -277,7 +290,7 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
           useNativeDriver: true,
         }),
       ]).start(() => {
-        // Update index after fade out completes
+        // Update index while opacity is 0 (image is invisible)
         setCurrentIndex(newIndex)
         currentIndexRef.current = newIndex
         
@@ -285,12 +298,17 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
         pan.setValue({ x: 0, y: 0 })
         scale.setValue(1)
         
-        // Immediately fade in the new image
-        Animated.timing(opacity, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }).start()
+        // Use requestAnimationFrame to ensure React has rendered the new image before fading in
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            // Now fade in the new image
+            Animated.timing(opacity, {
+              toValue: 1,
+              duration: 300,
+              useNativeDriver: true,
+            }).start()
+          })
+        })
       })
     }
   }
@@ -312,17 +330,23 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
     ]).start()
   }
 
-  const handleSkip = () => {
+  const handleSkip = async () => {
     onComplete()
-    const route = returnRoute || "/(main)/home"
-    router.replace(route as any)
+    // Determine route: if returnRoute is provided, use it; otherwise check if user is logged in
+    if (returnRoute) {
+      router.replace(returnRoute as any)
+    } else {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const route = session ? "/(main)/home" : "/(onboarding)/welcome-1"
+        router.replace(route as any)
+      } catch {
+        router.replace("/(onboarding)/welcome-1" as any)
+      }
+    }
   }
 
   if (!visible || screenshots.length === 0) return null
-
-  const currentScreenshot = screenshots[currentIndex]
-  const nextScreenshot = screenshots[currentIndex + 1]
-  const nextNextScreenshot = screenshots[currentIndex + 2]
 
   return (
     <Modal
@@ -331,13 +355,14 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
       transparent={false}
       statusBarTranslucent
     >
-      <View style={[styles.container, { backgroundColor: colors.black }]}>
+      <View style={[styles.container, { backgroundColor: theme2Colors.beige }]}>
         {/* Skip button - top right */}
         <TouchableOpacity
-          style={[styles.skipButton, { top: insets.top + spacing.xs, right: spacing.xs }]}
+          style={[styles.skipButton, { top: insets.top + spacing.xs, right: spacing.md }]}
           onPress={handleSkip}
+          activeOpacity={0.7}
         >
-          <Text style={dynamicStyles.closeText}>✕</Text>
+          <FontAwesome name="times" size={16} color={theme2Colors.text} />
         </TouchableOpacity>
 
         {/* Progress dots - centered at top, aligned with Skip this */}
@@ -365,7 +390,7 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
                       {
                         transform: [{ scale: dotScale }],
                         opacity: dotOpacity,
-                        backgroundColor: index === currentIndex ? colors.white : colors.gray[600],
+                        backgroundColor: index === currentIndex ? theme2Colors.text : colors.gray[600],
                       },
                     ]}
                   />
@@ -374,7 +399,7 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
             </View>
             {/* Tap or swipe instruction text - only show on first screenshot */}
             {currentIndex === 0 && (
-              <Text style={[styles.instructionText, { color: colors.gray[400] }]}>
+              <Text style={[styles.instructionText, { color: theme2Colors.textSecondary }]}>
                 tap or swipe to continue
               </Text>
             )}
@@ -403,15 +428,16 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
                     { scale: scale },
                   ],
                   opacity: opacity,
-                  zIndex: 10,
                 },
               ]}
               {...panResponder.panHandlers}
             >
               <Image
-                source={currentScreenshot.source}
+                key={`image-${currentIndex}`} // Force React to remount Image when index changes
+                source={screenshots[currentIndex]?.source}
                 style={styles.image}
                 resizeMode="contain"
+                fadeDuration={0}
               />
             </Animated.View>
           </TouchableOpacity>
@@ -467,7 +493,14 @@ const styles = StyleSheet.create({
   skipButton: {
     position: "absolute",
     zIndex: 1000,
-    padding: spacing.sm,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: theme2Colors.white,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: theme2Colors.text,
   },
   progressDotsContainer: {
     position: "absolute",

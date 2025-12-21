@@ -15,13 +15,26 @@ import { FontAwesome } from "@expo/vector-icons"
 export default function ManageMembersSettings() {
   const router = useRouter()
   const params = useLocalSearchParams()
-  const { colors } = useTheme()
+  const { colors, isDark } = useTheme()
   const groupId = params.groupId as string
   const insets = useSafeAreaInsets()
   const queryClient = useQueryClient()
   const [userId, setUserId] = useState<string>()
   const [isAdmin, setIsAdmin] = useState(false)
   const [removing, setRemoving] = useState<string | null>(null)
+
+  // Theme 2 color palette matching new design system
+  const theme2Colors = {
+    red: "#B94444",
+    yellow: "#E8A037",
+    green: "#2D6F4A",
+    blue: "#3A5F8C",
+    beige: "#E8E0D5",
+    cream: "#F5F0EA",
+    white: "#FFFFFF",
+    text: "#000000",
+    textSecondary: "#404040",
+  }
 
   const { data: members = [] } = useQuery({
     queryKey: ["groupMembers", groupId],
@@ -84,7 +97,7 @@ export default function ManageMembersSettings() {
   const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
     },
     header: {
       flexDirection: "row",
@@ -92,20 +105,21 @@ export default function ManageMembersSettings() {
       justifyContent: "space-between",
       paddingHorizontal: spacing.md,
       paddingBottom: spacing.md,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.gray[800],
     },
     closeButton: {
-      padding: spacing.sm,
-    },
-    closeText: {
-      ...typography.h2,
-      color: colors.white,
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: theme2Colors.white,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
     },
     title: {
-      ...typography.h1,
-      fontSize: 28,
-      color: colors.white,
+      fontFamily: "PMGothicLudington-Text115",
+      fontSize: 32,
+      color: theme2Colors.text,
     },
     content: {
       flex: 1,
@@ -116,16 +130,18 @@ export default function ManageMembersSettings() {
     },
     description: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       marginBottom: spacing.sm,
     },
     memberCard: {
-      backgroundColor: colors.gray[900],
+      backgroundColor: theme2Colors.cream,
       borderRadius: 16,
       padding: spacing.md,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
     },
     memberInfo: {
       flexDirection: "row",
@@ -145,7 +161,7 @@ export default function ManageMembersSettings() {
     memberName: {
       ...typography.bodyBold,
       fontSize: 16,
-      color: colors.white,
+      color: theme2Colors.text,
     },
     adminBadge: {
       flexDirection: "row",
@@ -153,31 +169,34 @@ export default function ManageMembersSettings() {
       gap: 4,
       paddingHorizontal: spacing.xs,
       paddingVertical: 2,
-      backgroundColor: colors.gray[800],
+      backgroundColor: theme2Colors.yellow,
       borderRadius: 4,
     },
     adminText: {
       ...typography.caption,
-      color: colors.accent,
+      color: theme2Colors.text,
       fontSize: 10,
+      fontWeight: "600",
     },
     memberEmail: {
       ...typography.caption,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       fontSize: 12,
     },
     removeButton: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      backgroundColor: colors.gray[800],
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: theme2Colors.white,
       justifyContent: "center",
       alignItems: "center",
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
     },
     removeButtonDisabled: {
       opacity: 0.5,
     },
-  }), [colors])
+  }), [colors, isDark])
 
   if (!isAdmin) {
     return null
@@ -195,8 +214,9 @@ export default function ManageMembersSettings() {
             })
           }
           style={styles.closeButton}
+          activeOpacity={0.7}
         >
-          <Text style={styles.closeText}>✕</Text>
+          <FontAwesome name="times" size={16} color={theme2Colors.text} />
         </TouchableOpacity>
       </View>
 
@@ -210,14 +230,14 @@ export default function ManageMembersSettings() {
           return (
             <View key={member.id} style={styles.memberCard}>
               <View style={styles.memberInfo}>
-                <Avatar uri={member.user?.avatar_url} name={member.user?.name || "User"} size={48} />
+                <Avatar uri={member.user?.avatar_url} name={member.user?.name || "User"} size={48} borderColor={theme2Colors.text} />
                 <View style={styles.memberText}>
                   <View style={styles.memberNameRow}>
                     <Text style={styles.memberName}>{member.user?.name || "Unknown"}</Text>
                     {member.role === "admin" && (
                       <View style={styles.adminBadge}>
-                        <FontAwesome name="shield" size={12} color={colors.accent} />
-                        <Text style={styles.adminText}>Admin</Text>
+                        <FontAwesome name="shield" size={12} color={theme2Colors.text} />
+                        <Text style={styles.adminText}>You're the admin</Text>
                       </View>
                     )}
                   </View>
@@ -229,8 +249,9 @@ export default function ManageMembersSettings() {
                   style={[styles.removeButton, isRemoving && styles.removeButtonDisabled]}
                   onPress={() => handleRemoveMember(member.user_id, member.user?.name || "this member")}
                   disabled={isRemoving}
+                  activeOpacity={0.7}
                 >
-                  <FontAwesome name="times" size={16} color={colors.accent} />
+                  <FontAwesome name="times" size={16} color={theme2Colors.text} />
                 </TouchableOpacity>
               )}
             </View>

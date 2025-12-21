@@ -59,6 +59,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     "expo-local-authentication",
     "expo-apple-authentication", // Required for EAS to recognize Apple Sign In capability
     "expo-secure-store",
+    "expo-notifications",
+    // Note: Notification icons use the app icon automatically on both iOS and Android
+    // If you see the old icon in notifications after updating the app icon:
+    // - iOS: The system caches notification icons. Users may need to restart their device or the app needs to be rebuilt
+    // - Android: Uses the app icon automatically. Ensure adaptiveIcon.foregroundImage is updated above
+    // Note: expo-blur doesn't require a config plugin - it's a native module that works automatically
     [
       "expo-font",
       {
@@ -75,9 +81,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   updates: {
     url: "https://u.expo.dev/ccd4fdb7-0126-46d1-a518-5839fae48a76",
   },
-  runtimeVersion: {
-    policy: "appVersion", // Use app version for runtime versioning
-  },
+  runtimeVersion: "1.2.0", // Must be a string in bare workflow, matches app version
   extra: {
     router: { origin: false },
     eas: { projectId: "ccd4fdb7-0126-46d1-a518-5839fae48a76" }, // your real EAS project id

@@ -30,6 +30,19 @@ export function NotificationModal({
   const insets = useSafeAreaInsets()
   const slideAnim = useState(new Animated.Value(height))[0]
   const overlayOpacity = useState(new Animated.Value(0))[0]
+  
+  // Theme 2 color palette matching new design system
+  const theme2Colors = {
+    red: "#B94444",
+    yellow: "#E8A037",
+    green: "#2D6F4A",
+    blue: "#3A5F8C",
+    beige: "#E8E0D5",
+    cream: "#F5F0EA",
+    white: "#FFFFFF",
+    text: "#000000",
+    textSecondary: "#404040",
+  }
 
   useEffect(() => {
     if (visible) {
@@ -76,19 +89,42 @@ export function NotificationModal({
     modalContainer: {
       flex: 1,
       justifyContent: "flex-end",
+      alignItems: "stretch", // Full width
     },
     overlay: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: "rgba(0, 0, 0, 0.75)",
+      backgroundColor: "transparent", // Use transparent base, opacity handled by overlays
+    },
+    overlayBeige: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(232, 224, 213, 0.4)", // Beige overlay matching Profile Modal
+    },
+    overlayBlack: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(0, 0, 0, 0.1)", // Black overlay matching Profile Modal
     },
     content: {
-      backgroundColor: colors.black,
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
+      backgroundColor: theme2Colors.beige, // Beige background matching new theme
+      borderTopLeftRadius: 32, // Rounded corners on top only
+      borderTopRightRadius: 32,
+      borderBottomLeftRadius: 0, // No rounding on bottom
+      borderBottomRightRadius: 0,
       paddingTop: spacing.lg,
-      paddingBottom: insets.bottom + spacing.lg,
+      paddingBottom: 0, // Remove padding bottom, let ScrollView handle it
       paddingHorizontal: spacing.lg,
-      maxHeight: height * 0.7,
+      maxHeight: height * 0.5, // Max half screen height
+      width: "100%",
+      flex: 1, // Allow content to expand
+      shadowColor: "#000",
+      shadowOffset: {
+        width: 0,
+        height: -10, // Shadow above (for bottom sheet)
+      },
+      shadowOpacity: 0.3,
+      shadowRadius: 20,
+      elevation: 20,
+      position: "relative",
+      overflow: "visible", // Allow close button to overflow
     },
     header: {
       flexDirection: "row",
@@ -96,28 +132,43 @@ export function NotificationModal({
       alignItems: "center",
       marginBottom: spacing.md,
     },
+    headerLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      flex: 1,
+      gap: spacing.md,
+    },
     title: {
       ...typography.h2,
       fontSize: 24,
-      color: colors.white,
+      color: theme2Colors.text, // Black text matching new theme
+      fontFamily: "PMGothicLudington-Text115", // Match question font
     },
     closeButton: {
       width: 32,
       height: 32,
       borderRadius: 16,
-      backgroundColor: colors.gray[800],
+      backgroundColor: theme2Colors.white, // White background matching Profile Modal
       justifyContent: "center",
       alignItems: "center",
+      borderWidth: 1,
+      borderColor: theme2Colors.text, // Black border matching Profile Modal
     },
     notificationList: {
       gap: spacing.sm,
+      paddingBottom: insets.bottom + spacing.lg, // Add padding at bottom for safe area
+      flexGrow: 1, // Allow ScrollView to grow
     },
     notificationItem: {
       flexDirection: "row",
       alignItems: "center",
       paddingVertical: spacing.md,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.gray[800],
+      paddingHorizontal: spacing.md,
+      backgroundColor: theme2Colors.white,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
+      marginBottom: spacing.sm,
     },
     notificationContent: {
       flex: 1,
@@ -126,27 +177,16 @@ export function NotificationModal({
     notificationText: {
       ...typography.body,
       fontSize: 16,
-      color: colors.white,
-      textDecorationLine: "underline",
+      color: theme2Colors.text, // Black text matching new theme
     },
     notificationArrow: {
       marginLeft: spacing.sm,
-      color: colors.white,
-    },
-    clearAllContainer: {
-      marginTop: spacing.md,
-      paddingTop: spacing.md,
-      borderTopWidth: 1,
-      borderTopColor: colors.gray[800],
-      alignItems: "center",
-    },
-    clearAllLink: {
-      paddingVertical: spacing.sm,
+      color: theme2Colors.text, // Black arrow matching new theme
     },
     clearAllText: {
       ...typography.body,
       fontSize: 14,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary, // Gray text matching new theme
       textDecorationLine: "underline",
     },
   })
@@ -154,6 +194,9 @@ export function NotificationModal({
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={closeModal}>
       <View style={styles.modalContainer}>
+        {/* Backdrop overlays matching Profile Modal opacity */}
+        <Animated.View style={[styles.overlayBeige, { opacity: overlayOpacity }]} />
+        <Animated.View style={[styles.overlayBlack, { opacity: overlayOpacity }]} />
         <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}>
           <TouchableOpacity
             style={StyleSheet.absoluteFill}
@@ -166,21 +209,38 @@ export function NotificationModal({
             styles.content,
             {
               transform: [{ translateY: slideAnim }],
-              maxHeight: notifications.length === 0 ? height * 0.3 : height * 0.7,
+              maxHeight: notifications.length === 0 ? height * 0.3 : height * 0.5,
             },
           ]}
           onStartShouldSetResponder={() => true}
         >
           <View style={styles.header}>
-            <Text style={styles.title}>
-              {notifications.length === 0 ? "Nothing new for you" : "New for you"}
-            </Text>
+            <View style={styles.headerLeft}>
+              <Text style={styles.title}>
+                {notifications.length === 0 ? "Nothing new for you" : "New for you"}
+              </Text>
+              {notifications.length > 0 && onClearAll && (
+                <TouchableOpacity 
+                  onPress={() => {
+                    console.log("[NotificationModal] Clear all pressed")
+                    onClearAll()
+                  }} 
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.clearAllText}>Clear all</Text>
+                </TouchableOpacity>
+              )}
+            </View>
             <TouchableOpacity onPress={closeModal} style={styles.closeButton} activeOpacity={0.7}>
-              <FontAwesome name="times" size={16} color={colors.white} />
+              <FontAwesome name="times" size={16} color={theme2Colors.text} />
             </TouchableOpacity>
           </View>
           {notifications.length > 0 && (
-            <ScrollView style={styles.notificationList} showsVerticalScrollIndicator={false}>
+            <ScrollView 
+              style={styles.notificationList} 
+              contentContainerStyle={styles.notificationList}
+              showsVerticalScrollIndicator={false}
+            >
               {notifications.map((notification) => {
                 let notificationText = ""
                 let avatarUrl: string | undefined
@@ -212,6 +272,11 @@ export function NotificationModal({
                   notificationText = `${notification.authorName} mentioned you in their answer today`
                   avatarUrl = notification.authorAvatarUrl
                   avatarName = notification.authorName || "Someone"
+                } else if (notification.type === "birthday_card") {
+                  notificationText = `It's ${notification.birthdayPersonName}'s birthday, add to their card`
+                  avatarName = notification.birthdayPersonName || "Someone"
+                } else if (notification.type === "custom_question_opportunity") {
+                  notificationText = `You have the power to ask a question today`
                 }
 
                 return (
@@ -227,7 +292,7 @@ export function NotificationModal({
                     }}
                     activeOpacity={0.7}
                   >
-                    {(notification.type === "reply_to_entry" || notification.type === "reply_to_thread" || notification.type === "deck_vote_requested" || notification.type === "mentioned_in_entry") && (
+                    {(notification.type === "reply_to_entry" || notification.type === "reply_to_thread" || notification.type === "deck_vote_requested" || notification.type === "mentioned_in_entry" || notification.type === "birthday_card") && (
                       <Avatar uri={avatarUrl} name={avatarName} size={32} />
                     )}
                     <View style={styles.notificationContent}>
@@ -238,20 +303,6 @@ export function NotificationModal({
                 )
               })}
             </ScrollView>
-          )}
-          {notifications.length > 0 && onClearAll && (
-            <View style={styles.clearAllContainer}>
-              <TouchableOpacity 
-                onPress={() => {
-                  console.log("[NotificationModal] Clear all pressed")
-                  onClearAll()
-                }} 
-                style={styles.clearAllLink} 
-                activeOpacity={0.7}
-              >
-                <Text style={styles.clearAllText}>Clear all</Text>
-              </TouchableOpacity>
-            </View>
           )}
         </Animated.View>
       </View>

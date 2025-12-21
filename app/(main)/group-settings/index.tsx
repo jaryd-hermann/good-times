@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, useMemo } from "react"
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Platform } from "react-native"
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Platform, Image } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { useQuery } from "@tanstack/react-query"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
@@ -25,6 +25,20 @@ export default function GroupSettingsIndex() {
   const [isDefaultGroup, setIsDefaultGroup] = useState(false)
   const [hasMultipleGroups, setHasMultipleGroups] = useState(false)
   const posthog = usePostHog()
+
+  // Theme 2 color palette matching new design system
+  const theme2Colors = {
+    red: "#B94444",
+    yellow: "#E8A037",
+    green: "#2D6F4A",
+    blue: "#3A5F8C",
+    beige: "#E8E0D5",
+    cream: "#F5F0EA",
+    white: "#FFFFFF",
+    text: "#000000",
+    textSecondary: "#404040",
+    onboardingPink: "#D97393", // Pink for onboarding CTAs
+  }
 
   // Load user groups to check if user has multiple groups
   const { data: groups = [] } = useQuery({
@@ -87,35 +101,35 @@ export default function GroupSettingsIndex() {
       title: "Group Name",
       subtitle: "Change the name of your group",
       adminOnly: true,
-      icon: "edit",
+      iconSource: require("../../../assets/images/pic.png"),
     },
     {
       id: "remembering-them",
       title: "Remembering Them",
       subtitle: "See and manage people you're remembering",
       adminOnly: true,
-      icon: "heart",
+      iconSource: require("../../../assets/images/memorial.png"),
     },
     {
       id: "manage-members",
       title: "Manage Members",
       subtitle: "Remove members from the group",
       adminOnly: true,
-      icon: "user-times",
+      iconSource: require("../../../assets/images/manage.png"),
     },
     {
       id: "invite",
       title: "Invite Members",
       subtitle: "Share invite link to add new members",
       adminOnly: false,
-      icon: "user-plus",
+      iconSource: require("../../../assets/images/people.png"),
     },
     {
       id: "leave",
       title: "Leave Group",
       subtitle: "Remove yourself from this group",
       adminOnly: false,
-      icon: "sign-out",
+      iconSource: require("../../../assets/images/leave.png"),
     },
   ]
 
@@ -164,7 +178,7 @@ export default function GroupSettingsIndex() {
   const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
     },
     header: {
       flexDirection: "row",
@@ -172,32 +186,37 @@ export default function GroupSettingsIndex() {
       justifyContent: "space-between",
       paddingHorizontal: spacing.md,
       paddingBottom: spacing.md,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.gray[800],
     },
     closeButton: {
-      padding: spacing.sm,
-    },
-    closeText: {
-      ...typography.h2,
-      color: colors.white,
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: theme2Colors.white,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
     },
     title: {
-      ...typography.h1,
-      fontSize: 28,
-      color: colors.white,
+      fontFamily: "PMGothicLudington-Text115",
+      fontSize: 32,
+      color: theme2Colors.text,
     },
     adminBadge: {
       flexDirection: "row",
       alignItems: "center",
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.sm,
-      backgroundColor: colors.gray[900],
+      backgroundColor: theme2Colors.yellow,
+      borderRadius: 12,
+      marginHorizontal: spacing.md,
+      marginTop: spacing.md,
     },
     adminText: {
       ...typography.caption,
-      color: colors.accent,
+      color: theme2Colors.text,
       fontSize: 12,
+      fontWeight: "600",
     },
     content: {
       flex: 1,
@@ -206,10 +225,12 @@ export default function GroupSettingsIndex() {
       padding: spacing.md,
     },
     optionCard: {
-      backgroundColor: colors.gray[900],
+      backgroundColor: theme2Colors.cream,
       borderRadius: 16,
       overflow: "hidden",
       marginBottom: spacing.sm,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
     },
     optionContent: {
       flexDirection: "row",
@@ -217,10 +238,8 @@ export default function GroupSettingsIndex() {
       padding: spacing.md,
     },
     optionIcon: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: colors.gray[800],
+      width: 24,
+      height: 24,
       justifyContent: "center",
       alignItems: "center",
       marginRight: spacing.md,
@@ -231,18 +250,20 @@ export default function GroupSettingsIndex() {
     optionTitle: {
       ...typography.bodyBold,
       fontSize: 16,
-      color: colors.white,
+      color: theme2Colors.text,
     },
     optionSubtitle: {
       ...typography.caption,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       fontSize: 13,
     },
     defaultGroupCard: {
-      backgroundColor: colors.gray[900],
+      backgroundColor: theme2Colors.cream,
       borderRadius: 16,
       overflow: "hidden",
       marginBottom: spacing.sm,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
     },
     defaultGroupContent: {
       flexDirection: "row",
@@ -257,29 +278,29 @@ export default function GroupSettingsIndex() {
     defaultGroupTitle: {
       ...typography.bodyBold,
       fontSize: 16,
-      color: colors.white,
+      color: theme2Colors.text,
     },
     defaultGroupSubtitle: {
       ...typography.caption,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       fontSize: 13,
       marginTop: spacing.xs,
     },
-  }), [colors])
+  }), [colors, isDark])
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.xl }]}>
       <View style={styles.header}>
         <Text style={styles.title}>Group Settings</Text>
-        <TouchableOpacity onPress={() => router.back()} style={styles.closeButton}>
-          <Text style={styles.closeText}>✕</Text>
+        <TouchableOpacity onPress={() => router.back()} style={styles.closeButton} activeOpacity={0.7}>
+          <FontAwesome name="times" size={16} color={theme2Colors.text} />
         </TouchableOpacity>
       </View>
 
       {isAdmin && (
         <View style={styles.adminBadge}>
-          <FontAwesome name="shield" size={14} color={colors.accent} style={{ marginRight: spacing.xs }} />
-          <Text style={styles.adminText}>Admin</Text>
+          <FontAwesome name="shield" size={14} color={theme2Colors.text} style={{ marginRight: spacing.xs }} />
+          <Text style={styles.adminText}>You're the admin</Text>
         </View>
       )}
 
@@ -297,8 +318,8 @@ export default function GroupSettingsIndex() {
               <Switch
                 value={isDefaultGroup}
                 onValueChange={handleDefaultGroupToggle}
-                trackColor={{ true: colors.accent }}
-                thumbColor={Platform.OS === "android" ? (isDark ? colors.white : colors.black) : undefined}
+                trackColor={{ true: theme2Colors.onboardingPink }}
+                thumbColor={Platform.OS === "android" ? theme2Colors.white : undefined}
               />
             </View>
           </View>
@@ -319,13 +340,17 @@ export default function GroupSettingsIndex() {
             >
               <View style={styles.optionContent}>
                 <View style={styles.optionIcon}>
-                  <FontAwesome name={option.icon as any} size={20} color={colors.white} />
+                  <Image 
+                    source={option.iconSource} 
+                    style={{ width: 24, height: 24 }}
+                    resizeMode="contain"
+                  />
                 </View>
                 <View style={styles.optionText}>
                   <Text style={styles.optionTitle}>{option.title}</Text>
                   <Text style={styles.optionSubtitle}>{option.subtitle}</Text>
                 </View>
-                <FontAwesome name="chevron-right" size={16} color={colors.gray[500]} style={{ marginLeft: spacing.md }} />
+                <FontAwesome name="chevron-right" size={16} color={theme2Colors.textSecondary} style={{ marginLeft: spacing.md }} />
               </View>
             </TouchableOpacity>
           )

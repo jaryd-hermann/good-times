@@ -37,6 +37,15 @@ import { EmbeddedPlayer } from "../../../components/EmbeddedPlayer"
 import * as Clipboard from "expo-clipboard"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "../../../lib/prompts"
 import { MentionAutocomplete } from "../../../components/MentionAutocomplete"
+
+// Helper function to get day index (matches home.tsx logic)
+function getDayIndex(dateString: string, groupId?: string) {
+  const base = new Date(dateString)
+  const start = new Date("2020-01-01")
+  const diff = Math.floor((base.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
+  const groupOffset = groupId ? groupId.length : 0
+  return diff + groupOffset
+}
 import { UserProfileModal } from "../../../components/UserProfileModal"
 import * as FileSystem from "expo-file-system/legacy"
 import { usePostHog } from "posthog-react-native"
@@ -273,6 +282,29 @@ export default function EntryComposer() {
     refetchOnMount: true,
   })
 
+  // Fetch prompt_name_usage for memorial_name to get the exact name that was stored
+  // CRITICAL: Use the stored name from prompt_name_usage, not recalculate
+  const { data: memorialNameUsage = [] } = useQuery({
+    queryKey: ["memorialNameUsage", currentGroupId, date, promptId],
+    queryFn: async () => {
+      if (!currentGroupId || !promptId || !date) return []
+      const { data, error } = await supabase
+        .from("prompt_name_usage")
+        .select("prompt_id, date_used, name_used, created_at")
+        .eq("group_id", currentGroupId)
+        .eq("variable_type", "memorial_name")
+        .order("created_at", { ascending: true })
+      if (error) {
+        console.error("[entry-composer] Error fetching memorial name usage:", error)
+        return []
+      }
+      return (data || []) as Array<{ prompt_id: string; date_used: string; name_used: string; created_at: string }>
+    },
+    enabled: !!currentGroupId && !!promptId && !!date && !!activePrompt?.question?.match(/\{.*memorial_name.*\}/i),
+    staleTime: 0, // Always fetch fresh data
+    refetchOnMount: true,
+  })
+
   // Create a map of prompt_id + date -> member name used
   const memberUsageMap = useMemo(() => {
     const map = new Map<string, string>()
@@ -286,6 +318,19 @@ export default function EntryComposer() {
     return map
   }, [memberNameUsage])
 
+  // Create a map of prompt_id + date -> memorial name used
+  const memorialUsageMap = useMemo(() => {
+    const map = new Map<string, string>()
+    memorialNameUsage.forEach((usage) => {
+      const normalizedDate = usage.date_used.split('T')[0]
+      const key = `${usage.prompt_id}-${normalizedDate}`
+      if (!map.has(key)) {
+        map.set(key, usage.name_used)
+      }
+    })
+    return map
+  }, [memorialNameUsage])
+
   // Personalize prompt question with variables
   // CRITICAL: Use prompt_name_usage to ensure consistency with home screen
   const personalizedQuestion = useMemo(() => {
@@ -294,10 +339,33 @@ export default function EntryComposer() {
     let question = activePrompt.question
     const variables: Record<string, string> = {}
     
-    // Handle memorial_name variable
-    if (question.match(/\{.*memorial_name.*\}/i) && memorials.length > 0) {
-      // Use first memorial (or could cycle based on date)
-      question = personalizeMemorialPrompt(question, memorials[0].name)
+    // Handle memorial_name variable - check prompt_name_usage first
+    // CRITICAL: Use the stored name from prompt_name_usage to ensure consistency with home screen
+    if (question.match(/\{.*memorial_name.*\}/i)) {
+      if (promptId && date && memorials.length > 0) {
+        const normalizedDate = date.split('T')[0]
+        const usageKey = `${promptId}-${normalizedDate}`
+        const memorialNameUsed = memorialUsageMap.get(usageKey)
+        
+        if (memorialNameUsed) {
+          // Use the exact name from prompt_name_usage (ensures consistency)
+          question = personalizeMemorialPrompt(question, memorialNameUsed)
+        } else {
+          // Fallback: if no usage record exists, use deterministic logic to match home screen
+          console.warn(`[entry-composer] No prompt_name_usage found for memorial_name, using fallback logic`)
+          // Use the same logic as home screen: getDayIndex based selection
+          const dayIndex = getDayIndex(date, currentGroupId || "")
+          const memorialIndex = dayIndex % memorials.length
+          const selectedMemorialName = memorials[memorialIndex]?.name
+          if (selectedMemorialName) {
+            question = personalizeMemorialPrompt(question, selectedMemorialName)
+          }
+        }
+      } else if (memorials.length > 0) {
+        // Fallback if we don't have promptId/date
+        console.warn(`[entry-composer] Missing promptId/date for memorial_name, using first memorial as fallback`)
+        question = personalizeMemorialPrompt(question, memorials[0].name)
+      }
     }
     
     // Handle member_name variable - check prompt_name_usage first
@@ -325,7 +393,7 @@ export default function EntryComposer() {
     }
     
     return question
-  }, [activePrompt?.question, memorials, members, memberUsageMap, promptId, date])
+  }, [activePrompt?.question, memorials, members, memberUsageMap, memorialUsageMap, promptId, date, currentGroupId])
 
   // Load existing entry data when in edit mode
   useEffect(() => {
@@ -944,18 +1012,57 @@ export default function EntryComposer() {
     dragPosition.setValue({ x: 0, y: 0 })
   }
 
-  function exitComposer() {
+  async function exitComposer() {
     // Reset to original prompt when closing (if user didn't post)
     // This ensures that if user shuffles but doesn't answer, they see original prompt next time
     if (originalPromptIdRef.current && prompt && prompt.id === originalPromptIdRef.current) {
       setActivePrompt(prompt as Prompt)
     }
     
-    if (returnTo) {
+    // Force refetch of all entry-related queries before navigating to ensure fresh data
+    // This ensures Home screen shows the latest entries immediately
+    if (currentGroupId && userId) {
+      const todayDate = new Date().toISOString().split('T')[0]
+      
+      // CRITICAL: Invalidate all relevant queries first to clear stale cache
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["entries", currentGroupId], exact: false }),
+        queryClient.invalidateQueries({ queryKey: ["allEntries", currentGroupId] }),
+        queryClient.invalidateQueries({ queryKey: ["userEntry", currentGroupId], exact: false }),
+        queryClient.invalidateQueries({ queryKey: ["dailyPrompt", currentGroupId], exact: false }),
+        queryClient.invalidateQueries({ queryKey: ["userEntriesForHomeDates", currentGroupId], exact: false }),
+        queryClient.invalidateQueries({ queryKey: ["promptsForHomeDates", currentGroupId], exact: false }),
+        queryClient.invalidateQueries({ queryKey: ["entriesForHomeDatesWithoutUserEntry", currentGroupId], exact: false }),
+      ]).catch(() => {
+        // Ignore errors - continue with refetch
+      })
+      
+      // Then refetch all queries and wait for completion before navigating
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ["entries", currentGroupId], exact: false }),
+        queryClient.refetchQueries({ queryKey: ["allEntries", currentGroupId] }),
+        queryClient.refetchQueries({ queryKey: ["userEntry", currentGroupId], exact: false }),
+        queryClient.refetchQueries({ queryKey: ["dailyPrompt", currentGroupId], exact: false }),
+        // Specifically refetch today's queries
+        queryClient.refetchQueries({ queryKey: ["entries", currentGroupId, todayDate] }),
+        queryClient.refetchQueries({ queryKey: ["userEntry", currentGroupId, userId, todayDate] }),
+        queryClient.refetchQueries({ queryKey: ["dailyPrompt", currentGroupId, todayDate] }),
+        queryClient.refetchQueries({ queryKey: ["userEntriesForHomeDates", currentGroupId], exact: false }),
+        queryClient.refetchQueries({ queryKey: ["promptsForHomeDates", currentGroupId], exact: false }),
+        queryClient.refetchQueries({ queryKey: ["entriesForHomeDatesWithoutUserEntry", currentGroupId], exact: false }),
+      ]).catch(() => {
+        // Ignore errors - navigation should proceed anyway
+      })
+    }
+    
+    // Always use replace (not back) to ensure fresh navigation to Home
+    // This ensures Home screen's useFocusEffect runs and refetches data
+    if (returnTo && returnTo.includes("home")) {
+      router.replace("/(main)/home")
+    } else if (returnTo) {
       router.replace(returnTo)
-    } else if (router.canGoBack()) {
-      router.back()
     } else {
+      // Always navigate to home to ensure fresh load
       router.replace("/(main)/home")
     }
   }
@@ -1174,6 +1281,19 @@ export default function EntryComposer() {
           queryClient.invalidateQueries({ queryKey: ["dailyPrompt", currentGroupId], exact: false }),
           queryClient.invalidateQueries({ queryKey: ["historyComments"] }),
         ])
+        
+        // Force immediate refetch of today's data to ensure fresh content when user returns to Home
+        if (date) {
+          const todayDate = new Date().toISOString().split('T')[0]
+          if (date === todayDate || date.startsWith(todayDate)) {
+            // This is today's entry - force refetch immediately
+            await Promise.all([
+              queryClient.refetchQueries({ queryKey: ["entries", currentGroupId, todayDate] }),
+              queryClient.refetchQueries({ queryKey: ["userEntry", currentGroupId, userId, todayDate] }),
+              queryClient.refetchQueries({ queryKey: ["dailyPrompt", currentGroupId, todayDate] }),
+            ])
+          }
+        }
       }
 
       // Hide uploading modal and show success
@@ -1408,11 +1528,24 @@ export default function EntryComposer() {
     previousMediaCountRef.current = currentCount
   }, [mediaItems.filter(item => item.type !== "audio").length])
 
+  // Theme 2 color palette
+  const theme2Colors = {
+    red: "#B94444",
+    yellow: "#E8A037",
+    green: "#2D6F4A",
+    blue: "#3A5F8C",
+    beige: "#E8E0D5",
+    cream: "#F5F0EA",
+    white: "#FFFFFF",
+    text: "#000000",
+    textSecondary: "#404040",
+  }
+
   // Create dynamic styles based on theme
   const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
     },
     keyboardAvoidingView: {
       flex: 1,
@@ -1427,13 +1560,13 @@ export default function EntryComposer() {
     },
     headerTitle: {
       ...typography.h3,
-      color: colors.white,
+      color: theme2Colors.text,
       flex: 1,
     },
     closeButton: {
       ...typography.h2,
       fontSize: 28,
-      color: colors.white,
+      color: theme2Colors.text,
     },
     content: {
       flex: 1,
@@ -1447,18 +1580,19 @@ export default function EntryComposer() {
       fontSize: 24,
       marginBottom: spacing.sm,
       marginTop: spacing.xxl,
-      color: colors.white,
+      color: theme2Colors.text,
+      fontFamily: "PMGothicLudington-Text115",
     },
     description: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       marginBottom: spacing.xl,
     },
     input: {
       ...typography.body,
       fontSize: 16,
       lineHeight: 24,
-      color: colors.white,
+      color: theme2Colors.text,
       minHeight: 200,
       textAlignVertical: "top",
     },
@@ -1647,8 +1781,8 @@ export default function EntryComposer() {
       paddingVertical: spacing.sm,
       paddingHorizontal: spacing.md,
       borderTopWidth: 1,
-      borderTopColor: colors.gray[800],
-      backgroundColor: colors.black,
+      borderTopColor: theme2Colors.textSecondary,
+      backgroundColor: theme2Colors.beige,
       position: "absolute",
       left: 0,
       right: 0,
@@ -1673,7 +1807,9 @@ export default function EntryComposer() {
       width: 48,
       height: 48,
       borderRadius: 24,
-      backgroundColor: isDark ? colors.gray[800] : colors.black,
+      backgroundColor: theme2Colors.cream,
+      borderWidth: 2,
+      borderColor: theme2Colors.blue,
       justifyContent: "center",
       alignItems: "center",
     },
@@ -1682,37 +1818,51 @@ export default function EntryComposer() {
     },
     closeButtonIcon: {
       marginLeft: spacing.sm,
+      backgroundColor: theme2Colors.white,
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
     },
     postButtonInline: {
-      backgroundColor: colors.accent,
+      backgroundColor: theme2Colors.blue,
       marginLeft: spacing.sm,
+      borderWidth: 0,
     },
     postButton: {
       width: "100%",
     },
     voiceBackdrop: {
       flex: 1,
-      backgroundColor: "rgba(0,0,0,0.9)",
+      backgroundColor: "transparent",
       justifyContent: "center",
       alignItems: "center",
       padding: spacing.lg,
     },
+    voiceBackdropOverlay1: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(232, 224, 213, 0.6)",
+    },
+    voiceBackdropOverlay2: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(0, 0, 0, 0.2)",
+    },
     voiceSheet: {
       width: "100%",
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
       borderRadius: 24,
       padding: spacing.xl,
       gap: spacing.md,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
     },
     voiceTitle: {
-      ...typography.h2,
+      fontFamily: "PMGothicLudington-Text115",
       fontSize: 22,
-      color: colors.white,
+      color: theme2Colors.text,
     },
     voiceTimer: {
       ...typography.h1,
       fontSize: 32,
-      color: colors.white,
+      color: theme2Colors.text,
       textAlign: "center",
     },
     voiceControlRow: {
@@ -1726,10 +1876,10 @@ export default function EntryComposer() {
       height: 56,
       borderRadius: 28,
       borderWidth: 1,
-      borderColor: colors.gray[700],
+      borderColor: theme2Colors.textSecondary,
       justifyContent: "center",
       alignItems: "center",
-      backgroundColor: colors.gray[900],
+      backgroundColor: theme2Colors.white,
     },
     voiceSendButton: {
       width: 56,
@@ -1737,7 +1887,7 @@ export default function EntryComposer() {
       borderRadius: 28,
       justifyContent: "center",
       alignItems: "center",
-      backgroundColor: colors.accent,
+      backgroundColor: theme2Colors.blue,
     },
     voiceIconDisabled: {
       opacity: 0.4,
@@ -1748,27 +1898,27 @@ export default function EntryComposer() {
     },
     voiceCancelText: {
       ...typography.caption,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
     },
     voiceDescription: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       textAlign: "center",
       marginBottom: spacing.md,
     },
     songUrlInput: {
       ...typography.body,
-      color: colors.white,
-      backgroundColor: colors.gray[900],
+      color: theme2Colors.text,
+      backgroundColor: theme2Colors.white,
       borderRadius: 12,
       padding: spacing.md,
       marginBottom: spacing.md,
       borderWidth: 1,
-      borderColor: colors.gray[700],
+      borderColor: theme2Colors.textSecondary,
     },
     voiceButtonLabel: {
       ...typography.caption,
-      color: colors.white,
+      color: theme2Colors.text,
       marginTop: spacing.xs,
       fontSize: 12,
     },
@@ -1794,32 +1944,71 @@ export default function EntryComposer() {
     addSongButton: {
       marginTop: spacing.md,
       width: "100%",
+      backgroundColor: theme2Colors.blue,
+      borderRadius: 25,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 56,
+    },
+    addSongButtonText: {
+      ...typography.bodyBold,
+      fontSize: 18,
+      color: theme2Colors.white,
+      textAlign: "center",
     },
     successBackdrop: {
       flex: 1,
-      backgroundColor: "rgba(0,0,0,0.95)",
+      backgroundColor: theme2Colors.beige,
+    },
+    successBackdropOverlay1: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(232, 224, 213, 0.6)",
+    },
+    successBackdropOverlay2: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(0, 0, 0, 0.2)",
+    },
+    successContainer: {
+      flex: 1,
+      backgroundColor: theme2Colors.beige,
       justifyContent: "center",
       alignItems: "center",
       padding: spacing.xl,
-    },
-    successContainer: {
-      width: "100%",
-      maxWidth: 400,
-      alignItems: "center",
       gap: spacing.xl,
+      zIndex: 0,
+    },
+    successTexture: {
+      ...StyleSheet.absoluteFillObject,
+      opacity: 0.3,
+      zIndex: 1,
     },
     successTitle: {
-      ...typography.h1,
-      fontSize: 32,
-      color: "#ffffff", // Always white since modal background is black
+      fontFamily: "PMGothicLudington-Text115",
+      fontSize: 24,
+      color: theme2Colors.text,
       textAlign: "center",
     },
     successButton: {
       width: "100%",
+      backgroundColor: theme2Colors.blue,
+      borderRadius: 25,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 56,
+    },
+    successButtonText: {
+      ...typography.bodyBold,
+      fontSize: 18,
+      color: theme2Colors.white,
+      textAlign: "center",
     },
     uploadingSubtitle: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       textAlign: "center",
       marginTop: spacing.md,
     },
@@ -1966,7 +2155,7 @@ export default function EntryComposer() {
               }
             }}
             placeholder="Tell the group what you think..."
-            placeholderTextColor={colors.gray[500]}
+            placeholderTextColor={theme2Colors.textSecondary}
             multiline
             autoFocus={true}
             showSoftInputOnFocus={true}
@@ -2091,13 +2280,13 @@ export default function EntryComposer() {
         <View style={styles.toolbarButtons}>
           <View style={styles.toolCluster}>
             <TouchableOpacity style={styles.iconButton} onPress={handleGalleryAction}>
-              <FontAwesome name="image" size={18} color={colors.white} />
+              <FontAwesome name="image" size={18} color={theme2Colors.text} />
             </TouchableOpacity>
             <TouchableOpacity style={styles.iconButton} onPress={openCamera}>
-              <FontAwesome name="camera" size={18} color={colors.white} />
+              <FontAwesome name="camera" size={18} color={theme2Colors.text} />
             </TouchableOpacity>
             <TouchableOpacity style={styles.iconButton} onPress={startRecording}>
-              <FontAwesome name="microphone" size={18} color={colors.white} />
+              <FontAwesome name="microphone" size={18} color={theme2Colors.text} />
             </TouchableOpacity>
             {/* Shuffle button commented out - everyone answers the same question */}
             {/* <TouchableOpacity 
@@ -2105,13 +2294,13 @@ export default function EntryComposer() {
               onPress={shufflePrompt}
               disabled={editMode}
             >
-              <FontAwesome name="random" size={18} color={editMode ? colors.gray[600] : colors.white} />
+              <FontAwesome name="random" size={18} color={editMode ? colors.gray[600] : theme2Colors.text} />
             </TouchableOpacity> */}
             <TouchableOpacity
               style={styles.iconButton}
               onPress={() => setShowSongModal(true)}
             >
-              <FontAwesome name="music" size={18} color={colors.white} />
+              <FontAwesome name="music" size={18} color={theme2Colors.text} />
             </TouchableOpacity>
           </View>
           <View style={styles.toolbarRight}>
@@ -2122,14 +2311,14 @@ export default function EntryComposer() {
                 disabled={loading}
               >
                 {loading ? (
-                  <ActivityIndicator size="small" color="#ffffff" />
+                  <ActivityIndicator size="small" color={theme2Colors.white} />
                 ) : (
-                  <FontAwesome name="arrow-right" size={18} color="#ffffff" />
+                  <FontAwesome name="arrow-right" size={18} color={theme2Colors.white} />
                 )}
               </TouchableOpacity>
             )}
             <TouchableOpacity style={[styles.iconButton, styles.closeButtonIcon]} onPress={exitComposer}>
-              <FontAwesome name="times" size={18} color={colors.white} />
+              <FontAwesome name="times" size={18} color={theme2Colors.text} />
             </TouchableOpacity>
           </View>
         </View>
@@ -2143,6 +2332,13 @@ export default function EntryComposer() {
         onRequestClose={() => setShowSongModal(false)}
       >
         <View style={styles.voiceBackdrop}>
+          <Animated.View style={styles.voiceBackdropOverlay1} />
+          <Animated.View style={styles.voiceBackdropOverlay2} />
+          <TouchableOpacity
+            style={StyleSheet.absoluteFillObject}
+            activeOpacity={1}
+            onPress={() => setShowSongModal(false)}
+          />
           <View style={styles.voiceSheet}>
             <Text style={styles.voiceTitle}>Add a song</Text>
             <Text style={styles.voiceDescription}>
@@ -2153,17 +2349,19 @@ export default function EntryComposer() {
               value={songUrlInput}
               onChangeText={setSongUrlInput}
               placeholder="https://open.spotify.com/track/... or soundcloud.com/..."
-              placeholderTextColor={colors.gray[500]}
+              placeholderTextColor={theme2Colors.textSecondary}
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="url"
             />
-            <Button
-              title="Add Song"
+            <TouchableOpacity
+              style={[styles.addSongButton, !songUrlInput.trim() && styles.voiceIconDisabled]}
               onPress={handleAddSong}
               disabled={!songUrlInput.trim()}
-              style={styles.addSongButton}
-            />
+              activeOpacity={0.7}
+            >
+              <Text style={styles.addSongButtonText}>Add Song</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={styles.voiceCancel} onPress={() => setShowSongModal(false)}>
               <Text style={styles.voiceCancelText}>Cancel</Text>
             </TouchableOpacity>
@@ -2180,6 +2378,15 @@ export default function EntryComposer() {
         }}
       >
         <View style={styles.voiceBackdrop}>
+          <Animated.View style={styles.voiceBackdropOverlay1} />
+          <Animated.View style={styles.voiceBackdropOverlay2} />
+          <TouchableOpacity
+            style={StyleSheet.absoluteFillObject}
+            activeOpacity={1}
+            onPress={() => {
+              if (!recording) cleanupVoiceModal()
+            }}
+          />
           <View style={styles.voiceSheet}>
             <Text style={styles.voiceTitle}>Voice memo</Text>
             <Text style={styles.voiceTimer}>{formatDuration(voiceDuration)}</Text>
@@ -2195,7 +2402,7 @@ export default function EntryComposer() {
                   }
                 }}
               >
-                <FontAwesome name={recording ? "stop" : "microphone"} size={22} color={colors.white} />
+                <FontAwesome name={recording ? "stop" : "microphone"} size={22} color={theme2Colors.text} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.voiceIconButton, !voiceUri && styles.voiceIconDisabled]}
@@ -2208,7 +2415,7 @@ export default function EntryComposer() {
                 <FontAwesome
                   name={isPlayingVoice ? "pause" : "play"}
                   size={22}
-                  color={voiceUri ? colors.white : colors.gray[600]}
+                  color={voiceUri ? theme2Colors.text : theme2Colors.textSecondary}
                 />
               </TouchableOpacity>
               <TouchableOpacity
@@ -2216,14 +2423,14 @@ export default function EntryComposer() {
                 disabled={!voiceUri}
                 onPress={cleanupVoiceModal}
               >
-                <FontAwesome name="trash" size={20} color={voiceUri ? colors.white : colors.gray[600]} />
+                <FontAwesome name="trash" size={20} color={voiceUri ? theme2Colors.text : theme2Colors.textSecondary} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.voiceSendButton, !voiceUri && styles.voiceIconDisabled]}
                 disabled={!voiceUri}
                 onPress={addVoiceMemoToEntry}
               >
-                <FontAwesome name="paper-plane" size={18} color={voiceUri ? colors.white : colors.gray[600]} />
+                <FontAwesome name="paper-plane" size={18} color={voiceUri ? theme2Colors.white : theme2Colors.textSecondary} />
               </TouchableOpacity>
             </View>
             <TouchableOpacity style={styles.voiceCancel} onPress={() => (!recording ? cleanupVoiceModal() : null)}>
@@ -2237,7 +2444,7 @@ export default function EntryComposer() {
       <Modal
         visible={showSuccessModal}
         animationType="fade"
-        transparent
+        transparent={false}
         onRequestClose={() => {
           setShowSuccessModal(false)
           exitComposer()
@@ -2246,15 +2453,23 @@ export default function EntryComposer() {
         <View style={styles.successBackdrop}>
           <View style={styles.successContainer}>
             <Text style={styles.successTitle}>You've answered today's question!</Text>
-            <Button
-              title="See what everyone else said"
-              onPress={() => {
-                setShowSuccessModal(false)
-                exitComposer()
-              }}
+            <TouchableOpacity
               style={styles.successButton}
-            />
+              onPress={async () => {
+                setShowSuccessModal(false)
+                await exitComposer()
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.successButtonText}>See what everyone else said</Text>
+            </TouchableOpacity>
           </View>
+          <Image
+            source={require("../../../assets/images/texture.png")}
+            style={styles.successTexture}
+            resizeMode="cover"
+            pointerEvents="none"
+          />
         </View>
       </Modal>
 
@@ -2262,15 +2477,21 @@ export default function EntryComposer() {
       <Modal
         visible={showUploadingModal}
         animationType="fade"
-        transparent
+        transparent={false}
         onRequestClose={() => {}}
       >
         <View style={styles.successBackdrop}>
           <View style={styles.successContainer}>
-            <ActivityIndicator size="large" color={colors.white} />
+            <ActivityIndicator size="large" color={theme2Colors.text} />
             <Text style={styles.successTitle}>Uploading your media</Text>
             <Text style={styles.uploadingSubtitle}>Posting soon...</Text>
           </View>
+          <Image
+            source={require("../../../assets/images/texture.png")}
+            style={styles.successTexture}
+            resizeMode="cover"
+            pointerEvents="none"
+          />
         </View>
       </Modal>
 
@@ -2282,16 +2503,25 @@ export default function EntryComposer() {
         onRequestClose={() => setShowFileSizeModal(false)}
       >
         <View style={styles.successBackdrop}>
+          <Animated.View style={styles.successBackdropOverlay1} />
+          <Animated.View style={styles.successBackdropOverlay2} />
+          <TouchableOpacity
+            style={StyleSheet.absoluteFillObject}
+            activeOpacity={1}
+            onPress={() => setShowFileSizeModal(false)}
+          />
           <View style={styles.successContainer}>
             <Text style={styles.successTitle}>File too large</Text>
             <Text style={styles.uploadingSubtitle}>
               The file you selected is larger than 2GB. Please choose a smaller file.
             </Text>
-            <Button
-              title="OK"
-              onPress={() => setShowFileSizeModal(false)}
+            <TouchableOpacity
               style={styles.successButton}
-            />
+              onPress={() => setShowFileSizeModal(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.successButtonText}>OK</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>

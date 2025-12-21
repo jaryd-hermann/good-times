@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react"
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { supabase } from "./supabase"
 import { getCurrentUser, updateUser } from "./db"
@@ -21,8 +21,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>("dark")
   const [isLoading, setIsLoading] = useState(true)
 
-  // Get theme colors based on current theme
-  const colors = getThemeColors(theme)
+  // Get theme colors based on current theme - memoized to prevent infinite re-renders
+  const colors = useMemo(() => getThemeColors(theme), [theme])
 
   // Load theme preference on mount
   useEffect(() => {
@@ -121,20 +121,24 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+  // Memoize context value to prevent unnecessary re-renders
+  const contextValue = useMemo(
+    () => ({
+      theme,
+      setTheme,
+      colors,
+      isDark: theme === "dark",
+    }),
+    [theme, setTheme, colors]
+  )
+
   // Don't render children until theme is loaded (prevents flash)
   if (isLoading) {
     return null
   }
 
   return (
-    <ThemeContext.Provider
-      value={{
-        theme,
-        setTheme,
-        colors,
-        isDark: theme === "dark",
-      }}
-    >
+    <ThemeContext.Provider value={contextValue}>
       {children}
     </ThemeContext.Provider>
   )

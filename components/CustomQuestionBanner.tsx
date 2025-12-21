@@ -59,16 +59,17 @@ export function CustomQuestionBanner({ groupId, date, onPress, reduceSpacing = f
       paddingRight: spacing.md,
       paddingLeft: 0, // No left padding - icon touches edge
       paddingVertical: 0, // No vertical padding - icon touches top/bottom
-      borderRadius: 0, // Square edges
+      borderRadius: 12, // Rounded edges
       borderWidth: 1,
       borderColor: isDark ? "#ffffff" : "#000000", // White in dark mode, black in light mode
       marginHorizontal: spacing.lg,
-      marginTop: spacing.xs,
+      marginTop: 0, // Reduced spacing below day navigation
       marginBottom: 0, // No bottom margin on banner itself - handled by wrapper
       flexDirection: "row",
       alignItems: "center", // Center content vertically
       justifyContent: "space-between",
       height: 80, // Fixed height to match birthday card banners
+      overflow: "hidden", // Ensure rounded corners clip content
     },
     bannerWrapper: {
       marginBottom: reduceSpacing ? spacing.md : spacing.lg, // Reduce by 50% when birthday banners follow
@@ -84,6 +85,9 @@ export function CustomQuestionBanner({ groupId, date, onPress, reduceSpacing = f
       height: "100%", // Fill banner height
       justifyContent: "center",
       alignItems: "center",
+      borderTopLeftRadius: 12, // Match banner border radius
+      borderBottomLeftRadius: 12, // Match banner border radius
+      overflow: "hidden", // Ensure rounded corners clip icon
     },
     icon: {
       width: iconHeight, // Square - width matches height

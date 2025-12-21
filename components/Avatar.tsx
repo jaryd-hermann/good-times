@@ -6,9 +6,11 @@ interface AvatarProps {
   uri?: string
   name?: string | null
   size?: number
+  borderColor?: string
+  square?: boolean // New prop for square avatars with rounded edges
 }
 
-export function Avatar({ uri, name, size = 40 }: AvatarProps) {
+export function Avatar({ uri, name, size = 40, borderColor, square = false }: AvatarProps) {
   const { colors } = useTheme()
   
   // Handle null/undefined names gracefully
@@ -26,6 +28,8 @@ export function Avatar({ uri, name, size = 40 }: AvatarProps) {
       justifyContent: "center",
       alignItems: "center",
       overflow: "hidden",
+      borderWidth: borderColor ? 2 : 0,
+      borderColor: borderColor || "transparent",
     },
     initials: {
       ...typography.bodyBold,
@@ -33,10 +37,13 @@ export function Avatar({ uri, name, size = 40 }: AvatarProps) {
     },
   })
 
+  // Square with rounded edges matching day cards (borderRadius: 8) or circular (50% radius)
+  const borderRadius = square ? 8 : size / 2
+
   return (
-    <View style={[dynamicStyles.container, { width: size, height: size, borderRadius: size / 2 }]}>
+    <View style={[dynamicStyles.container, { width: size, height: size, borderRadius }]}>
       {uri ? (
-        <Image source={{ uri }} style={[styles.image, { width: size, height: size, borderRadius: size / 2 }]} />
+        <Image source={{ uri }} style={[styles.image, { width: size, height: size, borderRadius }]} />
       ) : (
         <Text style={[dynamicStyles.initials, { fontSize: size * 0.4 }]}>{initials}</Text>
       )}

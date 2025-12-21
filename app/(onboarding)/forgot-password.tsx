@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { View, Text, StyleSheet, Alert, TextInput, KeyboardAvoidingView, Platform, ScrollView } from "react-native"
+import { View, Text, StyleSheet, Alert, TextInput, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { supabase } from "../../lib/supabase"
 import { colors, spacing } from "../../lib/theme"
@@ -9,6 +9,20 @@ import { Button } from "../../components/Button"
 import { OnboardingBack } from "../../components/OnboardingBack"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import * as Linking from "expo-linking"
+
+// Theme 2 color palette matching new design system
+const theme2Colors = {
+  red: "#B94444",
+  yellow: "#E8A037",
+  green: "#2D6F4A",
+  blue: "#3A5F8C",
+  beige: "#E8E0D5",
+  cream: "#F5F0EA",
+  white: "#FFFFFF",
+  text: "#000000",
+  textSecondary: "#404040",
+  onboardingPink: "#D97393", // Pink for onboarding CTAs
+}
 
 export default function ForgotPassword() {
   const router = useRouter()
@@ -18,6 +32,7 @@ export default function ForgotPassword() {
   const [loading, setLoading] = useState(false)
   const [sent, setSent] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [emailFocused, setEmailFocused] = useState(false)
   
   // Check for error in URL (expired/invalid reset link)
   useEffect(() => {
@@ -147,21 +162,32 @@ export default function ForgotPassword() {
                       value={email}
                       onChangeText={setEmail}
                       placeholder="you@email.com"
-                      placeholderTextColor="rgba(255,255,255,0.6)"
+                      placeholderTextColor={theme2Colors.textSecondary}
                       keyboardType="email-address"
                       autoCapitalize="none"
                       autoComplete="email"
-                      style={styles.fieldInput}
+                      keyboardAppearance="light"
+                      style={[
+                        styles.fieldInput,
+                        emailFocused && styles.fieldInputFocused
+                      ]}
+                      onFocus={() => setEmailFocused(true)}
+                      onBlur={() => setEmailFocused(false)}
                       editable={!loading}
                     />
                   </View>
 
-                  <Button
-                    title="Send Reset Link"
+                  <TouchableOpacity
                     onPress={handleSend}
-                    loading={loading}
+                    disabled={loading}
                     style={styles.primaryButton}
-                  />
+                  >
+                    {loading ? (
+                      <Text style={styles.primaryButtonText}>Sending...</Text>
+                    ) : (
+                      <Text style={styles.primaryButtonText}>Send Reset Link</Text>
+                    )}
+                  </TouchableOpacity>
                 </>
               ) : (
                 <View style={styles.successContainer}>
@@ -169,11 +195,12 @@ export default function ForgotPassword() {
                   <Text style={styles.successText}>
                     We've sent a password reset link to {email.trim()}. Click the link in the email to reset your password.
                   </Text>
-                  <Button
-                    title="Back to Sign In"
+                  <TouchableOpacity
                     onPress={() => router.back()}
                     style={styles.primaryButton}
-                  />
+                  >
+                    <Text style={styles.primaryButtonText}>Back to Sign In</Text>
+                  </TouchableOpacity>
                 </View>
               )}
             </View>
@@ -187,7 +214,7 @@ export default function ForgotPassword() {
 const styles = StyleSheet.create({
   background: {
     flex: 1,
-    backgroundColor: colors.black,
+    backgroundColor: theme2Colors.beige,
   },
   flex: {
     flex: 1,
@@ -210,71 +237,87 @@ const styles = StyleSheet.create({
     maxWidth: 460,
   },
   title: {
-    fontFamily: "LibreBaskerville-Bold",
-    fontSize: 40,
-    color: colors.white,
+    fontFamily: "PMGothicLudington-Text115",
+    fontSize: 32,
+    color: theme2Colors.text,
+    marginBottom: spacing.md,
   },
   subtitle: {
     fontFamily: "Roboto-Regular",
     fontSize: 16,
     lineHeight: 24,
-    color: colors.white,
-    opacity: 0.9,
+    color: theme2Colors.textSecondary,
   },
   fieldGroup: {
     marginBottom: spacing.md,
   },
   fieldLabel: {
     fontFamily: "Roboto-Regular",
-    fontSize: 16,
-    color: colors.white,
+    fontSize: 14,
+    color: theme2Colors.text,
     marginBottom: spacing.xs,
+    fontWeight: "600",
   },
   fieldInput: {
-    fontFamily: "LibreBaskerville-Regular",
-    fontSize: 24,
-    color: colors.white,
-    borderBottomWidth: 1,
-    borderColor: "rgba(255,255,255,0.6)",
-    paddingVertical: spacing.sm,
+    fontFamily: "Roboto-Regular",
+    fontSize: 16,
+    color: theme2Colors.text,
+    backgroundColor: theme2Colors.cream,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: theme2Colors.textSecondary,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+  },
+  fieldInputFocused: {
+    borderColor: theme2Colors.blue,
   },
   primaryButton: {
+    backgroundColor: theme2Colors.onboardingPink,
+    borderRadius: 25,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    alignItems: "center",
+    justifyContent: "center",
     minHeight: 56,
+  },
+  primaryButtonText: {
+    fontFamily: "Roboto-Bold",
+    fontSize: 18,
+    color: theme2Colors.white,
   },
   successContainer: {
     gap: spacing.md,
   },
   successTitle: {
-    fontFamily: "LibreBaskerville-Bold",
+    fontFamily: "PMGothicLudington-Text115",
     fontSize: 32,
-    color: colors.white,
+    color: theme2Colors.text,
   },
   successText: {
     fontFamily: "Roboto-Regular",
     fontSize: 16,
     lineHeight: 24,
-    color: colors.white,
-    opacity: 0.9,
+    color: theme2Colors.textSecondary,
   },
   errorContainer: {
-    backgroundColor: "rgba(222, 47, 8, 0.1)",
-    borderWidth: 1,
-    borderColor: colors.accent,
-    borderRadius: 8,
+    backgroundColor: theme2Colors.cream,
+    borderWidth: 2,
+    borderColor: theme2Colors.red,
+    borderRadius: 12,
     padding: spacing.md,
     marginBottom: spacing.md,
   },
   errorText: {
     fontFamily: "Roboto-Medium",
     fontSize: 16,
-    color: colors.accent,
+    color: theme2Colors.red,
     marginBottom: spacing.xs,
   },
   errorSubtext: {
     fontFamily: "Roboto-Regular",
     fontSize: 14,
-    color: colors.white,
-    opacity: 0.8,
+    color: theme2Colors.textSecondary,
   },
 })
 

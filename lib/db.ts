@@ -14,21 +14,64 @@ async function selectNextMemorial(
 ): Promise<string> {
   const weekStart = getWeekStartDate(date)
   
-  // Check if a memorial was already used THIS WEEK for ANY Remembering prompt in this group
+  // CRITICAL: Check if a memorial was already used THIS WEEK for ANY Remembering prompt in this group
   // This is important because different Remembering prompts have different prompt_ids
+  // If one was already used this week, we should NOT schedule another memorial question
+  // But if somehow one was scheduled, we must ensure we use a DIFFERENT memorial name
   const { data: thisWeekUsage } = await supabase
     .from("prompt_name_usage")
-    .select("name_used, prompt_id")
+    .select("name_used, prompt_id, date_used")
     .eq("group_id", groupId)
     .eq("variable_type", "memorial_name")
     .gte("date_used", weekStart)
     .lte("date_used", date)
     .order("date_used", { ascending: false })
-    .limit(1)
   
-  // If a memorial was already used this week, use the same one (shouldn't happen with 1/week limit, but safety check)
+  // If a memorial was already used this week, we MUST use a DIFFERENT one to prevent back-to-back
+  // This should never happen due to weekly limit, but if it does, ensure alternation
   if (thisWeekUsage && thisWeekUsage.length > 0) {
-    return thisWeekUsage[0].name_used
+    const usedNamesThisWeek = new Set(thisWeekUsage.map(u => u.name_used))
+    
+    // Check if there was a memorial used YESTERDAY (back-to-back check)
+    const yesterday = new Date(date)
+    yesterday.setDate(yesterday.getDate() - 1)
+    const yesterdayStr = yesterday.toISOString().split("T")[0]
+    
+    const yesterdayUsage = thisWeekUsage.find(u => u.date_used === yesterdayStr)
+    
+    if (yesterdayUsage) {
+      // Memorial was used yesterday - MUST use a different one today
+      const yesterdayName = yesterdayUsage.name_used
+      const availableMemorials = memorials.filter(m => m.name !== yesterdayName)
+      
+      if (availableMemorials.length > 0) {
+        // Use a different memorial (prefer one not used this week)
+        const unusedThisWeek = availableMemorials.filter(m => !usedNamesThisWeek.has(m.name))
+        if (unusedThisWeek.length > 0) {
+          return unusedThisWeek[0].name
+        }
+        // If all others were used this week, rotate from yesterday's name
+        const yesterdayIndex = memorials.findIndex(m => m.name === yesterdayName)
+        const nextIndex = (yesterdayIndex + 1) % memorials.length
+        return memorials[nextIndex].name
+      } else {
+        // Only one memorial - shouldn't happen, but use it
+        return memorials[0].name
+      }
+    }
+    
+    // Memorial was used this week but not yesterday - use a different one
+    const usedNamesSet = new Set(thisWeekUsage.map(u => u.name_used))
+    const availableMemorials = memorials.filter(m => !usedNamesSet.has(m.name))
+    if (availableMemorials.length > 0) {
+      return availableMemorials[0].name
+    }
+    
+    // All memorials were used this week - rotate from most recent
+    const mostRecentName = thisWeekUsage[0].name_used
+    const mostRecentIndex = memorials.findIndex(m => m.name === mostRecentName)
+    const nextIndex = (mostRecentIndex + 1) % memorials.length
+    return memorials[nextIndex].name
   }
   
   // No memorial used this week - rotate to next person
@@ -380,13 +423,12 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
             // This ensures proper rotation even when different Remembering prompts are scheduled
             const { data: thisWeekUsage } = await supabase
               .from("prompt_name_usage")
-              .select("name_used")
+              .select("name_used, date_used")
               .eq("group_id", groupId)
               .eq("variable_type", "memorial_name")
               .gte("date_used", weekStart)
               .lte("date_used", date)
               .order("date_used", { ascending: false })
-              .limit(1) // Only need the most recent one from this week
             
             // Also get the last memorial used in previous weeks (for rotation)
             // IMPORTANT: Check across ALL Remembering prompts, not just this specific prompt_id
@@ -399,22 +441,65 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
               .order("date_used", { ascending: false })
               .limit(1)
             
-            // If a memorial was already used this week, use the same one (shouldn't happen with 1/week limit, but safety check)
-            if (thisWeekUsage && thisWeekUsage.length > 0) {
-              variables.memorial_name = thisWeekUsage[0].name_used
-              console.log(`[getDailyPrompt] Memorial already used this week: ${thisWeekUsage[0].name_used}`)
+            // CRITICAL: If a memorial was already used this week, we MUST use a DIFFERENT one
+            // This should never happen due to weekly limit, but if it does, ensure alternation
+            // Check if memorial was used YESTERDAY (back-to-back prevention)
+            const yesterday = new Date(date)
+            yesterday.setDate(yesterday.getDate() - 1)
+            const yesterdayStr = yesterday.toISOString().split("T")[0]
+            
+            const yesterdayUsage = thisWeekUsage?.find((u: any) => u.date_used === yesterdayStr)
+            
+            if (yesterdayUsage) {
+              // Memorial was used yesterday - MUST use a different one to prevent back-to-back
+              const yesterdayName = yesterdayUsage.name_used
+              const usedNamesThisWeek = new Set(thisWeekUsage.map((u: any) => u.name_used))
+              const availableMemorials = memorials.filter(m => m.name !== yesterdayName)
+              
+              if (availableMemorials.length > 0) {
+                // Use a different memorial (prefer one not used this week)
+                const unusedThisWeek = availableMemorials.filter(m => !usedNamesThisWeek.has(m.name))
+                const selectedMemorialName = unusedThisWeek.length > 0 
+                  ? unusedThisWeek[0].name 
+                  : availableMemorials[0].name // Fallback to any different one
+                variables.memorial_name = selectedMemorialName
+                console.log(`[getDailyPrompt] Memorial used yesterday (${yesterdayName}), using different one: ${selectedMemorialName}`)
+              } else {
+                // Only one memorial - shouldn't happen, but use it
+                variables.memorial_name = memorials[0].name
+                console.log(`[getDailyPrompt] Only one memorial available, using: ${memorials[0].name}`)
+              }
+            } else if (thisWeekUsage && thisWeekUsage.length > 0) {
+              // Memorial was used this week but not yesterday - use a different one
+              const usedNamesSet = new Set(thisWeekUsage.map((u: any) => u.name_used))
+              const availableMemorials = memorials.filter(m => !usedNamesSet.has(m.name))
+              if (availableMemorials.length > 0) {
+                variables.memorial_name = availableMemorials[0].name
+                console.log(`[getDailyPrompt] Memorial already used this week, using different one: ${availableMemorials[0].name}`)
+              } else {
+                // All memorials were used this week - rotate from most recent
+                const mostRecentName = thisWeekUsage[0].name_used
+                const mostRecentIndex = memorials.findIndex(m => m.name === mostRecentName)
+                const nextIndex = (mostRecentIndex + 1) % memorials.length
+                variables.memorial_name = memorials[nextIndex].name
+                console.log(`[getDailyPrompt] All memorials used this week, rotating to: ${memorials[nextIndex].name}`)
+              }
             } else {
               // No memorial used this week - rotate to next person
               const selectedMemorialName = await selectNextMemorial(groupId, prompt.id, date, memorials)
               variables.memorial_name = selectedMemorialName
               console.log(`[getDailyPrompt] Rotating memorial to: ${selectedMemorialName}`)
+            }
+            
+            // Record usage for this date (only if not already recorded)
+            if (!existingUsage?.name_used) {
               
               // Record usage for this date (ignore errors if already exists - might be race condition)
               const { error: insertError } = await supabase.from("prompt_name_usage").insert({
                 group_id: groupId,
                 prompt_id: prompt.id,
                 variable_type: "memorial_name",
-                name_used: selectedMemorialName,
+                name_used: variables.memorial_name,
                 date_used: date,
               })
               
@@ -1444,6 +1529,23 @@ export async function getEntryById(entryId: string): Promise<Entry | null> {
 
   if (error && error.code !== "PGRST116") throw error
   return data
+}
+
+// Get daily prompts for a group from the past 7 days
+export async function getGroupPromptsPast7Days(groupId: string): Promise<DailyPrompt[]> {
+  const today = new Date().toISOString().split("T")[0]
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
+  
+  const { data, error } = await supabase
+    .from("daily_prompts")
+    .select("*, prompt:prompts(*)")
+    .eq("group_id", groupId)
+    .gte("date", sevenDaysAgo)
+    .lte("date", today)
+    .order("date", { ascending: false })
+
+  if (error) throw error
+  return data || []
 }
 
 // Memorial queries

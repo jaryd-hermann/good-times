@@ -13,6 +13,7 @@ import {
   Platform,
   Modal,
   TextInput,
+  ActivityIndicator,
 } from "react-native"
 import { useRouter } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -27,6 +28,7 @@ import { spacing, typography } from "../../../lib/theme"
 import { useTheme } from "../../../lib/theme-context"
 import { Button } from "../../../components/Button"
 import { Avatar } from "../../../components/Avatar"
+import { FontAwesome } from "@expo/vector-icons"
 import { usePostHog } from "posthog-react-native"
 import { captureEvent } from "../../../lib/posthog"
 
@@ -42,7 +44,21 @@ export default function ProfileSettings() {
   const [initialAvatar, setInitialAvatar] = useState<string | undefined>()
   const [saving, setSaving] = useState(false)
   const [showBirthdayPicker, setShowBirthdayPicker] = useState(false)
+  const [focusedInput, setFocusedInput] = useState<string | null>(null)
   const posthog = usePostHog()
+
+  // Theme 2 color palette matching new design system
+  const theme2Colors = {
+    red: "#B94444",
+    yellow: "#E8A037",
+    green: "#2D6F4A",
+    blue: "#3A5F8C",
+    beige: "#E8E0D5",
+    cream: "#F5F0EA",
+    white: "#FFFFFF",
+    text: "#000000",
+    textSecondary: "#404040",
+  }
 
   // Track loaded_profile_settings event
   useEffect(() => {
@@ -166,7 +182,7 @@ export default function ProfileSettings() {
   const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
     },
     header: {
       paddingHorizontal: spacing.md,
@@ -174,20 +190,21 @@ export default function ProfileSettings() {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      borderBottomWidth: 1,
-      borderBottomColor: colors.gray[800],
     },
     closeButton: {
-      padding: spacing.sm,
-    },
-    closeText: {
-      ...typography.h2,
-      color: colors.white,
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: theme2Colors.white,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
     },
     title: {
-      ...typography.h1,
-      fontSize: 28,
-      color: colors.white,
+      fontFamily: "PMGothicLudington-Text115",
+      fontSize: 32,
+      color: theme2Colors.text,
     },
     content: {
       padding: spacing.lg,
@@ -198,41 +215,13 @@ export default function ProfileSettings() {
       gap: spacing.sm,
       marginBottom: spacing.xl,
     },
-    avatarButton: {
-      width: 72,
-      height: 72,
-      borderRadius: 36,
-      overflow: "hidden",
-      borderWidth: 2,
-      borderColor: colors.gray[700],
-      justifyContent: "center",
-      alignItems: "center",
-    },
     avatarImage: {
       width: "100%",
       height: "100%",
     },
-    avatarPlaceholder: {
-      flex: 1,
-      backgroundColor: colors.gray[800],
-      justifyContent: "center",
-      alignItems: "center",
-    },
-    avatarPlaceholderText: {
-      ...typography.bodyMedium,
-      color: colors.gray[400],
-    },
-    avatarHint: {
-      ...typography.caption,
-      color: colors.gray[500],
-    },
     fieldGroup: {
       marginBottom: spacing.xl,
       gap: spacing.xs,
-    },
-    fieldLabel: {
-      ...typography.bodyMedium,
-      color: colors.gray[400],
     },
     inlineFieldGroup: {
       gap: spacing.xs,
@@ -240,20 +229,33 @@ export default function ProfileSettings() {
     },
     inlineInput: {
       ...typography.body,
-      color: colors.white,
-      borderBottomWidth: 1,
-      borderColor: colors.gray[700],
-      paddingVertical: spacing.sm,
+      color: theme2Colors.text,
+      backgroundColor: theme2Colors.white,
+      borderRadius: 12,
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.md,
+      fontSize: 16,
+    },
+    inlineInputFocused: {
+      borderColor: theme2Colors.blue,
     },
     inlineField: {
-      borderBottomWidth: 1,
-      borderColor: colors.gray[700],
-      paddingVertical: spacing.sm,
+      backgroundColor: theme2Colors.white,
+      borderRadius: 12,
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.md,
+    },
+    inlineFieldFocused: {
+      borderColor: theme2Colors.blue,
     },
     inlineFieldText: {
       ...typography.body,
-      color: colors.white,
-      fontSize: 18,
+      color: theme2Colors.text,
+      fontSize: 16,
     },
     modalBackdrop: {
       flex: 1,
@@ -261,7 +263,7 @@ export default function ProfileSettings() {
       justifyContent: "flex-end",
     },
     modalSheet: {
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
       padding: spacing.lg,
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
@@ -270,8 +272,69 @@ export default function ProfileSettings() {
     iosPicker: {
       width: "100%",
     },
-    modalButton: {
+    doneButton: {
+      backgroundColor: theme2Colors.blue,
+      borderRadius: 25,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      alignItems: "center",
+      justifyContent: "center",
       width: "100%",
+    },
+    doneButtonText: {
+      ...typography.bodyBold,
+      fontSize: 18,
+      color: theme2Colors.white,
+      textAlign: "center",
+    },
+    saveButton: {
+      backgroundColor: theme2Colors.blue,
+      borderRadius: 25,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: spacing.md,
+    },
+    saveButtonText: {
+      ...typography.bodyBold,
+      fontSize: 18,
+      color: theme2Colors.white,
+      textAlign: "center",
+    },
+    fieldLabel: {
+      ...typography.bodyMedium,
+      color: theme2Colors.text,
+      fontSize: 14,
+      fontWeight: "600",
+      marginBottom: spacing.xs,
+    },
+    avatarButton: {
+      width: 180,
+      height: 180,
+      borderRadius: 20, // Square with rounded edges matching Mini Profile
+      overflow: "hidden",
+      borderWidth: 3,
+      borderColor: theme2Colors.red, // Red border matching Mini Profile
+      backgroundColor: theme2Colors.beige,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    avatarPlaceholder: {
+      flex: 1,
+      backgroundColor: theme2Colors.textSecondary,
+      justifyContent: "center",
+      alignItems: "center",
+      width: "100%",
+      height: "100%",
+    },
+    avatarPlaceholderText: {
+      ...typography.bodyMedium,
+      color: theme2Colors.white,
+    },
+    avatarHint: {
+      ...typography.caption,
+      color: theme2Colors.textSecondary,
     },
   }), [colors, isDark])
 
@@ -279,8 +342,8 @@ export default function ProfileSettings() {
     <View style={[styles.container, { paddingTop: insets.top + spacing.xl }]}>
       <View style={styles.header}>
         <Text style={styles.title}>Edit Profile</Text>
-        <TouchableOpacity onPress={() => router.back()} style={styles.closeButton}>
-          <Text style={styles.closeText}>✕</Text>
+        <TouchableOpacity onPress={() => router.back()} style={styles.closeButton} activeOpacity={0.7}>
+          <FontAwesome name="times" size={16} color={theme2Colors.text} />
         </TouchableOpacity>
       </View>
 
@@ -288,14 +351,21 @@ export default function ProfileSettings() {
         <View style={styles.profileSection}>
           <TouchableOpacity onPress={pickImage} style={styles.avatarButton}>
             {avatarUri ? (
-              <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+              <Image 
+                source={{ uri: avatarUri }} 
+                style={{ width: 174, height: 174, borderRadius: 17 }}
+                resizeMode="cover"
+              />
             ) : (
-              <View style={styles.avatarPlaceholder}>
-                <Text style={styles.avatarPlaceholderText}>Add Photo</Text>
-              </View>
+              <Avatar
+                uri={avatarUri}
+                name={profile?.name || "User"}
+                size={174}
+                borderColor={theme2Colors.red}
+                square={true}
+              />
             )}
           </TouchableOpacity>
-          <Text style={styles.avatarHint}>Tap to update</Text>
         </View>
 
         <View style={styles.inlineFieldGroup}>
@@ -303,9 +373,14 @@ export default function ProfileSettings() {
           <TextInput
             value={name}
             onChangeText={setName}
-            placeholder="Your name"
-            placeholderTextColor={colors.gray[500]}
-            style={styles.inlineInput}
+            placeholder="Enter your name"
+            placeholderTextColor={theme2Colors.textSecondary}
+            style={[
+              styles.inlineInput,
+              focusedInput === "name" && styles.inlineInputFocused,
+            ]}
+            onFocus={() => setFocusedInput("name")}
+            onBlur={() => setFocusedInput(null)}
           />
         </View>
 
@@ -314,17 +389,30 @@ export default function ProfileSettings() {
           <TextInput
             value={email}
             onChangeText={setEmail}
-            placeholder="you@email.com"
-            placeholderTextColor={colors.gray[500]}
+            placeholder="Enter your email"
+            placeholderTextColor={theme2Colors.textSecondary}
             keyboardType="email-address"
             autoCapitalize="none"
-            style={styles.inlineInput}
+            style={[
+              styles.inlineInput,
+              focusedInput === "email" && styles.inlineInputFocused,
+            ]}
+            onFocus={() => setFocusedInput("email")}
+            onBlur={() => setFocusedInput(null)}
           />
         </View>
 
         <View style={styles.fieldGroup}>
           <Text style={styles.fieldLabel}>Birthday</Text>
-          <TouchableOpacity onPress={openBirthdayPicker} style={styles.inlineField}>
+          <TouchableOpacity 
+            onPress={openBirthdayPicker} 
+            style={[
+              styles.inlineField,
+              focusedInput === "birthday" && styles.inlineFieldFocused,
+            ]}
+            onPressIn={() => setFocusedInput("birthday")}
+            onPressOut={() => setFocusedInput(null)}
+          >
             <Text style={styles.inlineFieldText}>
               {birthday 
                 ? (() => {
@@ -356,14 +444,32 @@ export default function ProfileSettings() {
                   }}
                   maximumDate={new Date()}
                   style={styles.iosPicker}
+                  textColor={theme2Colors.text}
                 />
-                <Button title="Done" onPress={() => setShowBirthdayPicker(false)} style={styles.modalButton} />
+                <TouchableOpacity 
+                  style={styles.doneButton} 
+                  onPress={() => setShowBirthdayPicker(false)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.doneButtonText}>Done</Text>
+                </TouchableOpacity>
               </View>
             </TouchableOpacity>
           </Modal>
         )}
 
-        <Button title="Save changes" onPress={handleSave} loading={saving} />
+        <TouchableOpacity 
+          style={styles.saveButton} 
+          onPress={handleSave} 
+          disabled={saving}
+          activeOpacity={0.7}
+        >
+          {saving ? (
+            <ActivityIndicator color={theme2Colors.white} />
+          ) : (
+            <Text style={styles.saveButtonText}>Save changes</Text>
+          )}
+        </TouchableOpacity>
       </ScrollView>
     </View>
   )

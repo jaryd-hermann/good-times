@@ -4,7 +4,7 @@
 // Phase 6: Black screen prevention
 
 import { useEffect, useState, useRef } from "react";
-import { View, ActivityIndicator, Text, Pressable, Alert, ImageBackground, StyleSheet, AppState } from "react-native";
+import { View, ActivityIndicator, Text, Pressable, Alert, ImageBackground, StyleSheet, AppState, Image, Animated } from "react-native";
 import { useRouter, useSegments, usePathname } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -41,6 +41,9 @@ try {
 }
 
 const colors = { black: "#000", accent: "#D35E3C", white: "#fff" };
+const theme2Colors = {
+  beige: "#E8E0D5",
+};
 const PENDING_GROUP_KEY = "pending_group_join";
 
 export default function Index() {
@@ -63,6 +66,7 @@ export default function Index() {
   const bootStartTimeRef = useRef<number>(Date.now()); // Initialize immediately
   const userRef = useRef(user); // Keep ref to latest user for AppState listener
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const rotateAnim = useRef(new Animated.Value(0)).current;
 
   // Keep userRef in sync with user
   useEffect(() => {
@@ -1000,7 +1004,7 @@ export default function Index() {
   const bootElapsed = Date.now() - bootStartTimeRef.current;
   const shouldForceShowBoot = bootElapsed < minBootTime;
 
-  // Animate loading dots
+  // Animate loading dots (keeping for compatibility but not used in UI)
   useEffect(() => {
     if (!shouldShowBooting) return;
 
@@ -1015,6 +1019,29 @@ export default function Index() {
     return () => clearInterval(interval);
   }, [shouldShowBooting]);
 
+  // Animate icon rotation
+  useEffect(() => {
+    if (!shouldShowBooting) {
+      rotateAnim.setValue(0);
+      return;
+    }
+
+    // Start rotation animation
+    const rotateAnimation = Animated.loop(
+      Animated.timing(rotateAnim, {
+        toValue: 1,
+        duration: 3000, // 3 seconds for a full rotation (slow, regular pace)
+        useNativeDriver: true,
+      })
+    );
+
+    rotateAnimation.start();
+
+    return () => {
+      rotateAnimation.stop();
+    };
+  }, [shouldShowBooting, rotateAnim]);
+
   // CRITICAL: If we're handling a password reset link, don't render boot screen - let navigation happen
   // Also, if we're not on the root route anymore, don't render (navigation has happened)
   if (isPasswordResetLink || (pathname && pathname !== "/" && pathname !== "")) {
@@ -1026,31 +1053,30 @@ export default function Index() {
   // This prevents black screens when opening from background
   const shouldRenderBootScreen = shouldShowBooting || shouldForceShowBoot || (isOnRootRoute && !isPasswordResetLink);
   
+  const spin = rotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.black }}>
       {shouldRenderBootScreen ? (
-        <ImageBackground
-          source={require("../assets/images/welcome-home.png")}
-          style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
-          resizeMode="cover"
-        >
-          <View style={styles.loadingOverlay}>
-            <Text style={styles.loadingText}>Good Times loading{loadingDots}</Text>
-            {/* Progress bar */}
-            <View style={styles.progressBarContainer}>
-              <View style={styles.progressBarTrack}>
-                <View 
-                  style={[
-                    styles.progressBarFill,
-                    { width: `${bootProgress}%` }
-                  ]} 
-                />
-              </View>
-            </View>
-            {/* Quote text */}
-            <Text style={styles.quoteText}>"Where will today's question lead you?"</Text>
-          </View>
-        </ImageBackground>
+        <View style={styles.bootContainer}>
+          <Animated.View
+            style={[
+              styles.iconContainer,
+              {
+                transform: [{ rotate: spin }],
+              },
+            ]}
+          >
+            <Image
+              source={require("../assets/images/loading.png")}
+              style={styles.bootIcon}
+              resizeMode="contain"
+            />
+          </Animated.View>
+        </View>
       ) : (
         <>
           <Text style={{ color: colors.white, textAlign: "center", paddingHorizontal: 24 }}>
@@ -1069,41 +1095,24 @@ export default function Index() {
 }
 
 const styles = StyleSheet.create({
-  loadingOverlay: {
-    alignItems: "center",
-    gap: 20,
-  },
-  loadingText: {
-    fontSize: 18,
-    color: themeColors.white,
-    textAlign: "center",
-    fontFamily: "LibreBaskerville-Regular",
-  },
-  progressBarContainer: {
-    width: 300,
+  bootContainer: {
+    flex: 1,
+    backgroundColor: theme2Colors.beige,
+    justifyContent: "center",
     alignItems: "center",
   },
-  progressBarTrack: {
-    width: "100%",
-    height: 16,
-    backgroundColor: themeColors.white,
-    borderWidth: 2,
-    borderColor: themeColors.black,
-    borderRadius: 0,
-    overflow: "hidden",
+  iconContainer: {
+    width: 120,
+    height: 120,
+    justifyContent: "center",
+    alignItems: "center",
   },
-  progressBarFill: {
-    height: "100%",
-    backgroundColor: themeColors.accent,
-    borderRadius: 0,
-  },
-  quoteText: {
-    ...typography.body,
-    fontSize: 16,
-    fontStyle: "italic",
-    color: themeColors.white,
-    textAlign: "center",
-    marginTop: 20,
-    opacity: 0.9,
+  bootIcon: {
+    width: 120,
+    height: 120,
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
   },
 });

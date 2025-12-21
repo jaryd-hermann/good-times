@@ -25,6 +25,19 @@ import { Button } from "../../components/Button"
 import { usePostHog } from "posthog-react-native"
 import { safeCapture } from "../../lib/posthog"
 
+// Theme 2 color palette matching new design system
+const theme2Colors = {
+  red: "#B94444",
+  yellow: "#E8A037",
+  green: "#2D6F4A",
+  blue: "#3A5F8C",
+  beige: "#E8E0D5",
+  cream: "#F5F0EA",
+  white: "#FFFFFF",
+  text: "#000000",
+  textSecondary: "#404040",
+}
+
 export default function DeckVote() {
   const router = useRouter()
   const params = useLocalSearchParams()
@@ -154,22 +167,25 @@ export default function DeckVote() {
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
     },
     header: {
       paddingTop: insets.top + spacing.md, // Start on same line as back button
       paddingHorizontal: spacing.md,
       paddingBottom: spacing.md,
       alignItems: "center", // Centered content
+      backgroundColor: theme2Colors.beige,
     },
     backButton: {
       position: "absolute",
       top: insets.top + spacing.md,
       left: spacing.md,
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: colors.gray[900],
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: theme2Colors.white,
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
       justifyContent: "center",
       alignItems: "center",
       zIndex: 10,
@@ -190,7 +206,7 @@ export default function DeckVote() {
     proposerText: {
       fontFamily: "Roboto-Regular",
       fontSize: 14,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       marginBottom: spacing.xs,
       textAlign: "center",
       width: "80%", // Narrower to align with back button
@@ -206,17 +222,17 @@ export default function DeckVote() {
       paddingHorizontal: spacing.xs, // Minimal padding for wider description
     },
     deckName: {
-      ...typography.h1,
-      fontSize: 28,
-      color: colors.white,
+      fontFamily: "PMGothicLudington-Text115",
+      fontSize: 32,
+      color: theme2Colors.text,
       marginBottom: spacing.md, // More space
       textAlign: "center",
       // Allow text to wrap naturally to fit all text
     },
     deckDescription: {
-      ...typography.body,
+      fontFamily: "Roboto-Regular",
       fontSize: 16, // Match deck-detail
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       textAlign: "center",
       lineHeight: 22,
       marginBottom: spacing.lg, // More space
@@ -226,7 +242,7 @@ export default function DeckVote() {
     separator: {
       width: "100%",
       height: 1,
-      backgroundColor: colors.gray[800],
+      backgroundColor: theme2Colors.textSecondary,
       marginBottom: spacing.lg,
     },
     content: {
@@ -235,20 +251,23 @@ export default function DeckVote() {
       paddingBottom: spacing.xxl * 4, // More padding for scrolling
     },
     voteInfo: {
-      backgroundColor: colors.gray[900],
-      borderRadius: 12,
+      backgroundColor: theme2Colors.cream,
+      borderRadius: 20,
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary,
       padding: spacing.md,
       marginBottom: spacing.xl,
     },
     voteInfoTitle: {
-      ...typography.bodyBold,
-      fontSize: 16,
-      color: colors.white,
+      fontFamily: "PMGothicLudington-Text115",
+      fontSize: 18,
+      color: theme2Colors.text,
       marginBottom: spacing.xs,
     },
     voteInfoText: {
-      ...typography.body,
-      color: colors.gray[300],
+      fontFamily: "Roboto-Regular",
+      fontSize: 14,
+      color: theme2Colors.textSecondary,
       lineHeight: 20,
     },
     questionsPreview: {
@@ -257,7 +276,7 @@ export default function DeckVote() {
     questionsTitle: {
       fontFamily: "Roboto-Regular",
       fontSize: 14,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       marginBottom: spacing.md,
       textAlign: "center",
     },
@@ -267,10 +286,10 @@ export default function DeckVote() {
     },
     questionCard: {
       width: SCREEN_WIDTH * 0.85,
-      backgroundColor: colors.gray[900], // Dark gray background like deck-detail
-      borderWidth: 1,
-      borderColor: colors.white,
-      borderRadius: 0, // Square edges
+      backgroundColor: theme2Colors.cream,
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary,
+      borderRadius: 20,
       padding: spacing.lg,
       marginRight: spacing.md,
       minHeight: 200,
@@ -280,21 +299,23 @@ export default function DeckVote() {
       top: spacing.md,
       right: spacing.md,
       fontFamily: "Roboto-Bold",
-      fontSize: 16, // Larger and bold like deck-detail
-      color: colors.gray[400],
+      fontSize: 16,
+      color: theme2Colors.textSecondary,
       fontWeight: "700",
     },
     questionText: {
-      ...typography.bodyBold,
-      fontSize: 20, // Bigger font, bold like deck-detail
-      color: colors.white,
+      fontFamily: "PMGothicLudington-Text115",
+      fontSize: 22,
+      color: theme2Colors.text,
       lineHeight: 28,
       marginTop: spacing.md,
-      fontWeight: "700",
     },
     carouselMessage: {
       width: SCREEN_WIDTH * 0.85,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary,
+      borderRadius: 20,
       padding: spacing.lg,
       marginRight: spacing.md,
       justifyContent: "center",
@@ -302,9 +323,9 @@ export default function DeckVote() {
       minHeight: 200,
     },
     carouselMessageText: {
-      ...typography.body,
+      fontFamily: "Roboto-Regular",
       fontSize: 14,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       textAlign: "center",
       lineHeight: 20,
     },
@@ -316,91 +337,120 @@ export default function DeckVote() {
     },
     voteButton: {
       flex: 1,
-      borderRadius: 0, // Square edges
-      paddingVertical: spacing.md, // Match Button component
+      borderRadius: 25,
+      paddingVertical: spacing.md,
       paddingHorizontal: spacing.lg,
-      minHeight: 56, // Match Button component
+      minHeight: 56,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
-      borderWidth: 1,
-      borderColor: colors.white,
+      borderWidth: 0,
     },
     voteButtonSelected: {
-      borderColor: colors.accent,
+      borderWidth: 2,
+      borderColor: theme2Colors.text,
     },
     voteButtonYes: {
-      backgroundColor: colors.accent, // Red
+      backgroundColor: theme2Colors.blue,
     },
     voteButtonNo: {
-      backgroundColor: colors.black, // White border, black background
+      backgroundColor: theme2Colors.red,
     },
     voteButtonText: {
       ...typography.bodyBold,
       fontSize: 18,
-      color: "#ffffff", // Always white for "Vote Yes" button
+      color: theme2Colors.white,
     },
     voteButtonTextNo: {
       ...typography.bodyBold,
       fontSize: 18,
-      color: colors.white, // Black in light mode (since colors.white = black in light theme), white in dark mode for "Vote No" button
+      color: theme2Colors.white,
     },
     helpLink: {
       marginTop: spacing.md,
       paddingVertical: spacing.sm,
     },
     helpLinkText: {
-      ...typography.body,
+      fontFamily: "Roboto-Regular",
       fontSize: 14,
-      color: colors.white,
+      color: theme2Colors.textSecondary,
       textAlign: "center",
       textDecorationLine: "underline",
     },
     helpModalBackdrop: {
       flex: 1,
-      backgroundColor: "rgba(0, 0, 0, 0.85)",
+      backgroundColor: "transparent",
       justifyContent: "flex-end",
     },
+    helpModalBackdropOverlay1: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(232, 224, 213, 0.4)",
+    },
+    helpModalBackdropOverlay2: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(0, 0, 0, 0.1)",
+    },
     helpModalContent: {
-      backgroundColor: colors.black,
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
+      backgroundColor: theme2Colors.beige,
+      borderTopLeftRadius: 32,
+      borderTopRightRadius: 32,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
       padding: spacing.xl,
       paddingBottom: insets.bottom + spacing.xl,
     },
     helpModalTitle: {
-      ...typography.h2,
-      fontSize: 24,
-      color: colors.white,
+      fontFamily: "PMGothicLudington-Text115",
+      fontSize: 32,
+      color: theme2Colors.text,
       marginBottom: spacing.md,
       textAlign: "center",
     },
     helpModalText: {
-      ...typography.body,
-      color: colors.gray[300],
+      fontFamily: "Roboto-Regular",
+      fontSize: 16,
+      color: theme2Colors.textSecondary,
       lineHeight: 24,
       marginBottom: spacing.xl,
+    },
+    helpModalButton: {
+      backgroundColor: theme2Colors.blue,
+      borderRadius: 25,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 56,
+    },
+    helpModalButtonText: {
+      ...typography.bodyBold,
+      fontSize: 16,
+      color: theme2Colors.white,
     },
     voteStatus: {
       marginTop: spacing.md,
       paddingTop: spacing.md,
       borderTopWidth: 1,
-      borderTopColor: colors.gray[800],
+      borderTopColor: theme2Colors.textSecondary,
     },
     voteStatusText: {
-      ...typography.caption,
-      color: colors.gray[400],
+      fontFamily: "Roboto-Regular",
+      fontSize: 12,
+      color: theme2Colors.textSecondary,
       textAlign: "center",
     },
     currentVote: {
       marginTop: spacing.sm,
       padding: spacing.sm,
-      backgroundColor: colors.gray[800],
-      borderRadius: 8,
+      backgroundColor: theme2Colors.cream,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
     },
     currentVoteText: {
-      ...typography.caption,
-      color: colors.white,
+      fontFamily: "Roboto-Regular",
+      fontSize: 12,
+      color: theme2Colors.text,
       textAlign: "center",
     },
   })
@@ -415,7 +465,7 @@ export default function DeckVote() {
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <FontAwesome name="arrow-left" size={16} color={colors.white} />
+          <FontAwesome name="angle-left" size={16} color={theme2Colors.text} />
         </TouchableOpacity>
         <View style={styles.headerContent}>
           <View style={styles.proposerTextContainer}>
@@ -564,6 +614,8 @@ export default function DeckVote() {
           activeOpacity={1}
           onPress={() => setHelpModalVisible(false)}
         >
+          <View style={styles.helpModalBackdropOverlay1} />
+          <View style={styles.helpModalBackdropOverlay2} />
           <View
             style={styles.helpModalContent}
             onStartShouldSetResponder={() => true}
@@ -574,11 +626,9 @@ export default function DeckVote() {
             </Text>
             <TouchableOpacity
               onPress={() => setHelpModalVisible(false)}
-              style={{ marginTop: spacing.md }}
+              style={styles.helpModalButton}
             >
-              <Text style={{ ...typography.bodyBold, color: colors.white, textAlign: "center" }}>
-                Got it
-              </Text>
+              <Text style={styles.helpModalButtonText}>Got it</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>

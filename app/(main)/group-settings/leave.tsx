@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from "react-native"
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
@@ -10,17 +10,29 @@ import { leaveGroup } from "../../../lib/db"
 import { spacing, typography } from "../../../lib/theme"
 import { useTheme } from "../../../lib/theme-context"
 import { FontAwesome } from "@expo/vector-icons"
-import { Button } from "../../../components/Button"
 
 export default function LeaveGroupSettings() {
   const router = useRouter()
   const params = useLocalSearchParams()
-  const { colors } = useTheme()
+  const { colors, isDark } = useTheme()
   const groupId = params.groupId as string
   const insets = useSafeAreaInsets()
   const queryClient = useQueryClient()
   const [userId, setUserId] = useState<string>()
   const [leaving, setLeaving] = useState(false)
+
+  // Theme 2 color palette matching new design system
+  const theme2Colors = {
+    red: "#B94444",
+    yellow: "#E8A037",
+    green: "#2D6F4A",
+    blue: "#3A5F8C",
+    beige: "#E8E0D5",
+    cream: "#F5F0EA",
+    white: "#FFFFFF",
+    text: "#000000",
+    textSecondary: "#404040",
+  }
 
   const { data: group } = useQuery({
     queryKey: ["group", groupId],
@@ -79,7 +91,7 @@ export default function LeaveGroupSettings() {
   const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
     },
     header: {
       flexDirection: "row",
@@ -87,20 +99,21 @@ export default function LeaveGroupSettings() {
       justifyContent: "space-between",
       paddingHorizontal: spacing.md,
       paddingBottom: spacing.md,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.gray[800],
     },
     closeButton: {
-      padding: spacing.sm,
-    },
-    closeText: {
-      ...typography.h2,
-      color: colors.white,
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: theme2Colors.white,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
     },
     title: {
-      ...typography.h1,
-      fontSize: 28,
-      color: colors.white,
+      fontFamily: "PMGothicLudington-Text115",
+      fontSize: 32,
+      color: theme2Colors.text,
     },
     content: {
       flex: 1,
@@ -113,26 +126,38 @@ export default function LeaveGroupSettings() {
       width: 96,
       height: 96,
       borderRadius: 48,
-      backgroundColor: colors.gray[900],
+      backgroundColor: theme2Colors.textSecondary,
       justifyContent: "center",
       alignItems: "center",
     },
     heading: {
-      ...typography.h2,
+      fontFamily: "PMGothicLudington-Text115",
       fontSize: 24,
       textAlign: "center",
-      color: colors.white,
+      color: theme2Colors.text,
     },
     description: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       textAlign: "center",
       lineHeight: 22,
     },
     leaveButton: {
       marginTop: spacing.md,
+      backgroundColor: theme2Colors.red,
+      borderRadius: 25,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      alignItems: "center",
+      justifyContent: "center",
     },
-  }), [colors])
+    leaveButtonText: {
+      ...typography.bodyBold,
+      fontSize: 18,
+      color: theme2Colors.white,
+      textAlign: "center",
+    },
+  }), [colors, isDark])
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.xl }]}>
@@ -146,14 +171,15 @@ export default function LeaveGroupSettings() {
             })
           }
           style={styles.closeButton}
+          activeOpacity={0.7}
         >
-          <Text style={styles.closeText}>✕</Text>
+          <FontAwesome name="times" size={16} color={theme2Colors.text} />
         </TouchableOpacity>
       </View>
 
       <View style={styles.content}>
         <View style={styles.warningContainer}>
-          <FontAwesome name="exclamation-triangle" size={48} color={colors.accent} />
+          <FontAwesome name="exclamation-triangle" size={48} color={theme2Colors.white} />
         </View>
         <Text style={styles.heading}>Leave "{group?.name}"?</Text>
         <Text style={styles.description}>
@@ -161,13 +187,18 @@ export default function LeaveGroupSettings() {
           leave the group.
         </Text>
 
-        <Button
-          title="Leave Group"
-          onPress={handleLeave}
-          loading={leaving}
-          variant="secondary"
+        <TouchableOpacity
           style={styles.leaveButton}
-        />
+          onPress={handleLeave}
+          disabled={leaving}
+          activeOpacity={0.7}
+        >
+          {leaving ? (
+            <ActivityIndicator color={theme2Colors.white} />
+          ) : (
+            <Text style={styles.leaveButtonText}>Leave Group</Text>
+          )}
+        </TouchableOpacity>
       </View>
     </View>
   )

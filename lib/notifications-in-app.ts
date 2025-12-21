@@ -1,15 +1,16 @@
 import { supabase } from "./supabase"
-import { getUserGroups, getDailyPrompt, getUserEntryForDate, getGroup, getPendingVotes } from "./db"
+import { getUserGroups, getDailyPrompt, getUserEntryForDate, getGroup, getPendingVotes, getUpcomingBirthdayCards, getCustomQuestionOpportunity } from "./db"
 import { getTodayDate } from "./utils"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 
 export interface InAppNotification {
   id: string
-  type: "new_question" | "reply_to_entry" | "reply_to_thread" | "new_answers" | "deck_vote_requested" | "mentioned_in_entry"
+  type: "new_question" | "reply_to_entry" | "reply_to_thread" | "new_answers" | "deck_vote_requested" | "mentioned_in_entry" | "birthday_card" | "custom_question_opportunity"
   groupId: string
   groupName: string
   // For new_question
   date?: string
+  promptId?: string
   // For reply notifications
   entryId?: string
   commentId?: string
@@ -25,12 +26,21 @@ export interface InAppNotification {
   // For mentioned_in_entry
   authorName?: string
   authorAvatarUrl?: string
+  // For birthday_card
+  birthdayPersonName?: string
+  birthdayPersonId?: string
+  birthdayDate?: string
+  // For custom_question_opportunity
   createdAt: string
 }
 
 const LAST_CHECKED_KEY = "notifications_last_checked"
 const ENTRY_VISITED_KEY_PREFIX = "entry_visited_"
 const GROUP_VISITED_KEY_PREFIX = "group_visited_"
+const QUESTION_ANSWERED_KEY_PREFIX = "question_answered_"
+const DECK_VOTED_KEY_PREFIX = "deck_voted_"
+const BIRTHDAY_CARD_ADDED_KEY_PREFIX = "birthday_card_added_"
+const CUSTOM_QUESTION_SUBMITTED_KEY_PREFIX = "custom_question_submitted_"
 
 // Get last visited timestamp for an entry
 async function getEntryLastVisited(entryId: string): Promise<Date | null> {
@@ -108,6 +118,74 @@ export async function clearAllNotifications(userId: string): Promise<void> {
   } catch (error) {
     console.error("[clearAllNotifications] Error marking groups as visited:", error)
   }
+  
+  // Mark all questions as answered (for new_question notifications)
+  try {
+    const groups = await getUserGroups(userId)
+    const todayDate = getTodayDate()
+    for (const group of groups) {
+      try {
+        const dailyPrompt = await getDailyPrompt(group.id, todayDate, userId)
+        if (dailyPrompt) {
+          await markQuestionAsAnswered(group.id, todayDate, dailyPrompt.prompt_id)
+        }
+      } catch (error) {
+        // Continue with other groups
+      }
+    }
+  } catch (error) {
+    console.error("[clearAllNotifications] Error marking questions as answered:", error)
+  }
+  
+  // Mark all pending deck votes as voted (for deck_vote_requested notifications)
+  try {
+    const groups = await getUserGroups(userId)
+    for (const group of groups) {
+      try {
+        const pendingVotes = await getPendingVotes(group.id, userId)
+        if (pendingVotes) {
+          for (const vote of pendingVotes) {
+            await markDeckAsVoted(group.id, vote.deck_id)
+          }
+        }
+      } catch (error) {
+        // Continue with other groups
+      }
+    }
+  } catch (error) {
+    console.error("[clearAllNotifications] Error marking decks as voted:", error)
+  }
+  
+  // Mark all birthday cards as added (for birthday_card notifications)
+  try {
+    const groups = await getUserGroups(userId)
+    const todayDate = getTodayDate()
+    for (const group of groups) {
+      try {
+        const upcomingCards = await getUpcomingBirthdayCards(group.id, userId, todayDate)
+        if (upcomingCards) {
+          for (const card of upcomingCards) {
+            await markBirthdayCardAsAdded(group.id, card.birthday_user_id, card.birthday_date)
+          }
+        }
+      } catch (error) {
+        // Continue with other groups
+      }
+    }
+  } catch (error) {
+    console.error("[clearAllNotifications] Error marking birthday cards as added:", error)
+  }
+  
+  // Mark all custom questions as submitted (for custom_question_opportunity notifications)
+  try {
+    const groups = await getUserGroups(userId)
+    const todayDate = getTodayDate()
+    for (const group of groups) {
+      await markCustomQuestionAsSubmitted(group.id, todayDate)
+    }
+  } catch (error) {
+    console.error("[clearAllNotifications] Error marking custom questions as submitted:", error)
+  }
 }
 
 // Get last visited timestamp for a group
@@ -121,6 +199,58 @@ async function getGroupLastVisited(groupId: string): Promise<Date | null> {
 export async function markGroupAsVisited(groupId: string): Promise<void> {
   const key = `${GROUP_VISITED_KEY_PREFIX}${groupId}`
   await AsyncStorage.setItem(key, new Date().toISOString())
+}
+
+// Mark question as answered (for new_question notifications)
+export async function markQuestionAsAnswered(groupId: string, date: string, promptId?: string): Promise<void> {
+  const key = `${QUESTION_ANSWERED_KEY_PREFIX}${groupId}_${date}${promptId ? `_${promptId}` : ""}`
+  await AsyncStorage.setItem(key, new Date().toISOString())
+}
+
+// Check if question has been answered
+async function getQuestionAnsweredTimestamp(groupId: string, date: string, promptId?: string): Promise<Date | null> {
+  const key = `${QUESTION_ANSWERED_KEY_PREFIX}${groupId}_${date}${promptId ? `_${promptId}` : ""}`
+  const timestamp = await AsyncStorage.getItem(key)
+  return timestamp ? new Date(timestamp) : null
+}
+
+// Mark deck as voted (for deck_vote_requested notifications)
+export async function markDeckAsVoted(groupId: string, deckId: string): Promise<void> {
+  const key = `${DECK_VOTED_KEY_PREFIX}${groupId}_${deckId}`
+  await AsyncStorage.setItem(key, new Date().toISOString())
+}
+
+// Check if deck has been voted
+async function getDeckVotedTimestamp(groupId: string, deckId: string): Promise<Date | null> {
+  const key = `${DECK_VOTED_KEY_PREFIX}${groupId}_${deckId}`
+  const timestamp = await AsyncStorage.getItem(key)
+  return timestamp ? new Date(timestamp) : null
+}
+
+// Mark birthday card as added (for birthday_card notifications)
+export async function markBirthdayCardAsAdded(groupId: string, birthdayPersonId: string, birthdayDate: string): Promise<void> {
+  const key = `${BIRTHDAY_CARD_ADDED_KEY_PREFIX}${groupId}_${birthdayPersonId}_${birthdayDate}`
+  await AsyncStorage.setItem(key, new Date().toISOString())
+}
+
+// Check if birthday card has been added
+async function getBirthdayCardAddedTimestamp(groupId: string, birthdayPersonId: string, birthdayDate: string): Promise<Date | null> {
+  const key = `${BIRTHDAY_CARD_ADDED_KEY_PREFIX}${groupId}_${birthdayPersonId}_${birthdayDate}`
+  const timestamp = await AsyncStorage.getItem(key)
+  return timestamp ? new Date(timestamp) : null
+}
+
+// Mark custom question as submitted (for custom_question_opportunity notifications)
+export async function markCustomQuestionAsSubmitted(groupId: string, date: string): Promise<void> {
+  const key = `${CUSTOM_QUESTION_SUBMITTED_KEY_PREFIX}${groupId}_${date}`
+  await AsyncStorage.setItem(key, new Date().toISOString())
+}
+
+// Check if custom question has been submitted
+async function getCustomQuestionSubmittedTimestamp(groupId: string, date: string): Promise<Date | null> {
+  const key = `${CUSTOM_QUESTION_SUBMITTED_KEY_PREFIX}${groupId}_${date}`
+  const timestamp = await AsyncStorage.getItem(key)
+  return timestamp ? new Date(timestamp) : null
 }
 
 // Format names for notification text (e.g., "Jaryd, Rose, and Emily")
@@ -149,24 +279,22 @@ export async function getInAppNotifications(userId: string): Promise<InAppNotifi
   if (groups.length > 1) {
     for (const group of groups) {
       try {
-        // Only show if user hasn't checked notifications since today started
-        // If lastChecked exists and is today, don't show (user has already seen/cleared it)
-        const todayStart = new Date(todayDate + "T00:00:00")
-        const shouldShowNewQuestion = !lastChecked || lastChecked < todayStart
-        
-        if (shouldShowNewQuestion) {
-          const dailyPrompt = await getDailyPrompt(group.id, todayDate, userId)
-          if (dailyPrompt) {
-            // Check if user has answered today's question
-            const userEntry = await getUserEntryForDate(group.id, userId, todayDate)
-            if (!userEntry) {
-              // User hasn't answered today's question
+        const dailyPrompt = await getDailyPrompt(group.id, todayDate, userId)
+        if (dailyPrompt) {
+          // Check if user has answered today's question
+          const userEntry = await getUserEntryForDate(group.id, userId, todayDate)
+          if (!userEntry) {
+            // Check if this specific question has been marked as answered
+            const questionAnswered = await getQuestionAnsweredTimestamp(group.id, todayDate, dailyPrompt.prompt_id)
+            if (!questionAnswered) {
+              // User hasn't answered today's question and notification hasn't been cleared
               notifications.push({
                 id: `new_question_${group.id}_${todayDate}`,
                 type: "new_question",
                 groupId: group.id,
                 groupName: group.name,
                 date: todayDate,
+                promptId: dailyPrompt.prompt_id,
                 createdAt: dailyPrompt.created_at || new Date().toISOString(),
               })
             }
@@ -189,9 +317,9 @@ export async function getInAppNotifications(userId: string): Promise<InAppNotifi
   if (!entriesError && userEntries) {
     for (const entry of userEntries) {
       try {
-        // Get last visited timestamp for this entry
+        // Get last visited timestamp for this entry (notification clears when entry is viewed)
         const lastVisited = await getEntryLastVisited(entry.id)
-        const checkSince = lastVisited || lastChecked || new Date(0)
+        const checkSince = lastVisited || new Date(0) // Don't use lastChecked - only clear when viewing entry
 
         // Get comments on this entry created after last visit/check
         const { data: comments, error: commentsError } = await supabase
@@ -248,8 +376,10 @@ export async function getInAppNotifications(userId: string): Promise<InAppNotifi
   for (const group of groups) {
     try {
       // Get last visited timestamp for this group
+      // Note: This notification clears when user views the group (markGroupAsVisited)
+      // It shows until user actually views the group content, not just when clicking notification
       const groupLastVisited = await getGroupLastVisited(group.id)
-      const checkSince = groupLastVisited || lastChecked || new Date(0)
+      const checkSince = groupLastVisited || new Date(0) // Don't use lastChecked here - only clear when actually viewing group
 
       // Get all entries in this group created after last visit, excluding user's own entries
       const { data: newEntries, error: entriesError } = await supabase
@@ -312,9 +442,9 @@ export async function getInAppNotifications(userId: string): Promise<InAppNotifi
 
         if (entryError || !entry) continue
 
-        // Get last visited timestamp for this entry
+        // Get last visited timestamp for this entry (notification clears when entry is viewed)
         const lastVisited = await getEntryLastVisited(entryId)
-        const checkSince = lastVisited || lastChecked || new Date(0)
+        const checkSince = lastVisited || new Date(0) // Don't use lastChecked - only clear when viewing entry
 
         // Get user's comment timestamp (to only show replies after user commented)
         const userComment = userComments.find((c) => c.entry_id === entryId)
@@ -377,35 +507,29 @@ export async function getInAppNotifications(userId: string): Promise<InAppNotifi
   }
 
   // 5. Check for pending deck votes (user hasn't voted yet)
-  // Only show if vote was requested after last check
-  const deckVoteCheckSince = lastChecked || new Date(0)
   for (const group of groups) {
     try {
       const pendingVotes = await getPendingVotes(group.id, userId)
       if (pendingVotes && pendingVotes.length > 0) {
-        // Filter to only votes requested after last check
-        const recentVotes = pendingVotes.filter((vote) => {
-          const voteCreatedAt = vote.created_at ? new Date(vote.created_at) : new Date(0)
-          return voteCreatedAt > deckVoteCheckSince
-        })
-        
-        if (recentVotes.length > 0) {
-          // Get the most recent pending vote (first one)
-          const pendingVote = recentVotes[0]
-          const deck = pendingVote.deck
-          const requester = pendingVote.requested_by_user
+        for (const pendingVote of pendingVotes) {
+          // Check if user has already voted on this specific deck
+          const deckVoted = await getDeckVotedTimestamp(group.id, pendingVote.deck_id)
+          if (!deckVoted) {
+            const deck = pendingVote.deck
+            const requester = pendingVote.requested_by_user
 
-          if (deck && requester) {
-            notifications.push({
-              id: `deck_vote_requested_${group.id}_${pendingVote.deck_id}`,
-              type: "deck_vote_requested",
-              groupId: group.id,
-              groupName: group.name,
-              deckId: pendingVote.deck_id,
-              deckName: deck.name,
-              requesterName: requester.name || "Someone",
-              createdAt: pendingVote.created_at || new Date().toISOString(),
-            })
+            if (deck && requester) {
+              notifications.push({
+                id: `deck_vote_requested_${group.id}_${pendingVote.deck_id}`,
+                type: "deck_vote_requested",
+                groupId: group.id,
+                groupName: group.name,
+                deckId: pendingVote.deck_id,
+                deckName: deck.name,
+                requesterName: requester.name || "Someone",
+                createdAt: pendingVote.created_at || new Date().toISOString(),
+              })
+            }
           }
         }
       }
@@ -416,14 +540,12 @@ export async function getInAppNotifications(userId: string): Promise<InAppNotifi
   }
 
   // 6. Check for mention notifications (from notifications table)
-  const mentionCheckSince = lastChecked || new Date(0)
   try {
     const { data: mentionNotifications, error: mentionNotificationsError } = await supabase
       .from("notifications")
       .select("id, user_id, type, title, body, data, created_at")
       .eq("user_id", userId)
       .eq("type", "mentioned_in_entry")
-      .gt("created_at", mentionCheckSince.toISOString())
       .order("created_at", { ascending: false })
 
     if (!mentionNotificationsError && mentionNotifications) {
@@ -431,33 +553,98 @@ export async function getInAppNotifications(userId: string): Promise<InAppNotifi
         const data = notif.data as any
         
         if (data?.entry_id && data?.group_id) {
-          // Get group name
-          const group = groups.find((g) => g.id === data.group_id)
-          const groupName = group?.name || "your group"
-          
-          // Get author info from data
-          const { data: author } = await supabase
-            .from("users")
-            .select("name, avatar_url")
-            .eq("id", data.author_user_id)
-            .single()
-          
-          notifications.push({
-            id: `mentioned_in_entry_${notif.id}`,
-            type: "mentioned_in_entry",
-            groupId: data.group_id,
-            groupName: groupName,
-            entryId: data.entry_id,
-            authorName: author?.name || "Someone",
-            authorAvatarUrl: author?.avatar_url || undefined,
-            createdAt: notif.created_at || new Date().toISOString(),
-          })
+          // Check if user has viewed this entry (notification clears when entry is viewed)
+          const entryVisited = await getEntryLastVisited(data.entry_id)
+          if (!entryVisited) {
+            // Get group name
+            const group = groups.find((g) => g.id === data.group_id)
+            const groupName = group?.name || "your group"
+            
+            // Get author info from data
+            const { data: author } = await supabase
+              .from("users")
+              .select("name, avatar_url")
+              .eq("id", data.author_user_id)
+              .single()
+            
+            notifications.push({
+              id: `mentioned_in_entry_${notif.id}`,
+              type: "mentioned_in_entry",
+              groupId: data.group_id,
+              groupName: groupName,
+              entryId: data.entry_id,
+              authorName: author?.name || "Someone",
+              authorAvatarUrl: author?.avatar_url || undefined,
+              createdAt: notif.created_at || new Date().toISOString(),
+            })
+          }
         }
       }
     }
   } catch (error) {
     console.error("[notifications] Error checking mention notifications:", error)
     // Continue with other notifications
+  }
+
+  // 7. Check for birthday card notifications
+  for (const group of groups) {
+    try {
+      const upcomingCards = await getUpcomingBirthdayCards(group.id, userId, todayDate)
+      if (upcomingCards && upcomingCards.length > 0) {
+        for (const card of upcomingCards) {
+          // Check if user has already added to this birthday card
+          const cardAdded = await getBirthdayCardAddedTimestamp(group.id, card.birthday_user_id, card.birthday_date)
+          if (!cardAdded) {
+            // Get birthday person info
+            const { data: birthdayPerson } = await supabase
+              .from("users")
+              .select("name")
+              .eq("id", card.birthday_user_id)
+              .single()
+            
+            if (birthdayPerson) {
+              notifications.push({
+                id: `birthday_card_${group.id}_${card.birthday_user_id}_${card.birthday_date}`,
+                type: "birthday_card",
+                groupId: group.id,
+                groupName: group.name,
+                birthdayPersonName: birthdayPerson.name || "Someone",
+                birthdayPersonId: card.birthday_user_id,
+                birthdayDate: card.birthday_date,
+                createdAt: card.created_at || new Date().toISOString(),
+              })
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`[notifications] Error checking birthday cards for group ${group.id}:`, error)
+      // Continue with other groups
+    }
+  }
+
+  // 8. Check for custom question opportunity
+  for (const group of groups) {
+    try {
+      const opportunity = await getCustomQuestionOpportunity(userId, group.id, todayDate)
+      if (opportunity) {
+        // Check if user has already submitted a custom question for today
+        const questionSubmitted = await getCustomQuestionSubmittedTimestamp(group.id, todayDate)
+        if (!questionSubmitted) {
+          notifications.push({
+            id: `custom_question_opportunity_${group.id}_${todayDate}`,
+            type: "custom_question_opportunity",
+            groupId: group.id,
+            groupName: group.name,
+            date: todayDate,
+            createdAt: new Date().toISOString(),
+          })
+        }
+      }
+    } catch (error) {
+      console.error(`[notifications] Error checking custom question opportunity for group ${group.id}:`, error)
+      // Continue with other groups
+    }
   }
 
   // Sort by most recent first

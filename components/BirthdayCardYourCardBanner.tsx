@@ -93,16 +93,17 @@ export function BirthdayCardYourCardBanner({
         banner: {
           backgroundColor: colors.gray[900],
           padding: spacing.md,
-          borderRadius: 0, // Square edges
+          borderRadius: 12, // Rounded edges
           borderWidth: 1,
           borderColor: isDark ? "#ffffff" : "#000000", // White in dark mode, black in light mode
           marginHorizontal: spacing.lg,
-          marginTop: spacing.xs,
+          marginTop: 0, // Reduced spacing below day navigation
           marginBottom: spacing.lg,
           flexDirection: "column", // Vertical layout for top-centered avatars
           alignItems: "center", // Center content horizontally
           justifyContent: "space-between",
           minHeight: 80,
+          overflow: "hidden", // Ensure rounded corners clip content
         },
         bannerWrapper: {
           marginBottom: spacing.lg,

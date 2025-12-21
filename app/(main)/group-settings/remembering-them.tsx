@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, useMemo } from "react"
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput, Modal } from "react-native"
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput, Modal, ActivityIndicator, Image } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
@@ -15,12 +15,11 @@ import { spacing, typography } from "../../../lib/theme"
 import { useTheme } from "../../../lib/theme-context"
 import { FontAwesome } from "@expo/vector-icons"
 import { Avatar } from "../../../components/Avatar"
-import { Button } from "../../../components/Button"
 
 export default function RememberingThemSettings() {
   const router = useRouter()
   const params = useLocalSearchParams()
-  const { colors } = useTheme()
+  const { colors, isDark } = useTheme()
   const groupId = params.groupId as string
   const insets = useSafeAreaInsets()
   const queryClient = useQueryClient()
@@ -32,6 +31,20 @@ export default function RememberingThemSettings() {
   const [saving, setSaving] = useState(false)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [savingPreference, setSavingPreference] = useState<string | null>(null)
+  const [focusedInput, setFocusedInput] = useState(false)
+
+  // Theme 2 color palette matching new design system
+  const theme2Colors = {
+    red: "#B94444",
+    yellow: "#E8A037",
+    green: "#2D6F4A",
+    blue: "#3A5F8C",
+    beige: "#E8E0D5",
+    cream: "#F5F0EA",
+    white: "#FFFFFF",
+    text: "#000000",
+    textSecondary: "#404040",
+  }
 
   // Load question category preferences for "Remembering" category
   const { data: preferences = [] } = useQuery({
@@ -261,7 +274,7 @@ export default function RememberingThemSettings() {
   const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
     },
     header: {
       flexDirection: "row",
@@ -269,20 +282,21 @@ export default function RememberingThemSettings() {
       justifyContent: "space-between",
       paddingHorizontal: spacing.md,
       paddingBottom: spacing.md,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.gray[800],
     },
     closeButton: {
-      padding: spacing.sm,
-    },
-    closeText: {
-      ...typography.h2,
-      color: colors.white,
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: theme2Colors.white,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
     },
     title: {
-      ...typography.h1,
-      fontSize: 28,
-      color: colors.white,
+      fontFamily: "PMGothicLudington-Text115",
+      fontSize: 32,
+      color: theme2Colors.text,
     },
     content: {
       flex: 1,
@@ -293,12 +307,12 @@ export default function RememberingThemSettings() {
     },
     description: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       marginBottom: spacing.sm,
     },
     loadingText: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       textAlign: "center",
       padding: spacing.xl,
     },
@@ -310,11 +324,11 @@ export default function RememberingThemSettings() {
     emptyText: {
       ...typography.bodyBold,
       fontSize: 18,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
     },
     emptySubtext: {
       ...typography.body,
-      color: colors.gray[500],
+      color: theme2Colors.textSecondary,
       textAlign: "center",
     },
     memorialsList: {
@@ -323,10 +337,12 @@ export default function RememberingThemSettings() {
     memorialCard: {
       flexDirection: "row",
       alignItems: "center",
-      backgroundColor: colors.gray[900],
+      backgroundColor: theme2Colors.cream,
       borderRadius: 16,
       padding: spacing.md,
       gap: spacing.md,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
     },
     memorialInfo: {
       flex: 1,
@@ -334,44 +350,61 @@ export default function RememberingThemSettings() {
     memorialName: {
       ...typography.bodyBold,
       fontSize: 16,
-      color: colors.white,
+      color: theme2Colors.text,
     },
     deleteButton: {
       padding: spacing.sm,
     },
     addButton: {
       marginTop: spacing.md,
+      backgroundColor: theme2Colors.blue,
+      borderRadius: 25,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    addButtonText: {
+      ...typography.bodyBold,
+      fontSize: 18,
+      color: theme2Colors.white,
+      textAlign: "center",
     },
     modalBackdrop: {
       flex: 1,
-      backgroundColor: "rgba(0,0,0,0.6)",
+      backgroundColor: "transparent",
       justifyContent: "center",
       alignItems: "center",
       padding: spacing.lg,
     },
     modalContent: {
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
       borderRadius: 24,
       padding: spacing.lg,
       width: "100%",
       maxWidth: 400,
       gap: spacing.md,
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary,
     },
     modalTitle: {
-      ...typography.h2,
+      fontFamily: "PMGothicLudington-Text115",
       fontSize: 24,
-      color: colors.white,
+      color: theme2Colors.text,
     },
     modalSubtitle: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
     },
     input: {
       ...typography.body,
-      color: colors.white,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.gray[700],
-      paddingVertical: spacing.sm,
+      color: theme2Colors.text,
+      backgroundColor: theme2Colors.white,
+      borderRadius: 12,
+      borderWidth: 2,
+      borderColor: focusedInput ? theme2Colors.blue : theme2Colors.textSecondary,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.md,
       fontSize: 18,
     },
     modalButtons: {
@@ -382,44 +415,76 @@ export default function RememberingThemSettings() {
     modalButton: {
       flex: 1,
     },
+    modalButtonSecondary: {
+      backgroundColor: theme2Colors.white,
+      borderRadius: 25,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
+    },
+    modalButtonSecondaryText: {
+      ...typography.bodyBold,
+      fontSize: 18,
+      color: theme2Colors.text,
+      textAlign: "center",
+    },
+    modalButtonPrimary: {
+      backgroundColor: theme2Colors.blue,
+      borderRadius: 25,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    modalButtonPrimaryText: {
+      ...typography.bodyBold,
+      fontSize: 18,
+      color: theme2Colors.white,
+      textAlign: "center",
+    },
     photoSection: {
       marginTop: spacing.md,
     },
     photoLabel: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       marginBottom: spacing.sm,
     },
     photoButton: {
       paddingVertical: spacing.sm,
       paddingHorizontal: spacing.md,
-      backgroundColor: colors.gray[800],
+      backgroundColor: theme2Colors.textSecondary,
       borderRadius: 8,
       alignSelf: "flex-start",
     },
     photoButtonText: {
       ...typography.bodyMedium,
-      color: colors.white,
+      color: theme2Colors.white,
     },
     photoPreviewContainer: {
       marginTop: spacing.md,
       alignItems: "flex-start",
     },
     preferenceSection: {
-      backgroundColor: colors.gray[900],
+      backgroundColor: theme2Colors.cream,
       borderRadius: 16,
       padding: spacing.md,
       gap: spacing.sm,
       marginBottom: spacing.md,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
     },
     preferenceTitle: {
       ...typography.bodyBold,
       fontSize: 16,
-      color: colors.white,
+      color: theme2Colors.text,
     },
     preferenceDescription: {
       ...typography.caption,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       fontSize: 13,
       marginBottom: spacing.xs,
     },
@@ -432,23 +497,23 @@ export default function RememberingThemSettings() {
       paddingVertical: spacing.sm,
       paddingHorizontal: spacing.md,
       borderRadius: 8,
-      backgroundColor: colors.gray[800],
+      backgroundColor: theme2Colors.textSecondary,
       alignItems: "center",
     },
     preferenceButtonActive: {
-      backgroundColor: colors.accent,
+      backgroundColor: theme2Colors.blue,
     },
     preferenceButtonDisabled: {
       opacity: 0.5,
     },
     preferenceButtonText: {
       ...typography.bodyMedium,
-      color: colors.gray[300],
+      color: theme2Colors.text,
     },
     preferenceButtonTextActive: {
-      color: colors.white,
+      color: theme2Colors.white,
     },
-  }), [colors])
+  }), [colors, isDark, focusedInput])
 
   if (!isAdmin) {
     return null
@@ -466,8 +531,9 @@ export default function RememberingThemSettings() {
             })
           }
           style={styles.closeButton}
+          activeOpacity={0.7}
         >
-          <Text style={styles.closeText}>✕</Text>
+          <FontAwesome name="times" size={16} color={theme2Colors.text} />
         </TouchableOpacity>
       </View>
 
@@ -546,7 +612,11 @@ export default function RememberingThemSettings() {
           <Text style={styles.loadingText}>Loading...</Text>
         ) : memorials.length === 0 ? (
           <View style={styles.emptyState}>
-            <FontAwesome name="heart" size={48} color={colors.gray[600]} />
+            <Image 
+              source={require("../../../assets/images/memorial.png")} 
+              style={{ width: 48, height: 48 }}
+              resizeMode="contain"
+            />
             <Text style={styles.emptyText}>No memorials added yet</Text>
             <Text style={styles.emptySubtext}>Add someone to personalize your prompts</Text>
           </View>
@@ -557,8 +627,9 @@ export default function RememberingThemSettings() {
                 <TouchableOpacity
                   onPress={() => handleUpdateMemorialPhoto(memorial.id)}
                   disabled={uploadingPhoto}
+                  activeOpacity={0.7}
                 >
-                  <Avatar uri={memorial.photo_url} name={memorial.name} size={48} />
+                  <Avatar uri={memorial.photo_url} name={memorial.name} size={48} borderColor={theme2Colors.text} />
                 </TouchableOpacity>
                 <View style={styles.memorialInfo}>
                   <Text style={styles.memorialName}>{memorial.name}</Text>
@@ -566,24 +637,36 @@ export default function RememberingThemSettings() {
                 <TouchableOpacity
                   style={styles.deleteButton}
                   onPress={() => handleDeleteMemorial(memorial.id, memorial.name)}
+                  activeOpacity={0.7}
                 >
-                  <FontAwesome name="trash" size={18} color={colors.gray[400]} />
+                  <FontAwesome name="trash" size={18} color={theme2Colors.textSecondary} />
                 </TouchableOpacity>
               </View>
             ))}
           </View>
         )}
 
-        <Button
-          title="Add someone else"
-          onPress={() => setShowAddModal(true)}
+        <TouchableOpacity
           style={styles.addButton}
-        />
+          onPress={() => setShowAddModal(true)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.addButtonText}>Add someone else</Text>
+        </TouchableOpacity>
       </ScrollView>
 
       {/* Add Memorial Modal */}
       <Modal visible={showAddModal} transparent animationType="fade" onRequestClose={() => setShowAddModal(false)}>
         <View style={styles.modalBackdrop}>
+          {/* Warm fuzzy blur effect matching settings modal */}
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: theme2Colors.beige, opacity: 0.3 }]} />
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(232, 224, 213, 0.4)" }]} />
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0, 0, 0, 0.1)" }]} />
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setShowAddModal(false)}
+          />
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Add Someone</Text>
             <Text style={styles.modalSubtitle}>Enter the name of the person you're remembering</Text>
@@ -592,43 +675,52 @@ export default function RememberingThemSettings() {
               value={newMemorialName}
               onChangeText={setNewMemorialName}
               placeholder="Name"
-              placeholderTextColor={colors.gray[500]}
+              placeholderTextColor={theme2Colors.textSecondary}
               style={styles.input}
+              onFocus={() => setFocusedInput(true)}
+              onBlur={() => setFocusedInput(false)}
               autoCapitalize="words"
               autoFocus
             />
 
             <View style={styles.photoSection}>
               <Text style={styles.photoLabel}>Add a photo (optional)</Text>
-              <TouchableOpacity onPress={pickImage} style={styles.photoButton} disabled={uploadingPhoto}>
+              <TouchableOpacity onPress={pickImage} style={styles.photoButton} disabled={uploadingPhoto} activeOpacity={0.7}>
                 <Text style={styles.photoButtonText}>
                   {newMemorialPhotoUri ? "Change Photo" : "Add Photo"}
                 </Text>
               </TouchableOpacity>
               {newMemorialPhotoUri && (
                 <View style={styles.photoPreviewContainer}>
-                  <Avatar uri={newMemorialPhotoUri} name={newMemorialName || "Memorial"} size={80} />
+                  <Avatar uri={newMemorialPhotoUri} name={newMemorialName || "Memorial"} size={80} borderColor={theme2Colors.text} />
                 </View>
               )}
             </View>
 
             <View style={styles.modalButtons}>
-              <Button
-                title="Cancel"
+              <TouchableOpacity
+                style={styles.modalButtonSecondary}
                 onPress={() => {
                   setShowAddModal(false)
                   setNewMemorialName("")
                   setNewMemorialPhotoUri(undefined)
                 }}
-                variant="secondary"
-                style={styles.modalButton}
-              />
-              <Button
-                title="Save"
+                activeOpacity={0.7}
+              >
+                <Text style={styles.modalButtonSecondaryText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalButtonPrimary}
                 onPress={handleAddMemorial}
-                loading={saving || uploadingPhoto}
-                style={styles.modalButton}
-              />
+                disabled={saving || uploadingPhoto}
+                activeOpacity={0.7}
+              >
+                {saving || uploadingPhoto ? (
+                  <ActivityIndicator color={theme2Colors.white} />
+                ) : (
+                  <Text style={styles.modalButtonPrimaryText}>Save</Text>
+                )}
+              </TouchableOpacity>
             </View>
           </View>
         </View>

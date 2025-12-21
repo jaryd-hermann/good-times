@@ -37,6 +37,19 @@ export default function BirthdayCardDetails() {
   const headerTranslateY = useRef(new Animated.Value(0)).current
   const lastScrollY = useRef(0)
 
+  // Theme 2 color palette matching new design system
+  const theme2Colors = {
+    red: "#B94444",
+    yellow: "#E8A037",
+    green: "#2D6F4A",
+    blue: "#3A5F8C",
+    beige: "#E8E0D5",
+    cream: "#F5F0EA",
+    white: "#FFFFFF",
+    text: "#000000",
+    textSecondary: "#404040",
+  }
+
   const { data: card } = useQuery({
     queryKey: ["birthdayCard", cardId],
     queryFn: () => getBirthdayCard(cardId),
@@ -157,7 +170,7 @@ export default function BirthdayCardDetails() {
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
     },
     header: {
       paddingTop: insets.top + spacing.md,
@@ -169,14 +182,16 @@ export default function BirthdayCardDetails() {
       top: 0,
       left: 0,
       right: 0,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
       zIndex: 10,
     },
     backButton: {
       width: 40,
       height: 40,
       borderRadius: 20,
-      backgroundColor: colors.gray[900],
+      backgroundColor: theme2Colors.white,
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
       justifyContent: "center",
       alignItems: "center",
       marginRight: spacing.md,
@@ -184,7 +199,7 @@ export default function BirthdayCardDetails() {
     headerTitle: {
       fontFamily: "Roboto-Regular",
       fontSize: 16,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       flex: 1,
       textAlign: "center",
     },
@@ -197,9 +212,9 @@ export default function BirthdayCardDetails() {
       paddingTop: insets.top + spacing.md + spacing.md + 40 + spacing.md, // Account for header height
     },
     birthdayText: {
-      ...typography.h1,
+      fontFamily: "PMGothicLudington-Text115",
       fontSize: 32,
-      color: colors.white,
+      color: theme2Colors.text,
       textAlign: "center",
       marginBottom: spacing.xl,
       marginTop: spacing.md,
@@ -210,7 +225,7 @@ export default function BirthdayCardDetails() {
     },
     emptyStateText: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       textAlign: "center",
     },
   })
@@ -220,7 +235,7 @@ export default function BirthdayCardDetails() {
       <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-            <FontAwesome name="arrow-left" size={18} color={colors.white} />
+            <FontAwesome name="angle-left" size={18} color={theme2Colors.text} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Loading...</Text>
           <View style={{ width: 40 }} />
@@ -293,7 +308,7 @@ export default function BirthdayCardDetails() {
         ]}
       >
         <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-          <FontAwesome name="arrow-left" size={18} color={colors.white} />
+          <FontAwesome name="angle-left" size={18} color={theme2Colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Your group card</Text>
         <View style={{ width: 40 }} />

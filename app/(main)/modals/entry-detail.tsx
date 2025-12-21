@@ -30,6 +30,20 @@ export default function EntryDetail() {
   const params = useLocalSearchParams()
   const queryClient = useQueryClient()
   const { colors, isDark } = useTheme()
+  
+  // Theme 2 color palette matching new design system
+  const theme2Colors = {
+    red: "#B94444",
+    yellow: "#E8A037",
+    green: "#2D6F4A",
+    blue: "#3A5F8C",
+    beige: "#E8E0D5",
+    cream: "#F5F0EA",
+    white: "#FFFFFF",
+    text: "#000000",
+    textSecondary: "#404040",
+  }
+  
   const entryId = params.entryId as string
   const rawEntryIds = params.entryIds as string | undefined
   const entryIds = useMemo(() => {
@@ -642,7 +656,7 @@ export default function EntryDetail() {
   const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
     },
     containerInner: {
       flex: 1,
@@ -656,18 +670,26 @@ export default function EntryDetail() {
       paddingTop: spacing.xxl * 2,
     },
     navAction: {
-      paddingHorizontal: spacing.sm,
-      paddingVertical: spacing.xs,
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: theme2Colors.white,
+      justifyContent: "center",
+      alignItems: "center",
+      shadowColor: "#000",
+      shadowOffset: {
+        width: 0,
+        height: 2,
+      },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 3,
+    },
+    navActionNext: {
+      backgroundColor: theme2Colors.yellow,
     },
     navActionDisabled: {
       opacity: 0.4,
-    },
-    navActionDisabledText: {
-      color: colors.gray[500],
-    },
-    backButton: {
-      ...typography.bodyBold,
-      color: colors.white,
     },
     content: {
       flex: 1,
@@ -694,7 +716,7 @@ export default function EntryDetail() {
     userName: {
       ...typography.bodyBold,
       fontSize: 16, // Match EntryCard size
-      color: colors.white,
+      color: theme2Colors.text,
     },
     editLink: {
       ...typography.bodyMedium,
@@ -708,17 +730,17 @@ export default function EntryDetail() {
       color: colors.gray[400],
     },
     question: {
-      ...typography.h2,
+      fontFamily: "PMGothicLudington-Text115",
       fontSize: 20,
       marginBottom: spacing.md,
-      color: colors.white,
+      color: theme2Colors.text,
     },
     text: {
       ...typography.body,
       fontSize: 14,
       lineHeight: 22,
       marginBottom: spacing.md,
-      color: colors.white, // colors.white is #000000 (black) in light mode, #ffffff (white) in dark mode
+      color: theme2Colors.text,
     },
     link: {
       ...typography.body,
@@ -831,13 +853,13 @@ export default function EntryDetail() {
       ...typography.bodyBold,
       fontSize: 14,
       marginBottom: spacing.xs,
-      color: colors.white,
+      color: theme2Colors.text,
     },
     commentText: {
       ...typography.body,
       fontSize: 14,
       lineHeight: 20,
-      color: colors.gray[300],
+      color: theme2Colors.textSecondary,
     },
     fixedCommentInput: {
       flexDirection: "row",
@@ -846,9 +868,9 @@ export default function EntryDetail() {
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.md,
       paddingBottom: spacing.md,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
       borderTopWidth: 1,
-      borderTopColor: colors.gray[800],
+      borderTopColor: theme2Colors.textSecondary,
     },
     addComment: {
       marginTop: spacing.md,
@@ -859,7 +881,7 @@ export default function EntryDetail() {
     commentInput: {
       flex: 1,
       ...typography.body,
-      color: colors.white,
+      color: theme2Colors.text,
       paddingVertical: 0,
       minHeight: 40,
     },
@@ -867,12 +889,12 @@ export default function EntryDetail() {
       width: 40,
       height: 40,
       borderRadius: 20,
-      backgroundColor: colors.accent,
+      backgroundColor: theme2Colors.blue,
       justifyContent: "center",
       alignItems: "center",
     },
     sendButtonDisabled: {
-      backgroundColor: colors.gray[700],
+      backgroundColor: theme2Colors.textSecondary,
     },
     embeddedMediaContainer: {
       marginTop: spacing.md,
@@ -897,15 +919,20 @@ export default function EntryDetail() {
     >
       <View style={styles.containerInner}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={handleBack} style={styles.navAction}>
-            <Text style={styles.backButton}>← Back</Text>
+          <TouchableOpacity onPress={handleBack} style={styles.navAction} activeOpacity={0.7}>
+            <FontAwesome name="angle-left" size={18} color={theme2Colors.text} />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={handleNext}
             disabled={!effectiveNextEntryId}
-            style={[styles.navAction, !effectiveNextEntryId && styles.navActionDisabled]}
+            style={[
+              styles.navAction,
+              styles.navActionNext,
+              !effectiveNextEntryId && styles.navActionDisabled
+            ]}
+            activeOpacity={0.7}
           >
-            <Text style={[styles.backButton, !effectiveNextEntryId && styles.navActionDisabledText]}>Next →</Text>
+            <FontAwesome name="angle-right" size={18} color={theme2Colors.text} />
           </TouchableOpacity>
         </View>
 
@@ -1120,7 +1147,7 @@ export default function EntryDetail() {
             value={commentText}
             onChangeText={setCommentText}
             placeholder="Add a comment..."
-            placeholderTextColor={colors.gray[500]}
+            placeholderTextColor={theme2Colors.textSecondary}
             style={styles.commentInput}
             multiline
             onFocus={() => {
@@ -1140,17 +1167,18 @@ export default function EntryDetail() {
               }, 300)
             }}
           />
-          <TouchableOpacity
-            style={[styles.sendButton, !canSendComment && styles.sendButtonDisabled]}
-            disabled={!canSendComment}
-            onPress={handleSubmitComment}
-          >
-            <FontAwesome
-              name="paper-plane"
-              size={16}
-              color={canSendComment ? colors.white : colors.gray[500]}
-            />
-          </TouchableOpacity>
+          {commentText.trim().length > 0 && (
+            <TouchableOpacity
+              style={styles.sendButton}
+              onPress={handleSubmitComment}
+            >
+              <FontAwesome
+                name="paper-plane"
+                size={16}
+                color={theme2Colors.white}
+              />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 

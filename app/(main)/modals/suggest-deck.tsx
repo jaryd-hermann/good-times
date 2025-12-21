@@ -20,6 +20,20 @@ import { typography, spacing } from "../../../lib/theme"
 import { useTheme } from "../../../lib/theme-context"
 import { Button } from "../../../components/Button"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
+import { FontAwesome } from "@expo/vector-icons"
+
+// Theme 2 color palette matching new design system
+const theme2Colors = {
+  red: "#B94444",
+  yellow: "#E8A037",
+  green: "#2D6F4A",
+  blue: "#3A5F8C",
+  beige: "#E8E0D5",
+  cream: "#F5F0EA",
+  white: "#FFFFFF",
+  text: "#000000",
+  textSecondary: "#404040",
+}
 
 export default function SuggestDeck() {
   const router = useRouter()
@@ -34,6 +48,7 @@ export default function SuggestDeck() {
   const [loading, setLoading] = useState(false)
   const [userId, setUserId] = useState<string>()
   const [userEmail, setUserEmail] = useState<string>()
+  const [focusedInput, setFocusedInput] = useState<string | null>(null)
 
   const { data: currentUser } = useQuery({
     queryKey: ["currentUser"],
@@ -116,7 +131,7 @@ export default function SuggestDeck() {
       StyleSheet.create({
         container: {
           flex: 1,
-          backgroundColor: colors.black,
+          backgroundColor: theme2Colors.beige,
         },
         header: {
           paddingHorizontal: spacing.lg,
@@ -125,21 +140,22 @@ export default function SuggestDeck() {
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "space-between",
-          borderBottomWidth: 1,
-          borderBottomColor: colors.gray[800],
+          borderBottomWidth: 0,
         },
         headerTitle: {
-          ...typography.h2,
-          color: colors.white,
-          fontSize: 24,
+          fontFamily: "PMGothicLudington-Text115",
+          fontSize: 32,
+          color: theme2Colors.text,
         },
         closeButton: {
-          padding: spacing.sm,
-        },
-        closeText: {
-          ...typography.h2,
-          color: colors.white,
-          fontSize: 24,
+          width: 32,
+          height: 32,
+          borderRadius: 16,
+          backgroundColor: theme2Colors.white,
+          borderWidth: 1,
+          borderColor: theme2Colors.text,
+          justifyContent: "center",
+          alignItems: "center",
         },
         content: {
           flex: 1,
@@ -149,38 +165,42 @@ export default function SuggestDeck() {
           marginBottom: spacing.xl,
         },
         label: {
-          ...typography.bodyMedium,
-          color: colors.gray[400],
-          marginBottom: spacing.sm,
+          fontFamily: "Roboto-Regular",
+          fontSize: 14,
+          fontWeight: "600",
+          color: theme2Colors.text,
+          marginBottom: spacing.xs,
         },
         helperText: {
-          ...typography.caption,
-          color: colors.gray[500],
-          marginBottom: spacing.md,
+          fontFamily: "Roboto-Regular",
           fontSize: 12,
+          color: theme2Colors.textSecondary,
+          marginBottom: spacing.md,
         },
         input: {
-          ...typography.body,
-          color: colors.white,
-          backgroundColor: colors.gray[900],
+          fontFamily: "Roboto-Regular",
+          fontSize: 16,
+          color: theme2Colors.text,
+          backgroundColor: theme2Colors.cream,
           borderRadius: 12,
           padding: spacing.md,
           minHeight: 100,
           textAlignVertical: "top",
-          borderWidth: 1,
-          borderColor: colors.gray[700],
+          borderWidth: 2,
+          borderColor: theme2Colors.textSecondary,
         },
         inputFocused: {
-          borderColor: colors.accent,
+          borderColor: theme2Colors.blue,
         },
         sampleQuestionInput: {
           minHeight: 80,
         },
         button: {
           marginTop: spacing.lg,
+          borderRadius: 25,
         },
       }),
-    [colors, isDark, insets.top]
+    [insets.top]
   )
 
   return (
@@ -192,7 +212,7 @@ export default function SuggestDeck() {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Suggest a Deck</Text>
         <TouchableOpacity onPress={() => router.back()} style={styles.closeButton}>
-          <Text style={styles.closeText}>✕</Text>
+          <FontAwesome name="times" size={16} color={theme2Colors.text} />
         </TouchableOpacity>
       </View>
 
@@ -207,25 +227,36 @@ export default function SuggestDeck() {
             Suggest a deck, topic, or theme of questions you think your group would enjoy answering
           </Text>
           <TextInput
-            style={styles.input}
+            style={[
+              styles.input,
+              focusedInput === "suggestion" && styles.inputFocused,
+            ]}
             value={suggestion}
             onChangeText={setSuggestion}
             placeholder="What deck or topic would your group enjoy?"
-            placeholderTextColor={colors.gray[500]}
+            placeholderTextColor={theme2Colors.textSecondary}
             multiline
             autoFocus
+            onFocus={() => setFocusedInput("suggestion")}
+            onBlur={() => setFocusedInput(null)}
           />
         </View>
 
         <View style={styles.fieldGroup}>
           <Text style={styles.label}>Sample Question (Optional)</Text>
           <TextInput
-            style={[styles.input, styles.sampleQuestionInput]}
+            style={[
+              styles.input,
+              styles.sampleQuestionInput,
+              focusedInput === "sampleQuestion" && styles.inputFocused,
+            ]}
             value={sampleQuestion}
             onChangeText={setSampleQuestion}
             placeholder="What would a sample question be?"
-            placeholderTextColor={colors.gray[500]}
+            placeholderTextColor={theme2Colors.textSecondary}
             multiline
+            onFocus={() => setFocusedInput("sampleQuestion")}
+            onBlur={() => setFocusedInput(null)}
           />
         </View>
 
@@ -234,7 +265,8 @@ export default function SuggestDeck() {
           onPress={handleSubmit}
           loading={loading}
           disabled={!suggestion.trim() || loading}
-          style={styles.button}
+          style={[styles.button, { backgroundColor: theme2Colors.blue }]}
+          textStyle={{ color: theme2Colors.white }}
         />
       </ScrollView>
     </KeyboardAvoidingView>

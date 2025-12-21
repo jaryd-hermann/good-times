@@ -25,10 +25,24 @@ import { safeCapture } from "../../lib/posthog"
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 const CARD_WIDTH = (SCREEN_WIDTH - spacing.md * 3) / 2 // 2 columns with spacing
 
+// Theme 2 color palette matching new design system
+const theme2Colors = {
+  red: "#B94444",
+  yellow: "#E8A037",
+  green: "#2D6F4A",
+  blue: "#3A5F8C",
+  beige: "#E8E0D5",
+  cream: "#F5F0EA",
+  white: "#FFFFFF",
+  text: "#000000",
+  textSecondary: "#404040",
+}
+
 // Helper function to get deck image source based on deck name
 function getDeckImageSource(deckName: string | undefined, iconUrl: string | undefined) {
   if (!deckName) {
-    return require("../../assets/images/deck-icon-default.png")
+    // Use icon-daily as default fallback
+    return require("../../assets/images/icon-daily.png")
   }
   
   const nameLower = deckName.toLowerCase()
@@ -107,7 +121,8 @@ function getDeckImageSource(deckName: string | undefined, iconUrl: string | unde
     return { uri: iconUrl }
   }
   
-  return require("../../assets/images/deck-icon-default.png")
+  // Use icon-daily as default fallback
+  return require("../../assets/images/icon-daily.png")
 }
 
 export default function CollectionDetail() {
@@ -155,40 +170,44 @@ export default function CollectionDetail() {
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
     },
     header: {
       paddingTop: insets.top + spacing.md,
       paddingHorizontal: spacing.md,
       paddingBottom: spacing.xl,
-      alignItems: "center", // Centered
+      alignItems: "center",
+      backgroundColor: theme2Colors.beige,
     },
     backButton: {
       position: "absolute",
       top: insets.top + spacing.md,
       left: spacing.md,
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: colors.gray[900],
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: theme2Colors.white,
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
       justifyContent: "center",
       alignItems: "center",
       zIndex: 10,
     },
     headerContent: {
-      alignItems: "center", // Centered
+      alignItems: "center",
       width: "100%",
     },
     collectionName: {
-      ...typography.h1,
-      fontSize: 28,
-      color: colors.white,
+      fontFamily: "PMGothicLudington-Text115",
+      fontSize: 32,
+      color: theme2Colors.text,
       marginBottom: spacing.xs,
       textAlign: "center",
     },
     subtitle: {
-      ...typography.body,
-      color: colors.gray[400],
+      fontFamily: "Roboto-Regular",
+      fontSize: 16,
+      color: theme2Colors.textSecondary,
       textAlign: "center",
     },
     content: {
@@ -197,10 +216,11 @@ export default function CollectionDetail() {
       paddingBottom: spacing.xxl * 2,
     },
     decksTitle: {
-      ...typography.h3,
+      fontFamily: "Roboto-Bold",
       fontSize: 20,
-      color: colors.white,
+      color: theme2Colors.text,
       marginBottom: spacing.md,
+      fontWeight: "700",
     },
     decksGrid: {
       flexDirection: "row",
@@ -209,39 +229,40 @@ export default function CollectionDetail() {
     },
     deckCard: {
       width: CARD_WIDTH,
-      backgroundColor: colors.black,
-      borderWidth: 1,
-      borderColor: colors.white,
-      borderRadius: 0, // Square edges
+      backgroundColor: theme2Colors.cream,
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary,
+      borderRadius: 20,
       marginBottom: spacing.md,
-      alignItems: "stretch", // Stretch to fill width
-      overflow: "hidden", // Ensure image doesn't overflow
+      alignItems: "stretch",
+      overflow: "hidden",
     },
     deckIcon: {
       width: CARD_WIDTH,
-      height: CARD_WIDTH, // Square, matches width
-      borderRadius: 0, // Square edges
-      backgroundColor: colors.gray[700],
+      height: CARD_WIDTH,
+      borderRadius: 0, // Keep square for image
+      backgroundColor: theme2Colors.textSecondary,
     },
     deckCardContent: {
       padding: spacing.md,
-      paddingBottom: spacing.lg, // Extra padding at bottom for chevron
+      paddingBottom: spacing.lg,
       alignItems: "center",
       position: "relative",
-      minHeight: 80, // Ensure minimum height so chevron stays at bottom
-      justifyContent: "flex-start", // Align content to top
+      minHeight: 80,
+      justifyContent: "flex-start",
     },
     deckName: {
-      ...typography.bodyBold,
+      fontFamily: "Roboto-Bold",
       fontSize: 16,
-      color: colors.white,
-      textAlign: "center", // Centered text
+      color: theme2Colors.text,
+      textAlign: "center",
+      fontWeight: "600",
     },
     deckDescription: {
-      ...typography.caption,
+      fontFamily: "Roboto-Regular",
       fontSize: 12,
-      color: colors.gray[400],
-      textAlign: "center", // Centered text
+      color: theme2Colors.textSecondary,
+      textAlign: "center",
     },
     chevron: {
       position: "absolute",
@@ -257,7 +278,7 @@ export default function CollectionDetail() {
           style={styles.backButton}
           onPress={() => router.push(`/(main)/explore-decks?groupId=${groupId}`)}
         >
-          <FontAwesome name="arrow-left" size={16} color={colors.white} />
+          <FontAwesome name="angle-left" size={16} color={theme2Colors.text} />
         </TouchableOpacity>
         <View style={styles.headerContent}>
           <Text style={styles.collectionName}>{collection?.name || "Collection"}</Text>
@@ -293,7 +314,7 @@ export default function CollectionDetail() {
                   <FontAwesome
                     name="chevron-right"
                     size={12}
-                    color={colors.gray[400]}
+                    color={theme2Colors.textSecondary}
                     style={styles.chevron}
                   />
                 </View>

@@ -1,8 +1,6 @@
 "use client"
 
 import { View, StyleSheet, TouchableOpacity, Image } from "react-native"
-import { useTheme } from "../lib/theme-context"
-import { spacing } from "../lib/theme"
 
 interface NotificationBellProps {
   hasNotifications: boolean
@@ -11,8 +9,6 @@ interface NotificationBellProps {
 }
 
 export function NotificationBell({ hasNotifications, onPress, size = 25 }: NotificationBellProps) {
-  const { colors, isDark } = useTheme()
-
   const styles = StyleSheet.create({
     container: {
       width: size,
@@ -32,13 +28,10 @@ export function NotificationBell({ hasNotifications, onPress, size = 25 }: Notif
       <View style={styles.container}>
         <Image
           source={hasNotifications 
-            ? require("../assets/images/active-alert.png")
-            : require("../assets/images/empty-alert.png")
+            ? require("../assets/images/bell.png")
+            : require("../assets/images/empty-bell.png")
           }
-          style={[
-            styles.icon,
-            !hasNotifications && { opacity: 0.7 } // Reduce opacity by 30% when no notifications
-          ]}
+          style={styles.icon}
         />
       </View>
     </TouchableOpacity>

@@ -394,11 +394,25 @@ export default function SettingsScreen() {
   }
 
 
+  // Theme 2 color palette matching new design system
+  const theme2Colors = {
+    red: "#B94444",
+    yellow: "#E8A037",
+    green: "#2D6F4A",
+    blue: "#3A5F8C",
+    beige: "#E8E0D5",
+    cream: "#F5F0EA",
+    white: "#FFFFFF",
+    text: "#000000",
+    textSecondary: "#404040",
+    onboardingPink: "#D97393", // Pink for onboarding CTAs
+  }
+
   // Create dynamic styles based on theme
   const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
     },
     header: {
       paddingHorizontal: spacing.lg,
@@ -408,26 +422,55 @@ export default function SettingsScreen() {
       justifyContent: "space-between",
     },
     closeButton: {
-      padding: spacing.sm,
-    },
-    closeText: {
-      ...typography.h2,
-      color: colors.white,
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: theme2Colors.white,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
     },
     title: {
-      ...typography.h1,
-      color: colors.white,
+      fontFamily: "PMGothicLudington-Text115",
       fontSize: 32,
+      color: theme2Colors.text,
     },
     content: {
       padding: spacing.md,
       paddingBottom: spacing.xxl,
     },
     profileCard: {
-      backgroundColor: colors.gray[900],
+      backgroundColor: theme2Colors.beige,
       borderRadius: 16,
       overflow: "hidden",
       marginBottom: spacing.md,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
+      shadowColor: "#000",
+      shadowOffset: {
+        width: 0,
+        height: 2,
+      },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 3,
+    },
+    topCard: {
+      backgroundColor: theme2Colors.cream,
+      borderRadius: 16,
+      overflow: "hidden",
+      marginBottom: spacing.md,
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
+      shadowColor: "#000",
+      shadowOffset: {
+        width: 0,
+        height: 2,
+      },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 3,
     },
     profileCardContent: {
       flexDirection: "row",
@@ -440,19 +483,30 @@ export default function SettingsScreen() {
       borderRadius: 20,
       marginRight: spacing.md,
       overflow: "hidden",
+      backgroundColor: theme2Colors.textSecondary,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    topCardIcon: {
+      width: 24,
+      height: 24,
+      marginRight: spacing.md,
+      justifyContent: "center",
+      alignItems: "center",
     },
     profileCardText: {
       flex: 1,
     },
     profileCardTitle: {
       ...typography.bodyBold,
-      fontSize: 16,
-      color: colors.white,
+      fontSize: 18,
+      color: theme2Colors.text,
+      fontWeight: "600",
     },
     profileCardSubtitle: {
       ...typography.caption,
-      color: colors.gray[400],
-      fontSize: 13,
+      color: theme2Colors.textSecondary,
+      fontSize: 14,
     },
     settingRow: {
       flexDirection: "row",
@@ -460,24 +514,73 @@ export default function SettingsScreen() {
       alignItems: "center",
       paddingVertical: spacing.md,
       borderBottomWidth: 1,
-      borderBottomColor: colors.gray[800],
+      borderBottomColor: theme2Colors.textSecondary,
     },
     settingRowText: {
       flex: 1,
     },
     settingRowTitle: {
       ...typography.bodyBold,
-      fontSize: 16,
-      color: colors.white,
+      fontSize: 22,
+      color: theme2Colors.text,
+      fontWeight: "600",
     },
     settingRowSubtitle: {
       ...typography.body,
-      color: colors.gray[400],
-      fontSize: 14,
+      color: theme2Colors.textSecondary,
+      fontSize: 15,
       marginTop: spacing.xs,
     },
     actions: {
       gap: spacing.md,
+    },
+    inviteCard: {
+      backgroundColor: theme2Colors.cream,
+      borderRadius: 16,
+      overflow: "hidden",
+      marginBottom: spacing.md,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
+    },
+    inviteCardContent: {
+      flexDirection: "row",
+      alignItems: "center",
+      padding: spacing.md,
+    },
+    inviteCardIcon: {
+      width: 24,
+      height: 24,
+      justifyContent: "center",
+      alignItems: "center",
+      marginRight: spacing.md,
+    },
+    inviteCardText: {
+      flex: 1,
+    },
+    inviteCardTitle: {
+      ...typography.bodyBold,
+      fontSize: 16,
+      color: theme2Colors.text,
+    },
+    inviteCardSubtitle: {
+      ...typography.caption,
+      color: theme2Colors.textSecondary,
+      fontSize: 13,
+    },
+    reportButton: {
+      backgroundColor: theme2Colors.blue,
+      borderRadius: 20,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.lg,
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 56,
+    },
+    reportButtonText: {
+      ...typography.bodyBold,
+      fontSize: 18,
+      color: theme2Colors.white,
+      textAlign: "center",
     },
     logoutLink: {
       alignSelf: "center",
@@ -485,18 +588,17 @@ export default function SettingsScreen() {
     },
     logoutText: {
       ...typography.bodyMedium,
-      color: colors.gray[300],
+      color: theme2Colors.textSecondary,
     },
     wordmark: {
       width: 240, // 2x larger (120 * 2)
       height: 80, // 2x larger (40 * 2)
       marginTop: spacing.md,
       alignSelf: "center",
-      opacity: 0.6,
     },
     memorialText: {
       ...typography.body,
-      color: isDark ? colors.gray[600] : "#000000",
+      color: theme2Colors.textSecondary,
       textAlign: "center",
       marginTop: spacing.md,
       fontSize: 12,
@@ -509,69 +611,93 @@ export default function SettingsScreen() {
     <View style={[styles.container, { paddingTop: insets.top + spacing.md }]}>
       <View style={styles.header}>
         <Text style={styles.title}>Settings</Text>
-        <TouchableOpacity onPress={() => router.back()} style={styles.closeButton}>
-          <Text style={styles.closeText}>✕</Text>
+        <TouchableOpacity onPress={() => router.back()} style={styles.closeButton} activeOpacity={0.7}>
+          <FontAwesome name="times" size={16} color={theme2Colors.text} />
         </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
         {/* Profile Card */}
-        <TouchableOpacity style={styles.profileCard} onPress={handleProfilePress} activeOpacity={0.7}>
+        <TouchableOpacity style={styles.topCard} onPress={handleProfilePress} activeOpacity={0.7}>
           <View style={styles.profileCardContent}>
-            <View style={styles.profileCardIcon}>
+            <View style={styles.topCardIcon}>
               {profile?.avatar_url ? (
-                <Avatar uri={profile.avatar_url} name={profile.name || "User"} size={40} />
+                <Avatar uri={profile.avatar_url} name={profile.name || "User"} size={24} />
               ) : (
-                <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.gray[800], justifyContent: "center", alignItems: "center" }}>
-                  <FontAwesome name="user" size={20} color={colors.gray[400]} />
-                </View>
+                <Image 
+                  source={require("../../assets/images/pic.png")} 
+                  style={{ width: 24, height: 24 }}
+                  resizeMode="contain"
+                />
               )}
             </View>
             <View style={styles.profileCardText}>
               <Text style={styles.profileCardTitle}>{profile?.name || "User"}</Text>
               <Text style={styles.profileCardSubtitle}>Edit profile</Text>
             </View>
-            <FontAwesome name="chevron-right" size={16} color={colors.gray[500]} style={{ marginLeft: spacing.md }} />
+            <FontAwesome name="chevron-right" size={16} color={theme2Colors.textSecondary} style={{ marginLeft: spacing.md }} />
           </View>
         </TouchableOpacity>
 
         {/* Latest Changes Card */}
         <TouchableOpacity 
-          style={styles.profileCard} 
+          style={styles.topCard} 
           onPress={() => router.push("/(main)/settings/latest-changes")} 
           activeOpacity={0.7}
         >
           <View style={styles.profileCardContent}>
-            <View style={styles.profileCardIcon}>
-              <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.gray[800], justifyContent: "center", alignItems: "center" }}>
-                <FontAwesome name="bell" size={20} color={colors.gray[400]} />
-              </View>
+            <View style={styles.topCardIcon}>
+              <Image 
+                source={require("../../assets/images/changes.png")} 
+                style={{ width: 24, height: 24 }}
+                resizeMode="contain"
+              />
             </View>
             <View style={styles.profileCardText}>
               <Text style={styles.profileCardTitle}>Latest changes</Text>
               <Text style={styles.profileCardSubtitle}>New good things</Text>
             </View>
-            <FontAwesome name="chevron-right" size={16} color={colors.gray[500]} style={{ marginLeft: spacing.md }} />
+            <FontAwesome name="chevron-right" size={16} color={theme2Colors.textSecondary} style={{ marginLeft: spacing.md }} />
           </View>
         </TouchableOpacity>
 
         {/* App Explainer Card */}
         <TouchableOpacity 
-          style={styles.profileCard} 
+          style={styles.topCard} 
           onPress={() => setOnboardingGalleryVisible(true)} 
           activeOpacity={0.7}
         >
           <View style={styles.profileCardContent}>
-            <View style={styles.profileCardIcon}>
-              <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.gray[800], justifyContent: "center", alignItems: "center" }}>
-                <FontAwesome name="info-circle" size={20} color={colors.gray[400]} />
-              </View>
+            <View style={styles.topCardIcon}>
+              <Image 
+                source={require("../../assets/images/explainer.png")} 
+                style={{ width: 24, height: 24 }}
+                resizeMode="contain"
+              />
             </View>
             <View style={styles.profileCardText}>
               <Text style={styles.profileCardTitle}>App explainer</Text>
               <Text style={styles.profileCardSubtitle}>Learn how Good Times works</Text>
             </View>
-            <FontAwesome name="chevron-right" size={16} color={colors.gray[500]} style={{ marginLeft: spacing.md }} />
+            <FontAwesome name="chevron-right" size={16} color={theme2Colors.textSecondary} style={{ marginLeft: spacing.md }} />
+          </View>
+        </TouchableOpacity>
+
+        {/* Invite Members Card */}
+        <TouchableOpacity style={styles.inviteCard} onPress={handleInvite} activeOpacity={0.7}>
+          <View style={styles.inviteCardContent}>
+            <View style={styles.inviteCardIcon}>
+              <Image 
+                source={require("../../assets/images/people.png")} 
+                style={{ width: 24, height: 24 }}
+                resizeMode="contain"
+              />
+            </View>
+            <View style={styles.inviteCardText}>
+              <Text style={styles.inviteCardTitle}>Invite Members</Text>
+              <Text style={styles.inviteCardSubtitle}>Share invite link to add new members</Text>
+            </View>
+            <FontAwesome name="chevron-right" size={16} color={theme2Colors.textSecondary} style={{ marginLeft: spacing.md }} />
           </View>
         </TouchableOpacity>
 
@@ -584,8 +710,8 @@ export default function SettingsScreen() {
           <Switch 
             value={notificationsEnabled} 
             onValueChange={setNotificationsEnabled} 
-            trackColor={{ true: colors.accent }} 
-            thumbColor={Platform.OS === "android" ? (isDark ? colors.white : colors.black) : undefined}
+            trackColor={{ true: theme2Colors.onboardingPink }} 
+            thumbColor={Platform.OS === "android" ? theme2Colors.white : undefined}
           />
         </View>
 
@@ -597,44 +723,11 @@ export default function SettingsScreen() {
           <Switch
             value={dailyQuestionNotifications}
             onValueChange={setDailyQuestionNotifications}
-            trackColor={{ true: colors.accent }}
-            thumbColor={Platform.OS === "android" ? (isDark ? colors.white : colors.black) : undefined}
+            trackColor={{ true: theme2Colors.onboardingPink }}
+            thumbColor={Platform.OS === "android" ? theme2Colors.white : undefined}
           />
         </View>
 
-        <View style={styles.settingRow}>
-          <View style={styles.settingRowText}>
-            <Text style={styles.settingRowTitle}>Theme</Text>
-            <Text style={styles.settingRowSubtitle}>{theme === "dark" ? "Dark mode" : "Light mode"}</Text>
-          </View>
-          <Switch 
-            value={theme === "light"} 
-            onValueChange={(value) => {
-              const newTheme = value ? "light" : "dark"
-              const oldTheme = theme
-              setTheme(newTheme)
-              
-              // Track changed_app_theme event
-              try {
-                if (posthog) {
-                  posthog.capture("changed_app_theme", {
-                    from_theme: oldTheme,
-                    to_theme: newTheme,
-                  })
-                } else {
-                  captureEvent("changed_app_theme", {
-                    from_theme: oldTheme,
-                    to_theme: newTheme,
-                  })
-                }
-              } catch (error) {
-                if (__DEV__) console.error("[settings] Failed to track changed_app_theme:", error)
-              }
-            }} 
-            trackColor={{ true: colors.accent }}
-            thumbColor={Platform.OS === "android" ? (isDark ? colors.white : colors.black) : undefined}
-          />
-        </View>
 
         {biometricAvailable && (
           <View style={styles.settingRow}>
@@ -647,8 +740,8 @@ export default function SettingsScreen() {
             <Switch 
               value={biometricEnabled} 
               onValueChange={handleBiometricToggle} 
-              trackColor={{ true: colors.accent }}
-              thumbColor={Platform.OS === "android" ? (isDark ? colors.white : colors.black) : undefined}
+              trackColor={{ true: theme2Colors.onboardingPink }}
+              thumbColor={Platform.OS === "android" ? theme2Colors.white : undefined}
             />
           </View>
         )}
@@ -663,8 +756,8 @@ export default function SettingsScreen() {
               <Switch
                 value={devForceCustomQuestion}
                 onValueChange={handleDevForceCustomQuestionToggle}
-                trackColor={{ false: colors.gray[700], true: colors.accent }}
-                thumbColor={Platform.OS === "android" ? (isDark ? colors.white : colors.black) : colors.white}
+                trackColor={{ false: theme2Colors.textSecondary, true: theme2Colors.onboardingPink }}
+                thumbColor={Platform.OS === "android" ? theme2Colors.white : theme2Colors.white}
               />
             </View>
 
@@ -672,9 +765,7 @@ export default function SettingsScreen() {
             <View style={[styles.profileCard, { marginTop: spacing.md }]}>
               <View style={styles.profileCardContent}>
                 <View style={styles.profileCardIcon}>
-                  <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.gray[800], justifyContent: "center", alignItems: "center" }}>
-                    <FontAwesome name="bug" size={20} color={colors.accent} />
-                  </View>
+                  <FontAwesome name="bug" size={20} color={theme2Colors.white} />
                 </View>
                 <View style={styles.profileCardText}>
                   <Text style={styles.profileCardTitle}>Session Testing</Text>
@@ -715,9 +806,7 @@ export default function SettingsScreen() {
             <View style={[styles.profileCard, { marginTop: spacing.md }]}>
               <View style={styles.profileCardContent}>
                 <View style={styles.profileCardIcon}>
-                  <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.gray[800], justifyContent: "center", alignItems: "center" }}>
-                    <FontAwesome name="play-circle" size={20} color={colors.accent} />
-                  </View>
+                  <FontAwesome name="play-circle" size={20} color={theme2Colors.white} />
                 </View>
                 <View style={styles.profileCardText}>
                   <Text style={styles.profileCardTitle}>Boot Screen Testing</Text>
@@ -757,9 +846,7 @@ export default function SettingsScreen() {
             <View style={[styles.profileCard, { marginTop: spacing.md }]}>
               <View style={styles.profileCardContent}>
                 <View style={styles.profileCardIcon}>
-                  <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.gray[800], justifyContent: "center", alignItems: "center" }}>
-                    <FontAwesome name="images" size={20} color={colors.accent} />
-                  </View>
+                  <FontAwesome name="images" size={20} color={theme2Colors.white} />
                 </View>
                 <View style={styles.profileCardText}>
                   <Text style={styles.profileCardTitle}>Onboarding</Text>
@@ -778,13 +865,10 @@ export default function SettingsScreen() {
           </>
         )}
 
-        <View style={styles.actions}>
-          <Button title="Invite your group" onPress={handleInvite} variant="secondary" />
-          <Button
-            title="Report an Issue/Feedback"
-            onPress={handleReportIssue}
-            variant="primary"
-          />
+        <View style={[styles.actions, { marginTop: spacing.xl }]}>
+          <TouchableOpacity style={styles.reportButton} onPress={handleReportIssue} activeOpacity={0.7}>
+            <Text style={styles.reportButtonText}>Report an Issue/Feedback</Text>
+          </TouchableOpacity>
           <TouchableOpacity onPress={handleSignOut} style={styles.logoutLink}>
             <Text style={styles.logoutText}>Log out</Text>
           </TouchableOpacity>
@@ -795,7 +879,6 @@ export default function SettingsScreen() {
             source={require("../../assets/images/wordmark.png")} 
             style={styles.wordmark}
             resizeMode="contain"
-            tintColor={isDark ? undefined : "#000000"} // Black in light mode, default (white) in dark mode
           />
         </View>
       </ScrollView>
@@ -811,7 +894,6 @@ export default function SettingsScreen() {
           { id: "5", source: require("../../assets/images/onboarding-5-ask-them.png") },
           { id: "6", source: require("../../assets/images/onboarding-6-themed-decks.png") },
           { id: "7", source: require("../../assets/images/onboarding-7-set-your-vibe.png") },
-          { id: "8", source: require("../../assets/images/onboarding-8-remember.png") },
         ]}
         onComplete={() => setOnboardingGalleryVisible(false)}
       />

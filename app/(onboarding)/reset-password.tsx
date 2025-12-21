@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { View, Text, StyleSheet, Alert, TextInput, KeyboardAvoidingView, Platform, ScrollView } from "react-native"
+import { View, Text, StyleSheet, Alert, TextInput, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { supabase } from "../../lib/supabase"
 import { colors, spacing } from "../../lib/theme"
@@ -12,6 +12,20 @@ import { saveBiometricCredentials, getBiometricPreference } from "../../lib/biom
 import * as Linking from "expo-linking"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 
+// Theme 2 color palette matching new design system
+const theme2Colors = {
+  red: "#B94444",
+  yellow: "#E8A037",
+  green: "#2D6F4A",
+  blue: "#3A5F8C",
+  beige: "#E8E0D5",
+  cream: "#F5F0EA",
+  white: "#FFFFFF",
+  text: "#000000",
+  textSecondary: "#404040",
+  onboardingPink: "#D97393", // Pink for onboarding CTAs
+}
+
 export default function ResetPassword() {
   const router = useRouter()
   const params = useLocalSearchParams()
@@ -21,6 +35,8 @@ export default function ResetPassword() {
   const [loading, setLoading] = useState(false)
   const [email, setEmail] = useState<string | null>(null)
   const [isChecking, setIsChecking] = useState(true)
+  const [passwordFocused, setPasswordFocused] = useState(false)
+  const [confirmPasswordFocused, setConfirmPasswordFocused] = useState(false)
 
   // Extract token from URL hash or query params (Supabase sends it in hash)
   // NOTE: _layout.tsx already sets the session before navigating here, but we need to wait for it
@@ -263,7 +279,7 @@ export default function ResetPassword() {
     return (
       <View style={styles.background}>
         <View style={[styles.container, { paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.xl, justifyContent: "center", alignItems: "center" }]}>
-          <Text style={styles.title}>Loading...</Text>
+          <Text style={[styles.title, { color: theme2Colors.text }]}>Loading...</Text>
         </View>
       </View>
     )
@@ -299,38 +315,59 @@ export default function ResetPassword() {
 
               <View style={styles.fieldGroup}>
                 <Text style={styles.fieldLabel}>New Password</Text>
-                <TextInput
-                  value={password}
-                  onChangeText={setPassword}
-                  placeholder="••••••••"
-                  placeholderTextColor="rgba(255,255,255,0.6)"
-                  secureTextEntry
-                  autoCapitalize="none"
-                  style={styles.fieldInput}
-                  editable={!loading}
-                />
+                <View style={[
+                  styles.passwordContainer,
+                  passwordFocused && styles.passwordContainerFocused
+                ]}>
+                  <TextInput
+                    value={password}
+                    onChangeText={setPassword}
+                    placeholder="••••••••"
+                    placeholderTextColor={theme2Colors.textSecondary}
+                    secureTextEntry
+                    autoCapitalize="none"
+                    keyboardAppearance="light"
+                    style={styles.passwordInput}
+                    onFocus={() => setPasswordFocused(true)}
+                    onBlur={() => setPasswordFocused(false)}
+                    editable={!loading}
+                  />
+                </View>
               </View>
 
               <View style={styles.fieldGroup}>
                 <Text style={styles.fieldLabel}>Confirm Password</Text>
-                <TextInput
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  placeholder="••••••••"
-                  placeholderTextColor="rgba(255,255,255,0.6)"
-                  secureTextEntry
-                  autoCapitalize="none"
-                  style={styles.fieldInput}
-                  editable={!loading}
-                />
+                <View style={[
+                  styles.passwordContainer,
+                  confirmPasswordFocused && styles.passwordContainerFocused
+                ]}>
+                  <TextInput
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    placeholder="••••••••"
+                    placeholderTextColor={theme2Colors.textSecondary}
+                    secureTextEntry
+                    autoCapitalize="none"
+                    keyboardAppearance="light"
+                    style={styles.passwordInput}
+                    onFocus={() => setConfirmPasswordFocused(true)}
+                    onBlur={() => setConfirmPasswordFocused(false)}
+                    editable={!loading}
+                  />
+                </View>
               </View>
 
-              <Button
-                title="Reset Password"
+              <TouchableOpacity
                 onPress={handleReset}
-                loading={loading}
+                disabled={loading}
                 style={styles.primaryButton}
-              />
+              >
+                {loading ? (
+                  <Text style={styles.primaryButtonText}>Resetting...</Text>
+                ) : (
+                  <Text style={styles.primaryButtonText}>Reset Password</Text>
+                )}
+              </TouchableOpacity>
             </View>
           </View>
         </ScrollView>
@@ -342,7 +379,7 @@ export default function ResetPassword() {
 const styles = StyleSheet.create({
   background: {
     flex: 1,
-    backgroundColor: colors.black,
+    backgroundColor: theme2Colors.beige,
   },
   flex: {
     flex: 1,
@@ -365,36 +402,59 @@ const styles = StyleSheet.create({
     maxWidth: 460,
   },
   title: {
-    fontFamily: "LibreBaskerville-Bold",
-    fontSize: 40,
-    color: colors.white,
+    fontFamily: "PMGothicLudington-Text115",
+    fontSize: 32,
+    color: theme2Colors.text,
+    marginBottom: spacing.md,
   },
   subtitle: {
     fontFamily: "Roboto-Regular",
     fontSize: 16,
     lineHeight: 24,
-    color: colors.white,
-    opacity: 0.9,
+    color: theme2Colors.textSecondary,
   },
   fieldGroup: {
     marginBottom: spacing.md,
   },
   fieldLabel: {
     fontFamily: "Roboto-Regular",
-    fontSize: 16,
-    color: colors.white,
+    fontSize: 14,
+    color: theme2Colors.text,
     marginBottom: spacing.xs,
+    fontWeight: "600",
   },
-  fieldInput: {
-    fontFamily: "LibreBaskerville-Regular",
-    fontSize: 24,
-    color: colors.white,
-    borderBottomWidth: 1,
-    borderColor: "rgba(255,255,255,0.6)",
-    paddingVertical: spacing.sm,
+  passwordContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: theme2Colors.cream,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: theme2Colors.textSecondary,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+  },
+  passwordContainerFocused: {
+    borderColor: theme2Colors.blue,
+  },
+  passwordInput: {
+    flex: 1,
+    fontFamily: "Roboto-Regular",
+    fontSize: 16,
+    color: theme2Colors.text,
   },
   primaryButton: {
+    backgroundColor: theme2Colors.onboardingPink,
+    borderRadius: 25,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    alignItems: "center",
+    justifyContent: "center",
     minHeight: 56,
+  },
+  primaryButtonText: {
+    fontFamily: "Roboto-Bold",
+    fontSize: 18,
+    color: theme2Colors.white,
   },
 })
 

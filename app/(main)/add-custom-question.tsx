@@ -27,6 +27,19 @@ import AsyncStorage from "@react-native-async-storage/async-storage"
 import { usePostHog } from "posthog-react-native"
 import { captureEvent } from "../../lib/posthog"
 
+// Theme 2 color palette matching new design system
+const theme2Colors = {
+  red: "#B94444",
+  yellow: "#E8A037",
+  green: "#2D6F4A",
+  blue: "#3A5F8C",
+  beige: "#E8E0D5",
+  cream: "#F5F0EA",
+  white: "#FFFFFF",
+  text: "#000000",
+  textSecondary: "#404040",
+}
+
 export default function AddCustomQuestion() {
   const router = useRouter()
   const params = useLocalSearchParams()
@@ -37,11 +50,11 @@ export default function AddCustomQuestion() {
   const date = (params.date as string) || getTodayDate()
 
   const [question, setQuestion] = useState("")
-  const [description, setDescription] = useState("")
   const [isAnonymous, setIsAnonymous] = useState(false)
   const [loading, setLoading] = useState(false)
   const [userId, setUserId] = useState<string>()
   const [devForceCustomQuestion, setDevForceCustomQuestion] = useState(false)
+  const [focusedInput, setFocusedInput] = useState<string | null>(null)
   const posthog = usePostHog()
 
   // Track loaded_custom_question_screen event
@@ -127,20 +140,19 @@ export default function AddCustomQuestion() {
         groupId,
         userId,
         question: question.trim(),
-        description: description.trim() || undefined,
+        description: undefined, // Removed description field
         isAnonymous,
         dateAssigned: date,
       })
 
       // Track created_custom_question event
       try {
-        const hasDescription = !!description.trim()
         if (posthog) {
           posthog.capture("created_custom_question", {
             group_id: groupId,
             date: date,
             text_length: question.trim().length,
-            description: hasDescription,
+            description: false,
             visibility: isAnonymous ? "anonymous" : "public",
           })
         } else {
@@ -148,7 +160,7 @@ export default function AddCustomQuestion() {
             group_id: groupId,
             date: date,
             text_length: question.trim().length,
-            description: hasDescription,
+            description: false,
             visibility: isAnonymous ? "anonymous" : "public",
           })
         }
@@ -176,7 +188,7 @@ export default function AddCustomQuestion() {
   const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
     },
     header: {
       paddingHorizontal: spacing.lg,
@@ -185,21 +197,22 @@ export default function AddCustomQuestion() {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      borderBottomWidth: 1,
-      borderBottomColor: colors.gray[800],
+      borderBottomWidth: 0,
     },
     headerTitle: {
-      ...typography.h2,
-      color: colors.white,
-      fontSize: 24,
+      fontFamily: "PMGothicLudington-Text115",
+      fontSize: 32,
+      color: theme2Colors.text,
     },
     closeButton: {
-      padding: spacing.sm,
-    },
-    closeText: {
-      ...typography.h2,
-      color: colors.white,
-      fontSize: 24,
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: theme2Colors.white,
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
+      justifyContent: "center",
+      alignItems: "center",
     },
     content: {
       flex: 1,
@@ -209,30 +222,31 @@ export default function AddCustomQuestion() {
       marginBottom: spacing.xl,
     },
     label: {
-      ...typography.bodyMedium,
-      color: colors.gray[400],
-      marginBottom: spacing.sm,
+      fontFamily: "Roboto-Regular",
+      fontSize: 14,
+      fontWeight: "600",
+      color: theme2Colors.text,
+      marginBottom: spacing.xs,
     },
     input: {
-      ...typography.body,
-      color: colors.white,
-      backgroundColor: colors.gray[900],
+      fontFamily: "Roboto-Regular",
+      fontSize: 16,
+      color: theme2Colors.text,
+      backgroundColor: theme2Colors.cream,
       borderRadius: 12,
       padding: spacing.md,
       minHeight: 100,
       textAlignVertical: "top",
-      borderWidth: 1,
-      borderColor: colors.gray[700],
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary,
     },
     inputFocused: {
-      borderColor: colors.accent,
-    },
-    descriptionInput: {
-      minHeight: 80,
+      borderColor: theme2Colors.blue,
     },
     wordCount: {
-      ...typography.caption,
-      color: isOverLimit ? colors.accent : colors.gray[400],
+      fontFamily: "Roboto-Regular",
+      fontSize: 12,
+      color: isOverLimit ? theme2Colors.red : theme2Colors.textSecondary,
       marginTop: spacing.xs,
       textAlign: "right",
     },
@@ -240,11 +254,13 @@ export default function AddCustomQuestion() {
       marginTop: spacing.lg,
       paddingTop: spacing.lg,
       borderTopWidth: 1,
-      borderTopColor: colors.gray[800],
+      borderTopColor: theme2Colors.textSecondary,
     },
     visibilityLabel: {
-      ...typography.bodyMedium,
-      color: colors.gray[400],
+      fontFamily: "Roboto-Regular",
+      fontSize: 14,
+      fontWeight: "600",
+      color: theme2Colors.text,
       marginBottom: spacing.md,
     },
     visibilityButtons: {
@@ -252,7 +268,7 @@ export default function AddCustomQuestion() {
     },
     visibilityButton: {
       flex: 1,
-      backgroundColor: colors.gray[900],
+      backgroundColor: theme2Colors.cream,
       borderRadius: 12,
       padding: spacing.md,
       alignItems: "center",
@@ -263,41 +279,47 @@ export default function AddCustomQuestion() {
       marginRight: spacing.md,
     },
     visibilityButtonSelected: {
-      borderColor: colors.accent,
-      backgroundColor: colors.gray[800],
+      borderColor: theme2Colors.yellow,
+      backgroundColor: theme2Colors.white,
     },
     anonymousIcon: {
       width: 40,
       height: 40,
       borderRadius: 20,
-      backgroundColor: colors.gray[700],
+      backgroundColor: theme2Colors.textSecondary,
       justifyContent: "center",
       alignItems: "center",
       marginBottom: spacing.sm,
     },
     visibilityButtonTitle: {
-      ...typography.bodyBold,
-      color: colors.gray[400],
+      fontFamily: "Roboto-Regular",
       fontSize: 14,
+      fontWeight: "600",
+      color: theme2Colors.textSecondary,
       marginBottom: spacing.xs,
       textAlign: "center",
     },
     visibilityButtonTitleSelected: {
-      color: colors.white,
+      color: theme2Colors.text,
     },
     visibilityButtonSubtext: {
-      ...typography.caption,
-      color: colors.gray[500],
+      fontFamily: "Roboto-Regular",
       fontSize: 12,
+      color: theme2Colors.textSecondary,
       textAlign: "center",
     },
     visibilityButtonSubtextSelected: {
-      color: colors.gray[300],
+      color: theme2Colors.text,
     },
     button: {
       marginTop: spacing.lg,
+      backgroundColor: theme2Colors.blue,
+      borderRadius: 25,
     },
-  }), [colors, isDark, insets.top, isOverLimit])
+    buttonText: {
+      color: theme2Colors.white,
+    },
+  }), [insets.top, isOverLimit])
 
   return (
     <KeyboardAvoidingView
@@ -306,9 +328,9 @@ export default function AddCustomQuestion() {
       keyboardVerticalOffset={0}
     >
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Ask Your Group</Text>
+        <Text style={styles.headerTitle}>It's your turn</Text>
         <TouchableOpacity onPress={() => router.back()} style={styles.closeButton}>
-          <Text style={styles.closeText}>✕</Text>
+          <FontAwesome name="times" size={16} color={theme2Colors.text} />
         </TouchableOpacity>
       </View>
 
@@ -320,31 +342,24 @@ export default function AddCustomQuestion() {
         <View style={styles.fieldGroup}>
           <Text style={styles.label}>Your Question</Text>
           <TextInput
-            style={[styles.input, isOverLimit && { borderColor: colors.accent }]}
+            style={[
+              styles.input,
+              focusedInput === "question" && styles.inputFocused,
+              isOverLimit && { borderColor: theme2Colors.red },
+            ]}
             value={question}
             onChangeText={setQuestion}
-            placeholder="What would you like to ask your group?"
-            placeholderTextColor={colors.gray[500]}
+            placeholder="What would you like to ask everyone?"
+            placeholderTextColor={theme2Colors.textSecondary}
             multiline
             maxLength={200}
             autoFocus
+            onFocus={() => setFocusedInput("question")}
+            onBlur={() => setFocusedInput(null)}
           />
           <Text style={styles.wordCount}>
             {wordCount} / {maxWords} words {isOverLimit && "(too many)"}
           </Text>
-        </View>
-
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Description (Optional)</Text>
-          <TextInput
-            style={[styles.input, styles.descriptionInput]}
-            value={description}
-            onChangeText={setDescription}
-            placeholder="Add any context or details..."
-            placeholderTextColor={colors.gray[500]}
-            multiline
-            maxLength={500}
-          />
         </View>
 
         <View style={styles.visibilityOptions}>
@@ -373,7 +388,7 @@ export default function AddCustomQuestion() {
                 styles.visibilityButtonSubtext,
                 !isAnonymous && styles.visibilityButtonSubtextSelected,
               ]}>
-                The group will know you asked this
+                They'll know you asked
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -384,7 +399,7 @@ export default function AddCustomQuestion() {
               onPress={() => setIsAnonymous(true)}
             >
               <View style={styles.anonymousIcon}>
-                <FontAwesome name="user-secret" size={24} color={isAnonymous ? colors.white : colors.gray[400]} />
+                <FontAwesome name="user-secret" size={24} color={isAnonymous ? theme2Colors.white : theme2Colors.textSecondary} />
               </View>
               <Text style={[
                 styles.visibilityButtonTitle,
@@ -396,18 +411,19 @@ export default function AddCustomQuestion() {
                 styles.visibilityButtonSubtext,
                 isAnonymous && styles.visibilityButtonSubtextSelected,
               ]}>
-                Your question will be asked anonymously
+                They won't know you asked
               </Text>
             </TouchableOpacity>
           </View>
         </View>
 
         <Button
-          title="Post Question"
+          title="Ask everyone"
           onPress={handleSubmit}
           loading={loading}
           disabled={!question.trim() || isOverLimit || loading}
           style={styles.button}
+          textStyle={styles.buttonText}
         />
       </ScrollView>
     </KeyboardAvoidingView>

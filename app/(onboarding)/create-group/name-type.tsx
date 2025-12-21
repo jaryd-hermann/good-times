@@ -1,15 +1,27 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from "react-native"
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, KeyboardAvoidingView, Platform, Image, TextInput } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { colors, spacing, typography } from "../../../lib/theme"
-import { Input } from "../../../components/Input"
-import { Button } from "../../../components/Button"
-import { OnboardingBack } from "../../../components/OnboardingBack"
 import { useOnboarding } from "../../../components/OnboardingProvider"
 import { usePostHog } from "posthog-react-native"
 import { captureEvent } from "../../../lib/posthog"
+import { FontAwesome } from "@expo/vector-icons"
+
+// Theme 2 color palette matching new design system
+const theme2Colors = {
+  red: "#B94444",
+  yellow: "#E8A037",
+  green: "#2D6F4A",
+  blue: "#3A5F8C",
+  beige: "#E8E0D5",
+  cream: "#F5F0EA",
+  white: "#FFFFFF",
+  text: "#000000",
+  textSecondary: "#404040",
+  onboardingPink: "#D97393", // Pink for onboarding CTAs
+}
 
 export default function CreateGroupNameType() {
   const router = useRouter()
@@ -18,8 +30,9 @@ export default function CreateGroupNameType() {
   const { setGroupName, setGroupType, setEnableNSFW, data } = useOnboarding()
   const [groupName, setLocalGroupName] = useState(data.groupName || "")
   const [groupType, setLocalGroupType] = useState<"family" | "friends">(data.groupType || "family")
+  const [groupNameFocused, setGroupNameFocused] = useState(false)
   const scrollViewRef = useRef<ScrollView>(null)
-  const inputRef = useRef<any>(null)
+  const inputRef = useRef<TextInput>(null)
 
   const posthog = usePostHog()
 
@@ -70,9 +83,6 @@ export default function CreateGroupNameType() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={0}
     >
-      <View style={styles.topBar}>
-        <OnboardingBack color={colors.black} />
-      </View>
       <ScrollView 
         ref={scrollViewRef}
         style={styles.scrollView} 
@@ -85,55 +95,80 @@ export default function CreateGroupNameType() {
           }, 100)
         }}
       >
+        <View style={styles.topBar}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => router.back()}
+            activeOpacity={0.8}
+          >
+            <FontAwesome name="angle-left" size={18} color={theme2Colors.text} />
+          </TouchableOpacity>
+        </View>
+
         <View style={styles.header}>
           <Text style={styles.title}>Create Your Group</Text>
         </View>
 
         <View style={styles.form}>
           <Text style={styles.prompt}>What should we call you guys?</Text>
-          <Input
-            ref={inputRef}
-            value={groupName}
-            onChangeText={setLocalGroupName}
-            placeholder="Group name"
-            autoCapitalize="words"
-            autoFocus={true}
-            placeholderTextColor={colors.gray[400]}
-            style={styles.inlineInput}
-            onFocus={() => {
-              // Scroll up when keyboard opens
-              setTimeout(() => {
-                scrollViewRef.current?.scrollTo({ y: 100, animated: true })
-              }, 100)
-            }}
-          />
+          <View style={styles.fieldGroup}>
+            <TextInput
+              ref={inputRef}
+              value={groupName}
+              onChangeText={setLocalGroupName}
+              placeholder="Group name"
+              autoCapitalize="words"
+              autoFocus={true}
+              placeholderTextColor={theme2Colors.textSecondary}
+              style={[
+                styles.fieldInput,
+                groupNameFocused && styles.fieldInputFocused,
+              ]}
+              onFocus={() => {
+                setGroupNameFocused(true)
+                // Scroll up when keyboard opens
+                setTimeout(() => {
+                  scrollViewRef.current?.scrollTo({ y: 100, animated: true })
+                }, 100)
+              }}
+              onBlur={() => setGroupNameFocused(false)}
+            />
+          </View>
 
-        <Text style={styles.label}>Who's in this group?</Text>
-        <View style={styles.typeContainer}>
+          <Text style={styles.label}>Who's in this group?</Text>
+          <View style={styles.typeContainer}>
+            <TouchableOpacity
+              style={[styles.typeButton, groupType === "family" && styles.typeButtonActive]}
+              onPress={() => handleGroupTypeChange("family")}
+            >
+              <Text style={[styles.typeText, groupType === "family" && styles.typeTextActive]}>Family</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.typeButton, groupType === "friends" && styles.typeButtonActive]}
+              onPress={() => handleGroupTypeChange("friends")}
+            >
+              <Text style={[styles.typeText, groupType === "friends" && styles.typeTextActive]}>Friends</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.buttonContainer}>
           <TouchableOpacity
-            style={[styles.typeButton, groupType === "family" && styles.typeButtonActive]}
-            onPress={() => handleGroupTypeChange("family")}
+            style={styles.ctaButton}
+            onPress={handleContinue}
+            activeOpacity={0.8}
           >
-            <Text style={[styles.typeText, groupType === "family" && styles.typeTextActive]}>Family</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.typeButton, groupType === "friends" && styles.typeButtonActive]}
-            onPress={() => handleGroupTypeChange("friends")}
-          >
-            <Text style={[styles.typeText, groupType === "friends" && styles.typeTextActive]}>Friends</Text>
+            <Text style={styles.ctaButtonText}>→</Text>
+            <View style={styles.buttonTexture} pointerEvents="none">
+              <Image
+                source={require("../../../assets/images/texture.png")}
+                style={styles.textureImage}
+                resizeMode="cover"
+              />
+            </View>
           </TouchableOpacity>
         </View>
-      </View>
-
-      <View style={styles.buttonContainer}>
-        <Button
-          title="→"
-          onPress={handleContinue}
-          style={styles.button}
-          textStyle={styles.buttonText}
-        />
-      </View>
-    </ScrollView>
+      </ScrollView>
     </KeyboardAvoidingView>
   )
 }
@@ -141,13 +176,7 @@ export default function CreateGroupNameType() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.white,
-  },
-  topBar: {
-    position: "absolute",
-    top: spacing.xxl,
-    left: spacing.lg,
-    zIndex: 1,
+    backgroundColor: theme2Colors.beige,
   },
   scrollView: {
     flex: 1,
@@ -155,42 +184,68 @@ const styles = StyleSheet.create({
   content: {
     padding: spacing.lg,
     paddingTop: spacing.xxl * 2,
+    paddingBottom: spacing.xxl * 4,
+  },
+  topBar: {
+    marginBottom: spacing.lg,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme2Colors.white,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   header: {
     marginBottom: spacing.xl,
   },
   title: {
-    fontFamily: "LibreBaskerville-Bold",
-    fontSize: 32,
-    color: colors.black,
+    fontFamily: "PMGothicLudington-Text115",
+    fontSize: 40,
+    lineHeight: 48,
+    color: theme2Colors.text,
   },
   form: {
-    marginBottom: spacing.xxl,
+    marginBottom: spacing.lg,
   },
   prompt: {
     fontFamily: "Roboto-Regular",
-    fontSize: 16,
-    color: colors.black,
-    marginBottom: spacing.xs,
+    fontSize: 18,
+    lineHeight: 26,
+    color: theme2Colors.text,
+    marginBottom: spacing.md,
   },
-  inlineInput: {
-    backgroundColor: "transparent",
-    borderWidth: 0,
-    paddingHorizontal: 0,
-    paddingVertical: spacing.xs,
-    minHeight: undefined,
-    height: undefined,
-    fontFamily: "LibreBaskerville-Regular",
-    fontSize: 26,
-    lineHeight: 32,
-    color: colors.black,
+  fieldGroup: {
     marginBottom: spacing.xl,
-    marginTop: spacing.md,
+  },
+  fieldInput: {
+    fontFamily: "Roboto-Regular",
+    fontSize: 16,
+    color: theme2Colors.text,
+    backgroundColor: theme2Colors.cream,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: theme2Colors.textSecondary,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+  },
+  fieldInputFocused: {
+    borderColor: theme2Colors.blue,
   },
   label: {
-    fontFamily: "Roboto-Medium",
-    fontSize: 16,
-    color: colors.black,
+    fontFamily: "Roboto-Regular",
+    fontSize: 18,
+    lineHeight: 26,
+    color: theme2Colors.text,
     marginBottom: spacing.md,
   },
   typeContainer: {
@@ -200,29 +255,52 @@ const styles = StyleSheet.create({
   typeButton: {
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.gray[300],
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: theme2Colors.textSecondary,
+    backgroundColor: theme2Colors.white,
   },
   typeButtonActive: {
-    backgroundColor: colors.black,
-    borderColor: colors.black,
+    backgroundColor: theme2Colors.blue,
+    borderColor: theme2Colors.blue,
   },
   typeText: {
-    fontFamily: "LibreBaskerville-Regular",
-    fontSize: 20,
-    color: colors.gray[500],
+    fontFamily: "Roboto-Bold",
+    fontSize: 18,
+    color: theme2Colors.textSecondary,
   },
   typeTextActive: {
-    color: colors.white,
+    color: theme2Colors.white,
   },
   buttonContainer: {
     alignItems: "flex-end",
+    marginTop: spacing.md,
   },
-  button: {
+  ctaButton: {
     width: 100,
     height: 60,
+    backgroundColor: theme2Colors.onboardingPink,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: theme2Colors.blue,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
-  buttonText: {
+  ctaButtonText: {
+    fontFamily: "Roboto-Bold",
     fontSize: 32,
+    color: theme2Colors.white,
+    zIndex: 2,
+  },
+  buttonTexture: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.3,
+    zIndex: 1,
+  },
+  textureImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: "100%",
+    height: "100%",
   },
 })

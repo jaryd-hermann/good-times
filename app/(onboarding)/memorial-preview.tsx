@@ -1,15 +1,29 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Alert, Dimensions, ImageBackground, StyleSheet, Text, TouchableOpacity, View } from "react-native"
+import { Alert, Dimensions, StyleSheet, Text, TouchableOpacity, View, Image, ScrollView } from "react-native"
 import { useLocalSearchParams, useRouter } from "expo-router"
 import { colors, typography, spacing } from "../../lib/theme"
-import { Button } from "../../components/Button"
-import { OnboardingBack } from "../../components/OnboardingBack"
 import { useOnboarding } from "../../components/OnboardingProvider"
 import { createGroupFromOnboarding } from "../../lib/onboarding-actions"
 import { usePostHog } from "posthog-react-native"
 import { captureEvent } from "../../lib/posthog"
+import { FontAwesome } from "@expo/vector-icons"
+
+// Theme 2 color palette matching new design system
+const theme2Colors = {
+  red: "#B94444",
+  yellow: "#E8A037",
+  green: "#2D6F4A",
+  blue: "#3A5F8C",
+  beige: "#E8E0D5",
+  cream: "#F5F0EA",
+  white: "#FFFFFF",
+  text: "#000000",
+  textSecondary: "#404040",
+  onboardingPink: "#D97393", // Pink for onboarding CTAs
+  darkBackground: "#1A1A1C", // Dark background for memorial screen
+}
 
 const { width, height } = Dimensions.get("window")
 
@@ -69,74 +83,88 @@ export default function MemorialPreview() {
     router.push("/(onboarding)/about")
   }
 
-  const card = (
-    <>
-      <View style={styles.topBar}>
-        <OnboardingBack />
-        <TouchableOpacity
-          disabled={creating}
-          onPress={() => {
-            // Save current memorial to the list before adding another
-            if (data.memorialName && data.memorialName.trim()) {
-              addMemorial({
-                name: data.memorialName,
-                photo: data.memorialPhoto,
-              })
-            } else {
-              clearCurrentMemorial()
-            }
-            router.push({
-              pathname: "/(onboarding)/memorial-input",
-              params: mode ? { mode } : undefined,
-            })
-          }}
-        >
-          <Text style={[styles.secondaryLink, creating && styles.secondaryLinkDisabled]}>Remember someone else</Text>
-        </TouchableOpacity>
-      </View>
-      <View style={styles.content}>
-        <View style={styles.textContainer}>
-          <View style={styles.floatingCard}>
+  return (
+    <View style={styles.container}>
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={[
+          styles.scrollContent,
+          !hasPhoto && styles.scrollContentNoPhoto,
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Top Section - Image */}
+        {hasPhoto && (
+          <View style={styles.imageContainer}>
+            <View style={styles.imageWrapper}>
+              <Image
+                source={{ uri: data.memorialPhoto! }}
+                style={styles.image}
+                resizeMode="cover"
+              />
+            </View>
+          </View>
+        )}
+
+        {/* Bottom Section - Content */}
+        <View style={[styles.content, !hasPhoto && styles.contentNoPhoto]}>
+          {/* Text Content */}
+          <View style={styles.textContainer}>
             <Text style={styles.title}>
               {data.memorialName ? `Good Times, with ${data.memorialName}` : "Good Times"}
             </Text>
             <Text style={styles.body}>
-              Each week, you'll get a question to share a memory, story, or thought about {data.memorialName}. We'll add everyone's share to your group's history for you all to easily look back on.
+              Each week, you'll all get a question about {data.memorialName}. We'll add your answers to your searchable history for you all to easily look back on.
             </Text>
+            <TouchableOpacity
+              disabled={creating}
+              onPress={() => {
+                // Save current memorial to the list before adding another
+                if (data.memorialName && data.memorialName.trim()) {
+                  addMemorial({
+                    name: data.memorialName,
+                    photo: data.memorialPhoto,
+                  })
+                } else {
+                  clearCurrentMemorial()
+                }
+                router.push({
+                  pathname: "/(onboarding)/memorial-input",
+                  params: mode ? { mode } : undefined,
+                })
+              }}
+            >
+              <Text style={[styles.secondaryLink, creating && styles.secondaryLinkDisabled]}>Remember someone else</Text>
+            </TouchableOpacity>
           </View>
-        </View>
 
-        <View style={styles.bottomContainer}>
-          <View style={styles.buttonContainer}>
-            <Button
-              title="→"
+          {/* Bottom Container */}
+          <View style={styles.bottomContainer}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => router.back()}
+              activeOpacity={0.8}
+            >
+              <FontAwesome name="angle-left" size={18} color={theme2Colors.white} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.ctaButton}
               onPress={handleContinue}
-              style={styles.button}
-              textStyle={styles.buttonText}
-              loading={creating}
-            />
+              activeOpacity={0.8}
+              disabled={creating}
+            >
+              <Text style={styles.ctaButtonText}>→</Text>
+              <View style={styles.buttonTexture} pointerEvents="none">
+                <Image
+                  source={require("../../assets/images/texture.png")}
+                  style={styles.textureImage}
+                  resizeMode="cover"
+                />
+              </View>
+            </TouchableOpacity>
           </View>
         </View>
-      </View>
-    </>
-  )
-
-  if (hasPhoto) {
-    return (
-      <ImageBackground
-        source={{ uri: data.memorialPhoto! }}
-        style={styles.container}
-        resizeMode="cover"
-      >
-        <View style={styles.overlay} />
-        {card}
-      </ImageBackground>
-    )
-  }
-
-  return (
-    <View style={[styles.container, styles.noPhoto]}>
-      {card}
+      </ScrollView>
     </View>
   )
 }
@@ -144,72 +172,114 @@ export default function MemorialPreview() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    width,
-    height,
+    backgroundColor: theme2Colors.darkBackground,
   },
-  noPhoto: {
-    backgroundColor: colors.black,
-  },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
-  },
-  topBar: {
-    position: "absolute",
-    top: spacing.xxl,
-    left: spacing.lg,
-    right: spacing.lg,
-    zIndex: 1,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  content: {
+  scrollView: {
     flex: 1,
-    justifyContent: "space-between",
+  },
+  scrollContent: {
+    flexGrow: 1,
+  },
+  scrollContentNoPhoto: {
+    justifyContent: "flex-end",
+    minHeight: "100%",
+    paddingBottom: 0,
+  },
+  imageContainer: {
     padding: spacing.lg,
     paddingTop: spacing.xxl * 2,
-    paddingBottom: spacing.xxl * 2,
+    paddingBottom: spacing.lg,
+    justifyContent: "flex-start",
+    alignItems: "center",
   },
-  textContainer: {
+  imageWrapper: {
+    width: "100%",
+    aspectRatio: 1,
+    borderRadius: 20,
+    overflow: "hidden",
+    backgroundColor: theme2Colors.darkBackground,
+    borderWidth: 2,
+    borderColor: theme2Colors.white,
+  },
+  image: {
+    width: "100%",
+    height: "100%",
+  },
+  content: {
+    padding: spacing.lg,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.xxl * 4,
+    backgroundColor: theme2Colors.darkBackground,
+  },
+  contentNoPhoto: {
     flex: 1,
     justifyContent: "flex-end",
-    paddingBottom: spacing.xxl,
+    alignItems: "flex-start",
+    paddingBottom: spacing.xxl * 2,
   },
-  floatingCard: {
-    gap: spacing.md,
-    maxWidth: 420,
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "transparent",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  textContainer: {
+    marginBottom: spacing.lg,
   },
   title: {
-    ...typography.h1,
-    fontSize: 32,
-    marginBottom: spacing.sm,
+    fontFamily: "PMGothicLudington-Text115",
+    fontSize: 40,
+    lineHeight: 48,
+    color: theme2Colors.white,
+    marginBottom: spacing.lg,
   },
   body: {
-    ...typography.body,
+    fontFamily: "Roboto-Regular",
     fontSize: 16,
     lineHeight: 24,
-    color: colors.white,
+    color: theme2Colors.white,
+    marginBottom: spacing.md,
   },
   bottomContainer: {
     flexDirection: "row",
-    justifyContent: "flex-end",
-    alignItems: "flex-end",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: spacing.md,
+    width: "100%",
   },
-  buttonContainer: {
-    alignItems: "flex-end",
-  },
-  button: {
+  ctaButton: {
     width: 100,
     height: 60,
+    backgroundColor: theme2Colors.onboardingPink,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: theme2Colors.blue,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
-  buttonText: {
+  ctaButtonText: {
+    fontFamily: "Roboto-Bold",
     fontSize: 32,
+    color: theme2Colors.white,
+    zIndex: 2,
+  },
+  buttonTexture: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.3,
+    zIndex: 1,
+  },
+  textureImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: "100%",
+    height: "100%",
   },
   secondaryLink: {
     fontFamily: "Roboto-Regular",
     fontSize: 16,
-    color: colors.white,
+    color: theme2Colors.white,
     textDecorationLine: "underline",
   },
   secondaryLinkDisabled: {

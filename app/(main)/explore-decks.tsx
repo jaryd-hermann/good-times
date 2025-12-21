@@ -8,12 +8,14 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
+  ImageBackground,
   Modal,
   Dimensions,
   Animated,
   Alert,
   PanResponder,
 } from "react-native"
+import { LinearGradient } from "expo-linear-gradient"
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
@@ -33,40 +35,161 @@ import { Avatar } from "../../components/Avatar"
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 const CARD_WIDTH = (SCREEN_WIDTH - spacing.md * 3) / 2 // 2 columns with spacing
 
+// Theme 2 color palette matching new design system
+const theme2Colors = {
+  red: "#B94444",
+  yellow: "#E8A037",
+  green: "#2D6F4A",
+  blue: "#3A5F8C",
+  beige: "#E8E0D5",
+  cream: "#F5F0EA",
+  white: "#FFFFFF",
+  text: "#000000",
+  textSecondary: "#404040",
+}
+
 // Helper function to get collection icon source and dimensions based on collection name
+// NOTE: Collection icons have been removed - this function is kept for potential future use
 function getCollectionIconSource(collectionName: string | undefined) {
+  // Return null since icons are no longer used
+  return null
+}
+
+// Helper function to get collection card background color and text color based on collection name
+function getCollectionCardColors(collectionName: string | undefined): { backgroundColor: string; textColor: string; descriptionColor: string } {
   if (!collectionName) {
-    return require("../../assets/images/icon-deeper.png") // Default fallback
+    return { backgroundColor: theme2Colors.red, textColor: theme2Colors.white, descriptionColor: theme2Colors.white }
   }
   
   const nameLower = collectionName.toLowerCase()
   
+  // Match colors from the image description
   if (nameLower.includes("deeper")) {
-    return require("../../assets/images/icon-deeper.png")
-  }
-  
-  if (nameLower.includes("real life routine") || nameLower.includes("routines")) {
-    return require("../../assets/images/icon-routine.png")
-  }
-  
-  if (nameLower.includes("raw truth") || nameLower.includes("truths")) {
-    return require("../../assets/images/icon-truths.png")
+    return { backgroundColor: "#B94444", textColor: theme2Colors.white, descriptionColor: theme2Colors.white } // Reddish-brown
   }
   
   if (nameLower.includes("nostalgia")) {
-    return require("../../assets/images/icon-nostalgia.png")
+    return { backgroundColor: theme2Colors.blue, textColor: theme2Colors.white, descriptionColor: theme2Colors.white } // Blue
+  }
+  
+  if (nameLower.includes("real life routine") || nameLower.includes("routines")) {
+    return { backgroundColor: theme2Colors.yellow, textColor: theme2Colors.text, descriptionColor: theme2Colors.text } // Golden-yellow
+  }
+  
+  if (nameLower.includes("raw truth") || nameLower.includes("truths")) {
+    return { backgroundColor: theme2Colors.green, textColor: theme2Colors.white, descriptionColor: theme2Colors.white } // Dark green
   }
   
   if (nameLower.includes("memorial")) {
-    return require("../../assets/images/icon-memorial.png")
+    return { backgroundColor: "#9B59B6", textColor: theme2Colors.white, descriptionColor: theme2Colors.white } // Purple
   }
   
   if (nameLower.includes("mindset") || nameLower.includes("growth")) {
-    return require("../../assets/images/icon-mindset.png")
+    return { backgroundColor: "#E91E63", textColor: theme2Colors.white, descriptionColor: theme2Colors.white } // Hot pink
   }
   
   // Default fallback
-  return require("../../assets/images/icon-deeper.png")
+  return { backgroundColor: theme2Colors.red, textColor: theme2Colors.white, descriptionColor: theme2Colors.white }
+}
+
+// Helper function to get card height - Deeper and Nostalgia are double height
+function getCollectionCardHeight(collectionName: string | undefined): number {
+  if (!collectionName) {
+    return 200
+  }
+  
+  const nameLower = collectionName.toLowerCase()
+  
+  // Deeper and Nostalgia are double height (base height is ~180, so double is ~360)
+  if (nameLower.includes("deeper") || nameLower.includes("nostalgia")) {
+    return 360
+  }
+  
+  // All other cards use standard height
+  return 180
+}
+
+// Helper function to check if collection should be on left column
+function isLeftColumnCollection(collectionName: string | undefined): boolean {
+  if (!collectionName) {
+    return false
+  }
+  
+  const nameLower = collectionName.toLowerCase()
+  return nameLower.includes("deeper") || nameLower.includes("nostalgia")
+}
+
+// Helper function to render geometric shapes for collection cards
+function renderCollectionGeometricShapes(collectionName: string | undefined) {
+  if (!collectionName) {
+    return null
+  }
+  
+  const nameLower = collectionName.toLowerCase()
+  
+  // Deeper: Two overlapping white circles
+  if (nameLower.includes("deeper")) {
+    return (
+      <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 80, overflow: "hidden" }}>
+        <View style={{ position: "absolute", bottom: -20, left: 20, width: 60, height: 60, borderRadius: 30, backgroundColor: "rgba(255, 255, 255, 0.3)" }} />
+        <View style={{ position: "absolute", bottom: -10, right: 30, width: 50, height: 50, borderRadius: 25, backgroundColor: "rgba(255, 255, 255, 0.3)" }} />
+      </View>
+    )
+  }
+  
+  // Nostalgia: Two overlapping light blue circles
+  if (nameLower.includes("nostalgia")) {
+    return (
+      <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 80, overflow: "hidden" }}>
+        <View style={{ position: "absolute", bottom: -20, left: 20, width: 60, height: 60, borderRadius: 30, backgroundColor: "rgba(173, 216, 230, 0.4)" }} />
+        <View style={{ position: "absolute", bottom: -10, right: 30, width: 50, height: 50, borderRadius: 25, backgroundColor: "rgba(173, 216, 230, 0.4)" }} />
+      </View>
+    )
+  }
+  
+  // Raw Truths: Light green mountain/wave shape
+  if (nameLower.includes("raw truth") || nameLower.includes("truths")) {
+    return (
+      <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 60, overflow: "hidden" }}>
+        <View style={{ 
+          position: "absolute", 
+          bottom: 0, 
+          left: 0, 
+          right: 0, 
+          height: 40, 
+          backgroundColor: "rgba(144, 238, 144, 0.3)",
+          borderTopLeftRadius: 20,
+          borderTopRightRadius: 20,
+        }} />
+      </View>
+    )
+  }
+  
+  // Quick Vibes: Two overlapping light brown ovals
+  if (nameLower.includes("quick") || nameLower.includes("vibes")) {
+    return (
+      <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 80, overflow: "hidden" }}>
+        <View style={{ position: "absolute", bottom: -15, left: 25, width: 70, height: 40, borderRadius: 20, backgroundColor: "rgba(210, 180, 140, 0.3)" }} />
+        <View style={{ position: "absolute", bottom: -5, right: 20, width: 60, height: 35, borderRadius: 18, backgroundColor: "rgba(210, 180, 140, 0.3)" }} />
+      </View>
+    )
+  }
+  
+  // Daily Wins: Semi-transparent light pink circle
+  if (nameLower.includes("daily") || nameLower.includes("wins")) {
+    return (
+      <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 80, overflow: "hidden" }}>
+        <View style={{ position: "absolute", bottom: -10, right: 30, width: 50, height: 50, borderRadius: 25, backgroundColor: "rgba(255, 182, 193, 0.4)" }} />
+      </View>
+    )
+  }
+  
+  // Default: Simple circle
+  return (
+    <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 60, overflow: "hidden" }}>
+      <View style={{ position: "absolute", bottom: -10, right: 20, width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255, 255, 255, 0.2)" }} />
+    </View>
+  )
 }
 
 // Helper function to get collection icon dimensions based on collection name
@@ -116,7 +239,8 @@ function getCollectionIconDimensions(collectionName: string | undefined) {
 // Helper function to get deck image source based on deck name
 function getDeckImageSource(deckName: string | undefined, iconUrl: string | undefined) {
   if (!deckName) {
-    return require("../../assets/images/deck-icon-default.png")
+    // Use icon-daily as default fallback
+    return require("../../assets/images/icon-daily.png")
   }
   
   const nameLower = deckName.toLowerCase()
@@ -195,7 +319,8 @@ function getDeckImageSource(deckName: string | undefined, iconUrl: string | unde
     return { uri: iconUrl }
   }
   
-  return require("../../assets/images/deck-icon-default.png")
+  // Use icon-daily as default fallback
+  return require("../../assets/images/icon-daily.png")
 }
 
 export default function ExploreDecks() {
@@ -240,6 +365,144 @@ export default function ExploreDecks() {
   const { opacity: tabBarOpacity } = useTabBar()
   const posthog = usePostHog()
   const queryClient = useQueryClient()
+  
+  // Modal animations
+  const featuredModalBackdropOpacity = useRef(new Animated.Value(0)).current
+  const featuredModalSlideY = useRef(new Animated.Value(300)).current
+  const matchModalBackdropOpacity = useRef(new Animated.Value(0)).current
+  const matchModalSlideY = useRef(new Animated.Value(300)).current
+  const progressModalBackdropOpacity = useRef(new Animated.Value(0)).current
+  const progressModalSlideY = useRef(new Animated.Value(300)).current
+  const helpModalBackdropOpacity = useRef(new Animated.Value(0)).current
+  const helpModalSlideY = useRef(new Animated.Value(300)).current
+
+  // Animate featured modal
+  useEffect(() => {
+    if (featuredQuestionModalVisible) {
+      Animated.parallel([
+        Animated.timing(featuredModalBackdropOpacity, {
+          toValue: 1,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+        Animated.spring(featuredModalSlideY, {
+          toValue: 0,
+          tension: 65,
+          friction: 11,
+          useNativeDriver: true,
+        }),
+      ]).start()
+    } else {
+      Animated.parallel([
+        Animated.timing(featuredModalBackdropOpacity, {
+          toValue: 0,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+        Animated.timing(featuredModalSlideY, {
+          toValue: 300,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+      ]).start()
+    }
+  }, [featuredQuestionModalVisible, featuredModalBackdropOpacity, featuredModalSlideY])
+
+  // Animate match modal
+  useEffect(() => {
+    if (matchModalVisible) {
+      Animated.parallel([
+        Animated.timing(matchModalBackdropOpacity, {
+          toValue: 1,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+        Animated.spring(matchModalSlideY, {
+          toValue: 0,
+          tension: 65,
+          friction: 11,
+          useNativeDriver: true,
+        }),
+      ]).start()
+    } else {
+      Animated.parallel([
+        Animated.timing(matchModalBackdropOpacity, {
+          toValue: 0,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+        Animated.timing(matchModalSlideY, {
+          toValue: 300,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+      ]).start()
+    }
+  }, [matchModalVisible, matchModalBackdropOpacity, matchModalSlideY])
+
+  // Animate progress modal
+  useEffect(() => {
+    if (progressCompleteModalVisible) {
+      Animated.parallel([
+        Animated.timing(progressModalBackdropOpacity, {
+          toValue: 1,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+        Animated.spring(progressModalSlideY, {
+          toValue: 0,
+          tension: 65,
+          friction: 11,
+          useNativeDriver: true,
+        }),
+      ]).start()
+    } else {
+      Animated.parallel([
+        Animated.timing(progressModalBackdropOpacity, {
+          toValue: 0,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+        Animated.timing(progressModalSlideY, {
+          toValue: 300,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+      ]).start()
+    }
+  }, [progressCompleteModalVisible, progressModalBackdropOpacity, progressModalSlideY])
+
+  // Animate help modal
+  useEffect(() => {
+    if (helpModalVisible) {
+      Animated.parallel([
+        Animated.timing(helpModalBackdropOpacity, {
+          toValue: 1,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+        Animated.spring(helpModalSlideY, {
+          toValue: 0,
+          tension: 65,
+          friction: 11,
+          useNativeDriver: true,
+        }),
+      ]).start()
+    } else {
+      Animated.parallel([
+        Animated.timing(helpModalBackdropOpacity, {
+          toValue: 0,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+        Animated.timing(helpModalSlideY, {
+          toValue: 300,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+      ]).start()
+    }
+  }, [helpModalVisible, helpModalBackdropOpacity, helpModalSlideY])
 
   // Track loaded_explore_decks event
   useEffect(() => {
@@ -1208,7 +1471,7 @@ export default function ExploreDecks() {
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
     },
     header: {
       paddingTop: spacing.sm,
@@ -1217,13 +1480,12 @@ export default function ExploreDecks() {
       flexDirection: "row",
       justifyContent: "space-between",
       alignItems: "flex-start",
-      borderBottomWidth: 1,
-      borderBottomColor: isDark ? colors.gray[800] : "#000000",
+      borderBottomWidth: 0, // Remove border
       position: "absolute",
       top: 0,
       left: 0,
       right: 0,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
       zIndex: 10,
     },
     headerLeft: {
@@ -1234,15 +1496,15 @@ export default function ExploreDecks() {
       alignItems: "center", // Center align icon with title
     },
     title: {
-      ...typography.h1,
+      fontFamily: "PMGothicLudington-Text115",
       fontSize: 32,
-      color: colors.white,
+      color: theme2Colors.text,
       marginTop: spacing.sm, // More padding above title
       marginBottom: spacing.md, // More padding below title
     },
     subtitle: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       marginBottom: spacing.md, // Reduced padding for tabs
       textAlign: "left", // Align left like title
     },
@@ -1271,26 +1533,29 @@ export default function ExploreDecks() {
       paddingVertical: spacing.xs,
       borderRadius: 20,
       borderWidth: 1,
-      borderColor: isDark ? colors.white : colors.black,
-      backgroundColor: colors.gray[900],
+      borderColor: theme2Colors.text,
+      backgroundColor: theme2Colors.beige,
     },
     tabActive: {
-      backgroundColor: isDark ? colors.white : colors.black,
+      backgroundColor: theme2Colors.yellow,
+      borderColor: theme2Colors.yellow,
     },
     tabText: {
       ...typography.body,
       fontSize: 14,
-      color: isDark ? colors.white : colors.black,
+      color: theme2Colors.text,
     },
     tabTextActive: {
-      color: isDark ? colors.black : colors.white,
+      color: theme2Colors.text,
       fontWeight: "600",
     },
     helpButton: {
       width: 32,
       height: 32,
       borderRadius: 16,
-      backgroundColor: colors.gray[800],
+      backgroundColor: theme2Colors.white,
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
       justifyContent: "center",
       alignItems: "center",
       marginTop: spacing.sm, // Match title's marginTop for alignment
@@ -1310,7 +1575,7 @@ export default function ExploreDecks() {
     carouselTitle: {
       fontFamily: "Roboto-Bold",
       fontSize: 16,
-      color: "#C7C7C7",
+      color: theme2Colors.text,
       marginBottom: spacing.md,
       fontWeight: "700",
     },
@@ -1324,12 +1589,12 @@ export default function ExploreDecks() {
     deckCard: {
       width: CARD_WIDTH, // Match collection card width
       marginRight: spacing.md,
-      backgroundColor: colors.gray[900],
+      backgroundColor: theme2Colors.cream, // Changed from white to cream
       borderRadius: 12,
       padding: spacing.md,
       alignItems: "center", // Center content
       borderWidth: 1,
-      borderColor: colors.white,
+      borderColor: theme2Colors.text,
       justifyContent: "flex-start", // Align content to top
     },
     deckCardContent: {
@@ -1354,58 +1619,69 @@ export default function ExploreDecks() {
       paddingHorizontal: spacing.sm,
       paddingVertical: spacing.xs,
       borderRadius: 12,
-      borderWidth: 1,
+      borderWidth: 0, // Remove border for solid badges
     },
     statusBadgeVoting: {
-      borderColor: colors.accent,
+      backgroundColor: theme2Colors.yellow, // Solid yellow
     },
     statusBadgeActive: {
-      borderColor: "#4CAF50", // Green
+      backgroundColor: theme2Colors.green, // Solid green
     },
     statusBadgeFinished: {
-      borderColor: colors.gray[600],
+      backgroundColor: theme2Colors.red, // Solid red for expired
     },
     statusBadgeRejected: {
-      borderColor: colors.gray[600],
+      backgroundColor: theme2Colors.red, // Solid red for expired
     },
     statusText: {
       ...typography.caption,
       fontSize: 10,
-      color: colors.white,
+      color: theme2Colors.white, // White text on solid backgrounds
     },
     deckIcon: {
       width: 120,
       height: 120,
       borderRadius: 8,
       marginBottom: spacing.sm,
-      backgroundColor: colors.gray[700],
+      backgroundColor: "transparent",
       alignSelf: "center", // Center icon
     },
     deckName: {
       ...typography.bodyBold,
       fontSize: 16,
-      color: colors.white,
+      color: theme2Colors.text,
       marginBottom: spacing.xs,
       textAlign: "center", // Center deck name
     },
     deckStats: {
       ...typography.caption,
       fontSize: 12,
-      color: colors.gray[300],
+      color: theme2Colors.textSecondary,
       textAlign: "center", // Center align stats text
     },
     collectionsTitle: {
       fontFamily: "Roboto-Bold",
       fontSize: 16,
-      color: "#C7C7C7",
+      color: theme2Colors.text, // Changed to black
       marginBottom: spacing.md,
       fontWeight: "700",
     },
     collectionsGrid: {
       flexDirection: "row",
-      flexWrap: "wrap",
-      justifyContent: "space-between",
       paddingBottom: spacing.xl,
+    },
+    collectionsLeftColumn: {
+      width: CARD_WIDTH,
+      marginRight: spacing.md,
+    },
+    collectionsRightColumn: {
+      flex: 1,
+      flexDirection: "row",
+      flexWrap: "wrap",
+      justifyContent: "flex-start",
+    },
+    collectionCardRight: {
+      marginRight: spacing.md, // Horizontal spacing between cards (matches middle gap)
     },
     suggestDeckButton: {
       marginHorizontal: spacing.md,
@@ -1413,26 +1689,60 @@ export default function ExploreDecks() {
       marginBottom: spacing.xxl * 2,
       paddingVertical: spacing.md,
       paddingHorizontal: spacing.lg,
-      borderRadius: 0, // Square border
-      borderWidth: 1,
-      borderColor: isDark ? colors.white : colors.black,
+      borderRadius: 20, // Rounded
+      borderWidth: 2, // Thick black outline
+      borderColor: theme2Colors.text,
+      backgroundColor: theme2Colors.white,
       alignItems: "center",
       justifyContent: "center",
+      position: "relative", // For texture overlay
+      overflow: "hidden", // Clip texture
+    },
+    suggestDeckButtonTexture: {
+      ...StyleSheet.absoluteFillObject,
+      opacity: 0.3,
     },
     suggestDeckButtonText: {
       ...typography.bodyBold,
       fontSize: 16,
-      color: isDark ? colors.white : colors.black,
+      color: theme2Colors.text,
     },
     collectionCard: {
       width: CARD_WIDTH,
-      height: 220, // Fixed height for all cards
-      backgroundColor: colors.gray[900],
-      borderRadius: 12,
+      borderRadius: 20, // More rounded edges
       padding: spacing.md,
-      marginBottom: spacing.md,
+      marginBottom: spacing.md, // Equal spacing between cards
       flexDirection: "column",
       justifyContent: "space-between", // Space between content and footer
+      borderWidth: 2, // Thicker stroke
+      borderColor: theme2Colors.text,
+      position: "relative", // For geometric shapes positioning
+      overflow: "hidden", // Clip geometric shapes
+    },
+    collectionCardBevel: {
+      position: "absolute",
+      left: 0,
+      top: 0,
+      bottom: 0,
+      width: 30, // Width of bevel effect (increased for more prominence)
+      zIndex: 1,
+      pointerEvents: "none", // Allow touches to pass through
+    },
+    collectionCardTexture: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      opacity: 0.3,
+      zIndex: 2,
+      pointerEvents: "none", // Allow touches to pass through
+    },
+    collectionCardTextureImage: {
+      width: "100%",
+      height: "100%",
+      minWidth: "100%",
+      minHeight: "100%",
     },
     collectionIcon: {
       width: 70,
@@ -1443,7 +1753,7 @@ export default function ExploreDecks() {
       alignSelf: "center", // Center the icon
     },
     collectionTextContainer: {
-      alignItems: "center", // Center content horizontally
+      alignItems: "flex-start", // Left align content
       flexShrink: 0, // Don't shrink
       paddingTop: spacing.md, // More padding between top of card and icon
     },
@@ -1454,16 +1764,14 @@ export default function ExploreDecks() {
     collectionName: {
       ...typography.bodyBold,
       fontSize: 18,
-      color: colors.white,
       marginBottom: spacing.xs,
-      textAlign: "center", // Center align text
+      textAlign: "left", // Left align text
       minHeight: 22, // Fixed height for name (1 line)
     },
     collectionDescription: {
       ...typography.caption,
       fontSize: 12,
-      color: colors.gray[400],
-      textAlign: "center", // Center align text
+      textAlign: "left", // Left align text
       lineHeight: 16, // Fixed line height
       height: 32, // Fixed height for exactly 2 lines (16 * 2)
       overflow: "hidden", // Hide overflow
@@ -1478,17 +1786,16 @@ export default function ExploreDecks() {
     collectionDecksCount: {
       ...typography.caption,
       fontSize: 12,
-      color: colors.gray[300],
       flex: 1, // Take up available space
     },
     // Modal styles
     modalBackdrop: {
       flex: 1,
-      backgroundColor: "rgba(0, 0, 0, 0.85)",
+      backgroundColor: "rgba(0, 0, 0, 0.5)",
       justifyContent: "flex-end",
     },
     modalContent: {
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
       padding: spacing.lg,
@@ -1506,14 +1813,14 @@ export default function ExploreDecks() {
       zIndex: 10,
     },
     modalTitle: {
-      ...typography.h2,
+      fontFamily: "PMGothicLudington-Text115",
       fontSize: 24,
-      color: colors.white,
+      color: theme2Colors.text,
       marginBottom: spacing.md,
     },
     modalText: {
       ...typography.body,
-      color: colors.gray[300],
+      color: theme2Colors.textSecondary,
       lineHeight: 24,
       marginBottom: spacing.lg,
     },
@@ -1527,27 +1834,29 @@ export default function ExploreDecks() {
     },
     modalButtonSecondary: {
       flex: 1,
-      backgroundColor: colors.gray[800],
+      backgroundColor: theme2Colors.white,
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
       paddingVertical: spacing.md,
-      borderRadius: 0, // Square edges
+      borderRadius: 20,
       alignItems: "center",
     },
     modalButtonPrimary: {
-      backgroundColor: colors.accent,
+      backgroundColor: theme2Colors.blue,
       paddingVertical: spacing.md,
       paddingHorizontal: spacing.lg,
-      borderRadius: 0, // Square edges
+      borderRadius: 20,
       alignItems: "center",
       justifyContent: "center",
       width: "100%",
     },
     modalButtonSecondaryText: {
       ...typography.bodyBold,
-      color: colors.white,
+      color: theme2Colors.text,
     },
     modalButtonPrimaryText: {
       ...typography.bodyBold,
-      color: colors.white,
+      color: theme2Colors.white,
     },
     modalCloseButton: {
       position: "absolute",
@@ -1562,11 +1871,12 @@ export default function ExploreDecks() {
     // Featured Questions Styles
     featuredSection: {
       marginBottom: spacing.xxl + spacing.lg,
+      minHeight: 400, // Match swipeContainer minHeight for consistent empty state positioning
     },
     featuredTitle: {
       fontFamily: "Roboto-Bold",
       fontSize: 24,
-      color: colors.white,
+      color: theme2Colors.text,
       marginBottom: spacing.xs,
       textAlign: "center",
       fontWeight: "700",
@@ -1574,14 +1884,14 @@ export default function ExploreDecks() {
     featuredSubtitle: {
       ...typography.body,
       fontSize: 14,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       marginBottom: spacing.md,
       textAlign: "center",
     },
     featuredStatus: {
       ...typography.body,
       fontSize: 14,
-      color: colors.white,
+      color: theme2Colors.text,
       marginBottom: spacing.lg,
       textAlign: "center",
     },
@@ -1593,49 +1903,64 @@ export default function ExploreDecks() {
     },
     featuredCard: {
       width: SCREEN_WIDTH - spacing.md * 2, // Card width matches screen minus padding
-      backgroundColor: colors.gray[900],
-      borderRadius: 12,
+      backgroundColor: theme2Colors.cream, // Cream color like prompt cards
+      borderRadius: 20, // More rounded like prompt cards
       padding: spacing.lg,
-      paddingTop: spacing.xxl, // Extra padding at top to prevent number cropping
       marginRight: spacing.md, // Margin between cards
-      borderWidth: 1,
-      borderColor: colors.gray[700],
-      minHeight: 300,
-      overflow: "visible", // Allow number to extend if needed
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary, // Gray outline like prompt cards
+      minHeight: 200,
+      position: "relative", // For texture overlay
+      overflow: "hidden", // Clip texture
     },
-    featuredCardNumber: {
-      ...typography.h1,
-      fontSize: 48,
-      color: colors.white,
-      marginBottom: spacing.md,
-      marginTop: 0,
-      fontWeight: "700",
-      lineHeight: 56, // Ensure proper line height for large number
+    featuredCardTexture: {
+      ...StyleSheet.absoluteFillObject,
+      opacity: 0.4,
+      zIndex: 1,
+      pointerEvents: "none",
+    },
+    featuredCardContent: {
+      position: "relative",
+      zIndex: 2, // Above texture
     },
     featuredCardQuestion: {
-      ...typography.bodyBold,
-      fontSize: 20,
-      color: colors.white,
+      fontFamily: "PMGothicLudington-Text115", // Question font
+      fontSize: 22,
+      color: theme2Colors.text,
       marginBottom: spacing.md,
       lineHeight: 28,
+    },
+    featuredCardCTA: {
+      backgroundColor: theme2Colors.blue,
+      borderRadius: 25,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: spacing.sm,
+    },
+    featuredCardCTAText: {
+      ...typography.bodyBold,
+      fontSize: 16,
+      color: theme2Colors.white,
     },
     featuredCardDescription: {
       ...typography.body,
       fontSize: 14,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       marginBottom: spacing.md,
       lineHeight: 20,
     },
     featuredCardBy: {
       ...typography.caption,
       fontSize: 12,
-      color: colors.gray[500],
+      color: theme2Colors.textSecondary,
       fontStyle: "italic",
       marginTop: "auto",
     },
     featuredTag: {
       alignSelf: "flex-start",
-      backgroundColor: colors.gray[800],
+      backgroundColor: theme2Colors.textSecondary,
       paddingHorizontal: spacing.sm,
       paddingVertical: spacing.xs,
       borderRadius: 12,
@@ -1644,7 +1969,7 @@ export default function ExploreDecks() {
     featuredTagText: {
       ...typography.caption,
       fontSize: 11,
-      color: colors.gray[400],
+      color: theme2Colors.white,
     },
     paginationDots: {
       flexDirection: "row",
@@ -1657,28 +1982,28 @@ export default function ExploreDecks() {
       width: 8,
       height: 8,
       borderRadius: 4,
-      backgroundColor: colors.gray[700],
+      backgroundColor: theme2Colors.textSecondary,
     },
     paginationDotActive: {
-      backgroundColor: colors.white,
+      backgroundColor: theme2Colors.text,
     },
     askQuestionButton: {
-      backgroundColor: colors.accent,
+      backgroundColor: theme2Colors.blue,
       paddingVertical: spacing.md,
       paddingHorizontal: spacing.lg,
-      borderRadius: 0, // Square edges
+      borderRadius: 20,
       alignItems: "center",
       marginBottom: spacing.md,
       marginHorizontal: spacing.md,
     },
     askQuestionButtonDisabled: {
-      backgroundColor: colors.gray[700],
+      backgroundColor: theme2Colors.textSecondary,
       opacity: 0.5,
     },
     askQuestionButtonText: {
       ...typography.bodyBold,
       fontSize: 16,
-      color: colors.white,
+      color: theme2Colors.white,
     },
     contributeLink: {
       alignItems: "center",
@@ -1688,7 +2013,7 @@ export default function ExploreDecks() {
     contributeLinkText: {
       ...typography.body,
       fontSize: 14,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       textDecorationLine: "underline",
     },
     swipeContainer: {
@@ -1696,8 +2021,8 @@ export default function ExploreDecks() {
       justifyContent: "flex-start",
       alignItems: "center",
       paddingHorizontal: spacing.md,
-      paddingTop: spacing.xl,
-      paddingBottom: spacing.xxl,
+      paddingTop: spacing.md, // Reduced from spacing.xl to bring progress bar closer to header
+      paddingBottom: spacing.xxl * 2, // Increased to move buttons away from app nav
     },
     swipePlaceholder: {
       ...typography.body,
@@ -1705,21 +2030,35 @@ export default function ExploreDecks() {
       textAlign: "center",
     },
     swipeEmptyState: {
-      flex: 1,
+      minHeight: 400, // Ensure consistent minimum height
       justifyContent: "center",
       alignItems: "center",
       paddingVertical: spacing.xxl * 2,
+      paddingHorizontal: spacing.md,
+    },
+    emptyBlob: {
+      width: 120,
+      height: 120,
+      borderRadius: 60, // Imperfect circle - adjust for blob effect
+      backgroundColor: theme2Colors.cream,
+      marginBottom: spacing.lg,
+      // Create imperfect blob shape with varying border radius
+      borderTopLeftRadius: 50,
+      borderTopRightRadius: 70,
+      borderBottomLeftRadius: 70,
+      borderBottomRightRadius: 50,
     },
     swipeEmptyText: {
-      ...typography.h2,
-      fontSize: 20,
-      color: colors.white,
-      marginBottom: spacing.sm,
+      fontFamily: "Roboto-Regular", // Changed to Roboto
+      fontSize: 14,
+      color: theme2Colors.text,
+      marginBottom: spacing.xs,
       textAlign: "center",
     },
     swipeEmptySubtext: {
-      ...typography.body,
-      color: colors.gray[400],
+      fontFamily: "Roboto-Regular", // Changed to Roboto
+      fontSize: 14,
+      color: theme2Colors.textSecondary,
       textAlign: "center",
     },
     participantsContainer: {
@@ -1740,73 +2079,77 @@ export default function ExploreDecks() {
     participantsText: {
       ...typography.body,
       fontSize: 14,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       flex: 1,
     },
     swipeButtons: {
       flexDirection: "row",
       gap: spacing.md,
       paddingHorizontal: spacing.md,
-      marginTop: spacing.xl,
-      marginBottom: spacing.lg,
-    },
-    swipeButton: {
-      flex: 1,
-      paddingVertical: spacing.md,
-      paddingHorizontal: spacing.lg,
-      borderRadius: 0, // Square edges
-      alignItems: "center",
+      marginTop: spacing.lg, // Reduced from spacing.xl to bring buttons closer to card
+      marginBottom: spacing.xl, // Increased from spacing.lg to add more space above app nav
       justifyContent: "center",
+      alignItems: "center",
     },
-    swipeButtonNo: {
-      backgroundColor: colors.white,
-    },
-    swipeButtonYes: {
-      backgroundColor: colors.accent,
-    },
-    swipeButtonText: {
-      ...typography.bodyBold,
-      fontSize: 16,
-      color: colors.black,
-    },
-    swipeButtonYesText: {
-      color: colors.white,
+    swipeButtonIcon: {
+      width: 80,
+      height: 80,
     },
     swipeCard: {
       width: SCREEN_WIDTH - spacing.md * 2,
-      height: 306, // Reduced by 10% from 340: 340 * 0.9 = 306
-      backgroundColor: colors.gray[900],
-      borderRadius: 12,
+      height: 250, // Reduced height for swipe card
+      backgroundColor: theme2Colors.cream, // Cream color for card consistency
+      borderRadius: 20, // More rounded
       padding: spacing.lg,
-      borderWidth: 1,
-      borderColor: colors.gray[700],
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary,
       justifyContent: "center",
-      alignItems: "center",
+      alignItems: "flex-start", // Left align content
       alignSelf: "center",
+      position: "relative", // For texture overlay
+      overflow: "hidden", // Clip texture
+    },
+    swipeCardTexture: {
+      ...StyleSheet.absoluteFillObject,
+      opacity: 0.3,
     },
     swipeCardQuestion: {
-      ...typography.h2,
+      fontFamily: "PMGothicLudington-Text115",
       fontSize: 24,
-      color: colors.white,
-      textAlign: "center",
+      color: theme2Colors.text,
+      textAlign: "left", // Left align
       lineHeight: 32,
     },
     progressBarContainer: {
       width: "100%",
       paddingHorizontal: spacing.md,
-      marginBottom: spacing.lg,
+      marginBottom: spacing.md, // Reduced from spacing.lg to bring card closer to progress bar
     },
     progressBarBackground: {
       width: "100%",
       height: 4,
-      backgroundColor: colors.gray[800],
+      backgroundColor: theme2Colors.white, // White for incomplete progress
       borderRadius: 2,
-      overflow: "hidden",
+      overflow: "visible", // Changed to visible to allow star icon to show
+      position: "relative",
     },
     progressBarFill: {
       height: "100%",
-      backgroundColor: colors.white,
+      backgroundColor: "#2D6F4A", // Green when full
       borderRadius: 2,
+    },
+    progressStar: {
+      position: "absolute",
+      top: -10, // Center vertically on the progress bar (4px bar + offset for 24px icon)
+      width: 24,
+      height: 24,
+      marginLeft: -12, // Center the star on the progress line
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    progressStarImage: {
+      width: 24,
+      height: 24,
     },
   })
 
@@ -1874,16 +2217,16 @@ export default function ExploreDecks() {
           
           {/* Show subtitle */}
           <Text style={styles.subtitle}>
-            {activeTab === "decks" && "Explore themes of questions you can add for your group to answer."}
-            {activeTab === "featured" && "Ask a single question to your group"}
-            {activeTab === "matches" && "Help us understand your group and set your vibe by swiping on some sample questions."}
+            {activeTab === "decks" && "Explore theme of questions you can vote on for you all to answer."}
+            {activeTab === "featured" && "See a question you like? Ask it to everyone. Max 2 a week."}
+            {activeTab === "matches" && "Help us understand your vibe by swiping on some example questions."}
           </Text>
         </View>
         <View style={styles.headerRight}>
           <TouchableOpacity
             onPress={() => setHelpModalVisible(true)}
           >
-            <FontAwesome name="question-circle" size={18} color={colors.white} />
+            <FontAwesome name="question-circle" size={18} color={theme2Colors.text} />
           </TouchableOpacity>
         </View>
       </Animated.View>
@@ -1991,40 +2334,128 @@ export default function ExploreDecks() {
         )}
 
             {/* Collections grid */}
-            <Text style={styles.collectionsTitle}>Collections</Text>
+            <Text style={styles.collectionsTitle}>What interests you?</Text>
             <View style={styles.collectionsGrid}>
-              {collections.map((collection) => (
-                <TouchableOpacity
-                  key={collection.id}
-                  style={styles.collectionCard}
-                  onPress={() => router.push(`/(main)/collection-detail?collectionId=${collection.id}&groupId=${currentGroupId}`)}
-                >
-                  <View style={styles.collectionTextContainer}>
-                    <Image 
-                      source={getCollectionIconSource(collection.name)} 
-                      style={[
-                        styles.collectionNameIcon,
-                        getCollectionIconDimensions(collection.name)
-                      ]}
-                      resizeMode="contain"
-                    />
-                    <Text style={styles.collectionName}>{collection.name}</Text>
-                    <Text style={styles.collectionDescription} numberOfLines={2}>
-                      {collection.description || ""}
-                    </Text>
-                  </View>
-                  <View style={styles.collectionFooter}>
-                    <Text style={styles.collectionDecksCount}>
-                      {collectionDeckCounts[collection.id] || 0} unused {collectionDeckCounts[collection.id] === 1 ? 'deck' : 'decks'}
-                    </Text>
-                    <FontAwesome
-                      name="chevron-right"
-                      size={12}
-                      color={colors.gray[400]}
-                    />
-                  </View>
-                </TouchableOpacity>
-              ))}
+              {/* Left Column - Deeper and Nostalgia (double height) */}
+              <View style={styles.collectionsLeftColumn}>
+                {collections
+                  .filter((collection) => isLeftColumnCollection(collection.name))
+                  .map((collection) => {
+                    const cardColors = getCollectionCardColors(collection.name)
+                    const cardHeight = getCollectionCardHeight(collection.name)
+                    return (
+                      <TouchableOpacity
+                        key={collection.id}
+                        style={[
+                          styles.collectionCard, 
+                          { 
+                            backgroundColor: cardColors.backgroundColor,
+                            height: cardHeight,
+                          }
+                        ]}
+                        onPress={() => router.push(`/(main)/collection-detail?collectionId=${collection.id}&groupId=${currentGroupId}`)}
+                      >
+                        {/* Texture overlay */}
+                        <View style={styles.collectionCardTexture}>
+                          <Image 
+                            source={require("../../assets/images/texture.png")} 
+                            style={styles.collectionCardTextureImage}
+                            resizeMode="cover"
+                          />
+                        </View>
+                        
+                        {/* Bevel effect - gray opacity on left side */}
+                        <LinearGradient
+                          colors={["rgba(0, 0, 0, 0.3)", "rgba(0, 0, 0, 0.1)", "rgba(0, 0, 0, 0)"]}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                          style={styles.collectionCardBevel}
+                        />
+                        
+                        {/* Geometric shapes background */}
+                        {renderCollectionGeometricShapes(collection.name)}
+                        
+                        <View style={styles.collectionTextContainer}>
+                          <Text style={[styles.collectionName, { color: cardColors.textColor }]}>{collection.name}</Text>
+                          <Text style={[styles.collectionDescription, { color: cardColors.descriptionColor }]} numberOfLines={2}>
+                            {collection.description || ""}
+                          </Text>
+                        </View>
+                        <View style={styles.collectionFooter}>
+                          <Text style={[styles.collectionDecksCount, { color: cardColors.textColor }]}>
+                            {collectionDeckCounts[collection.id] || 0} unused {collectionDeckCounts[collection.id] === 1 ? 'deck' : 'decks'}
+                          </Text>
+                          <FontAwesome
+                            name="chevron-right"
+                            size={12}
+                            color={cardColors.textColor}
+                          />
+                        </View>
+                      </TouchableOpacity>
+                    )
+                  })}
+              </View>
+              
+              {/* Right Column - All other collections */}
+              <View style={styles.collectionsRightColumn}>
+                {collections
+                  .filter((collection) => !isLeftColumnCollection(collection.name))
+                  .map((collection) => {
+                    const cardColors = getCollectionCardColors(collection.name)
+                    const cardHeight = getCollectionCardHeight(collection.name)
+                    return (
+                      <TouchableOpacity
+                        key={collection.id}
+                        style={[
+                          styles.collectionCard,
+                          styles.collectionCardRight,
+                          { 
+                            backgroundColor: cardColors.backgroundColor,
+                            height: cardHeight,
+                          }
+                        ]}
+                        onPress={() => router.push(`/(main)/collection-detail?collectionId=${collection.id}&groupId=${currentGroupId}`)}
+                      >
+                        {/* Texture overlay */}
+                        <View style={styles.collectionCardTexture}>
+                          <Image 
+                            source={require("../../assets/images/texture.png")} 
+                            style={styles.collectionCardTextureImage}
+                            resizeMode="cover"
+                          />
+                        </View>
+                        
+                        {/* Bevel effect - gray opacity on left side */}
+                        <LinearGradient
+                          colors={["rgba(0, 0, 0, 0.3)", "rgba(0, 0, 0, 0.1)", "rgba(0, 0, 0, 0)"]}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                          style={styles.collectionCardBevel}
+                        />
+                        
+                        {/* Geometric shapes background */}
+                        {renderCollectionGeometricShapes(collection.name)}
+                        
+                        <View style={styles.collectionTextContainer}>
+                          <Text style={[styles.collectionName, { color: cardColors.textColor }]}>{collection.name}</Text>
+                          <Text style={[styles.collectionDescription, { color: cardColors.descriptionColor }]} numberOfLines={2}>
+                            {collection.description || ""}
+                          </Text>
+                        </View>
+                        <View style={styles.collectionFooter}>
+                          <Text style={[styles.collectionDecksCount, { color: cardColors.textColor }]}>
+                            {collectionDeckCounts[collection.id] || 0} unused {collectionDeckCounts[collection.id] === 1 ? 'deck' : 'decks'}
+                          </Text>
+                          <FontAwesome
+                            name="chevron-right"
+                            size={12}
+                            color={cardColors.textColor}
+                          />
+                        </View>
+                      </TouchableOpacity>
+                    )
+                  })}
+              </View>
             </View>
 
             {/* Suggest a deck button */}
@@ -2032,6 +2463,11 @@ export default function ExploreDecks() {
               style={styles.suggestDeckButton}
               onPress={() => router.push(`/(main)/modals/suggest-deck?groupId=${currentGroupId}&returnTo=/(main)/explore-decks`)}
             >
+              <Image 
+                source={require("../../assets/images/texture.png")} 
+                style={styles.suggestDeckButtonTexture}
+                resizeMode="cover"
+              />
               <Text style={styles.suggestDeckButtonText}>Suggest a deck</Text>
             </TouchableOpacity>
           </>
@@ -2053,8 +2489,8 @@ export default function ExploreDecks() {
               // CRITICAL: Only show empty state if query has completed and confirmed no prompts
               // This prevents showing empty state prematurely when data is still loading
               <View style={styles.swipeEmptyState}>
-                <Text style={styles.swipeEmptyText}>No featured questions this week</Text>
-                <Text style={styles.swipeEmptySubtext}>Check back next week for new featured questions!</Text>
+                <View style={styles.emptyBlob} />
+                <Text style={styles.swipeEmptyText}>Nothing here right now.{"\n"}Come back later</Text>
               </View>
             ) : (
               <>
@@ -2119,21 +2555,42 @@ export default function ExploreDecks() {
                     disabled={isDisabled}
                     activeOpacity={isDisabled ? 1 : 0.7}
                   >
-                    <Text style={styles.featuredCardNumber}>{prompt.display_order}</Text>
-                    <Text style={styles.featuredCardQuestion}>{prompt.question}</Text>
-                    {prompt.description && (
-                      <Text style={styles.featuredCardDescription} numberOfLines={4}>
-                        {prompt.description}
-                      </Text>
-                    )}
-                    {prompt.suggested_by && (
-                      <Text style={styles.featuredCardBy}>By {prompt.suggested_by}</Text>
-                    )}
-                    {isInQueue && (
-                      <View style={styles.featuredTag}>
-                        <Text style={styles.featuredTagText}>Someone is asking this already</Text>
-                      </View>
-                    )}
+                    {/* Texture overlay */}
+                    <View style={styles.featuredCardTexture}>
+                      <Image 
+                        source={require("../../assets/images/texture.png")} 
+                        style={StyleSheet.absoluteFillObject}
+                        resizeMode="cover"
+                      />
+                    </View>
+                    
+                    <View style={styles.featuredCardContent}>
+                      <Text style={styles.featuredCardQuestion}>{prompt.question}</Text>
+                      {prompt.description && (
+                        <Text style={styles.featuredCardDescription} numberOfLines={3}>
+                          {prompt.description}
+                        </Text>
+                      )}
+                      {prompt.suggested_by && (
+                        <Text style={styles.featuredCardBy}>By {prompt.suggested_by}</Text>
+                      )}
+                      {isInQueue && (
+                        <View style={styles.featuredTag}>
+                          <Text style={styles.featuredTagText}>Someone is asking this already</Text>
+                        </View>
+                      )}
+                      {!isDisabled && (
+                        <TouchableOpacity
+                          style={styles.featuredCardCTA}
+                          onPress={() => {
+                            setSelectedFeaturedPrompt(prompt)
+                            setFeaturedQuestionModalVisible(true)
+                          }}
+                        >
+                          <Text style={styles.featuredCardCTAText}>Ask this question</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
                   </TouchableOpacity>
                 )
               })}
@@ -2153,32 +2610,6 @@ export default function ExploreDecks() {
                 ))}
               </View>
             )}
-            
-            {/* Ask this question button */}
-            {featuredPrompts.length > 0 && (() => {
-              const currentPrompt = featuredPrompts[featuredQuestionCarouselIndex]
-              const currentIsDisabled = currentPrompt 
-                ? (featuredPromptsInQueue.includes(currentPrompt.id) || featuredQuestionCount >= 2)
-                : true
-              
-              return (
-                <TouchableOpacity
-                  style={[
-                    styles.askQuestionButton,
-                    currentIsDisabled && styles.askQuestionButtonDisabled,
-                  ]}
-                  onPress={() => {
-                    if (currentPrompt && !currentIsDisabled) {
-                      setSelectedFeaturedPrompt(currentPrompt)
-                      setFeaturedQuestionModalVisible(true)
-                    }
-                  }}
-                  disabled={currentIsDisabled}
-                >
-                  <Text style={styles.askQuestionButtonText}>Ask this question</Text>
-                </TouchableOpacity>
-              )
-            })()}
             
             {/* Contribute a question link */}
             <TouchableOpacity
@@ -2201,8 +2632,8 @@ export default function ExploreDecks() {
               </View>
             ) : swipeableQuestionsData.length === 0 ? (
               <View style={styles.swipeEmptyState}>
-                <Text style={styles.swipeEmptyText}>No questions available to swipe</Text>
-                <Text style={styles.swipeEmptySubtext}>Check back later for more questions!</Text>
+                <View style={styles.emptyBlob} />
+                <Text style={styles.swipeEmptyText}>Nothing here right now.{"\n"}Come back later</Text>
               </View>
             ) : (
               <>
@@ -2221,6 +2652,24 @@ export default function ExploreDecks() {
                           },
                         ]}
                       />
+                      {/* Star icon at current progress position */}
+                      <Animated.View
+                        style={[
+                          styles.progressStar,
+                          {
+                            left: progressBarWidth.interpolate({
+                              inputRange: [0, 100],
+                              outputRange: ["0%", "100%"],
+                            }),
+                          },
+                        ]}
+                      >
+                        <Image
+                          source={require("../../assets/images/star.png")}
+                          style={styles.progressStarImage}
+                          resizeMode="contain"
+                        />
+                      </Animated.View>
                     </View>
                   </View>
                 )}
@@ -2246,26 +2695,39 @@ export default function ExploreDecks() {
                     ]}
                     {...panResponder.panHandlers}
                   >
+                    <Image 
+                      source={require("../../assets/images/texture.png")} 
+                      style={styles.swipeCardTexture}
+                      resizeMode="cover"
+                    />
                     <Text style={styles.swipeCardQuestion}>
                       {swipeableQuestionsData[currentQuestionIndex].question}
                     </Text>
                   </Animated.View>
                 )}
 
-                {/* Yes/No Buttons */}
+                {/* Yes/No Icons */}
                 {currentQuestionIndex < swipeableQuestionsData.length && currentGroupId && userId && (
                   <View style={styles.swipeButtons}>
                     <TouchableOpacity
-                      style={[styles.swipeButton, styles.swipeButtonNo]}
                       onPress={() => handleSwipe("no")}
+                      activeOpacity={0.7}
                     >
-                      <Text style={styles.swipeButtonText}>No</Text>
+                      <Image 
+                        source={require("../../assets/images/No.png")} 
+                        style={styles.swipeButtonIcon}
+                        resizeMode="contain"
+                      />
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[styles.swipeButton, styles.swipeButtonYes]}
                       onPress={() => handleSwipe("yes")}
+                      activeOpacity={0.7}
                     >
-                      <Text style={[styles.swipeButtonText, styles.swipeButtonYesText]}>Yes</Text>
+                      <Image 
+                        source={require("../../assets/images/Yes.png")} 
+                        style={styles.swipeButtonIcon}
+                        resizeMode="contain"
+                      />
                     </TouchableOpacity>
                   </View>
                 )}
@@ -2279,17 +2741,28 @@ export default function ExploreDecks() {
       {/* Featured Question Confirmation Modal */}
       <Modal
         transparent
-        animationType="slide"
+        animationType="none"
         visible={featuredQuestionModalVisible}
         onRequestClose={() => setFeaturedQuestionModalVisible(false)}
       >
-        <TouchableOpacity
-          style={styles.modalBackdrop}
-          activeOpacity={1}
-          onPress={() => setFeaturedQuestionModalVisible(false)}
+        <Animated.View
+          style={[
+            styles.modalBackdrop,
+            { opacity: featuredModalBackdropOpacity },
+          ]}
         >
-          <View
-            style={styles.modalContent}
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setFeaturedQuestionModalVisible(false)}
+          />
+          <Animated.View
+            style={[
+              styles.modalContent,
+              {
+                transform: [{ translateY: featuredModalSlideY }],
+              },
+            ]}
             onStartShouldSetResponder={() => true}
           >
             <Text style={styles.modalTitle}>Add Featured Question</Text>
@@ -2338,24 +2811,36 @@ export default function ExploreDecks() {
                 </View>
               </>
             )}
-          </View>
-        </TouchableOpacity>
+          </Animated.View>
+        </Animated.View>
       </Modal>
 
       {/* Match Modal - Toaster from bottom */}
       <Modal
         transparent
-        animationType="slide"
+        animationType="none"
         visible={matchModalVisible}
         onRequestClose={() => setMatchModalVisible(false)}
       >
-        <TouchableOpacity
-          style={styles.modalBackdrop}
-          activeOpacity={1}
-          onPress={() => setMatchModalVisible(false)}
+        <Animated.View
+          style={[
+            styles.modalBackdrop,
+            { opacity: matchModalBackdropOpacity },
+          ]}
         >
-          <View
-            style={[styles.modalContent, { marginBottom: insets.bottom + spacing.lg }]}
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setMatchModalVisible(false)}
+          />
+          <Animated.View
+            style={[
+              styles.modalContent,
+              { marginBottom: insets.bottom + spacing.lg },
+              {
+                transform: [{ translateY: matchModalSlideY }],
+              },
+            ]}
             onStartShouldSetResponder={() => true}
           >
             <Text style={styles.modalTitle}>Match!</Text>
@@ -2370,24 +2855,36 @@ export default function ExploreDecks() {
             >
               <Text style={styles.modalButtonPrimaryText}>Got it</Text>
             </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
+          </Animated.View>
+        </Animated.View>
       </Modal>
 
       {/* Progress Complete Modal - Toaster from bottom */}
       <Modal
         transparent
-        animationType="slide"
+        animationType="none"
         visible={progressCompleteModalVisible}
         onRequestClose={() => setProgressCompleteModalVisible(false)}
       >
-        <TouchableOpacity
-          style={styles.modalBackdrop}
-          activeOpacity={1}
-          onPress={() => setProgressCompleteModalVisible(false)}
+        <Animated.View
+          style={[
+            styles.modalBackdrop,
+            { opacity: progressModalBackdropOpacity },
+          ]}
         >
-          <View
-            style={[styles.modalContent, { paddingBottom: insets.bottom + spacing.lg }]}
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setProgressCompleteModalVisible(false)}
+          />
+          <Animated.View
+            style={[
+              styles.modalContent,
+              { paddingBottom: insets.bottom + spacing.lg },
+              {
+                transform: [{ translateY: progressModalSlideY }],
+              },
+            ]}
             onStartShouldSetResponder={() => true}
           >
             {/* Close button */}
@@ -2410,24 +2907,35 @@ export default function ExploreDecks() {
             >
               <Text style={styles.modalButtonPrimaryText}>Happy to help</Text>
             </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
+          </Animated.View>
+        </Animated.View>
       </Modal>
 
       {/* Help Modal */}
       <Modal
         transparent
-        animationType="slide"
+        animationType="none"
         visible={helpModalVisible}
         onRequestClose={() => setHelpModalVisible(false)}
       >
-        <TouchableOpacity
-          style={styles.modalBackdrop}
-          activeOpacity={1}
-          onPress={() => setHelpModalVisible(false)}
+        <Animated.View
+          style={[
+            styles.modalBackdrop,
+            { opacity: helpModalBackdropOpacity },
+          ]}
         >
-          <View
-            style={styles.modalContent}
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setHelpModalVisible(false)}
+          />
+          <Animated.View
+            style={[
+              styles.modalContent,
+              {
+                transform: [{ translateY: helpModalSlideY }],
+              },
+            ]}
             onStartShouldSetResponder={() => true}
           >
             {activeTab === "decks" && (
@@ -2464,10 +2972,10 @@ export default function ExploreDecks() {
               onPress={() => setHelpModalVisible(false)}
               style={styles.modalButton}
             >
-              <Text style={{ ...typography.bodyBold, color: colors.white, textAlign: "center" }}>Got it</Text>
+              <Text style={{ ...typography.bodyBold, color: theme2Colors.text, textAlign: "center" }}>Got it</Text>
             </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
+          </Animated.View>
+        </Animated.View>
       </Modal>
     </View>
   )

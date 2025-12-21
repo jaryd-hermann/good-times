@@ -22,8 +22,22 @@ import AsyncStorage from "@react-native-async-storage/async-storage"
 import { supabase } from "../../lib/supabase"
 import { colors, spacing } from "../../lib/theme"
 import { Button } from "../../components/Button"
-import { OnboardingBack } from "../../components/OnboardingBack"
 import { useOnboarding } from "../../components/OnboardingProvider"
+import { Image } from "react-native"
+
+// Theme 2 color palette matching new design system
+const theme2Colors = {
+  red: "#B94444",
+  yellow: "#E8A037",
+  green: "#2D6F4A",
+  blue: "#3A5F8C",
+  beige: "#E8E0D5",
+  cream: "#F5F0EA",
+  white: "#FFFFFF",
+  text: "#000000",
+  textSecondary: "#404040",
+  onboardingPink: "#D97393", // Pink for onboarding CTAs
+}
 import { createGroup, createMemorial } from "../../lib/db"
 import { uploadAvatar, uploadMemorialPhoto, isLocalFileUri } from "../../lib/storage"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
@@ -363,6 +377,9 @@ export default function OnboardingAuth() {
   const [isRegistrationFlow, setIsRegistrationFlow] = useState(false)
   const [showNoAccountModal, setShowNoAccountModal] = useState(false)
   const [biometricAttempted, setBiometricAttempted] = useState(false)
+  const [emailFocused, setEmailFocused] = useState(false)
+  const [passwordFocusedInput, setPasswordFocusedInput] = useState(false)
+  const [confirmPasswordFocusedInput, setConfirmPasswordFocusedInput] = useState(false)
 
   // CRITICAL: Check if user already has a valid session - if so, redirect to home
   // This prevents the "Already Signed In" modal loop when user has session but AuthProvider user load timed out
@@ -2266,6 +2283,7 @@ export default function OnboardingAuth() {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          keyboardDismissMode="on-drag"
         >
           <View
             style={[
@@ -2278,7 +2296,13 @@ export default function OnboardingAuth() {
           >
             {!isKeyboardVisible && (
               <View style={styles.topBar}>
-                <OnboardingBack />
+                <TouchableOpacity
+                  onPress={() => router.back()}
+                  style={styles.backButton}
+                  activeOpacity={0.7}
+                >
+                  <FontAwesome name="angle-left" size={18} color={theme2Colors.text} />
+                </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => router.push("/(onboarding)/forgot-password")}
                   style={styles.forgotPasswordLink}
@@ -2289,6 +2313,15 @@ export default function OnboardingAuth() {
             )}
 
             <View style={styles.content}>
+              {/* Loading Icon - hide when keyboard is visible */}
+              {!isKeyboardVisible && (
+                <Image 
+                  source={require("../../assets/images/loading.png")} 
+                  style={styles.wordmark}
+                  resizeMode="contain"
+                />
+              )}
+              
               {isRegistrationFlow && (
                 <View style={styles.loginLinkContainer}>
                   <Text style={styles.loginLinkPrefix}>Already a member? </Text>
@@ -2313,13 +2346,21 @@ export default function OnboardingAuth() {
                   <EmailInput
                     value={email}
                     onChangeText={handleEmailChange}
-                    style={styles.fieldInput}
+                    style={[
+                      styles.fieldInput,
+                      emailFocused && styles.fieldInputFocused
+                    ]}
+                    onFocus={() => setEmailFocused(true)}
+                    onBlur={() => setEmailFocused(false)}
                   />
                 </View>
 
                 <View style={styles.fieldGroup}>
                   <Text style={styles.fieldLabel}>Password</Text>
-                  <View style={styles.passwordContainer}>
+                  <View style={[
+                    styles.passwordContainer,
+                    passwordFocusedInput && styles.passwordContainerFocused
+                  ]}>
                     <TextInput
                       value={password}
                       onChangeText={(text) => {
@@ -2330,14 +2371,21 @@ export default function OnboardingAuth() {
                         }
                       }}
                       placeholder="••••••••"
-                      placeholderTextColor="rgba(255,255,255,0.6)"
+                      placeholderTextColor={theme2Colors.textSecondary}
                       secureTextEntry={!showPassword}
                       autoCapitalize="none"
-                      keyboardAppearance="dark"
+                      keyboardAppearance="light"
                       blurOnSubmit={false}
-                      style={styles.passwordInput}
-                      onFocus={() => setPasswordFocused(true)}
+                      style={[
+                        styles.passwordInput,
+                        passwordFocusedInput && styles.passwordInputFocused
+                      ]}
+                      onFocus={() => {
+                        setPasswordFocused(true)
+                        setPasswordFocusedInput(true)
+                      }}
                       onBlur={() => {
+                        setPasswordFocusedInput(false)
                         // Keep password focused if confirm password is focused OR if password has value
                         // This prevents the confirm password field from disappearing when clicking on it
                         // or when pasting a password (which might blur the field)
@@ -2363,7 +2411,7 @@ export default function OnboardingAuth() {
                       <FontAwesome
                         name={showPassword ? "eye-slash" : "eye"}
                         size={20}
-                        color="rgba(255,255,255,0.6)"
+                        color={theme2Colors.textSecondary}
                       />
                     </TouchableOpacity>
                   </View>
@@ -2372,22 +2420,31 @@ export default function OnboardingAuth() {
                 {(passwordFocused || confirmPasswordFocused || password.length > 0) && isRegistrationFlow && (
                   <View style={styles.fieldGroup}>
                     <Text style={styles.fieldLabel}>Confirm Password</Text>
-                    <View style={styles.passwordContainer}>
+                    <View style={[
+                      styles.passwordContainer,
+                      confirmPasswordFocusedInput && styles.passwordContainerFocused
+                    ]}>
                       <TextInput
                         value={confirmPassword}
                         onChangeText={setConfirmPassword}
                         placeholder="••••••••"
-                        placeholderTextColor="rgba(255,255,255,0.6)"
+                        placeholderTextColor={theme2Colors.textSecondary}
                         secureTextEntry={!showConfirmPassword}
                         autoCapitalize="none"
-                        style={styles.passwordInput}
+                        keyboardAppearance="light"
+                        style={[
+                          styles.passwordInput,
+                          confirmPasswordFocusedInput && styles.passwordInputFocused
+                        ]}
                         onFocus={() => {
                           setConfirmPasswordFocused(true)
+                          setConfirmPasswordFocusedInput(true)
                           // Keep password focused to prevent confirm password from disappearing
                           setPasswordFocused(true)
                         }}
                         onBlur={() => {
                           setConfirmPasswordFocused(false)
+                          setConfirmPasswordFocusedInput(false)
                           // Only hide password focus if password field itself is not focused
                           // This prevents flickering when switching between fields
                           setTimeout(() => {
@@ -2402,23 +2459,28 @@ export default function OnboardingAuth() {
                         style={styles.eyeButton}
                         activeOpacity={0.7}
                       >
-                        <FontAwesome
-                          name={showConfirmPassword ? "eye-slash" : "eye"}
-                          size={20}
-                          color="rgba(255,255,255,0.6)"
-                        />
+                      <FontAwesome
+                        name={showConfirmPassword ? "eye-slash" : "eye"}
+                        size={20}
+                        color={theme2Colors.textSecondary}
+                      />
                       </TouchableOpacity>
                     </View>
                   </View>
                 )}
               </View>
 
-              <Button
-                title="Continue →"
+              <TouchableOpacity
                 onPress={handleContinue}
-                loading={continueLoading || persisting}
+                disabled={continueLoading || persisting}
                 style={styles.primaryButton}
-              />
+              >
+                {continueLoading || persisting ? (
+                  <Text style={styles.primaryButtonText}>Loading...</Text>
+                ) : (
+                  <Text style={styles.primaryButtonText}>Continue →</Text>
+                )}
+              </TouchableOpacity>
 
               {/* OAuth buttons temporarily disabled - commented out until OAuth is fixed */}
               {/* <View style={styles.divider}>
@@ -2464,7 +2526,7 @@ export default function OnboardingAuth() {
               }}
               style={styles.modalCloseButton}
             >
-              <FontAwesome name="times" size={24} color={colors.white} />
+              <FontAwesome name="times" size={16} color={theme2Colors.text} />
             </TouchableOpacity>
 
             <View style={styles.modalTextContainer}>
@@ -2478,14 +2540,15 @@ export default function OnboardingAuth() {
             </View>
 
             <View style={styles.modalActions}>
-              <Button
-                title="Start Creating a Group →"
+              <TouchableOpacity
                 onPress={() => {
                   setShowNoAccountModal(false)
                   router.replace("/(onboarding)/welcome-2")
                 }}
                 style={styles.modalCTA}
-              />
+              >
+                <Text style={styles.modalCTAText}>Start Creating a Group →</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
@@ -2496,20 +2559,22 @@ export default function OnboardingAuth() {
 
 // Simple email input component - matches the working pattern from settings/profile.tsx
 // No memoization, no local state, no refs - just a straightforward controlled component
-const EmailInput = ({ value, onChangeText, style }: { value: string; onChangeText: (text: string) => void; style: any }) => {
+const EmailInput = ({ value, onChangeText, style, onFocus, onBlur }: { value: string; onChangeText: (text: string) => void; style: any; onFocus?: () => void; onBlur?: () => void }) => {
   return (
     <TextInput
       value={value}
       onChangeText={onChangeText}
       placeholder="you@email.com"
-      placeholderTextColor="rgba(255,255,255,0.6)"
+      placeholderTextColor={theme2Colors.textSecondary}
       keyboardType="email-address"
       autoCapitalize="none"
       autoCorrect={false}
       textContentType="none"
-      keyboardAppearance="dark"
+      keyboardAppearance="light"
       blurOnSubmit={false}
       style={style}
+      onFocus={onFocus}
+      onBlur={onBlur}
     />
   )
 }
@@ -2517,13 +2582,14 @@ const EmailInput = ({ value, onChangeText, style }: { value: string; onChangeTex
 const styles = StyleSheet.create({
   background: {
     flex: 1,
-    backgroundColor: colors.black,
+    backgroundColor: theme2Colors.beige,
   },
   flex: {
     flex: 1,
   },
   scrollContent: {
     flexGrow: 1,
+    paddingBottom: spacing.xl,
   },
   container: {
     flex: 1,
@@ -2546,12 +2612,39 @@ const styles = StyleSheet.create({
   forgotPasswordText: {
     fontFamily: "Roboto-Regular",
     fontSize: 14,
-    color: colors.white,
+    color: theme2Colors.textSecondary,
     textDecorationLine: "underline",
   },
   content: {
-    gap: spacing.lg,
+    gap: spacing.md,
     maxWidth: 460,
+  },
+  wordmark: {
+    width: 180,
+    height: 180,
+    marginBottom: spacing.xs,
+    alignSelf: "flex-start",
+    // Remove any shadow or outline effects
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme2Colors.white,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   loginLinkContainer: {
     flexDirection: "row",
@@ -2561,47 +2654,66 @@ const styles = StyleSheet.create({
   loginLinkPrefix: {
     fontFamily: "Roboto-Regular",
     fontSize: 16,
-    color: colors.white,
+    color: theme2Colors.text,
   },
   loginLinkText: {
     fontFamily: "Roboto-Bold",
     fontSize: 16,
-    color: colors.white,
+    color: theme2Colors.text,
     textDecorationLine: "underline",
   },
   fieldsContainer: {
     position: "relative",
   },
   title: {
-    fontFamily: "LibreBaskerville-Bold",
-    fontSize: 40,
-    color: colors.white,
+    fontFamily: "PMGothicLudington-Text115",
+    fontSize: 32,
+    color: theme2Colors.text,
+    marginBottom: spacing.md,
   },
   subtitle: {
     fontFamily: "Roboto-Regular",
     fontSize: 16,
     lineHeight: 24,
-    color: colors.white,
+    color: theme2Colors.textSecondary,
   },
   fieldGroup: {
     marginBottom: spacing.md,
   },
   fieldLabel: {
     fontFamily: "Roboto-Regular",
-    fontSize: 16,
-    color: colors.white,
+    fontSize: 14,
+    color: theme2Colors.text,
     marginBottom: spacing.xs,
+    fontWeight: "600",
   },
   fieldInput: {
-    fontFamily: "LibreBaskerville-Regular",
-    fontSize: 24,
-    color: colors.white,
-    borderBottomWidth: 1,
-    borderColor: "rgba(255,255,255,0.6)",
-    paddingVertical: spacing.sm,
+    fontFamily: "Roboto-Regular",
+    fontSize: 16,
+    color: theme2Colors.text,
+    backgroundColor: theme2Colors.cream,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: theme2Colors.textSecondary,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+  },
+  fieldInputFocused: {
+    borderColor: theme2Colors.blue,
   },
   primaryButton: {
+    backgroundColor: theme2Colors.onboardingPink,
+    borderRadius: 25,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    alignItems: "center",
+    justifyContent: "center",
     minHeight: 56,
+  },
+  primaryButtonText: {
+    fontFamily: "Roboto-Bold",
+    fontSize: 18,
+    color: theme2Colors.white,
   },
   divider: {
     flexDirection: "row",
@@ -2638,15 +2750,24 @@ const styles = StyleSheet.create({
   passwordContainer: {
     flexDirection: "row",
     alignItems: "center",
-    borderBottomWidth: 1,
-    borderColor: "rgba(255,255,255,0.6)",
+    backgroundColor: theme2Colors.cream,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: theme2Colors.textSecondary,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+  },
+  passwordContainerFocused: {
+    borderColor: theme2Colors.blue,
   },
   passwordInput: {
     flex: 1,
-    fontFamily: "LibreBaskerville-Regular",
-    fontSize: 24,
-    color: colors.white,
-    paddingVertical: spacing.sm,
+    fontFamily: "Roboto-Regular",
+    fontSize: 16,
+    color: theme2Colors.text,
+  },
+  passwordInputFocused: {
+    // Focus state handled by parent container
   },
   eyeButton: {
     padding: spacing.xs,
@@ -2654,26 +2775,33 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.9)",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: spacing.lg,
   },
   modalContent: {
-    backgroundColor: colors.black,
-    borderRadius: 16,
+    backgroundColor: theme2Colors.beige,
+    borderRadius: 20,
     padding: spacing.xl,
     width: "100%",
     maxWidth: 400,
     borderWidth: 1,
-    borderColor: colors.white,
+    borderColor: theme2Colors.textSecondary,
     position: "relative",
   },
   modalCloseButton: {
     position: "absolute",
     top: spacing.lg,
     right: spacing.lg,
-    padding: spacing.sm,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: theme2Colors.white,
+    borderWidth: 1,
+    borderColor: theme2Colors.text,
+    justifyContent: "center",
+    alignItems: "center",
     zIndex: 1,
   },
   modalTextContainer: {
@@ -2681,9 +2809,9 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xl,
   },
   modalTitle: {
-    fontFamily: "LibreBaskerville-Bold",
+    fontFamily: "PMGothicLudington-Text115",
     fontSize: 28,
-    color: colors.white,
+    color: theme2Colors.text,
     marginBottom: spacing.md,
     textAlign: "center",
   },
@@ -2691,7 +2819,7 @@ const styles = StyleSheet.create({
     fontFamily: "Roboto-Regular",
     fontSize: 16,
     lineHeight: 24,
-    color: colors.white,
+    color: theme2Colors.text,
     marginBottom: spacing.md,
     textAlign: "center",
   },
@@ -2699,15 +2827,25 @@ const styles = StyleSheet.create({
     fontFamily: "Roboto-Regular",
     fontSize: 14,
     lineHeight: 20,
-    color: colors.gray[400],
+    color: theme2Colors.textSecondary,
     textAlign: "center",
   },
   modalActions: {
     marginTop: spacing.lg,
   },
   modalCTA: {
-    backgroundColor: colors.accent,
+    backgroundColor: theme2Colors.onboardingPink,
+    borderRadius: 25,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    alignItems: "center",
+    justifyContent: "center",
     minHeight: 56,
+  },
+  modalCTAText: {
+    fontFamily: "Roboto-Bold",
+    fontSize: 18,
+    color: theme2Colors.white,
   },
 })
 

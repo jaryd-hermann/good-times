@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, useMemo } from "react"
-import { View, Text, StyleSheet, TextInput, Alert, TouchableOpacity } from "react-native"
+import { View, Text, StyleSheet, TextInput, Alert, TouchableOpacity, ActivityIndicator } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
@@ -10,12 +10,11 @@ import { updateGroupName, isGroupAdmin } from "../../../lib/db"
 import { spacing, typography } from "../../../lib/theme"
 import { useTheme } from "../../../lib/theme-context"
 import { FontAwesome } from "@expo/vector-icons"
-import { Button } from "../../../components/Button"
 
 export default function GroupNameSettings() {
   const router = useRouter()
   const params = useLocalSearchParams()
-  const { colors } = useTheme()
+  const { colors, isDark } = useTheme()
   const groupId = params.groupId as string
   const insets = useSafeAreaInsets()
   const queryClient = useQueryClient()
@@ -23,6 +22,20 @@ export default function GroupNameSettings() {
   const [groupName, setGroupName] = useState("")
   const [saving, setSaving] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [focusedInput, setFocusedInput] = useState(false)
+
+  // Theme 2 color palette matching new design system
+  const theme2Colors = {
+    red: "#B94444",
+    yellow: "#E8A037",
+    green: "#2D6F4A",
+    blue: "#3A5F8C",
+    beige: "#E8E0D5",
+    cream: "#F5F0EA",
+    white: "#FFFFFF",
+    text: "#000000",
+    textSecondary: "#404040",
+  }
 
   const { data: group } = useQuery({
     queryKey: ["group", groupId],
@@ -91,7 +104,7 @@ export default function GroupNameSettings() {
   const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
     },
     header: {
       flexDirection: "row",
@@ -99,20 +112,21 @@ export default function GroupNameSettings() {
       justifyContent: "space-between",
       paddingHorizontal: spacing.md,
       paddingBottom: spacing.md,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.gray[800],
     },
     closeButton: {
-      padding: spacing.sm,
-    },
-    closeText: {
-      ...typography.h2,
-      color: colors.white,
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: theme2Colors.white,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
     },
     title: {
-      ...typography.h1,
-      fontSize: 28,
-      color: colors.white,
+      fontFamily: "PMGothicLudington-Text115",
+      fontSize: 32,
+      color: theme2Colors.text,
     },
     content: {
       flex: 1,
@@ -122,28 +136,44 @@ export default function GroupNameSettings() {
     label: {
       ...typography.bodyBold,
       fontSize: 14,
-      color: colors.gray[400],
+      color: theme2Colors.text,
       marginBottom: spacing.xs,
+      fontWeight: "600",
     },
     input: {
       ...typography.body,
       fontSize: 18,
-      color: colors.white,
-      backgroundColor: colors.gray[900],
+      color: theme2Colors.text,
+      backgroundColor: theme2Colors.white,
       borderRadius: 12,
       padding: spacing.md,
-      borderWidth: 1,
-      borderColor: colors.gray[800],
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary,
+    },
+    inputFocused: {
+      borderColor: theme2Colors.blue,
     },
     hint: {
       ...typography.caption,
-      color: colors.gray[500],
+      color: theme2Colors.textSecondary,
       fontSize: 12,
     },
     saveButton: {
       marginTop: spacing.lg,
+      backgroundColor: theme2Colors.blue,
+      borderRadius: 25,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      alignItems: "center",
+      justifyContent: "center",
     },
-  }), [colors])
+    saveButtonText: {
+      ...typography.bodyBold,
+      fontSize: 18,
+      color: theme2Colors.white,
+      textAlign: "center",
+    },
+  }), [colors, isDark, focusedInput])
 
   if (!isAdmin) {
     return null
@@ -161,30 +191,38 @@ export default function GroupNameSettings() {
             })
           }
           style={styles.closeButton}
+          activeOpacity={0.7}
         >
-          <Text style={styles.closeText}>✕</Text>
+          <FontAwesome name="times" size={16} color={theme2Colors.text} />
         </TouchableOpacity>
       </View>
 
       <View style={styles.content}>
         <Text style={styles.label}>Group Name</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, focusedInput && styles.inputFocused]}
           value={groupName}
           onChangeText={setGroupName}
           placeholder="Enter group name"
-          placeholderTextColor={colors.gray[500]}
+          placeholderTextColor={theme2Colors.textSecondary}
+          onFocus={() => setFocusedInput(true)}
+          onBlur={() => setFocusedInput(false)}
           autoFocus
         />
         <Text style={styles.hint}>Only admins can change the group name.</Text>
 
-        <Button
-          title="Save Changes"
-          onPress={handleSave}
-          loading={saving}
-          disabled={!groupName.trim() || groupName === group?.name}
+        <TouchableOpacity
           style={styles.saveButton}
-        />
+          onPress={handleSave}
+          disabled={!groupName.trim() || groupName === group?.name || saving}
+          activeOpacity={0.7}
+        >
+          {saving ? (
+            <ActivityIndicator color={theme2Colors.white} />
+          ) : (
+            <Text style={styles.saveButtonText}>Save Changes</Text>
+          )}
+        </TouchableOpacity>
       </View>
     </View>
   )

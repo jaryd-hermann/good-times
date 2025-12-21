@@ -381,10 +381,70 @@ serve(async (req) => {
         const queuedPrompt = queuedItem.prompt as any
         const memberCount = members?.length || 0
         
-        // Filter out "Remembering" category if no memorials OR during ice-breaker period
-        if (queuedPrompt.category === "Remembering" && (!hasMemorials || isInIceBreakerPeriod)) {
-          // Skip this queued prompt, continue to selection logic
-          // Memorial questions should not be scheduled during ice-breaker period
+        // CRITICAL: Check if this prompt was asked recently (prevent back-to-back, including custom questions)
+        const yesterday = new Date(today)
+        yesterday.setDate(yesterday.getDate() - 1)
+        const yesterdayStr = yesterday.toISOString().split("T")[0]
+        
+        const { data: recentQueuedPrompt } = await supabaseClient
+          .from("daily_prompts")
+          .select("id, date, prompt_id")
+          .eq("group_id", group.id)
+          .eq("prompt_id", queuedItem.prompt_id)
+          .gte("date", yesterdayStr) // Check yesterday and today
+          .order("date", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        
+        if (recentQueuedPrompt) {
+          console.log(`[schedule-daily-prompts] Group ${group.id}: Queued prompt_id ${queuedItem.prompt_id} was already asked on ${recentQueuedPrompt.date}, skipping to prevent back-to-back`)
+          // Remove from queue since it can't be scheduled (already asked recently)
+          await supabaseClient.from("group_prompt_queue").delete().eq("group_id", group.id).eq("prompt_id", queuedItem.prompt_id)
+          // Continue to selection logic below (don't select this queued prompt)
+        } else if (queuedPrompt.category === "Remembering") {
+          // CRITICAL: Check if memorial question was already scheduled this week (hard limit: 1 per week)
+          if (!hasMemorials || isInIceBreakerPeriod) {
+            // Skip this queued prompt, continue to selection logic
+            // Memorial questions should not be scheduled during ice-breaker period or without memorials
+          } else {
+            // Check if a memorial question was already scheduled this week
+            const todayDate = new Date(today)
+            const dayOfWeek = todayDate.getDay() // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+            const weekStart = new Date(todayDate)
+            
+            // Calculate Monday of current week
+            if (dayOfWeek === 0) {
+              weekStart.setDate(todayDate.getDate() - 6)
+            } else {
+              weekStart.setDate(todayDate.getDate() - (dayOfWeek - 1))
+            }
+            
+            const weekStartStr = weekStart.toISOString().split("T")[0]
+            
+            const { data: weekMemorialPrompts } = await supabaseClient
+              .from("daily_prompts")
+              .select("id, prompt:prompts(category)")
+              .eq("group_id", group.id)
+              .gte("date", weekStartStr)
+              .lte("date", today)
+              .is("user_id", null)
+            
+            const hasMemorialThisWeek = (weekMemorialPrompts || []).some((dp: any) => {
+              const prompt = dp.prompt as any
+              return prompt?.category === "Remembering"
+            })
+            
+            if (hasMemorialThisWeek) {
+              console.log(`[schedule-daily-prompts] Group ${group.id}: Memorial question already scheduled this week, skipping queued Remembering prompt`)
+              // Remove from queue since it can't be scheduled (weekly limit reached)
+              await supabaseClient.from("group_prompt_queue").delete().eq("group_id", group.id).eq("prompt_id", queuedItem.prompt_id)
+              // Continue to selection logic below (don't select this queued prompt)
+            } else {
+              // Safe to schedule - no memorial question this week yet
+              selectedPrompt = queuedPrompt
+              selectionMethod = "queued"
+            }
+          }
         } else if (groupData?.type === "family" && queuedPrompt.category === "Friends") {
           // Skip Friends category prompts for Family groups
         } else if (groupData?.type === "friends" && queuedPrompt.category === "Family") {
@@ -395,6 +455,7 @@ serve(async (req) => {
             // Skip this queued prompt, continue to selection logic
           } else {
             selectedPrompt = queuedPrompt
+            selectionMethod = "queued"
           }
         } else {
           selectedPrompt = queuedPrompt

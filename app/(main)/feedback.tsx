@@ -16,8 +16,21 @@ const PHONE = "+19143836826"
 export default function Feedback() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
-  const { colors } = useTheme()
+  const { colors, isDark } = useTheme()
   const [showEmailModal, setShowEmailModal] = useState(false)
+
+  // Theme 2 color palette matching new design system
+  const theme2Colors = {
+    red: "#B94444",
+    yellow: "#E8A037",
+    green: "#2D6F4A",
+    blue: "#3A5F8C",
+    beige: "#E8E0D5",
+    cream: "#F5F0EA",
+    white: "#FFFFFF",
+    text: "#000000",
+    textSecondary: "#404040",
+  }
 
   async function handleEmail() {
     try {
@@ -147,25 +160,28 @@ export default function Feedback() {
   const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
     },
     header: {
-      paddingHorizontal: spacing.lg,
+      paddingHorizontal: spacing.md,
       paddingBottom: spacing.md,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
     },
     closeButton: {
-      padding: spacing.sm,
-    },
-    closeText: {
-      ...typography.h2,
-      color: colors.white,
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: theme2Colors.white,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
     },
     title: {
-      ...typography.h1,
-      color: colors.white,
+      fontFamily: "PMGothicLudington-Text115",
+      color: theme2Colors.text,
       fontSize: 32,
     },
     scrollView: {
@@ -177,7 +193,7 @@ export default function Feedback() {
     },
     subtitle: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       fontSize: 16,
       marginBottom: spacing.xl,
     },
@@ -187,16 +203,18 @@ export default function Feedback() {
     option: {
       flexDirection: "row",
       alignItems: "center",
-      backgroundColor: colors.gray[900],
+      backgroundColor: theme2Colors.white,
       borderRadius: 16,
       padding: spacing.lg,
       gap: spacing.md,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
     },
     optionIcon: {
       width: 48,
       height: 48,
       borderRadius: 24,
-      backgroundColor: colors.gray[800],
+      backgroundColor: theme2Colors.textSecondary,
       justifyContent: "center",
       alignItems: "center",
     },
@@ -205,18 +223,18 @@ export default function Feedback() {
     },
     optionTitle: {
       ...typography.bodyBold,
-      color: colors.white,
+      color: theme2Colors.text,
       fontSize: 18,
       marginBottom: spacing.xs,
     },
     optionSubtitle: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       fontSize: 14,
     },
     modalBackdrop: {
       flex: 1,
-      backgroundColor: "rgba(0,0,0,0.9)",
+      backgroundColor: "transparent",
       justifyContent: "center",
       alignItems: "center",
       padding: spacing.xl,
@@ -224,36 +242,50 @@ export default function Feedback() {
     modalContainer: {
       width: "100%",
       maxWidth: 400,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.beige,
       borderRadius: 24,
       padding: spacing.xl,
       gap: spacing.md,
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary,
     },
     modalTitle: {
-      ...typography.h2,
-      color: colors.white,
+      fontFamily: "PMGothicLudington-Text115",
+      color: theme2Colors.text,
       fontSize: 24,
     },
     modalSubtitle: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
     },
     emailContainer: {
-      backgroundColor: colors.gray[900],
+      backgroundColor: theme2Colors.white,
       borderRadius: 12,
       padding: spacing.md,
       borderWidth: 1,
-      borderColor: colors.gray[700],
+      borderColor: theme2Colors.textSecondary,
     },
     emailText: {
       ...typography.body,
-      color: colors.white,
+      color: theme2Colors.text,
       fontSize: 16,
       textAlign: "center",
     },
     copyButton: {
       width: "100%",
       marginTop: spacing.sm,
+      backgroundColor: theme2Colors.blue,
+      borderRadius: 25,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    copyButtonText: {
+      ...typography.bodyBold,
+      fontSize: 18,
+      color: theme2Colors.white,
+      textAlign: "center",
     },
     modalCancel: {
       padding: spacing.sm,
@@ -261,7 +293,7 @@ export default function Feedback() {
     },
     modalCancelText: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
     },
     personalSection: {
       marginTop: spacing.xl,
@@ -271,7 +303,7 @@ export default function Feedback() {
     },
     personalText: {
       ...typography.body,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
       fontSize: 14,
       lineHeight: 20,
       textAlign: "center",
@@ -282,14 +314,14 @@ export default function Feedback() {
       height: 300,
       resizeMode: "cover",
     },
-  }), [colors])
+  }), [colors, isDark])
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.xl }]}>
       <View style={styles.header}>
         <Text style={styles.title}>Feedback</Text>
-        <TouchableOpacity onPress={() => router.back()} style={styles.closeButton}>
-          <Text style={styles.closeText}>✕</Text>
+        <TouchableOpacity onPress={() => router.back()} style={styles.closeButton} activeOpacity={0.7}>
+          <FontAwesome name="times" size={16} color={theme2Colors.text} />
         </TouchableOpacity>
       </View>
 
@@ -303,35 +335,35 @@ export default function Feedback() {
         <View style={styles.optionsContainer}>
           <TouchableOpacity style={styles.option} onPress={handleEmail}>
             <View style={styles.optionIcon}>
-              <FontAwesome name="envelope" size={24} color={colors.white} />
+              <FontAwesome name="envelope" size={24} color={theme2Colors.white} />
             </View>
             <View style={styles.optionContent}>
               <Text style={styles.optionTitle}>Email</Text>
               <Text style={styles.optionSubtitle}>{EMAIL}</Text>
             </View>
-            <FontAwesome name="chevron-right" size={16} color={colors.gray[400]} />
+            <FontAwesome name="chevron-right" size={16} color={theme2Colors.textSecondary} />
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.option} onPress={handleMessage}>
             <View style={styles.optionIcon}>
-              <FontAwesome name="comment" size={24} color={colors.white} />
+              <FontAwesome name="comment" size={24} color={theme2Colors.white} />
             </View>
             <View style={styles.optionContent}>
               <Text style={styles.optionTitle}>Message</Text>
               <Text style={styles.optionSubtitle}>{PHONE}</Text>
             </View>
-            <FontAwesome name="chevron-right" size={16} color={colors.gray[400]} />
+            <FontAwesome name="chevron-right" size={16} color={theme2Colors.textSecondary} />
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.option} onPress={handleWhatsApp}>
             <View style={styles.optionIcon}>
-              <FontAwesome name="whatsapp" size={24} color={colors.white} />
+              <FontAwesome name="whatsapp" size={24} color={theme2Colors.white} />
             </View>
             <View style={styles.optionContent}>
               <Text style={styles.optionTitle}>WhatsApp</Text>
               <Text style={styles.optionSubtitle}>{PHONE}</Text>
             </View>
-            <FontAwesome name="chevron-right" size={16} color={colors.gray[400]} />
+            <FontAwesome name="chevron-right" size={16} color={theme2Colors.textSecondary} />
           </TouchableOpacity>
         </View>
 
@@ -355,6 +387,15 @@ export default function Feedback() {
         onRequestClose={() => setShowEmailModal(false)}
       >
         <View style={styles.modalBackdrop}>
+          {/* Warm fuzzy blur effect matching settings modal */}
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: theme2Colors.beige, opacity: 0.3 }]} />
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(232, 224, 213, 0.4)" }]} />
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0, 0, 0, 0.1)" }]} />
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setShowEmailModal(false)}
+          />
           <View style={styles.modalContainer}>
             <Text style={styles.modalTitle}>Email not available</Text>
             <Text style={styles.modalSubtitle}>
@@ -363,11 +404,13 @@ export default function Feedback() {
             <View style={styles.emailContainer}>
               <Text style={styles.emailText}>{EMAIL}</Text>
             </View>
-            <Button
-              title="Copy Email"
-              onPress={handleCopyEmail}
+            <TouchableOpacity
               style={styles.copyButton}
-            />
+              onPress={handleCopyEmail}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.copyButtonText}>Copy Email</Text>
+            </TouchableOpacity>
             <TouchableOpacity
               style={styles.modalCancel}
               onPress={() => setShowEmailModal(false)}

@@ -25,7 +25,7 @@ import { router, usePathname } from "expo-router"
 import { PostHogProvider } from "posthog-react-native"
 import { TabBarProvider } from "../lib/tab-bar-context"
 import { ThemeProvider } from "../lib/theme-context"
-import { View, ActivityIndicator, StyleSheet, ImageBackground, Text, AppState, AppStateStatus } from "react-native"
+import { View, ActivityIndicator, StyleSheet, ImageBackground, Text, AppState, AppStateStatus, Animated, Image } from "react-native"
 import { typography, colors as themeColors } from "../lib/theme"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { wasInactiveTooLong } from "../lib/session-lifecycle"
@@ -231,10 +231,10 @@ function ForegroundQueryRefresher() {
 // Matches the boot screen design for consistency
 function RefreshingOverlay() {
   const { refreshing } = useAuth()
-  const [loadingDots, setLoadingDots] = useState(".")
   const [showOverlay, setShowOverlay] = useState(false)
   const startTimeRef = useRef<number | null>(null)
   const minDisplayTimeRef = useRef<NodeJS.Timeout | null>(null)
+  const rotateAnim = useRef(new Animated.Value(0)).current
   
   useEffect(() => {
     if (refreshing) {
@@ -272,33 +272,58 @@ function RefreshingOverlay() {
     }
   }, [refreshing])
   
+  // Animate icon rotation
   useEffect(() => {
-    if (!showOverlay) return
-    
-    const interval = setInterval(() => {
-      setLoadingDots((prev) => {
-        if (prev === ".") return ".."
-        if (prev === "..") return "..."
-        return "."
+    if (!showOverlay) {
+      rotateAnim.setValue(0)
+      return
+    }
+
+    // Start rotation animation
+    const rotateAnimation = Animated.loop(
+      Animated.timing(rotateAnim, {
+        toValue: 1,
+        duration: 3000, // 3 seconds for a full rotation
+        useNativeDriver: true,
       })
-    }, 500)
-    
-    return () => clearInterval(interval)
-  }, [showOverlay])
+    )
+
+    rotateAnimation.start()
+
+    return () => {
+      rotateAnimation.stop()
+    }
+  }, [showOverlay, rotateAnim])
   
   if (!showOverlay) return null
   
+  const spin = rotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  })
+  
+  const theme2Colors = {
+    beige: "#E8E0D5",
+  }
+  
   return (
     <View style={styles.refreshingOverlay}>
-      <ImageBackground
-        source={require("../assets/images/welcome-home.png")}
-        style={styles.backgroundImage}
-        resizeMode="cover"
-      >
-        <View style={styles.loadingOverlay}>
-          <Text style={styles.loadingText}>Loading Good Times{loadingDots}</Text>
-        </View>
-      </ImageBackground>
+      <View style={styles.refreshingContainer}>
+        <Animated.View
+          style={[
+            styles.iconContainer,
+            {
+              transform: [{ rotate: spin }],
+            },
+          ]}
+        >
+          <Image
+            source={require("../assets/images/loading.png")}
+            style={styles.refreshingIcon}
+            resizeMode="contain"
+          />
+        </Animated.View>
+      </View>
     </View>
   )
 }
@@ -312,19 +337,25 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: 9999,
   },
-  backgroundImage: {
+  refreshingContainer: {
     flex: 1,
+    backgroundColor: "#E8E0D5", // theme2Colors.beige
     justifyContent: "center",
     alignItems: "center",
   },
-  loadingOverlay: {
-    // No background - text directly over image
+  iconContainer: {
+    width: 120,
+    height: 120,
+    justifyContent: "center",
+    alignItems: "center",
   },
-  loadingText: {
-    ...typography.body,
-    fontSize: 18,
-    color: themeColors.white,
-    textAlign: "center",
+  refreshingIcon: {
+    width: 120,
+    height: 120,
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
   },
 })
 
@@ -444,6 +475,7 @@ export default function RootLayout() {
     "Roboto-Regular": require("../assets/fonts/Roboto-Regular.ttf"),
     "Roboto-Medium": require("../assets/fonts/Roboto-Medium.ttf"),
     "Roboto-Bold": require("../assets/fonts/Roboto-Bold.ttf"),
+    "PMGothicLudington-Text115": require("../assets/fonts/PMGothicLudington-Text115.ttf"),
   })
   
   // Option 4: Add font loading timeout - proceed without fonts if they don't load within 5 seconds

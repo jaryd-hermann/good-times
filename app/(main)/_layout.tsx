@@ -21,7 +21,7 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
   // Calculate bottom offset for Android navigation bar
   const bottomOffset = Platform.OS === "android" ? insets.bottom + 24 : 24
 
-  const visibleRoutes = state.routes.filter((route) => route.name === "home" || route.name === "explore-decks" || route.name === "history")
+  const visibleRoutes = state.routes.filter((route) => route.name === "home" || route.name === "explore-decks")
 
   // Initialize animated values for each route
   visibleRoutes.forEach((route) => {
@@ -66,6 +66,19 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
     }
   }, [state.index, state.routes])
 
+  // Theme 2 color palette
+  const theme2Colors = {
+    red: "#B94444",
+    yellow: "#E8A037",
+    green: "#2D6F4A",
+    blue: "#3A5F8C",
+    beige: "#E8E0D5",
+    cream: "#F5F0EA",
+    white: "#FFFFFF",
+    text: "#000000",
+    textSecondary: "#404040",
+  }
+
   // Create dynamic styles based on theme
   const styles = useMemo(() => StyleSheet.create({
     tabWrapper: {
@@ -77,14 +90,14 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
     },
     tabContainer: {
       flexDirection: "row",
-      backgroundColor: isDark ? "#282626" : "#ffffff",
+      backgroundColor: theme2Colors.cream,
       borderRadius: 38,
-      width: 280, // Increased width to accommodate 3 tabs
-      height: 66,
+      width: 200, // Width to accommodate 2 tabs
+      height: 76, // Increased height slightly
       paddingHorizontal: spacing.xs,
       paddingVertical: spacing.xs,
-      borderWidth: 0.1,
-      borderColor: colors.white,
+      borderWidth: 2,
+      borderColor: theme2Colors.blue, // Blue stroke not yellow
       alignItems: "center",
       justifyContent: "center",
       shadowColor: "#000",
@@ -92,12 +105,29 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
       shadowRadius: 12,
       shadowOffset: { width: 0, height: 6 },
       elevation: 8,
+      position: "relative", // For absolute positioning of texture
+      overflow: "hidden", // Ensure texture stays within bounds
+    },
+    tabContainerTexture: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      opacity: 0.4, // Adjust opacity to taste
+      zIndex: 2, // Above background but below tab content
+      pointerEvents: "none", // Allow touches to pass through
+      borderRadius: 38, // Match container border radius
+      overflow: "hidden", // Ensure texture respects border radius
+      backgroundColor: "transparent", // Ensure no background interferes
     },
     tabButton: {
       flex: 1,
       height: "100%",
       justifyContent: "center",
       alignItems: "center",
+      position: "relative",
+      zIndex: 3, // Above texture overlay
     },
     navItem: {
       alignItems: "center",
@@ -110,17 +140,34 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
       width: "100%",
     },
     navLabel: {
-      color: isDark ? "#848282" : colors.gray[500],
+      color: theme2Colors.textSecondary,
       fontFamily: "Roboto-Medium",
       fontSize: 12,
     },
     navLabelActive: {
-      color: colors.white,
+      color: theme2Colors.text,
     },
     navItemActive: {
-      backgroundColor: isDark ? "#8A8484" : colors.gray[800],
+      backgroundColor: theme2Colors.cream, // #F5F0EA not blue
+      borderWidth: 2,
+      borderColor: theme2Colors.blue, // Blue outline
+      position: "relative", // For absolute positioning of texture
+      overflow: "hidden", // Ensure texture stays within bounds
     },
-  }), [colors, isDark, bottomOffset])
+    navItemActiveTexture: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      opacity: 0.4, // Adjust opacity to taste
+      zIndex: 1, // Above background but below icon/text
+      pointerEvents: "none", // Allow touches to pass through
+      borderRadius: 36, // Slightly less than navItemActive to account for border
+      overflow: "hidden", // Ensure texture respects border radius
+      backgroundColor: "transparent", // Ensure no background interferes
+    },
+  }), [bottomOffset])
 
   // Early return AFTER all hooks
   // Hide tab bar on profile screen or other modal/settings screens
@@ -144,9 +191,26 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
   return (
     <Animated.View style={[styles.tabWrapper, { opacity: tabBarOpacity }]}>
       <View style={styles.tabContainer}>
+        {/* Texture overlay for entire nav container - must be inside container to respect borderRadius */}
+        <View style={styles.tabContainerTexture} pointerEvents="none">
+          <Image
+            source={require("../../assets/images/texture.png")}
+            style={{ 
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              width: "100%",
+              height: "100%",
+              borderRadius: 38, // Match container border radius
+            }}
+            resizeMode="cover"
+          />
+        </View>
       {visibleRoutes.map((route) => {
         const isFocused = state.index === state.routes.indexOf(route)
-        const label = route.name === "home" ? "Answer" : route.name === "explore-decks" ? "Ask" : "History"
+        const label = route.name === "home" ? "Answer" : "Ask"
         const animatedValue = animatedValuesRef.current[route.key] || new Animated.Value(isFocused ? 1 : 0)
 
         const iconScale = animatedValue.interpolate({
@@ -174,11 +238,9 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
         // Determine icon source based on route
         let iconSource
         if (route.name === "home") {
-          iconSource = require("../../assets/images/Answer.png")
-        } else if (route.name === "explore-decks") {
-          iconSource = require("../../assets/images/Ask.png")
+          iconSource = require("../../assets/images/1.png")
         } else {
-          iconSource = require("../../assets/images/Remember.png")
+          iconSource = require("../../assets/images/Ask.png")
         }
 
         return (
@@ -192,18 +254,45 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
                 }
               ]}
             >
-              <Animated.View style={{ transform: [{ scale: iconScale }] }}>
+              {/* Texture overlay for selected state */}
+              {isFocused && (
+                <View style={styles.navItemActiveTexture} pointerEvents="none">
+                  <Image
+                    source={require("../../assets/images/texture.png")}
+                    style={{ 
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      width: "100%",
+                      height: "100%",
+                      borderRadius: 36, // Match navItemActive border radius
+                    }}
+                    resizeMode="cover"
+                  />
+                </View>
+              )}
+              <Animated.View style={{ transform: [{ scale: iconScale }], position: "relative", zIndex: 2 }}>
                 <Image
                   source={iconSource}
                   style={{
-                    width: 20,
-                    height: 20,
-                    tintColor: isFocused ? colors.white : (isDark ? "#848282" : colors.gray[500]),
+                    width: route.name === "home" ? 40 : 20, // Larger icon for Answer tab
+                    height: route.name === "home" ? 40 : 20, // Larger icon for Answer tab
+                    // For Answer tab (home route), show in color when focused, gray when not focused
+                    // For Ask tab, always use tintColor
+                    tintColor: route.name === "home" 
+                      ? (isFocused ? undefined : theme2Colors.textSecondary) // No tint when focused (full color), gray tint when not focused
+                      : (isFocused ? theme2Colors.text : theme2Colors.textSecondary), // Ask tab: black when focused, gray when not
+                    opacity: route.name === "home" && !isFocused ? 0.6 : 1, // Slight opacity reduction for Answer tab when not focused
                   }}
                   resizeMode="contain"
                 />
               </Animated.View>
-              <Text style={[styles.navLabel, isFocused && styles.navLabelActive]}>{label}</Text>
+              {/* Only show label for Ask tab, hide for Answer tab */}
+              {route.name !== "home" && (
+                <Text style={[styles.navLabel, isFocused && styles.navLabelActive, { position: "relative", zIndex: 2 }]}>{label}</Text>
+              )}
             </Animated.View>
           </TouchableOpacity>
         )
@@ -225,7 +314,6 @@ export default function MainLayout() {
     >
       <Tabs.Screen name="home" />
       <Tabs.Screen name="explore-decks" />
-      <Tabs.Screen name="history" />
       <Tabs.Screen
         name="settings"
         options={{

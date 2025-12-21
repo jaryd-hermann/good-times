@@ -1,15 +1,27 @@
 "use client"
 
 import { useEffect } from "react"
-import { View, Text, StyleSheet, ImageBackground, Dimensions } from "react-native"
-import { LinearGradient } from "expo-linear-gradient"
+import { View, Text, StyleSheet, Dimensions, TouchableOpacity, Image, ScrollView } from "react-native"
 import { useRouter } from "expo-router"
 import { colors, typography, spacing } from "../../lib/theme"
-import { Button } from "../../components/Button"
-import { OnboardingBack } from "../../components/OnboardingBack"
 import { OnboardingProgress } from "../../components/OnboardingProgress"
 import { usePostHog } from "posthog-react-native"
 import { captureEvent } from "../../lib/posthog"
+import { FontAwesome } from "@expo/vector-icons"
+
+// Theme 2 color palette matching new design system
+const theme2Colors = {
+  red: "#B94444",
+  yellow: "#E8A037",
+  green: "#2D6F4A",
+  blue: "#3A5F8C",
+  beige: "#E8E0D5",
+  cream: "#F5F0EA",
+  white: "#FFFFFF",
+  text: "#000000",
+  textSecondary: "#404040",
+  onboardingPink: "#D97393", // Pink for onboarding CTAs
+}
 
 const { width, height } = Dimensions.get("window")
 
@@ -30,98 +42,183 @@ export default function Welcome3() {
   }, [posthog])
 
   return (
-    <ImageBackground
-      source={require("../../assets/images/welcome4-bg.png")}
-      style={styles.container}
-      resizeMode="cover"
-    >
-      <LinearGradient
-        colors={["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0.3)", "rgba(0, 0, 0, 0.8)", "rgba(0, 0, 0, 1)"]}
-        locations={[0, 0.4, 0.7, 1]}
-        style={styles.gradientOverlay}
-      />
-      <View style={styles.content}>
-        <View style={styles.topBar}>
-          <OnboardingBack />
-        </View>
-        <View style={styles.textContainer}>
-          <Text style={styles.body}>
-          Social media isn't real, and finding time for calls or texting can be tricky.
-          </Text>
-          <Text style={[styles.body, styles.secondParagraph]}>
-            Good Times is the group-based, low-effort, social app for friends & family to meaningfully <Text style={styles.boldText}>connect over one shared question a day</Text>.
-          </Text>
-        </View>
-
-        <View style={styles.bottomContainer}>
-          <OnboardingProgress total={3} current={2} />
-          <View style={styles.buttonContainer}>
-            <Button
-              title="→"
-              onPress={() => router.push("/(onboarding)/how-it-works")}
-              style={styles.button}
-              textStyle={styles.buttonText}
+    <View style={styles.container}>
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Top Section - Image */}
+        <View style={styles.imageContainer}>
+          <View style={styles.imageWrapper}>
+            <Image
+              source={require("../../assets/images/lucy-bg.png")}
+              style={styles.image}
+              resizeMode="cover"
             />
+            {/* Texture overlay */}
+            <View style={styles.imageTexture} pointerEvents="none">
+              <Image
+                source={require("../../assets/images/texture.png")}
+                style={styles.textureImage}
+                resizeMode="cover"
+              />
+            </View>
           </View>
         </View>
-      </View>
-    </ImageBackground>
+
+        {/* Bottom Section - Content */}
+        <View style={styles.content}>
+          {/* Text Content */}
+          <View style={styles.textContainer}>
+            <Text style={styles.body}>
+              Social media isn't real, and finding time for calls or texting can be tricky.
+            </Text>
+            <Text style={[styles.body, styles.secondParagraph]}>
+              Good Times is the group-based, low-effort, social app for friends & family to meaningfully <Text style={styles.boldText}>connect over one shared question a day</Text>.
+            </Text>
+          </View>
+
+          {/* Bottom Container */}
+          <View style={styles.bottomContainer}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => router.back()}
+              activeOpacity={0.8}
+            >
+              <FontAwesome name="angle-left" size={18} color={theme2Colors.text} />
+            </TouchableOpacity>
+            <OnboardingProgress total={3} current={2} />
+            <TouchableOpacity
+              style={styles.ctaButton}
+              onPress={() => router.push("/(onboarding)/how-it-works")}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.ctaButtonText}>→</Text>
+              <View style={styles.buttonTexture} pointerEvents="none">
+                <Image
+                  source={require("../../assets/images/texture.png")}
+                  style={styles.textureImage}
+                  resizeMode="cover"
+                />
+              </View>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </ScrollView>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    width,
-    height,
+    backgroundColor: theme2Colors.beige,
   },
-  gradientOverlay: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  content: {
+  scrollView: {
     flex: 1,
-    justifyContent: "space-between",
+  },
+  scrollContent: {
+    flexGrow: 1,
+  },
+  imageContainer: {
     padding: spacing.lg,
     paddingTop: spacing.xxl * 2,
-    paddingBottom: spacing.xxl * 2,
+    paddingBottom: spacing.lg,
+    justifyContent: "flex-start",
+    alignItems: "center",
   },
-  topBar: {
-    position: "absolute",
-    top: spacing.xxl,
-    left: spacing.lg,
+  imageWrapper: {
+    width: "100%",
+    aspectRatio: 0.8,
+    borderRadius: 20,
+    overflow: "hidden",
+    backgroundColor: theme2Colors.beige,
+    borderWidth: 2,
+    borderColor: theme2Colors.text,
+  },
+  image: {
+    width: "100%",
+    height: "100%",
+  },
+  imageTexture: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.3,
     zIndex: 1,
   },
+  textureImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: "100%",
+    height: "100%",
+  },
+  content: {
+    padding: spacing.lg,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.xxl * 4,
+    backgroundColor: theme2Colors.beige,
+  },
   textContainer: {
-    flex: 1,
-    justifyContent: "flex-end",
-    paddingBottom: spacing.xl,
+    marginBottom: spacing.lg,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme2Colors.white,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   body: {
-    ...typography.body,
+    fontFamily: "Roboto-Regular",
     fontSize: 16,
     lineHeight: 24,
-    color: colors.white,
+    color: theme2Colors.text,
   },
   secondParagraph: {
     marginTop: spacing.md,
   },
   boldText: {
-    fontWeight: "bold",
+    fontFamily: "Roboto-Bold",
   },
   bottomContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-end",
+    alignItems: "center",
+    marginTop: spacing.md,
   },
-  buttonContainer: {
-    alignItems: "flex-end",
-    marginLeft: spacing.md,
-  },
-  button: {
+  ctaButton: {
     width: 100,
     height: 60,
+    backgroundColor: theme2Colors.onboardingPink,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: theme2Colors.blue,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
-  buttonText: {
+  ctaButtonText: {
+    fontFamily: "Roboto-Bold",
     fontSize: 32,
+    color: theme2Colors.white,
+    zIndex: 2,
+  },
+  buttonTexture: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.3,
+    zIndex: 1,
+  },
+  textureImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: "100%",
+    height: "100%",
   },
 })

@@ -24,9 +24,10 @@ interface EntryCardProps {
   entryIds?: string[]
   index?: number
   returnTo?: string
+  showFuzzyOverlay?: boolean
 }
 
-export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home" }: EntryCardProps) {
+export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home", showFuzzyOverlay = false }: EntryCardProps) {
   const router = useRouter()
   const { colors, isDark } = useTheme()
   const audioRefs = useRef<Record<string, Audio.Sound>>({})
@@ -44,6 +45,8 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   const [userId, setUserId] = useState<string>()
   const [selectedMember, setSelectedMember] = useState<{ id: string; name: string; avatar_url?: string } | null>(null)
   const [userProfileModalVisible, setUserProfileModalVisible] = useState(false)
+  const [carouselIndex, setCarouselIndex] = useState(0)
+  const carouselScrollViewRef = useRef<ScrollView>(null)
 
   useEffect(() => {
     async function loadUser() {
@@ -76,6 +79,8 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   }, [])
 
   function handleEntryPress(scrollToComments = false) {
+    // Removed fuzzy overlay logic - users can now view entries without answering
+    
     const params: Record<string, string> = {
       entryId: entry.id,
       returnTo,
@@ -520,20 +525,38 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     return `${minutes}:${seconds.toString().padStart(2, "0")}`
   }
 
+  // Theme 2 color palette
+  const theme2Colors = {
+    red: "#B94444",
+    yellow: "#E8A037",
+    green: "#2D6F4A",
+    blue: "#3A5F8C",
+    beige: "#E8E0D5",
+    cream: "#F5F0EA",
+    white: "#FFFFFF",
+    text: "#000000",
+    textSecondary: "#404040",
+  }
+
   // Create dynamic styles based on theme
   const styles = useMemo(() => StyleSheet.create({
   entryWrapper: {
     width: "100%",
       marginBottom: spacing.md,
-      paddingHorizontal: 0,
+      paddingHorizontal: spacing.md,
   },
     entryCard: {
-      backgroundColor: colors.black,
+      backgroundColor: "#F5F0EA",
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.lg,
       paddingBottom: spacing.md,
-      borderRadius: 0,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
+      position: "relative",
+      overflow: "hidden",
   },
+    // Removed fuzzyOverlay style - no longer needed
   entryHeader: {
     flexDirection: "row",
       justifyContent: "space-between",
@@ -552,7 +575,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   userName: {
     ...typography.bodyBold,
     fontSize: 16, // Increased from 14
-      color: colors.white,
+      color: theme2Colors.text,
   },
   songTag: {
     flexDirection: "row",
@@ -563,18 +586,18 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     paddingVertical: 4,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: isDark ? colors.white : colors.gray[700],
+    borderColor: theme2Colors.textSecondary,
   },
   songTagText: {
     ...typography.caption,
     fontSize: 12,
-    color: colors.gray[400],
+    color: theme2Colors.textSecondary,
   },
   question: {
     fontFamily: "Roboto-Regular",
     fontSize: 14,
       marginBottom: spacing.md,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
   },
   textContainer: {
     position: "relative",
@@ -584,20 +607,20 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     ...typography.body,
     fontSize: 14,
     lineHeight: 22,
-    color: colors.white, // colors.white is #000000 (black) in light mode, #ffffff (white) in dark mode
+    color: theme2Colors.text,
   },
   link: {
     ...typography.body,
     fontSize: 14,
     lineHeight: 22,
-    color: colors.accent,
+    color: theme2Colors.blue,
     textDecorationLine: "underline",
   },
   mention: {
     ...typography.body,
     fontSize: 14,
     lineHeight: 22,
-    color: colors.accent,
+    color: theme2Colors.blue,
     fontWeight: "bold",
   },
   textFadeOverlay: {
@@ -614,7 +637,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     left: 0,
     right: 0,
       height: 24,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.cream,
     opacity: 0.85,
   },
   fadeLine2: {
@@ -623,7 +646,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     left: 0,
     right: 0,
       height: 24,
-      backgroundColor: colors.black,
+      backgroundColor: theme2Colors.cream,
     opacity: 0.6,
   },
     voiceMemoContainer: {
@@ -635,14 +658,16 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
       alignItems: "center",
       gap: spacing.md,
       padding: spacing.md,
-    backgroundColor: colors.gray[900],
+    backgroundColor: theme2Colors.beige,
       borderRadius: 16,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
   },
     voiceMemoIcon: {
       width: 40,
       height: 40,
       borderRadius: 20,
-    backgroundColor: colors.gray[800],
+    backgroundColor: theme2Colors.cream,
     justifyContent: "center",
     alignItems: "center",
     },
@@ -652,62 +677,87 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     },
     voiceMemoLabel: {
       ...typography.bodyMedium,
-      color: colors.white,
+      color: theme2Colors.text,
     },
     voiceMemoProgressTrack: {
       width: "100%",
       height: 4,
       borderRadius: 2,
-      backgroundColor: colors.gray[800],
+      backgroundColor: theme2Colors.textSecondary,
     overflow: "hidden",
   },
     voiceMemoProgressFill: {
       height: "100%",
-      backgroundColor: colors.accent,
+      backgroundColor: theme2Colors.blue,
     },
     voiceMemoTime: {
       ...typography.caption,
-      color: colors.gray[400],
+      color: theme2Colors.textSecondary,
     },
     mediaWrapper: {
-      width: SCREEN_WIDTH,
-      marginLeft: -spacing.lg,
-      marginRight: -spacing.lg,
+      width: "100%",
+      marginLeft: -spacing.xs, // Negative margin to extend beyond card padding
+      marginRight: -spacing.xs, // Negative margin to extend beyond card padding
       marginBottom: spacing.md,
       alignSelf: "stretch",
       paddingLeft: 0,
       paddingRight: 0,
+      borderRadius: 12,
+      overflow: "hidden", // Keep overflow hidden for rounded corners
     },
     mediaImage: {
     width: "100%",
       height: 300, // Fallback height while loading dimensions
-      backgroundColor: colors.gray[900],
+      backgroundColor: theme2Colors.beige,
   },
     photoCarouselContent: {
-      paddingLeft: spacing.lg,
-      paddingRight: spacing.lg,
-      gap: spacing.sm,
+      paddingLeft: spacing.xs, // Reduced padding so images span more width
+      paddingRight: spacing.xs, // Reduced padding so images span more width
+      gap: spacing.xs, // Reduced gap between images
     },
     photoCarouselItem: {
-      width: SCREEN_WIDTH * 0.75,
+      width: SCREEN_WIDTH * 0.75, // Smaller to show part of next image
       height: SCREEN_WIDTH * 0.75,
       overflow: "hidden",
-      backgroundColor: colors.gray[900],
-      marginRight: spacing.sm,
+      backgroundColor: theme2Colors.beige,
+      marginRight: spacing.xs, // Reduced margin
+      borderRadius: 12,
+    },
+    photoCarouselItemLast: {
+      marginRight: 0, // Remove margin from last item
     },
     photoCarouselImage: {
       width: "100%",
       height: "100%",
     },
+    paginationDots: {
+      flexDirection: "row",
+      justifyContent: "center",
+      alignItems: "center",
+      marginTop: spacing.sm,
+      gap: spacing.xs,
+    },
+    paginationDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: theme2Colors.textSecondary,
+      opacity: 0.3,
+    },
+    paginationDotActive: {
+      backgroundColor: theme2Colors.red,
+      opacity: 1,
+    },
     videoContainer: {
       width: "100%",
       minHeight: 200,
-      backgroundColor: colors.gray[900],
+      backgroundColor: theme2Colors.beige,
     justifyContent: "center",
     alignItems: "center",
     position: "relative",
     overflow: "hidden",
       alignSelf: "stretch",
+      borderRadius: 12,
   },
     videoOverlay: {
     position: "absolute",
@@ -745,7 +795,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     actionCount: {
       ...typography.bodyMedium,
       fontSize: 14,
-    color: colors.white,
+    color: theme2Colors.text,
   },
     reactionsRow: {
       flexDirection: "row",
@@ -763,7 +813,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
       borderRadius: 16,
       backgroundColor: "transparent",
       borderWidth: 1,
-      borderColor: isDark ? colors.gray[600] : colors.gray[400],
+      borderColor: theme2Colors.textSecondary,
     },
     reactionEmoji: {
       fontSize: 16,
@@ -771,7 +821,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     reactionCount: {
       ...typography.bodyMedium,
       fontSize: 12,
-      color: colors.white,
+      color: theme2Colors.text,
       fontWeight: "600",
     },
     reactIcon: {
@@ -779,11 +829,20 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
       height: 25,
     },
     commentsContainer: {
-      paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xs,
-    gap: spacing.xs,
+      paddingHorizontal: 0,
+    paddingTop: spacing.md,
+    gap: spacing.sm,
+    marginTop: spacing.md,
   },
   commentPreviewItem: {
+    backgroundColor: theme2Colors.white,
+    borderRadius: 12,
+    padding: spacing.sm,
+    marginBottom: spacing.xs,
+    borderWidth: 1,
+    borderColor: theme2Colors.textSecondary,
+  },
+  commentPreviewContent: {
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
@@ -792,27 +851,26 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   commentPreviewUser: {
     ...typography.bodyMedium,
     fontSize: 14,
-    color: colors.gray[300],
+    color: theme2Colors.text,
+    fontWeight: "600",
   },
   commentPreviewText: {
     ...typography.body,
     fontSize: 14,
-    color: colors.gray[400],
+    color: theme2Colors.text,
     flex: 1,
   },
   commentPreviewMore: {
     ...typography.caption,
     fontSize: 13,
-    color: colors.gray[500],
+    color: theme2Colors.textSecondary,
     marginTop: spacing.xs,
+    textAlign: "center",
   },
     separator: {
-      width: "100%",
-      height: 1,
-      backgroundColor: isDark ? "#3D3D3D" : "#E5E5E5", // Lighter separator in light mode
-      marginTop: spacing.md,
+      display: "none", // Remove separator - cards have their own borders
     },
-  }), [colors, isDark])
+  }), [theme2Colors])
 
   return (
     <View style={styles.entryWrapper}>
@@ -825,7 +883,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
         {/* Header */}
         <View style={styles.entryHeader}>
           <View style={styles.entryAuthor}>
-            <Avatar uri={entry.user?.avatar_url} name={entry.user?.name || "User"} size={32} />
+            <Avatar uri={entry.user?.avatar_url} name={entry.user?.name || "User"} size={36} borderColor={theme2Colors.text} />
             <Text style={styles.userName}>{entry.user?.name}</Text>
             {entry.embedded_media && entry.embedded_media.length > 0 && (() => {
               // Get the first platform to determine icon (or use first if multiple)
@@ -840,13 +898,13 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
               }
               return (
                 <View style={styles.songTag}>
-                  <FontAwesome name={iconName as any} size={12} color={colors.gray[400]} />
+                  <FontAwesome name={iconName as any} size={12} color={theme2Colors.textSecondary} />
                   <Text style={styles.songTagText}>Added a song</Text>
                 </View>
               )
             })()}
           </View>
-          <FontAwesome name="chevron-right" size={14} color={colors.gray[400]} style={styles.arrowIcon} />
+          <FontAwesome name="chevron-right" size={14} color={theme2Colors.textSecondary} style={styles.arrowIcon} />
         </View>
 
         {/* Question */}
@@ -894,12 +952,12 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                 >
                   <View style={styles.voiceMemoIcon}>
                     {audioLoading[audioId] ? (
-                      <ActivityIndicator size="small" color={colors.white} />
+                      <ActivityIndicator size="small" color={theme2Colors.text} />
                     ) : (
                       <FontAwesome
                         name={activeAudioId === audioId ? "pause" : "play"}
                         size={16}
-                        color={colors.white}
+                        color={theme2Colors.text}
                       />
                     )}
                   </View>
@@ -925,14 +983,22 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
         {hasMultiplePhotoVideo && (
           <View style={styles.mediaWrapper}>
             <ScrollView
+              ref={carouselScrollViewRef}
               horizontal
               showsHorizontalScrollIndicator={false}
               pagingEnabled={false}
-              snapToInterval={SCREEN_WIDTH * 0.75 + spacing.sm}
+              snapToInterval={SCREEN_WIDTH * 0.75 + spacing.xs}
               decelerationRate="fast"
               contentContainerStyle={styles.photoCarouselContent}
+              onScroll={(event) => {
+                const scrollPosition = event.nativeEvent.contentOffset.x
+                const itemWidth = SCREEN_WIDTH * 0.75 + spacing.xs
+                const currentIndex = Math.round(scrollPosition / itemWidth)
+                setCarouselIndex(currentIndex)
+              }}
+              scrollEventThrottle={16}
             >
-              {photoVideoMedia.map((item) => (
+              {photoVideoMedia.map((item, idx) => (
                 <TouchableOpacity
                   key={item.index}
                   onPress={(e) => {
@@ -940,7 +1006,10 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                     handleEntryPress()
                   }}
                   activeOpacity={0.9}
-                  style={styles.photoCarouselItem}
+                  style={[
+                    styles.photoCarouselItem,
+                    idx === photoVideoMedia.length - 1 && styles.photoCarouselItemLast
+                  ]}
                 >
                   {item.type === "photo" ? (
                     <Image
@@ -966,6 +1035,18 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                 </TouchableOpacity>
               ))}
             </ScrollView>
+            {/* Pagination dots */}
+            <View style={styles.paginationDots}>
+              {photoVideoMedia.map((_, idx) => (
+                <View
+                  key={idx}
+                  style={[
+                    styles.paginationDot,
+                    idx === carouselIndex && styles.paginationDotActive
+                  ]}
+                />
+              ))}
+            </View>
           </View>
         )}
 
@@ -986,9 +1067,10 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                   width: "100%",
                   height: undefined,
                   aspectRatio: imageDimensions[firstPhotoVideo.index].width / imageDimensions[firstPhotoVideo.index].height,
-                  backgroundColor: colors.gray[900],
+                  backgroundColor: theme2Colors.beige,
+                  borderRadius: 12,
                 } : styles.mediaImage}
-                resizeMode="contain"
+                resizeMode="cover"
                 onLoad={(e) => {
                   const { width, height } = e.nativeEvent.source
                   if (width && height) {
@@ -1032,7 +1114,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                 <FontAwesome 
                   name={comments.length > 0 ? "comment" : "comment-o"} 
                   size={20} 
-                  color={colors.white}
+                  color={theme2Colors.text}
                   style={comments.length > 0 ? styles.iconSolid : styles.iconOutline}
                 />
                 {comments.length > 0 && <Text style={styles.actionCount}>{comments.length}</Text>}
@@ -1052,7 +1134,11 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                     }}
                     activeOpacity={0.7}
                   >
-                    <FontAwesome name="heart-o" size={20} color={colors.white} />
+                    <Image
+                      source={require("../assets/images/react.png")}
+                      style={styles.reactIcon}
+                      resizeMode="contain"
+                    />
                   </TouchableOpacity>
                 )}
                 
@@ -1079,11 +1165,10 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
             </View>
           </View>
         </View>
-      </TouchableOpacity>
 
-      {/* Comments Preview */}
-      {comments.length > 0 && (
-        <View style={styles.commentsContainer}>
+        {/* Comments Preview - Inside the card */}
+        {comments.length > 0 && (
+          <View style={styles.commentsContainer}>
           {comments.length <= 10 ? (
             // Show all comments if 10 or fewer
             comments.map((comment: any) => (
@@ -1096,11 +1181,21 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                 }}
                 activeOpacity={0.7}
               >
-                <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={20} />
-                <Text style={styles.commentPreviewUser}>{comment.user?.name}: </Text>
-                <Text style={styles.commentPreviewText} numberOfLines={1}>
-                  {comment.text}
-                </Text>
+                <View style={styles.commentPreviewContent}>
+                  {(() => {
+                    // Cycle through theme colors for comment avatars
+                    const avatarColors = [theme2Colors.red, theme2Colors.yellow, theme2Colors.green, theme2Colors.blue]
+                    const colorIndex = comment.id ? parseInt(comment.id.slice(-1), 16) % 4 : 0
+                    const borderColor = avatarColors[colorIndex]
+                    return (
+                      <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={20} borderColor={borderColor} />
+                    )
+                  })()}
+                  <Text style={styles.commentPreviewUser}>{comment.user?.name}: </Text>
+                  <Text style={styles.commentPreviewText} numberOfLines={1}>
+                    {comment.text}
+                  </Text>
+                </View>
               </TouchableOpacity>
             ))
           ) : (
@@ -1116,11 +1211,21 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                   }}
                   activeOpacity={0.7}
                 >
-                  <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={20} />
-                  <Text style={styles.commentPreviewUser}>{comment.user?.name}: </Text>
-                  <Text style={styles.commentPreviewText} numberOfLines={1}>
-                    {comment.text}
-                  </Text>
+                  <View style={styles.commentPreviewContent}>
+                    {(() => {
+                      // Cycle through theme colors for comment avatars
+                      const avatarColors = [theme2Colors.red, theme2Colors.yellow, theme2Colors.green, theme2Colors.blue]
+                      const colorIndex = comment.id ? parseInt(comment.id.slice(-1), 16) % 4 : 0
+                      const borderColor = avatarColors[colorIndex]
+                      return (
+                        <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={20} borderColor={borderColor} />
+                      )
+                    })()}
+                    <Text style={styles.commentPreviewUser}>{comment.user?.name}: </Text>
+                    <Text style={styles.commentPreviewText} numberOfLines={2}>
+                      {comment.text}
+                    </Text>
+                  </View>
                 </TouchableOpacity>
               ))}
               <TouchableOpacity
@@ -1135,7 +1240,11 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
             </>
           )}
         </View>
-      )}
+        )}
+        
+        {/* Fuzzy overlay when user hasn't answered */}
+        {/* Removed fuzzy overlay - users can now view entries without answering */}
+      </TouchableOpacity>
 
       {/* Separator */}
       <View style={styles.separator} />
@@ -1321,16 +1430,29 @@ function VideoPlayer({
     return `${minutes}:${seconds.toString().padStart(2, "0")}`
   }
   
+  const theme2Colors = {
+    red: "#B94444",
+    yellow: "#E8A037",
+    green: "#2D6F4A",
+    blue: "#3A5F8C",
+    beige: "#E8E0D5",
+    cream: "#F5F0EA",
+    white: "#FFFFFF",
+    text: "#000000",
+    textSecondary: "#404040",
+  }
+
   const videoStyles = useMemo(() => StyleSheet.create({
     videoContainer: {
       width: "100%",
       height: containerStyle?.height || SCREEN_WIDTH, // Square aspect ratio (1:1) for gallery-like appearance
-      backgroundColor: colors.gray[900],
+      backgroundColor: theme2Colors.beige,
       justifyContent: "center",
       alignItems: "center",
       position: "relative",
       overflow: "hidden",
       alignSelf: "stretch",
+      borderRadius: 12,
       ...containerStyle,
     },
     video: {
@@ -1385,7 +1507,7 @@ function VideoPlayer({
     },
     progressBar: {
       height: "100%",
-      backgroundColor: colors.accent,
+      backgroundColor: theme2Colors.blue,
     },
     progressTime: {
       position: "absolute",
@@ -1393,13 +1515,13 @@ function VideoPlayer({
       right: spacing.sm,
       ...typography.caption,
       fontSize: 10,
-      color: colors.white,
+      color: theme2Colors.white,
       backgroundColor: "rgba(0, 0, 0, 0.6)",
       paddingHorizontal: spacing.xs,
       paddingVertical: 2,
       borderRadius: 4,
     },
-  }), [colors, containerStyle])
+  }), [theme2Colors, containerStyle])
 
   return (
     <TouchableOpacity 
@@ -1462,7 +1584,7 @@ function VideoPlayer({
           <FontAwesome 
             name={isMuted ? "volume-off" : "volume-up"} 
             size={16} 
-            color={colors.white} 
+            color={theme2Colors.white} 
           />
         </TouchableOpacity>
         
@@ -1476,9 +1598,9 @@ function VideoPlayer({
             }}
           >
             {isLoading ? (
-              <ActivityIndicator size="small" color={colors.white} />
+              <ActivityIndicator size="small" color={theme2Colors.white} />
             ) : (
-              <FontAwesome name="play" size={20} color={colors.white} />
+              <FontAwesome name="play" size={20} color={theme2Colors.white} />
             )}
           </TouchableOpacity>
         )}

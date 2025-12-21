@@ -1220,20 +1220,33 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
 
   // Track keyboard height
   useEffect(() => {
+    let isMounted = true
+    
     const keyboardWillShow = Keyboard.addListener(
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
       (e) => {
-        setKeyboardHeight(e.endCoordinates.height)
+        if (isMounted) {
+          setKeyboardHeight((prevHeight) => {
+            // Only update if height actually changed
+            return prevHeight !== e.endCoordinates.height ? e.endCoordinates.height : prevHeight
+          })
+        }
       }
     )
     const keyboardWillHide = Keyboard.addListener(
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
       () => {
-        setKeyboardHeight(0)
+        if (isMounted) {
+          setKeyboardHeight((prevHeight) => {
+            // Only update if height actually changed
+            return prevHeight !== 0 ? 0 : prevHeight
+          })
+        }
       }
     )
 
     return () => {
+      isMounted = false
       keyboardWillShow.remove()
       keyboardWillHide.remove()
     }
