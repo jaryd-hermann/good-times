@@ -19,6 +19,18 @@ interface ChangeEntry {
 
 const CHANGES: ChangeEntry[] = [
   {
+    date: "2025-12-22",
+    title: "Monday, December 22nd",
+    subtitle: "Release notes",
+    timestamp: "4:00pm",
+    items: [
+      "You can now record video replies to a question directly in Good Times. Max 2 minutes. Try it!",
+      "Improved the scroll behavior, your groups answers shouldn't get stuck behind the header anymore",
+      "Major improvements to app speed and performance",
+      "Other bits and bobs to make things smoother for you",
+    ],
+  },
+  {
     date: "2025-12-21",
     title: "Sunday, December 21st",
     subtitle: "Release notes",

@@ -47,7 +47,9 @@ function getDayIndex(dateString: string, groupId?: string) {
   return diff + groupOffset
 }
 import { UserProfileModal } from "../../../components/UserProfileModal"
+import { VideoMessageModal } from "../../../components/VideoMessageModal"
 import * as FileSystem from "expo-file-system/legacy"
+import AsyncStorage from "@react-native-async-storage/async-storage"
 import { usePostHog } from "posthog-react-native"
 import { captureEvent, safeCapture } from "../../../lib/posthog"
 import { updateBadgeCount } from "../../../lib/notifications-badge"
@@ -98,6 +100,10 @@ export default function EntryComposer() {
   const [embeddedMedia, setEmbeddedMedia] = useState<ParsedEmbed[]>([])
   const [showSongModal, setShowSongModal] = useState(false)
   const [songUrlInput, setSongUrlInput] = useState("")
+  const [showVideoModal, setShowVideoModal] = useState(false)
+  const [showVideoTooltip, setShowVideoTooltip] = useState(false)
+  const videoButtonRef = useRef<View>(null)
+  const [videoButtonLayout, setVideoButtonLayout] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
   const textInputRef = useRef<TextInput>(null)
   const scrollViewRef = useRef<ScrollView>(null)
   const inputContainerRef = useRef<View>(null)
@@ -135,6 +141,40 @@ export default function EntryComposer() {
   useEffect(() => {
     loadUserAndGroup()
   }, [groupIdParam])
+
+  // Reset isNavigating when composer opens (promptId or date changes)
+  useEffect(() => {
+    setIsNavigating(false)
+  }, [promptId, date])
+
+  // Also reset isNavigating when screen comes into focus (handles case where user reopens without params changing)
+  useFocusEffect(
+    useCallback(() => {
+      setIsNavigating(false)
+    }, [])
+  )
+
+  // Check if video tooltip should be shown
+  useEffect(() => {
+    async function checkVideoTooltip() {
+      if (!userId) return
+      const hasSeenTooltip = await AsyncStorage.getItem(`video_tooltip_seen_${userId}`)
+      if (!hasSeenTooltip) {
+        // Small delay to ensure layout is ready
+        setTimeout(() => {
+          setShowVideoTooltip(true)
+        }, 500)
+      }
+    }
+    checkVideoTooltip()
+  }, [userId])
+
+  // Dismiss tooltip
+  async function dismissVideoTooltip() {
+    if (!userId) return
+    setShowVideoTooltip(false)
+    await AsyncStorage.setItem(`video_tooltip_seen_${userId}`, "true")
+  }
 
   // Listen to keyboard events to adjust toolbar position
   useEffect(() => {
@@ -813,6 +853,19 @@ export default function EntryComposer() {
       })
       .catch(() => {})
     cleanupVoiceModal()
+  }
+
+  function handleAddVideo(videoUri: string) {
+    const videoId = createMediaId()
+    setMediaItems((prev) => [
+      ...prev,
+      {
+        id: videoId,
+        uri: videoUri,
+        type: "video",
+        thumbnailUri: videoUri, // Will generate thumbnail for video
+      },
+    ])
   }
 
   async function handleToggleAudio(id: string, uri: string) {
@@ -1574,15 +1627,28 @@ export default function EntryComposer() {
     header: {
       flexDirection: "row",
       justifyContent: "space-between",
-      alignItems: "center",
-      padding: spacing.md,
-      paddingTop: spacing.xxl,
+      alignItems: "flex-start",
+      marginBottom: spacing.md,
+      marginTop: 0, // No top margin since contentContainer has paddingTop
       gap: spacing.md,
+      width: "100%",
     },
     headerTitle: {
       ...typography.h3,
       color: theme2Colors.text,
       flex: 1,
+    },
+    headerCloseButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: theme2Colors.cream,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
+      flexShrink: 0,
+      marginTop: 0,
     },
     closeButton: {
       ...typography.h2,
@@ -1594,15 +1660,17 @@ export default function EntryComposer() {
     },
     contentContainer: {
       padding: spacing.lg,
+      paddingTop: spacing.xxl + spacing.md, // Extra top padding for header
       paddingBottom: spacing.xxl * 2 + 80, // Extra padding at bottom for toolbar clearance (toolbar height ~80px)
     },
     question: {
       ...typography.h2,
       fontSize: 24,
-      marginBottom: spacing.sm,
-      marginTop: spacing.xxl,
       color: theme2Colors.text,
       fontFamily: "PMGothicLudington-Text115",
+      flex: 1,
+      flexShrink: 1,
+      marginRight: spacing.md,
     },
     description: {
       ...typography.body,
@@ -1834,6 +1902,16 @@ export default function EntryComposer() {
       justifyContent: "center",
       alignItems: "center",
     },
+    videoIconButton: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      backgroundColor: theme2Colors.cream,
+      borderWidth: 2,
+      borderColor: "#D97393", // Pink outline in both light and dark mode
+      justifyContent: "center",
+      alignItems: "center",
+    },
     iconButtonDisabled: {
       opacity: 0.5,
     },
@@ -2033,6 +2111,54 @@ export default function EntryComposer() {
       textAlign: "center",
       marginTop: spacing.md,
     },
+    tooltipContainer: {
+      position: "absolute",
+      zIndex: 10000,
+      elevation: 10000,
+    },
+    tooltipBubble: {
+      backgroundColor: theme2Colors.cream,
+      borderRadius: 12,
+      padding: spacing.md,
+      borderWidth: 1,
+      borderColor: theme2Colors.blue,
+      maxWidth: 200,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.25,
+      shadowRadius: 3.84,
+      elevation: 5,
+    },
+    tooltipText: {
+      ...typography.body,
+      fontSize: 14,
+      color: theme2Colors.text,
+      textAlign: "center",
+    },
+    tooltipPointer: {
+      width: 0,
+      height: 0,
+      borderLeftWidth: 8,
+      borderRightWidth: 8,
+      borderTopWidth: 8,
+      borderLeftColor: "transparent",
+      borderRightColor: "transparent",
+      borderTopColor: theme2Colors.blue,
+      alignSelf: "center",
+      marginTop: -1,
+    },
+    tooltipPointerInner: {
+      width: 0,
+      height: 0,
+      borderLeftWidth: 7,
+      borderRightWidth: 7,
+      borderTopWidth: 7,
+      borderLeftColor: "transparent",
+      borderRightColor: "transparent",
+      borderTopColor: theme2Colors.cream,
+      alignSelf: "center",
+      marginTop: -8,
+    },
   }), [colors, isDark, theme2Colors])
 
   return (
@@ -2058,7 +2184,13 @@ export default function EntryComposer() {
           }}
           scrollEventThrottle={16}
         >
-        <Text style={styles.question}>{personalizedQuestion || activePrompt?.question}</Text>
+        {/* Header with question and close button */}
+        <View style={styles.header}>
+          <Text style={styles.question} numberOfLines={3}>{personalizedQuestion || activePrompt?.question}</Text>
+          <TouchableOpacity style={styles.headerCloseButton} onPress={exitComposer}>
+            <FontAwesome name="times" size={18} color={theme2Colors.text} />
+          </TouchableOpacity>
+        </View>
 
         {/* Media preview carousel - positioned between description and input */}
         {mediaItems.filter(item => item.type !== "audio").length > 0 && (
@@ -2298,6 +2430,41 @@ export default function EntryComposer() {
         }}
       />
 
+      {/* Video Message Modal */}
+      <VideoMessageModal
+        visible={showVideoModal}
+        question={personalizedQuestion || activePrompt?.question || ""}
+        onClose={() => setShowVideoModal(false)}
+        onAddVideo={handleAddVideo}
+      />
+
+      {/* Video Tooltip */}
+      {showVideoTooltip && videoButtonLayout && (
+        <View
+          style={[
+            styles.tooltipContainer,
+            {
+              bottom: Platform.OS === "android" 
+                ? keyboardHeight + spacing.xl + spacing.md + 60 + 10
+                : keyboardHeight + 60 + 10,
+              left: videoButtonLayout.x + (videoButtonLayout.width / 2) - 100,
+            },
+          ]}
+        >
+          <View style={styles.tooltipBubble}>
+            <Text style={styles.tooltipText}>You can now record a video answer</Text>
+            <TouchableOpacity
+              style={{ marginTop: spacing.xs, alignItems: "center" }}
+              onPress={dismissVideoTooltip}
+            >
+              <Text style={[styles.tooltipText, { fontSize: 12, color: theme2Colors.blue }]}>Got it</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.tooltipPointer} />
+          <View style={styles.tooltipPointerInner} />
+        </View>
+      )}
+
       {/* Toolbar - positioned above keyboard */}
       {!isNavigating && (
       <View style={[styles.toolbar, { bottom: Platform.OS === "android" ? keyboardHeight + spacing.xl + spacing.md : keyboardHeight }]}>
@@ -2309,6 +2476,20 @@ export default function EntryComposer() {
             <TouchableOpacity style={styles.iconButton} onPress={openCamera}>
               <FontAwesome name="camera" size={18} color={theme2Colors.text} />
             </TouchableOpacity>
+            <View
+              ref={videoButtonRef}
+              onLayout={(event) => {
+                const { x, y, width, height } = event.nativeEvent.layout
+                setVideoButtonLayout({ x, y, width, height })
+              }}
+            >
+              <TouchableOpacity style={styles.videoIconButton} onPress={() => {
+                dismissVideoTooltip()
+                setShowVideoModal(true)
+              }}>
+                <FontAwesome name="video-camera" size={18} color={theme2Colors.text} />
+              </TouchableOpacity>
+            </View>
             <TouchableOpacity style={styles.iconButton} onPress={startRecording}>
               <FontAwesome name="microphone" size={18} color={theme2Colors.text} />
             </TouchableOpacity>
@@ -2341,9 +2522,6 @@ export default function EntryComposer() {
                 )}
               </TouchableOpacity>
             )}
-            <TouchableOpacity style={[styles.iconButton, styles.closeButtonIcon]} onPress={exitComposer}>
-              <FontAwesome name="times" size={18} color={theme2Colors.text} />
-            </TouchableOpacity>
           </View>
         </View>
       </View>

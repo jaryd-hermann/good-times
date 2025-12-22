@@ -321,33 +321,37 @@ export default function SwipeOnboarding() {
     }).start()
   }, [yesSwipeCount, progressBarWidth])
 
-  // Auto-redirect to home when reaching 5 yes swipes
+  // Auto-redirect when reaching 5 yes swipes
   useEffect(() => {
     if (yesSwipeCount >= 5 && groupId && userId) {
-      console.log("[swipe-onboarding] Reached 5 yes swipes, redirecting to home")
+      console.log("[swipe-onboarding] Reached 5 yes swipes, redirecting")
       // Mark swipe onboarding as complete
       const onboardingKey = getSwipeOnboardingKey(userId, groupId)
       AsyncStorage.setItem(onboardingKey, "true")
       
-      // Clear pending group keys if they exist
-      AsyncStorage.getItem("pending_group_created").then((pendingGroupCreated) => {
-        if (pendingGroupCreated) {
-          AsyncStorage.removeItem("pending_group_created")
-        }
+      // Check if this is a new user (has pending group created or join)
+      Promise.all([
+        AsyncStorage.getItem("pending_group_created"),
+        AsyncStorage.getItem("pending_group_join"),
+      ]).then(([pendingGroupCreated, pendingGroupId]) => {
+        // Small delay to let animation complete, then redirect
+        setTimeout(() => {
+          // Route to set-theme for new users, otherwise go to home
+          if (pendingGroupCreated || pendingGroupId) {
+            // New user - go to set theme onboarding
+            router.replace({
+              pathname: "/(onboarding)/set-theme",
+              params: { groupId: groupId },
+            })
+          } else {
+            // Existing user creating another group - go straight to home
+            router.replace({
+              pathname: "/(main)/home",
+              params: { focusGroupId: groupId },
+            })
+          }
+        }, 500)
       })
-      AsyncStorage.getItem("pending_group_join").then((pendingGroupId) => {
-        if (pendingGroupId) {
-          AsyncStorage.removeItem("pending_group_join")
-        }
-      })
-      
-      // Small delay to let animation complete, then redirect
-      setTimeout(() => {
-        router.replace({
-          pathname: "/(main)/home",
-          params: { focusGroupId: groupId },
-        })
-      }, 500)
     }
   }, [yesSwipeCount, groupId, userId, router])
 
@@ -614,24 +618,23 @@ export default function SwipeOnboarding() {
     const onboardingKey = getSwipeOnboardingKey(userId, groupId)
     await AsyncStorage.setItem(onboardingKey, "true")
     
-    // Clear pending group keys if they exist
+    // Check if this is a new user (has pending group created or join)
     const pendingGroupCreated = await AsyncStorage.getItem("pending_group_created")
     const pendingGroupId = await AsyncStorage.getItem("pending_group_join")
-    if (pendingGroupCreated) {
-      await AsyncStorage.removeItem("pending_group_created")
-    }
-    if (pendingGroupId) {
-      await AsyncStorage.removeItem("pending_group_join")
-    }
     
-    // Route to home with focus on the group
+    // Route to set-theme for new users, otherwise go to home
     if (pendingGroupCreated || pendingGroupId) {
+      // New user - go to set theme onboarding
+      router.replace({
+        pathname: "/(onboarding)/set-theme",
+        params: { groupId: groupId },
+      })
+    } else {
+      // Existing user creating another group - go straight to home
       router.replace({
         pathname: "/(main)/home",
         params: { focusGroupId: groupId },
       })
-    } else {
-      router.replace("/(main)/home")
     }
   }
 

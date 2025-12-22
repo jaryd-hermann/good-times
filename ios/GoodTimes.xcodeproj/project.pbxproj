@@ -7,39 +7,39 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		04D27964EAEA4F3FB687ADDD /* LibreBaskerville-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = F2CAC4E74D4F478CA28C0C31 /* LibreBaskerville-Regular.ttf */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
-		217EE36BBBD14C84A433EB6F /* Roboto-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 9CF9EB7BF09D40A1A7DC2ED4 /* Roboto-Medium.ttf */; };
-		3A298ABEF9914158AC5AE2A5 /* Roboto-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 3233438437D44470B1918AE8 /* Roboto-Regular.ttf */; };
+		26346636178A768A9FD7C9AE /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 69BDA6814D8901078A40FDFD /* PrivacyInfo.xcprivacy */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
-		4EEA5AE23FBBA59903289CB4 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = EED7E76B77BA82D4EF4C4C81 /* ExpoModulesProvider.swift */; };
+		4D23E8D9C901D7113F8E489D /* libPods-GoodTimes.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9BC1CFD5BD97D2489191D189 /* libPods-GoodTimes.a */; };
+		524EBAD93AC249C7AB42C9FC /* LibreBaskerville-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 59AFBA7979EB4A0894D15061 /* LibreBaskerville-Regular.ttf */; };
+		6A15C199A23D47C59BDF314C /* Roboto-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = AF1F3D0E5AC046B2A04BA6DF /* Roboto-Bold.ttf */; };
+		7E425AFA55F94C1BBB645B96 /* Roboto-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 7EECA234C2C949E1A2052BA5 /* Roboto-Regular.ttf */; };
+		86CF55885F254E2C960B67BB /* Roboto-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 19D66EA1142B491CB88423A7 /* Roboto-Medium.ttf */; };
+		AB22EE4815554DB9970EC532 /* LibreBaskerville-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 77ACA3C1C72C4E928C5A6D06 /* LibreBaskerville-Bold.ttf */; };
+		B84B34EE1482FE5328385EA3 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80F3992EE48C50A6F0263419 /* ExpoModulesProvider.swift */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
-		C36BEA78946F4F2CAA3F4B9E /* Roboto-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 10504022ED5849659F71D122 /* Roboto-Bold.ttf */; };
-		C6C38278BC4D4C638915DBD2 /* LibreBaskerville-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 5536F5891F0B4B1786A90FE0 /* LibreBaskerville-Bold.ttf */; };
-		E6E06D28DC5BE6085F0CD63C /* libPods-GoodTimes.a in Frameworks */ = {isa = PBXBuildFile; fileRef = D61E5C626414948DD61D8A57 /* libPods-GoodTimes.a */; };
-		E95CB26ECBB3E4EB15B881D9 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 0E9E2BD9D165A935F79C7179 /* PrivacyInfo.xcprivacy */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		0E9E2BD9D165A935F79C7179 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = GoodTimes/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		10504022ED5849659F71D122 /* Roboto-Bold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Roboto-Bold.ttf"; path = "../assets/fonts/Roboto-Bold.ttf"; sourceTree = "<group>"; };
 		13B07F961A680F5B00A75B9A /* GoodTimes.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GoodTimes.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = GoodTimes/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = GoodTimes/Info.plist; sourceTree = "<group>"; };
-		185B98B31B6F72ED17ACE613 /* Pods-GoodTimes.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-GoodTimes.debug.xcconfig"; path = "Target Support Files/Pods-GoodTimes/Pods-GoodTimes.debug.xcconfig"; sourceTree = "<group>"; };
-		3233438437D44470B1918AE8 /* Roboto-Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Roboto-Regular.ttf"; path = "../assets/fonts/Roboto-Regular.ttf"; sourceTree = "<group>"; };
-		5536F5891F0B4B1786A90FE0 /* LibreBaskerville-Bold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "LibreBaskerville-Bold.ttf"; path = "../assets/fonts/LibreBaskerville-Bold.ttf"; sourceTree = "<group>"; };
-		9CF9EB7BF09D40A1A7DC2ED4 /* Roboto-Medium.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Roboto-Medium.ttf"; path = "../assets/fonts/Roboto-Medium.ttf"; sourceTree = "<group>"; };
+		19D66EA1142B491CB88423A7 /* Roboto-Medium.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Roboto-Medium.ttf"; path = "../assets/fonts/Roboto-Medium.ttf"; sourceTree = "<group>"; };
+		59AFBA7979EB4A0894D15061 /* LibreBaskerville-Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "LibreBaskerville-Regular.ttf"; path = "../assets/fonts/LibreBaskerville-Regular.ttf"; sourceTree = "<group>"; };
+		69BDA6814D8901078A40FDFD /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = GoodTimes/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		77ACA3C1C72C4E928C5A6D06 /* LibreBaskerville-Bold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "LibreBaskerville-Bold.ttf"; path = "../assets/fonts/LibreBaskerville-Bold.ttf"; sourceTree = "<group>"; };
+		7930E07D319356C75964232E /* Pods-GoodTimes.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-GoodTimes.release.xcconfig"; path = "Target Support Files/Pods-GoodTimes/Pods-GoodTimes.release.xcconfig"; sourceTree = "<group>"; };
+		7EECA234C2C949E1A2052BA5 /* Roboto-Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Roboto-Regular.ttf"; path = "../assets/fonts/Roboto-Regular.ttf"; sourceTree = "<group>"; };
+		80F3992EE48C50A6F0263419 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-GoodTimes/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
+		9BC1CFD5BD97D2489191D189 /* libPods-GoodTimes.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-GoodTimes.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = GoodTimes/SplashScreen.storyboard; sourceTree = "<group>"; };
+		AF1F3D0E5AC046B2A04BA6DF /* Roboto-Bold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Roboto-Bold.ttf"; path = "../assets/fonts/Roboto-Bold.ttf"; sourceTree = "<group>"; };
+		B7C76A883892DA82C0FA1A1B /* Pods-GoodTimes.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-GoodTimes.debug.xcconfig"; path = "Target Support Files/Pods-GoodTimes/Pods-GoodTimes.debug.xcconfig"; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
-		CB5FC51FC375EA8DAFEAADD4 /* Pods-GoodTimes.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-GoodTimes.release.xcconfig"; path = "Target Support Files/Pods-GoodTimes/Pods-GoodTimes.release.xcconfig"; sourceTree = "<group>"; };
-		D61E5C626414948DD61D8A57 /* libPods-GoodTimes.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-GoodTimes.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
-		EED7E76B77BA82D4EF4C4C81 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-GoodTimes/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = GoodTimes/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* GoodTimes-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "GoodTimes-Bridging-Header.h"; path = "GoodTimes/GoodTimes-Bridging-Header.h"; sourceTree = "<group>"; };
-		F2CAC4E74D4F478CA28C0C31 /* LibreBaskerville-Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "LibreBaskerville-Regular.ttf"; path = "../assets/fonts/LibreBaskerville-Regular.ttf"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -47,7 +47,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E6E06D28DC5BE6085F0CD63C /* libPods-GoodTimes.a in Frameworks */,
+				4D23E8D9C901D7113F8E489D /* libPods-GoodTimes.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -63,7 +63,15 @@
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
-				0E9E2BD9D165A935F79C7179 /* PrivacyInfo.xcprivacy */,
+				69BDA6814D8901078A40FDFD /* PrivacyInfo.xcprivacy */,
+			);
+			name = GoodTimes;
+			sourceTree = "<group>";
+		};
+		232F2A0CD0ACC661718B540A /* GoodTimes */ = {
+			isa = PBXGroup;
+			children = (
+				80F3992EE48C50A6F0263419 /* ExpoModulesProvider.swift */,
 			);
 			name = GoodTimes;
 			sourceTree = "<group>";
@@ -72,17 +80,22 @@
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				D61E5C626414948DD61D8A57 /* libPods-GoodTimes.a */,
+				9BC1CFD5BD97D2489191D189 /* libPods-GoodTimes.a */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
-		2E7DE02E69BC145DCF91D029 /* ExpoModulesProviders */ = {
+		4FA837427F674181B45A0A8D /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				9AAE26F60C5CD127F992D235 /* GoodTimes */,
+				59AFBA7979EB4A0894D15061 /* LibreBaskerville-Regular.ttf */,
+				77ACA3C1C72C4E928C5A6D06 /* LibreBaskerville-Bold.ttf */,
+				7EECA234C2C949E1A2052BA5 /* Roboto-Regular.ttf */,
+				19D66EA1142B491CB88423A7 /* Roboto-Medium.ttf */,
+				AF1F3D0E5AC046B2A04BA6DF /* Roboto-Bold.ttf */,
 			);
-			name = ExpoModulesProviders;
+			name = Resources;
+			path = "";
 			sourceTree = "<group>";
 		};
 		832341AE1AAA6A7D00B99B32 /* Libraries */ = {
@@ -99,9 +112,9 @@
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
-				F7D51A35E5A3476BB99A5131 /* Resources */,
-				F2175C0084080496D6B44B43 /* Pods */,
-				2E7DE02E69BC145DCF91D029 /* ExpoModulesProviders */,
+				4FA837427F674181B45A0A8D /* Resources */,
+				AB883CE09C36951F152D0A65 /* Pods */,
+				F12CA4D66882E272FB8BD706 /* ExpoModulesProviders */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -116,12 +129,14 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		9AAE26F60C5CD127F992D235 /* GoodTimes */ = {
+		AB883CE09C36951F152D0A65 /* Pods */ = {
 			isa = PBXGroup;
 			children = (
-				EED7E76B77BA82D4EF4C4C81 /* ExpoModulesProvider.swift */,
+				B7C76A883892DA82C0FA1A1B /* Pods-GoodTimes.debug.xcconfig */,
+				7930E07D319356C75964232E /* Pods-GoodTimes.release.xcconfig */,
 			);
-			name = GoodTimes;
+			name = Pods;
+			path = Pods;
 			sourceTree = "<group>";
 		};
 		BB2F792B24A3F905000567C9 /* Supporting */ = {
@@ -133,27 +148,12 @@
 			path = GoodTimes/Supporting;
 			sourceTree = "<group>";
 		};
-		F2175C0084080496D6B44B43 /* Pods */ = {
+		F12CA4D66882E272FB8BD706 /* ExpoModulesProviders */ = {
 			isa = PBXGroup;
 			children = (
-				185B98B31B6F72ED17ACE613 /* Pods-GoodTimes.debug.xcconfig */,
-				CB5FC51FC375EA8DAFEAADD4 /* Pods-GoodTimes.release.xcconfig */,
+				232F2A0CD0ACC661718B540A /* GoodTimes */,
 			);
-			name = Pods;
-			path = Pods;
-			sourceTree = "<group>";
-		};
-		F7D51A35E5A3476BB99A5131 /* Resources */ = {
-			isa = PBXGroup;
-			children = (
-				F2CAC4E74D4F478CA28C0C31 /* LibreBaskerville-Regular.ttf */,
-				5536F5891F0B4B1786A90FE0 /* LibreBaskerville-Bold.ttf */,
-				3233438437D44470B1918AE8 /* Roboto-Regular.ttf */,
-				9CF9EB7BF09D40A1A7DC2ED4 /* Roboto-Medium.ttf */,
-				10504022ED5849659F71D122 /* Roboto-Bold.ttf */,
-			);
-			name = Resources;
-			path = "";
+			name = ExpoModulesProviders;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -164,13 +164,13 @@
 			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "GoodTimes" */;
 			buildPhases = (
 				08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */,
-				A0B1F811795E0C1D6AA20A90 /* [Expo] Configure project */,
+				D1A79953B99ADFE15ED4EB24 /* [Expo] Configure project */,
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
-				6B65D1ACA146C208B1077948 /* [CP] Embed Pods Frameworks */,
+				D6202691990D786A6BC41725 /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
@@ -220,12 +220,12 @@
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
-				04D27964EAEA4F3FB687ADDD /* LibreBaskerville-Regular.ttf in Resources */,
-				C6C38278BC4D4C638915DBD2 /* LibreBaskerville-Bold.ttf in Resources */,
-				3A298ABEF9914158AC5AE2A5 /* Roboto-Regular.ttf in Resources */,
-				217EE36BBBD14C84A433EB6F /* Roboto-Medium.ttf in Resources */,
-				C36BEA78946F4F2CAA3F4B9E /* Roboto-Bold.ttf in Resources */,
-				E95CB26ECBB3E4EB15B881D9 /* PrivacyInfo.xcprivacy in Resources */,
+				524EBAD93AC249C7AB42C9FC /* LibreBaskerville-Regular.ttf in Resources */,
+				AB22EE4815554DB9970EC532 /* LibreBaskerville-Bold.ttf in Resources */,
+				7E425AFA55F94C1BBB645B96 /* Roboto-Regular.ttf in Resources */,
+				86CF55885F254E2C960B67BB /* Roboto-Medium.ttf in Resources */,
+				6A15C199A23D47C59BDF314C /* Roboto-Bold.ttf in Resources */,
+				26346636178A768A9FD7C9AE /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -269,24 +269,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
-			showEnvVarsInLog = 0;
-		};
-		6B65D1ACA146C208B1077948 /* [CP] Embed Pods Frameworks */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-GoodTimes/Pods-GoodTimes-frameworks.sh",
-				"${PODS_XCFRAMEWORKS_BUILD_DIR}/hermes-engine/Pre-built/hermes.framework/hermes",
-			);
-			name = "[CP] Embed Pods Frameworks";
-			outputPaths = (
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/hermes.framework",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-GoodTimes/Pods-GoodTimes-frameworks.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
 		800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */ = {
@@ -343,7 +325,7 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-GoodTimes/Pods-GoodTimes-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
-		A0B1F811795E0C1D6AA20A90 /* [Expo] Configure project */ = {
+		D1A79953B99ADFE15ED4EB24 /* [Expo] Configure project */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -367,6 +349,24 @@
 			shellPath = /bin/sh;
 			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-GoodTimes/expo-configure-project.sh\"\n";
 		};
+		D6202691990D786A6BC41725 /* [CP] Embed Pods Frameworks */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-GoodTimes/Pods-GoodTimes-frameworks.sh",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/hermes-engine/Pre-built/hermes.framework/hermes",
+			);
+			name = "[CP] Embed Pods Frameworks";
+			outputPaths = (
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/hermes.framework",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-GoodTimes/Pods-GoodTimes-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -375,7 +375,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
-				4EEA5AE23FBBA59903289CB4 /* ExpoModulesProvider.swift in Sources */,
+				B84B34EE1482FE5328385EA3 /* ExpoModulesProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -384,7 +384,7 @@
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 185B98B31B6F72ED17ACE613 /* Pods-GoodTimes.debug.xcconfig */;
+			baseConfigurationReference = B7C76A883892DA82C0FA1A1B /* Pods-GoodTimes.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
@@ -420,7 +420,7 @@
 		};
 		13B07F951A680F5B00A75B9A /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = CB5FC51FC375EA8DAFEAADD4 /* Pods-GoodTimes.release.xcconfig */;
+			baseConfigurationReference = 7930E07D319356C75964232E /* Pods-GoodTimes.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;

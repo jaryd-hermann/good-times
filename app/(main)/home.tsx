@@ -4526,15 +4526,16 @@ export default function Home() {
       flex: 1,
       width: "100%",
       height: "100%",
-      backgroundColor: theme2Colors.beige,
+      backgroundColor: "transparent", // Transparent so home content shows through
     },
     loadingOverlayImage: {
       width: "100%",
       height: "100%",
+      opacity: 0.6, // Add opacity to fuzzy.png so content behind is visible
     },
     loadingOverlayMask: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: isDark ? "rgba(0, 0, 0, 0.7)" : "rgba(232, 224, 213, 0.7)", // Semi-transparent overlay on top of fuzzy.png (dark in dark mode, beige in light mode)
+      backgroundColor: isDark ? "rgba(0, 0, 0, 0.4)" : "rgba(232, 224, 213, 0.4)", // Reduced opacity since fuzzy.png now has opacity too
     },
     backToTopButton: {
       position: "absolute",
@@ -5875,9 +5876,9 @@ export default function Home() {
           { id: "5", source: require("../../assets/images/onboarding-5-ask-them.png") },
           { id: "6", source: require("../../assets/images/onboarding-6-themed-decks.png") },
           { id: "7", source: require("../../assets/images/onboarding-7-set-your-vibe.png") },
-          { id: "8", source: require("../../assets/images/onboarding-8-remember.png") },
         ]}
         onComplete={() => setOnboardingGalleryVisible(false)}
+        returnRoute="/(main)/home"
       />
     </View>
   )

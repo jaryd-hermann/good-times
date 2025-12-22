@@ -32,6 +32,7 @@ import { Button } from "../../../components/Button"
 import { FontAwesome } from "@expo/vector-icons"
 import { parseEmbedUrl, extractEmbedUrls, type ParsedEmbed } from "../../../lib/embed-parser"
 import { EmbeddedPlayer } from "../../../components/EmbeddedPlayer"
+import { VideoMessageModal } from "../../../components/VideoMessageModal"
 import * as Clipboard from "expo-clipboard"
 import * as FileSystem from "expo-file-system/legacy"
 import { usePostHog } from "posthog-react-native"
@@ -113,6 +114,7 @@ export default function BirthdayCardComposer() {
   const [embeddedMedia, setEmbeddedMedia] = useState<ParsedEmbed[]>([])
   const [showSongModal, setShowSongModal] = useState(false)
   const [songUrlInput, setSongUrlInput] = useState("")
+  const [showVideoModal, setShowVideoModal] = useState(false)
   const textInputRef = useRef<TextInput>(null)
   const scrollViewRef = useRef<ScrollView>(null)
   const inputContainerRef = useRef<View>(null)
@@ -554,6 +556,19 @@ export default function BirthdayCardComposer() {
     cleanupVoiceModal()
   }
 
+  function handleAddVideo(videoUri: string) {
+    const videoId = createMediaId()
+    setMediaItems((prev) => [
+      ...prev,
+      {
+        id: videoId,
+        uri: videoUri,
+        type: "video",
+        thumbnailUri: videoUri, // Will generate thumbnail for video
+      },
+    ])
+  }
+
   async function handleToggleAudio(id: string, uri: string) {
     try {
       setAudioLoading((prev) => ({ ...prev, [id]: true }))
@@ -873,15 +888,28 @@ export default function BirthdayCardComposer() {
     header: {
       flexDirection: "row",
       justifyContent: "space-between",
-      alignItems: "center",
-      padding: spacing.md,
-      paddingTop: spacing.xxl,
+      alignItems: "flex-start",
+      marginBottom: spacing.md,
+      marginTop: 0, // No top margin since contentContainer has paddingTop
       gap: spacing.md,
+      width: "100%",
     },
     headerTitle: {
       ...typography.h3,
       color: theme2Colors.text,
       flex: 1,
+    },
+    headerCloseButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: theme2Colors.cream,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
+      flexShrink: 0,
+      marginTop: 0,
     },
     closeButton: {
       ...typography.h2,
@@ -893,14 +921,16 @@ export default function BirthdayCardComposer() {
     },
     contentContainer: {
       padding: spacing.lg,
+      paddingTop: spacing.xxl + spacing.md, // Extra top padding for header
       paddingBottom: spacing.xxl * 2 + 80, // Extra padding at bottom for toolbar clearance (toolbar height ~80px)
     },
     question: {
       fontFamily: "PMGothicLudington-Text115",
       fontSize: 24,
-      marginBottom: spacing.sm,
-      marginTop: spacing.xxl,
       color: theme2Colors.text,
+      flex: 1,
+      flexShrink: 1,
+      marginRight: spacing.md,
     },
     description: {
       ...typography.body,
@@ -1127,6 +1157,16 @@ export default function BirthdayCardComposer() {
       justifyContent: "center",
       alignItems: "center",
     },
+    videoIconButton: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      backgroundColor: theme2Colors.cream,
+      borderWidth: 2,
+      borderColor: "#D97393", // Pink outline in both light and dark mode
+      justifyContent: "center",
+      alignItems: "center",
+    },
     iconButtonDisabled: {
       opacity: 0.5,
     },
@@ -1342,7 +1382,13 @@ export default function BirthdayCardComposer() {
           contentContainerStyle={styles.contentContainer}
           keyboardShouldPersistTaps="handled"
         >
-        <Text style={styles.question}>Write {birthdayUserName} a birthday card</Text>
+        {/* Header with question and close button */}
+        <View style={styles.header}>
+          <Text style={styles.question} numberOfLines={3}>Write {birthdayUserName} a birthday card</Text>
+          <TouchableOpacity style={styles.headerCloseButton} onPress={exitComposer}>
+            <FontAwesome name="times" size={18} color={theme2Colors.text} />
+          </TouchableOpacity>
+        </View>
         <Text style={styles.description}>Share a special message, memory, or wish for their birthday</Text>
 
         {/* Media preview carousel - positioned between description and input */}
@@ -1490,6 +1536,9 @@ export default function BirthdayCardComposer() {
             <TouchableOpacity style={styles.iconButton} onPress={openCamera}>
               <FontAwesome name="camera" size={18} color={theme2Colors.text} />
             </TouchableOpacity>
+            <TouchableOpacity style={styles.videoIconButton} onPress={() => setShowVideoModal(true)}>
+              <FontAwesome name="video-camera" size={18} color={theme2Colors.text} />
+            </TouchableOpacity>
             <TouchableOpacity style={styles.iconButton} onPress={startRecording}>
               <FontAwesome name="microphone" size={18} color={theme2Colors.text} />
             </TouchableOpacity>
@@ -1522,9 +1571,6 @@ export default function BirthdayCardComposer() {
                 )}
               </TouchableOpacity>
             )}
-            <TouchableOpacity style={[styles.iconButton, styles.closeButtonIcon]} onPress={exitComposer}>
-              <FontAwesome name="times" size={18} color={theme2Colors.text} />
-            </TouchableOpacity>
           </View>
         </View>
       </View>
@@ -1699,6 +1745,14 @@ export default function BirthdayCardComposer() {
           </View>
         </View>
       </Modal>
+
+      {/* Video Message Modal */}
+      <VideoMessageModal
+        visible={showVideoModal}
+        question={`Write ${birthdayUserName} a birthday card`}
+        onClose={() => setShowVideoModal(false)}
+        onAddVideo={handleAddVideo}
+      />
     </View>
   )
 }

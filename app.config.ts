@@ -60,6 +60,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     "expo-apple-authentication", // Required for EAS to recognize Apple Sign In capability
     "expo-secure-store",
     "expo-notifications",
+    "expo-camera", // Required for video recording feature
     // Note: Notification icons use the app icon automatically on both iOS and Android
     // If you see the old icon in notifications after updating the app icon:
     // - iOS: The system caches notification icons. Users may need to restart their device or the app needs to be rebuilt

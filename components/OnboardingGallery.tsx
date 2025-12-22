@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useRef, useEffect } from "react"
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react"
 import {
   View,
   Text,
@@ -80,17 +80,12 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
   
   const dotAnimations = dotAnimationsRef.current
 
-  // Track if user has swiped through all screenshots
+  // Track if user has swiped through all screenshots (no auto-close)
   useEffect(() => {
     if (visible && screenshots.length > 0 && currentIndex === screenshots.length - 1) {
       // User reached the last screenshot
       setHasViewedAll(true)
-      // Auto-route after a short delay
-      const timeout = setTimeout(() => {
-        handleSkip()
-      }, 2000) // 2 second delay to let them see the last image
-      
-      return () => clearTimeout(timeout)
+      // Don't auto-close - wait for user to tap or click X
     }
   }, [currentIndex, screenshots.length, visible])
 
@@ -165,58 +160,89 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
     }
   }, [currentIndex, screenshots.length])
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, gestureState) => {
-        // Only become responder if there's significant movement
-        return Math.abs(gestureState.dx) > 10 || Math.abs(gestureState.dy) > 10
-      },
-      onPanResponderMove: (_, gestureState) => {
-        // Only allow horizontal swiping
-        pan.setValue({ x: gestureState.dx, y: 0 })
-        
-        // Scale down slightly when dragging
-        const dragProgress = Math.abs(gestureState.dx) / SCREEN_WIDTH
-        scale.setValue(1 - dragProgress * 0.1)
-        opacity.setValue(1 - dragProgress * 0.3)
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        const swipeThreshold = SCREEN_WIDTH * 0.25 // 25% of screen width
-        const velocityThreshold = 0.5
-        const idx = currentIndexRef.current
+  const handleSkip = useCallback(async () => {
+    // Determine route: prioritize logged-in state, then use returnRoute as fallback
+    let targetRoute: string
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
+        // User is logged in - always go to home
+        targetRoute = "/(main)/home"
+      } else {
+        // User is not logged in - use returnRoute if provided, otherwise go to welcome-1
+        targetRoute = returnRoute || "/(onboarding)/welcome-1"
+      }
+    } catch {
+      // On error, use returnRoute if provided, otherwise go to welcome-1
+      targetRoute = returnRoute || "/(onboarding)/welcome-1"
+    }
+    
+    // Close modal first
+    onComplete()
+    
+    // Then navigate after a small delay to ensure modal closes properly
+    setTimeout(() => {
+      router.replace(targetRoute as any)
+    }, 100)
+  }, [returnRoute, onComplete, router])
 
-        // If it's a tap (very small movement), go to next
-        if (Math.abs(gestureState.dx) < 10 && Math.abs(gestureState.dy) < 10) {
-          if (idx < screenshots.length - 1) {
-            goToNext()
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          // Only become responder if there's significant movement
+          return Math.abs(gestureState.dx) > 10 || Math.abs(gestureState.dy) > 10
+        },
+        onPanResponderMove: (_, gestureState) => {
+          // Only allow horizontal swiping
+          pan.setValue({ x: gestureState.dx, y: 0 })
+          
+          // Scale down slightly when dragging
+          const dragProgress = Math.abs(gestureState.dx) / SCREEN_WIDTH
+          scale.setValue(1 - dragProgress * 0.1)
+          opacity.setValue(1 - dragProgress * 0.3)
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          const swipeThreshold = SCREEN_WIDTH * 0.25 // 25% of screen width
+          const velocityThreshold = 0.5
+          const idx = currentIndexRef.current
+
+          // If it's a tap (very small movement)
+          if (Math.abs(gestureState.dx) < 10 && Math.abs(gestureState.dy) < 10) {
+            if (idx < screenshots.length - 1) {
+              goToNext()
+            } else {
+              // On last screen, tap closes the gallery
+              handleSkip()
+            }
+            return
           }
-          return
-        }
 
-        if (gestureState.dx > swipeThreshold || gestureState.vx > velocityThreshold) {
-          // Swipe right - go to previous
-          if (idx > 0) {
-            goToPrevious()
+          if (gestureState.dx > swipeThreshold || gestureState.vx > velocityThreshold) {
+            // Swipe right - go to previous
+            if (idx > 0) {
+              goToPrevious()
+            } else {
+              // Snap back
+              snapBack()
+            }
+          } else if (gestureState.dx < -swipeThreshold || gestureState.vx < -velocityThreshold) {
+            // Swipe left - go to next
+            if (idx < screenshots.length - 1) {
+              goToNext()
+            } else {
+              // On last screen, swipe left closes the gallery
+              handleSkip()
+            }
           } else {
-            // Snap back
+            // Snap back to center
             snapBack()
           }
-        } else if (gestureState.dx < -swipeThreshold || gestureState.vx < -velocityThreshold) {
-          // Swipe left - go to next
-          if (idx < screenshots.length - 1) {
-            goToNext()
-          } else {
-            // Snap back
-            snapBack()
-          }
-        } else {
-          // Snap back to center
-          snapBack()
-        }
-      },
-    })
-  ).current
+        },
+      }),
+    [handleSkip, goToNext, goToPrevious, snapBack, screenshots.length]
+  )
 
   const goToNext = () => {
     const idx = currentIndexRef.current
@@ -330,22 +356,6 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
     ]).start()
   }
 
-  const handleSkip = async () => {
-    onComplete()
-    // Determine route: if returnRoute is provided, use it; otherwise check if user is logged in
-    if (returnRoute) {
-      router.replace(returnRoute as any)
-    } else {
-      try {
-        const { data: { session } } = await supabase.auth.getSession()
-        const route = session ? "/(main)/home" : "/(onboarding)/welcome-1"
-        router.replace(route as any)
-      } catch {
-        router.replace("/(onboarding)/welcome-1" as any)
-      }
-    }
-  }
-
   if (!visible || screenshots.length === 0) return null
 
   return (
@@ -390,7 +400,7 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
                       {
                         transform: [{ scale: dotScale }],
                         opacity: dotOpacity,
-                        backgroundColor: index === currentIndex ? theme2Colors.text : colors.gray[600],
+                        backgroundColor: index === currentIndex ? theme2Colors.text : theme2Colors.white,
                       },
                     ]}
                   />
@@ -415,6 +425,9 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
             onPress={() => {
               if (currentIndexRef.current < screenshots.length - 1) {
                 goToNext()
+              } else {
+                // On last screen, close gallery when tapped
+                handleSkip()
               }
             }}
           >
