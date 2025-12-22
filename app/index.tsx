@@ -9,6 +9,7 @@ import { useRouter, useSegments, usePathname } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Linking from "expo-linking";
+import * as SplashScreen from "expo-splash-screen";
 import { typography, colors as themeColors } from "../lib/theme";
 import { useAuth } from "../components/AuthProvider";
 import {
@@ -1057,6 +1058,19 @@ export default function Index() {
     inputRange: [0, 1],
     outputRange: ['0deg', '360deg'],
   });
+
+  // CRITICAL: Hide native splash screen when boot screen is ready to show
+  // This ensures smooth transition from native splash to boot screen
+  // Only hide after boot screen has rendered to prevent black screen gap
+  useEffect(() => {
+    if (shouldRenderBootScreen) {
+      // Small delay to ensure boot screen has rendered before hiding native splash
+      const timer = setTimeout(() => {
+        SplashScreen.hideAsync().catch(() => {})
+      }, 100) // Small delay to ensure boot screen is visible
+      return () => clearTimeout(timer)
+    }
+  }, [shouldRenderBootScreen])
 
   return (
     <View style={{ flex: 1, backgroundColor: theme2Colors.beige }}>

@@ -4,7 +4,7 @@ import { spacing } from "../../lib/theme"
 import { useTheme } from "../../lib/theme-context"
 import { View, StyleSheet, TouchableOpacity, Text, Animated, Platform, Image } from "react-native"
 import { FontAwesome } from "@expo/vector-icons"
-import { useEffect, useRef, useMemo } from "react"
+import { useEffect, useRef, useMemo, useState } from "react"
 import { useTabBar } from "../../lib/tab-bar-context"
 import { usePathname } from "expo-router"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
@@ -13,13 +13,32 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
   const currentRoute = state.routes[state.index]
   const previousIndexRef = useRef(state.index)
   const animatedValuesRef = useRef<Record<string, Animated.Value>>({})
-  const { opacity: tabBarOpacity } = useTabBar()
+  const { opacity: tabBarOpacity, scrollToTop, showBackToTop, backToTopOpacity } = useTabBar()
   const { colors, isDark } = useTheme()
   const pathname = usePathname()
   const insets = useSafeAreaInsets()
+  const [isTabBarVisible, setIsTabBarVisible] = useState(true)
   
   // Calculate bottom offset for Android navigation bar
   const bottomOffset = Platform.OS === "android" ? insets.bottom + 24 : 24
+  
+  // Track tab bar visibility to disable pointer events when hidden
+  useEffect(() => {
+    const listenerId = tabBarOpacity.addListener(({ value }) => {
+      setIsTabBarVisible(value > 0.1)
+    })
+    return () => {
+      tabBarOpacity.removeListener(listenerId)
+    }
+  }, [tabBarOpacity])
+  
+  // Create inverse opacity for back to top button (fades in when tab bar fades out)
+  const backToTopButtonOpacity = useMemo(() => {
+    return tabBarOpacity.interpolate({
+      inputRange: [0, 1],
+      outputRange: [1, 0], // Inverse: when tab bar is 0, button is 1; when tab bar is 1, button is 0
+    })
+  }, [tabBarOpacity])
 
   const visibleRoutes = state.routes.filter((route) => route.name === "home" || route.name === "explore-decks")
 
@@ -207,26 +226,30 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
   }
 
   return (
-    <Animated.View style={[styles.tabWrapper, { opacity: tabBarOpacity }]}>
-      <View style={styles.tabContainer}>
-        {/* Texture overlay for entire nav container - must be inside container to respect borderRadius */}
-        <View style={styles.tabContainerTexture} pointerEvents="none">
-          <Image
-            source={require("../../assets/images/texture.png")}
-            style={{ 
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              width: "100%",
-              height: "100%",
-              borderRadius: 38, // Match container border radius
-            }}
-            resizeMode="cover"
-          />
-        </View>
-      {visibleRoutes.map((route) => {
+    <>
+      <Animated.View 
+        style={[styles.tabWrapper, { opacity: tabBarOpacity }]}
+        pointerEvents={isTabBarVisible ? "auto" : "box-none"}
+      >
+        <View style={styles.tabContainer}>
+          {/* Texture overlay for entire nav container - must be inside container to respect borderRadius */}
+          <View style={styles.tabContainerTexture} pointerEvents="none">
+            <Image
+              source={require("../../assets/images/texture.png")}
+              style={{ 
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                width: "100%",
+                height: "100%",
+                borderRadius: 38, // Match container border radius
+              }}
+              resizeMode="cover"
+            />
+          </View>
+        {visibleRoutes.map((route) => {
         const isFocused = state.index === state.routes.indexOf(route)
         const label = route.name === "home" ? "Answer" : "Ask"
         const animatedValue = animatedValuesRef.current[route.key] || new Animated.Value(isFocused ? 1 : 0)
@@ -248,6 +271,12 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
             canPreventDefault: true,
           })
 
+          // If home tab is clicked while already focused, scroll to top
+          if (route.name === "home" && isFocused) {
+            scrollToTop()
+            return
+          }
+
           if (!isFocused && !event.defaultPrevented) {
             navigation.navigate(route.name)
           }
@@ -262,7 +291,13 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
         }
 
         return (
-          <TouchableOpacity key={route.key} onPress={onPress} style={styles.tabButton} activeOpacity={0.8}>
+          <TouchableOpacity 
+            key={route.key} 
+            onPress={onPress} 
+            style={styles.tabButton} 
+            activeOpacity={0.8}
+            disabled={!isTabBarVisible}
+          >
             <Animated.View 
               style={[
                 styles.navItem, 
@@ -315,8 +350,54 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
           </TouchableOpacity>
         )
       })}
-      </View>
-    </Animated.View>
+        </View>
+      </Animated.View>
+      
+      {/* "Back to top" button - fades in when tab bar fades out (inverse relationship) */}
+      {showBackToTop && (
+        <Animated.View
+          style={[
+            {
+              position: "absolute",
+              bottom: bottomOffset,
+              right: spacing.md,
+              justifyContent: "center",
+              alignItems: "center",
+              opacity: backToTopButtonOpacity,
+              pointerEvents: isTabBarVisible ? "none" : "auto",
+              zIndex: 10000,
+            },
+          ]}
+        >
+          <TouchableOpacity
+            style={{
+              backgroundColor: theme2Colors.white,
+              width: 48,
+              height: 48,
+              borderRadius: 24,
+              justifyContent: "center",
+              alignItems: "center",
+              shadowColor: "#000",
+              shadowOffset: {
+                width: 0,
+                height: 2,
+              },
+              shadowOpacity: 0.25,
+              shadowRadius: 3.84,
+              elevation: 99999,
+            }}
+            onPress={() => {
+              console.log("[tabBar] Back to top button pressed!")
+              scrollToTop()
+            }}
+            activeOpacity={0.8}
+            hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+          >
+            <FontAwesome name="angle-up" size={18} color={isDark ? "#000000" : theme2Colors.text} />
+          </TouchableOpacity>
+        </Animated.View>
+      )}
+    </>
   )
 }
 

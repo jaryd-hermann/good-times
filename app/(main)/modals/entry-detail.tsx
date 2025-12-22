@@ -530,12 +530,12 @@ export default function EntryDetail() {
   const hasLiked = reactions.some((r) => r.user_id === userId)
 
   function handleBack() {
-    if (returnTo) {
-      router.replace(returnTo)
-      return
-    }
+    // Always use router.back() to preserve scroll position on home feed
+    // Only use replace if we can't go back (shouldn't happen in normal flow)
     if (router.canGoBack()) {
       router.back()
+    } else if (returnTo) {
+      router.replace(returnTo)
     } else {
       router.replace("/(main)/home")
     }

@@ -25,9 +25,10 @@ interface EntryCardProps {
   index?: number
   returnTo?: string
   showFuzzyOverlay?: boolean
+  onEntryPress?: (entryDate: string) => void // Callback to store entry date before navigation
 }
 
-export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home", showFuzzyOverlay = false }: EntryCardProps) {
+export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home", showFuzzyOverlay = false, onEntryPress }: EntryCardProps) {
   const router = useRouter()
   const { colors, isDark } = useTheme()
   const audioRefs = useRef<Record<string, Audio.Sound>>({})
@@ -80,6 +81,11 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
 
   function handleEntryPress(scrollToComments = false) {
     // Removed fuzzy overlay logic - users can now view entries without answering
+    
+    // Store entry date before navigation for scroll restoration
+    if (onEntryPress && entry.date) {
+      onEntryPress(entry.date)
+    }
     
     const params: Record<string, string> = {
       entryId: entry.id,

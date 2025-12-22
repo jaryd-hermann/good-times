@@ -889,12 +889,19 @@ export default function RootLayout() {
     }
   }, [])
 
-  // 2️⃣ SplashScreen logic (safe timeout fallback)
+  // 2️⃣ SplashScreen logic - Keep native splash visible until boot screen is ready
+  // CRITICAL: Don't hide native splash immediately - let boot screen handle it
+  // This prevents black screen flash between native splash and boot screen
   useEffect(() => {
-    const timer = setTimeout(() => SplashScreen.hideAsync().catch(() => {}), 1500)
-    // Option 4: Hide splash screen when fonts load OR timeout occurs
-    if (fontsLoaded || fontsTimedOut) SplashScreen.hideAsync().catch(() => {})
-    return () => clearTimeout(timer)
+    // Only hide native splash after fonts load AND a small delay to ensure boot screen is ready
+    // This prevents the black screen gap
+    if (fontsLoaded || fontsTimedOut) {
+      // Small delay to ensure boot screen has rendered
+      const timer = setTimeout(() => {
+        SplashScreen.hideAsync().catch(() => {})
+      }, 100) // Small delay to ensure boot screen is ready
+      return () => clearTimeout(timer)
+    }
   }, [fontsLoaded, fontsTimedOut])
 
   // 3️⃣ Render the app normally

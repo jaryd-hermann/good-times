@@ -19,7 +19,7 @@ import {
   ImageBackground,
   ActivityIndicator,
 } from "react-native"
-import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
+import { useRouter, useLocalSearchParams, useFocusEffect, usePathname } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback } from "react"
 import { usePostHog } from "posthog-react-native"
@@ -285,6 +285,8 @@ export default function Home() {
   const params = useLocalSearchParams()
   const focusGroupId = params.focusGroupId as string | undefined
   const queryClient = useQueryClient()
+  const pathname = usePathname()
+  const previousPathnameRef = useRef<string | null>(null)
   const { colors, isDark } = useTheme()
   const { user: authUser } = useAuth() // Get user from AuthProvider (works even with invalid session)
   const [selectedDate, setSelectedDate] = useState(getTodayDate())
@@ -310,7 +312,7 @@ export default function Home() {
   const lastScrollTime = useRef(0)
   const scrollViewRef = useRef<ScrollView>(null)
   const isResettingScroll = useRef(false)
-  const { opacity: tabBarOpacity } = useTabBar()
+  const { opacity: tabBarOpacity, showBackToTop, setShowBackToTop, backToTopOpacity } = useTabBar()
   const posthog = usePostHog()
   
   // Filtering and view mode state (like history.tsx)
@@ -335,6 +337,7 @@ export default function Home() {
   const dateRefs = useRef<Record<string, any>>({}) // For scroll-to-day functionality
   const [showLoadingOverlay, setShowLoadingOverlay] = useState(true) // Show overlay during initial load/group switch
   const previousGroupIdRef = useRef<string | undefined>(undefined) // Track previous group to detect switches
+  const lastViewedEntryDateRef = useRef<string | null>(null) // Store entry date when navigating to entry-detail
 
   // Track loaded_home_screen event once per session
   useEffect(() => {
@@ -435,6 +438,16 @@ export default function Home() {
         queryClient.invalidateQueries({ queryKey: ["inAppNotifications", userId] })
         // Update badge count when screen comes into focus
         updateBadgeCount(userId)
+      }
+      
+      // Scroll to last viewed entry date when returning from entry-detail
+      if (lastViewedEntryDateRef.current) {
+        const dateToScroll = lastViewedEntryDateRef.current
+        lastViewedEntryDateRef.current = null // Clear after use
+        // Delay to ensure feed is rendered
+        setTimeout(() => {
+          scrollToDate(dateToScroll)
+        }, 300)
       }
       
       // CRITICAL: Invalidate all data queries when screen comes into focus
@@ -3378,45 +3391,28 @@ export default function Home() {
     }, 0)
   }, [selectedDate, contentPaddingValue, scrollY])
 
-  // Reset animated values and scroll position when screen comes into focus (fixes content cut off when navigating back)
+  // Register scroll to top callback with tab bar context
+  const { setScrollToTopCallback, scrollToTop } = useTabBar()
+  useEffect(() => {
+    const scrollToTopFn = () => {
+      console.log("[home] scrollToTop callback called")
+      if (scrollViewRef.current) {
+        console.log("[home] scrollViewRef.current exists in callback, scrolling...")
+        scrollViewRef.current.scrollTo({ y: 0, animated: true })
+      } else {
+        console.log("[home] scrollViewRef.current is null in callback!")
+      }
+    }
+    setScrollToTopCallback(scrollToTopFn)
+    return () => {
+      setScrollToTopCallback(() => {}) // Clear callback on unmount
+    }
+  }, [setScrollToTopCallback])
+
+  // Refetch entry-related queries when screen comes into focus to ensure fresh data
+  // This is especially important after posting an entry
   useFocusEffect(
     useCallback(() => {
-      // Set flag to prevent scroll handler from interfering
-      isResettingScroll.current = true
-      
-      // Reset all animated values to initial state
-      Animated.parallel([
-        Animated.timing(headerTranslateY, {
-          toValue: 0,
-          duration: 0, // Instant reset
-          useNativeDriver: true,
-        }),
-        Animated.timing(contentPaddingTop, {
-          toValue: contentPaddingValue,
-          duration: 0, // Instant reset
-          useNativeDriver: false,
-        }),
-        Animated.timing(tabBarOpacity, {
-          toValue: 1,
-          duration: 0, // Instant reset
-          useNativeDriver: true,
-        }),
-      ]).start()
-      
-      // Reset scroll tracking
-      lastScrollY.current = 0
-      lastScrollTime.current = Date.now()
-      scrollY.setValue(0)
-      
-      // Reset scroll position to top
-      setTimeout(() => {
-        scrollViewRef.current?.scrollTo({ y: 0, animated: false })
-        // Re-enable scroll handler after a brief delay
-        setTimeout(() => {
-          isResettingScroll.current = false
-        }, 100)
-      }, 0)
-      
       // Refetch entry-related queries when screen comes into focus to ensure fresh data
       // This is especially important after posting an entry
       if (currentGroupId && userId) {
@@ -3429,108 +3425,60 @@ export default function Home() {
         queryClient.refetchQueries({ queryKey: ["entries", currentGroupId], exact: false })
         queryClient.refetchQueries({ queryKey: ["userEntry", currentGroupId], exact: false })
       }
-    }, [contentPaddingValue, scrollY, currentGroupId, userId, queryClient])
+    }, [currentGroupId, userId, queryClient])
   )
 
   const handleScroll = Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
-    useNativeDriver: false, // Need false for paddingTop animation
+    useNativeDriver: false,
     listener: (event: any) => {
-      // Skip scroll handling during reset
-      if (isResettingScroll.current) return
-      
       const currentScrollY = event.nativeEvent.contentOffset.y
       const currentTime = Date.now()
       const scrollDiff = currentScrollY - lastScrollY.current
       const timeDiff = currentTime - lastScrollTime.current
       
-      // Calculate scroll velocity (pixels per millisecond)
-      const scrollVelocity = timeDiff > 0 ? Math.abs(scrollDiff) / timeDiff : 0
-      
-      // Update refs
+      // Update refs for scroll tracking
       lastScrollY.current = currentScrollY
       lastScrollTime.current = currentTime
 
+      // Tab bar fade/hide on scroll and "Back to top" button visibility
+      const SCROLL_THRESHOLD = 600 // Show "Back to top" after scrolling 600px from top
+      
       if (scrollDiff > 5 && currentScrollY > 50) {
-        // Scrolling down - hide header and reduce padding, fade tab bar
-        Animated.parallel([
-          Animated.timing(headerTranslateY, {
-            toValue: -(headerHeight + 100), // Hide entire header including day scroller
-            duration: 300,
-            useNativeDriver: true,
-          }),
-          Animated.timing(contentPaddingTop, {
-            toValue: spacing.md, // Minimal padding when header hidden
-            duration: 300,
-            useNativeDriver: false,
-          }),
-          Animated.timing(tabBarOpacity, {
-            toValue: 0,
-            duration: 300,
-            useNativeDriver: true,
-          }),
-        ]).start()
+        // Scrolling down - fade out tab bar
+        Animated.timing(tabBarOpacity, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }).start()
+        
+        // Show "Back to top" button after scrolling past threshold
+        if (currentScrollY > SCROLL_THRESHOLD && !showBackToTop) {
+          console.log("[home] Setting showBackToTop to true, currentScrollY:", currentScrollY)
+          setShowBackToTop(true)
+        }
       } else if (scrollDiff < -5) {
-        // Scrolling up - ALWAYS restore padding immediately to prevent content stuck behind header
-        // This must happen regardless of scroll velocity or position
+        // Scrolling up - fade in tab bar
+        Animated.timing(tabBarOpacity, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }).start()
         
-        // Immediately restore padding (no animation delay)
-        contentPaddingTop.setValue(contentPaddingValue)
-        
-        // Also animate to ensure smooth transition
-        Animated.timing(contentPaddingTop, {
-          toValue: contentPaddingValue,
-          duration: 200, // Faster animation for better responsiveness
-          useNativeDriver: false,
-        }).start(() => {
-          // Ensure padding is set correctly after animation
-          contentPaddingTop.setValue(contentPaddingValue)
-        })
-        
-        // Only show header if:
-        // 1. User is scrolling up very fast (velocity > 2.0 pixels/ms = intentional fast swipe)
-        // 2. OR user has reached/near the top (within 50px of top)
-        const isFastScrollUp = scrollVelocity > 2.0
-        const isNearTop = currentScrollY < 50
-        
-        if (isFastScrollUp || isNearTop) {
-          // Show header and tab bar
-          Animated.parallel([
-            Animated.timing(headerTranslateY, {
-              toValue: 0,
-              duration: 300,
-              useNativeDriver: true,
-            }),
-            Animated.timing(tabBarOpacity, {
-              toValue: 1,
-              duration: 300,
-              useNativeDriver: true,
-            }),
-          ]).start()
+        // Hide "Back to top" button when scrolling up
+        if (showBackToTop && currentScrollY <= SCROLL_THRESHOLD) {
+          setShowBackToTop(false)
         }
       } else if (currentScrollY <= 0) {
-        // At the top - always ensure padding is correct and header is visible
-        contentPaddingTop.setValue(contentPaddingValue)
+        // At the top - ensure tab bar is visible and hide "Back to top"
+        Animated.timing(tabBarOpacity, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }).start()
         
-        Animated.parallel([
-          Animated.timing(headerTranslateY, {
-            toValue: 0,
-            duration: 200,
-            useNativeDriver: true,
-          }),
-          Animated.timing(contentPaddingTop, {
-            toValue: contentPaddingValue,
-            duration: 200,
-            useNativeDriver: false,
-          }),
-          Animated.timing(tabBarOpacity, {
-            toValue: 1,
-            duration: 200,
-            useNativeDriver: true,
-          }),
-        ]).start(() => {
-          // Ensure padding is set correctly after animation
-          contentPaddingTop.setValue(contentPaddingValue)
-        })
+        if (showBackToTop) {
+          setShowBackToTop(false)
+        }
       }
 
       // Infinite scroll detection for Days view
@@ -3585,18 +3533,14 @@ export default function Home() {
     container: {
       flex: 1,
       backgroundColor: theme2Colors.beige,
+      overflow: "visible", // Allow absolutely positioned children to receive touches
     },
     header: {
       paddingTop: spacing.sm,
       paddingHorizontal: spacing.md,
       paddingBottom: 0, // Remove bottom padding to minimize gap
       borderBottomWidth: 0, // Remove underline div below dates
-      position: "absolute",
-      top: 0,
-      left: 0,
-      right: 0,
       backgroundColor: theme2Colors.beige,
-      zIndex: 10,
       overflow: "visible", // Allow dropdown to overflow header bounds
     },
     headerTop: {
@@ -3675,7 +3619,7 @@ export default function Home() {
       backgroundColor: isDark ? "#E8E0D5" : theme2Colors.blue, // Beige in dark mode, blue in light mode
       alignSelf: "center",
       marginTop: spacing.lg, // Padding above divider
-      marginBottom: spacing.sm, // Minimal padding below divider (reduced for target spacing)
+      marginBottom: spacing.lg, // Equal padding below divider to match spacing above
     },
     dayButton: {
       flex: 1, // Make buttons fill available space evenly
@@ -4429,6 +4373,32 @@ export default function Home() {
     modalSectionSpacing: {
       marginTop: spacing.lg,
     },
+    filterCTAContainer: {
+      position: "absolute",
+      bottom: 0,
+      left: 0,
+      right: 0,
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.lg + insets.bottom,
+      paddingTop: spacing.md,
+      backgroundColor: theme2Colors.beige,
+      borderTopWidth: 1,
+      borderTopColor: theme2Colors.textSecondary,
+    },
+    filterSeeAnswersButton: {
+      backgroundColor: theme2Colors.blue,
+      borderRadius: 25,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      alignItems: "center",
+      justifyContent: "center",
+      width: "100%",
+    },
+    filterSeeAnswersText: {
+      ...typography.bodyBold,
+      fontSize: 16,
+      color: theme2Colors.white,
+    },
     selectionGrid: {
       flexDirection: "row",
       flexWrap: "wrap",
@@ -4566,7 +4536,31 @@ export default function Home() {
       ...StyleSheet.absoluteFillObject,
       backgroundColor: isDark ? "rgba(0, 0, 0, 0.7)" : "rgba(232, 224, 213, 0.7)", // Semi-transparent overlay on top of fuzzy.png (dark in dark mode, beige in light mode)
     },
-  }), [theme2Colors, isDark])
+    backToTopButton: {
+      position: "absolute",
+      bottom: spacing.xs + insets.bottom, // Original position - tab bar is hidden when this shows
+      right: spacing.md, // Right align instead of center
+      zIndex: 99999, // Very high z-index to ensure it's above tab bar and everything else
+      elevation: 99999, // Android elevation - must be higher than tab bar
+    },
+    backToTopButtonInner: {
+      backgroundColor: theme2Colors.white,
+      width: 48, // Fixed width for circle
+      height: 48, // Fixed height for circle
+      borderRadius: 24, // Perfect circle (half of width/height)
+      justifyContent: "center",
+      alignItems: "center",
+      shadowColor: "#000",
+      shadowOffset: {
+        width: 0,
+        height: 2,
+      },
+      shadowOpacity: 0.25,
+      shadowRadius: 3.84,
+      elevation: 99999, // Match parent elevation
+      zIndex: 99999, // Ensure TouchableOpacity itself is above everything
+    },
+  }), [theme2Colors, isDark, insets.bottom])
 
   return (
     <View style={styles.container}>
@@ -4590,18 +4584,24 @@ export default function Home() {
         </View>
       </Modal>
       
-      {/* Header */}
-      <Animated.View
-        style={[
-          styles.header,
-          { 
-            paddingTop: insets.top + spacing.md,
-          },
-          {
-            transform: [{ translateY: headerTranslateY }],
-          },
-        ]}
+      {/* Content */}
+      <Animated.ScrollView
+        ref={scrollViewRef}
+        style={styles.content}
+        contentContainerStyle={styles.contentContainer}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme2Colors.text} />}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
       >
+        {/* Header - now inside ScrollView so it scrolls naturally */}
+        <View
+          style={[
+            styles.header,
+            { 
+              paddingTop: insets.top + spacing.md,
+            },
+          ]}
+        >
         {/* Daily prompt card at top - inside header so it scrolls with it */}
         {showPromptCardAtTop && (
           <View style={{ 
@@ -4886,7 +4886,7 @@ export default function Home() {
         
         {/* Divider line below day navigation */}
         <View style={styles.dayNavigationDivider} />
-      </Animated.View>
+      </View>
 
       {/* Period dropdown modal - rendered outside ScrollView to avoid clipping */}
       <Modal
@@ -4944,21 +4944,6 @@ export default function Home() {
           </View>
         )}
       </Modal>
-
-      {/* Content */}
-      <Animated.ScrollView
-        ref={scrollViewRef}
-        style={styles.content}
-        contentContainerStyle={[
-          styles.contentContainer,
-          {
-            paddingTop: contentPaddingTop,
-          },
-        ]}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme2Colors.text} />}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-      >
         {/* Refresh Indicator */}
         {showRefreshIndicator && (
           <View style={styles.refreshIndicator}>
@@ -5334,7 +5319,20 @@ export default function Home() {
                   key={date} 
                   style={styles.daySection}
                 >
-                  {/* Only show date header for past days, not today */}
+                  {/* Show "Today's answers" header for today if there are entries */}
+                  {isDateToday && visibleEntries.length > 0 && (
+                    <View 
+                      style={styles.dateHeader}
+                      ref={(ref) => {
+                        if (ref) {
+                          dateRefs.current[date] = ref
+                        }
+                      }}
+                    >
+                      <Text style={styles.dateHeaderDay}>Today's answers</Text>
+                    </View>
+                  )}
+                  {/* Show date header for past days */}
                   {!isDateToday && (
                     <View 
                       style={styles.dateHeader}
@@ -5360,8 +5358,8 @@ export default function Home() {
                       </Text>
                     </View>
                   )}
-                  {/* For today, attach ref to first entry or a marker at the top */}
-                  {isDateToday && (
+                  {/* For today with no entries, attach ref to a marker at the top */}
+                  {isDateToday && visibleEntries.length === 0 && (
                     <View
                       ref={(ref) => {
                         if (ref) {
@@ -5419,7 +5417,9 @@ export default function Home() {
                                   marginTop: spacing.md,
                                 }}
                                 textStyle={{ 
-                                  color: isRememberingCategory ? theme2Colors.text : theme2Colors.white 
+                                  color: isRememberingCategory 
+                                    ? (isDark ? "#000000" : theme2Colors.text) // Black in dark mode, normal text in light mode for Remembering
+                                    : theme2Colors.white 
                                 }}
                                 onPress={() => {
                                   if (promptForDate.prompt_id && currentGroupId) {
@@ -5546,6 +5546,10 @@ export default function Home() {
                         index={entryIndex}
                         returnTo="/(main)/home"
                         showFuzzyOverlay={shouldShowFuzzy}
+                        onEntryPress={(entryDate) => {
+                          // Store entry date for scroll restoration when returning
+                          lastViewedEntryDateRef.current = entryDate
+                        }}
                       />
                     )
                   })}
@@ -5588,14 +5592,19 @@ export default function Home() {
       >
         <View style={[styles.modalContainer, { paddingTop: insets.top + spacing.lg }]}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Filters</Text>
+            <Text style={styles.modalTitle}>Filter your history</Text>
             <TouchableOpacity onPress={() => setShowFilterModal(false)} style={styles.modalCloseButton}>
               <Text style={styles.modalClose}>✕</Text>
             </TouchableOpacity>
           </View>
 
-          <ScrollView contentContainerStyle={styles.modalContent}>
-            <Text style={styles.modalSection}>Group Members</Text>
+          <ScrollView 
+            contentContainerStyle={[
+              styles.modalContent,
+              hasActiveFilters && { paddingBottom: spacing.xxl * 2 } // Add extra padding when CTA is visible
+            ]}
+          >
+            <Text style={styles.modalSection}>Look back on their answers</Text>
             <View style={styles.selectionGrid}>
               {members.map((member) => {
                 const isSelected = selectedMembers.includes(member.user_id)
@@ -5621,7 +5630,7 @@ export default function Home() {
             {/* Memorials filter - only show if group has memorials */}
             {memorials.length > 0 && (
               <>
-                <Text style={[styles.modalSection, styles.modalSectionSpacing]}>Memorials</Text>
+                <Text style={[styles.modalSection, styles.modalSectionSpacing]}>See what you've all shared about them</Text>
                 <View style={styles.memorialList}>
                   {memorials.map((memorial) => {
                     const isSelected = selectedMemorials.includes(memorial.id)
@@ -5669,7 +5678,7 @@ export default function Home() {
             {/* Decks filter - only show if group has active decks */}
             {availableDecks.length > 0 && (
               <>
-                <Text style={[styles.modalSection, styles.modalSectionSpacing]}>Question Decks</Text>
+                <Text style={[styles.modalSection, styles.modalSectionSpacing]}>Answers by decks you added</Text>
                 <View style={styles.selectionGrid}>
                   {availableDecks.map((deck: any, index) => {
                     const isSelected = selectedDecks.includes(deck.deck_id)
@@ -5706,6 +5715,19 @@ export default function Home() {
               </>
             )}
           </ScrollView>
+          
+          {/* Floating "See answers" CTA - show when selections are applied */}
+          {hasActiveFilters && (
+            <View style={styles.filterCTAContainer}>
+              <TouchableOpacity
+                style={styles.filterSeeAnswersButton}
+                onPress={() => setShowFilterModal(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.filterSeeAnswersText}>See answers</Text>
+              </TouchableOpacity>
+            </View>
+          )}
           </View>
       </Modal>
 
