@@ -26,19 +26,19 @@ export default function GroupSettingsIndex() {
   const [hasMultipleGroups, setHasMultipleGroups] = useState(false)
   const posthog = usePostHog()
 
-  // Theme 2 color palette matching new design system
-  const theme2Colors = {
+  // Theme 2 color palette - dynamic based on dark/light mode
+  const theme2Colors = useMemo(() => ({
     red: "#B94444",
     yellow: "#E8A037",
     green: "#2D6F4A",
     blue: "#3A5F8C",
-    beige: "#E8E0D5",
-    cream: "#F5F0EA",
-    white: "#FFFFFF",
-    text: "#000000",
-    textSecondary: "#404040",
-    onboardingPink: "#D97393", // Pink for onboarding CTAs
-  }
+    beige: isDark ? "#000000" : "#E8E0D5", // Black in dark mode
+    cream: isDark ? "#111111" : "#F5F0EA", // Dark gray in dark mode (for cards)
+    white: isDark ? "#E8E0D5" : "#FFFFFF", // Beige in dark mode
+    text: isDark ? "#F5F0EA" : "#000000", // Cream in dark mode
+    textSecondary: isDark ? "#A0A0A0" : "#404040", // Light gray in dark mode
+    onboardingPink: "#D97393", // Pink for onboarding CTAs (same in both modes)
+  }), [isDark])
 
   // Load user groups to check if user has multiple groups
   const { data: groups = [] } = useQuery({
@@ -191,11 +191,11 @@ export default function GroupSettingsIndex() {
       width: 32,
       height: 32,
       borderRadius: 16,
-      backgroundColor: theme2Colors.white,
+      backgroundColor: isDark ? theme2Colors.beige : theme2Colors.white, // Black in dark mode
       justifyContent: "center",
       alignItems: "center",
       borderWidth: 1,
-      borderColor: theme2Colors.text,
+      borderColor: theme2Colors.text, // Cream in dark mode
     },
     title: {
       fontFamily: "PMGothicLudington-Text115",
@@ -286,7 +286,7 @@ export default function GroupSettingsIndex() {
       fontSize: 13,
       marginTop: spacing.xs,
     },
-  }), [colors, isDark])
+  }), [colors, isDark, theme2Colors])
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.xl }]}>

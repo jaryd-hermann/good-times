@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { View, Text, StyleSheet, Modal, TouchableOpacity, Animated, Dimensions, ScrollView } from "react-native"
 import { useTheme } from "../lib/theme-context"
 import { typography, spacing } from "../lib/theme"
@@ -31,18 +31,36 @@ export function NotificationModal({
   const slideAnim = useState(new Animated.Value(height))[0]
   const overlayOpacity = useState(new Animated.Value(0))[0]
   
-  // Theme 2 color palette matching new design system
-  const theme2Colors = {
-    red: "#B94444",
-    yellow: "#E8A037",
-    green: "#2D6F4A",
-    blue: "#3A5F8C",
-    beige: "#E8E0D5",
-    cream: "#F5F0EA",
-    white: "#FFFFFF",
-    text: "#000000",
-    textSecondary: "#404040",
-  }
+  // Theme 2 color palette - dynamic based on dark/light mode
+  const theme2Colors = useMemo(() => {
+    if (isDark) {
+      // Dark mode colors
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#000000", // Black (was beige) - page background
+        cream: "#000000", // Black (was cream) - for card backgrounds
+        white: "#E8E0D5", // Beige (was white)
+        text: "#F5F0EA", // Cream (was black) - text color
+        textSecondary: "#A0A0A0", // Light gray (was dark gray)
+      }
+    } else {
+      // Light mode colors (current/default)
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#E8E0D5",
+        cream: "#F5F0EA",
+        white: "#FFFFFF",
+        text: "#000000",
+        textSecondary: "#404040",
+      }
+    }
+  }, [isDark])
 
   useEffect(() => {
     if (visible) {
@@ -85,7 +103,7 @@ export function NotificationModal({
     })
   }
 
-  const styles = StyleSheet.create({
+  const styles = useMemo(() => StyleSheet.create({
     modalContainer: {
       flex: 1,
       justifyContent: "flex-end",
@@ -97,11 +115,11 @@ export function NotificationModal({
     },
     overlayBeige: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: "rgba(232, 224, 213, 0.4)", // Beige overlay matching Profile Modal
+      backgroundColor: isDark ? "rgba(0, 0, 0, 0.4)" : "rgba(232, 224, 213, 0.4)", // Dark overlay in dark mode, beige in light mode
     },
     overlayBlack: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: "rgba(0, 0, 0, 0.1)", // Black overlay matching Profile Modal
+      backgroundColor: isDark ? "rgba(0, 0, 0, 0.3)" : "rgba(0, 0, 0, 0.1)", // Darker overlay in dark mode
     },
     content: {
       backgroundColor: theme2Colors.beige, // Beige background matching new theme
@@ -148,11 +166,11 @@ export function NotificationModal({
       width: 32,
       height: 32,
       borderRadius: 16,
-      backgroundColor: theme2Colors.white, // White background matching Profile Modal
+      backgroundColor: isDark ? "#000000" : theme2Colors.white, // Black background in dark mode, white in light mode
       justifyContent: "center",
       alignItems: "center",
       borderWidth: 1,
-      borderColor: theme2Colors.text, // Black border matching Profile Modal
+      borderColor: isDark ? "#F5F0EA" : theme2Colors.text, // Cream outline in dark mode, black outline in light mode
     },
     notificationList: {
       gap: spacing.sm,
@@ -164,7 +182,7 @@ export function NotificationModal({
       alignItems: "center",
       paddingVertical: spacing.md,
       paddingHorizontal: spacing.md,
-      backgroundColor: theme2Colors.white,
+      backgroundColor: isDark ? "#111111" : theme2Colors.white, // Dark gray in dark mode, white in light mode
       borderRadius: 12,
       borderWidth: 1,
       borderColor: theme2Colors.text,
@@ -189,7 +207,7 @@ export function NotificationModal({
       color: theme2Colors.textSecondary, // Gray text matching new theme
       textDecorationLine: "underline",
     },
-  })
+  }), [isDark, theme2Colors, insets.bottom])
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={closeModal}>

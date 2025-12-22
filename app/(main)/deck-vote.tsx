@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import {
   View,
   Text,
@@ -25,18 +25,7 @@ import { Button } from "../../components/Button"
 import { usePostHog } from "posthog-react-native"
 import { safeCapture } from "../../lib/posthog"
 
-// Theme 2 color palette matching new design system
-const theme2Colors = {
-  red: "#B94444",
-  yellow: "#E8A037",
-  green: "#2D6F4A",
-  blue: "#3A5F8C",
-  beige: "#E8E0D5",
-  cream: "#F5F0EA",
-  white: "#FFFFFF",
-  text: "#000000",
-  textSecondary: "#404040",
-}
+// Theme 2 color palette - will be made dynamic in component
 
 export default function DeckVote() {
   const router = useRouter()
@@ -45,6 +34,38 @@ export default function DeckVote() {
   const groupId = params.groupId as string
   const { colors, isDark } = useTheme()
   const insets = useSafeAreaInsets()
+  
+  // Theme 2 color palette - dynamic based on dark/light mode
+  const theme2Colors = useMemo(() => {
+    if (isDark) {
+      // Dark mode colors
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#000000", // Black (was beige) - page background
+        cream: "#000000", // Black (was cream) - for card backgrounds
+        white: "#E8E0D5", // Beige (was white)
+        text: "#F5F0EA", // Cream (was black) - text color
+        textSecondary: "#A0A0A0", // Light gray (was dark gray)
+      }
+    } else {
+      // Light mode colors (current/default)
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#E8E0D5",
+        cream: "#F5F0EA",
+        white: "#FFFFFF",
+        text: "#000000",
+        textSecondary: "#404040",
+      }
+    }
+  }, [isDark])
+  
   const [userId, setUserId] = useState<string>()
   const [selectedVote, setSelectedVote] = useState<"yes" | "no" | null>(null)
   const [helpModalVisible, setHelpModalVisible] = useState(false)
@@ -164,7 +185,7 @@ export default function DeckVote() {
     voteMutation.mutate(vote)
   }
 
-  const styles = StyleSheet.create({
+  const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: theme2Colors.beige,
@@ -384,11 +405,11 @@ export default function DeckVote() {
     },
     helpModalBackdropOverlay1: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: "rgba(232, 224, 213, 0.4)",
+      backgroundColor: isDark ? "rgba(0, 0, 0, 0.4)" : "rgba(232, 224, 213, 0.4)", // Dark overlay in dark mode, beige in light mode
     },
     helpModalBackdropOverlay2: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: "rgba(0, 0, 0, 0.1)",
+      backgroundColor: isDark ? "rgba(0, 0, 0, 0.3)" : "rgba(0, 0, 0, 0.1)", // Darker overlay in dark mode
     },
     helpModalContent: {
       backgroundColor: theme2Colors.beige,
@@ -453,7 +474,7 @@ export default function DeckVote() {
       color: theme2Colors.text,
       textAlign: "center",
     },
-  })
+  }), [colors, isDark, theme2Colors, insets.top, insets.bottom])
 
   const hasVoted = !!userVote
   const isVoting = voteStatus?.status === "voting"
@@ -465,7 +486,7 @@ export default function DeckVote() {
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <FontAwesome name="angle-left" size={16} color={theme2Colors.text} />
+          <FontAwesome name="angle-left" size={16} color={isDark ? "#000000" : theme2Colors.text} />
         </TouchableOpacity>
         <View style={styles.headerContent}>
           <View style={styles.proposerTextContainer}>

@@ -11,7 +11,7 @@ interface AvatarProps {
 }
 
 export function Avatar({ uri, name, size = 40, borderColor, square = false }: AvatarProps) {
-  const { colors } = useTheme()
+  const { colors, isDark } = useTheme()
   
   // Handle null/undefined names gracefully
   const displayName = name || "User"
@@ -22,14 +22,17 @@ export function Avatar({ uri, name, size = 40, borderColor, square = false }: Av
     .toUpperCase()
     .slice(0, 2)
 
+  // In dark mode, use black for avatar borders instead of colored borders
+  const effectiveBorderColor = isDark && borderColor ? "#000000" : (borderColor || "transparent")
+
   const dynamicStyles = StyleSheet.create({
     container: {
       backgroundColor: colors.gray[700],
       justifyContent: "center",
       alignItems: "center",
       overflow: "hidden",
-      borderWidth: borderColor ? 2 : 0,
-      borderColor: borderColor || "transparent",
+      borderWidth: effectiveBorderColor !== "transparent" ? 2 : 0,
+      borderColor: effectiveBorderColor,
     },
     initials: {
       ...typography.bodyBold,

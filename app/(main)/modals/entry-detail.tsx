@@ -31,18 +31,36 @@ export default function EntryDetail() {
   const queryClient = useQueryClient()
   const { colors, isDark } = useTheme()
   
-  // Theme 2 color palette matching new design system
-  const theme2Colors = {
-    red: "#B94444",
-    yellow: "#E8A037",
-    green: "#2D6F4A",
-    blue: "#3A5F8C",
-    beige: "#E8E0D5",
-    cream: "#F5F0EA",
-    white: "#FFFFFF",
-    text: "#000000",
-    textSecondary: "#404040",
-  }
+  // Theme 2 color palette - dynamic based on dark/light mode
+  const theme2Colors = useMemo(() => {
+    if (isDark) {
+      // Dark mode colors
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#000000", // Black (was beige) - page background
+        cream: "#000000", // Black (was cream) - for card backgrounds
+        white: "#E8E0D5", // Beige (was white)
+        text: "#F5F0EA", // Cream (was black) - text color
+        textSecondary: "#A0A0A0", // Light gray (was dark gray)
+      }
+    } else {
+      // Light mode colors (current/default)
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#E8E0D5",
+        cream: "#F5F0EA",
+        white: "#FFFFFF",
+        text: "#000000",
+        textSecondary: "#404040",
+      }
+    }
+  }, [isDark])
   
   const entryId = params.entryId as string
   const rawEntryIds = params.entryIds as string | undefined
@@ -905,10 +923,10 @@ export default function EntryDetail() {
       ...typography.body,
       fontSize: 14,
       lineHeight: 22,
-      color: colors.accent,
+      color: isDark ? "#D97393" : colors.accent, // Onboarding pink in dark mode
       fontWeight: "bold",
     },
-  }), [colors])
+  }), [colors, isDark, theme2Colors])
 
   return (
     <KeyboardAvoidingView
@@ -920,7 +938,7 @@ export default function EntryDetail() {
       <View style={styles.containerInner}>
         <View style={styles.header}>
           <TouchableOpacity onPress={handleBack} style={styles.navAction} activeOpacity={0.7}>
-            <FontAwesome name="angle-left" size={18} color={theme2Colors.text} />
+            <FontAwesome name="angle-left" size={18} color={isDark ? "#000000" : theme2Colors.text} />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={handleNext}

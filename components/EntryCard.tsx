@@ -525,18 +525,36 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     return `${minutes}:${seconds.toString().padStart(2, "0")}`
   }
 
-  // Theme 2 color palette
-  const theme2Colors = {
-    red: "#B94444",
-    yellow: "#E8A037",
-    green: "#2D6F4A",
-    blue: "#3A5F8C",
-    beige: "#E8E0D5",
-    cream: "#F5F0EA",
-    white: "#FFFFFF",
-    text: "#000000",
-    textSecondary: "#404040",
-  }
+  // Theme 2 color palette - dynamic based on dark/light mode
+  const theme2Colors = useMemo(() => {
+    if (isDark) {
+      // Dark mode colors
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#000000", // Black (was beige)
+        cream: "#111111", // Dark gray (was cream) - for EntryCard backgrounds
+        white: "#E8E0D5", // Beige (was white)
+        text: "#F5F0EA", // Cream (was black) - text color
+        textSecondary: "#A0A0A0", // Light gray (was dark gray)
+      }
+    } else {
+      // Light mode colors (current/default)
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#E8E0D5",
+        cream: "#F5F0EA",
+        white: "#FFFFFF",
+        text: "#000000",
+        textSecondary: "#404040",
+      }
+    }
+  }, [isDark])
 
   // Create dynamic styles based on theme
   const styles = useMemo(() => StyleSheet.create({
@@ -546,7 +564,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
       paddingHorizontal: spacing.md,
   },
     entryCard: {
-      backgroundColor: "#F5F0EA",
+      backgroundColor: theme2Colors.cream, // Black in dark mode, cream in light mode
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.lg,
       paddingBottom: spacing.md,
@@ -620,7 +638,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     ...typography.body,
     fontSize: 14,
     lineHeight: 22,
-    color: theme2Colors.blue,
+    color: isDark ? "#D97393" : theme2Colors.blue, // Onboarding pink in dark mode
     fontWeight: "bold",
   },
   textFadeOverlay: {
@@ -835,7 +853,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     marginTop: spacing.md,
   },
   commentPreviewItem: {
-    backgroundColor: theme2Colors.white,
+    backgroundColor: theme2Colors.cream, // Black in dark mode, white in light mode (same as entryCard)
     borderRadius: 12,
     padding: spacing.sm,
     marginBottom: spacing.xs,
@@ -870,7 +888,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     separator: {
       display: "none", // Remove separator - cards have their own borders
     },
-  }), [theme2Colors])
+  }), [theme2Colors, isDark])
 
   return (
     <View style={styles.entryWrapper}>
@@ -1300,7 +1318,7 @@ function VideoPlayer({
 }) {
   const videoRef = useRef<Video>(null)
   const progressContainerRef = useRef<View>(null)
-  const { colors } = useTheme()
+  const { colors, isDark } = useTheme()
   const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(true)
   const [progress, setProgress] = useState(0)
@@ -1430,17 +1448,36 @@ function VideoPlayer({
     return `${minutes}:${seconds.toString().padStart(2, "0")}`
   }
   
-  const theme2Colors = {
-    red: "#B94444",
-    yellow: "#E8A037",
-    green: "#2D6F4A",
-    blue: "#3A5F8C",
-    beige: "#E8E0D5",
-    cream: "#F5F0EA",
-    white: "#FFFFFF",
-    text: "#000000",
-    textSecondary: "#404040",
-  }
+  // Theme 2 color palette - dynamic based on dark/light mode
+  const theme2Colors = useMemo(() => {
+    if (isDark) {
+      // Dark mode colors
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#000000", // Black (was beige)
+        cream: "#111111", // Dark gray (was cream)
+        white: "#E8E0D5", // Beige (was white)
+        text: "#F5F0EA", // Cream (was black) - text color
+        textSecondary: "#A0A0A0", // Light gray (was dark gray)
+      }
+    } else {
+      // Light mode colors (current/default)
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#E8E0D5",
+        cream: "#F5F0EA",
+        white: "#FFFFFF",
+        text: "#000000",
+        textSecondary: "#404040",
+      }
+    }
+  }, [isDark])
 
   const videoStyles = useMemo(() => StyleSheet.create({
     videoContainer: {

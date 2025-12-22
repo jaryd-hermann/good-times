@@ -18,7 +18,7 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
 const THEME_STORAGE_KEY_PREFIX = "user_theme_preference_"
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>("dark")
+  const [theme, setThemeState] = useState<Theme>("light")
   const [isLoading, setIsLoading] = useState(true)
 
   // Get theme colors based on current theme - memoized to prevent infinite re-renders
@@ -33,8 +33,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
           data: { user },
         } = await supabase.auth.getUser()
         if (!user) {
-          // No user, default to dark
-          setThemeState("dark")
+          // No user, default to light
+          setThemeState("light")
           setIsLoading(false)
           return
         }
@@ -57,14 +57,14 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
           // Update AsyncStorage cache
           await AsyncStorage.setItem(storageKey, dbTheme)
         } else {
-          // Default to dark if no preference exists
-          setThemeState("dark")
-          await AsyncStorage.setItem(storageKey, "dark")
+          // Default to light if no preference exists
+          setThemeState("light")
+          await AsyncStorage.setItem(storageKey, "light")
         }
       } catch (error) {
         console.error("[ThemeProvider] Failed to load theme:", error)
-        // Default to dark on error
-        setThemeState("dark")
+        // Default to light on error
+        setThemeState("light")
       } finally {
         setIsLoading(false)
       }

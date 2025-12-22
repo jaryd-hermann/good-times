@@ -33,18 +33,18 @@ export default function RememberingThemSettings() {
   const [savingPreference, setSavingPreference] = useState<string | null>(null)
   const [focusedInput, setFocusedInput] = useState(false)
 
-  // Theme 2 color palette matching new design system
-  const theme2Colors = {
+  // Theme 2 color palette - dynamic based on dark/light mode
+  const theme2Colors = useMemo(() => ({
     red: "#B94444",
     yellow: "#E8A037",
     green: "#2D6F4A",
     blue: "#3A5F8C",
-    beige: "#E8E0D5",
-    cream: "#F5F0EA",
-    white: "#FFFFFF",
-    text: "#000000",
-    textSecondary: "#404040",
-  }
+    beige: isDark ? "#000000" : "#E8E0D5", // Black in dark mode
+    cream: isDark ? "#111111" : "#F5F0EA", // Dark gray in dark mode (for cards)
+    white: isDark ? "#E8E0D5" : "#FFFFFF", // Beige in dark mode
+    text: isDark ? "#F5F0EA" : "#000000", // Cream in dark mode
+    textSecondary: isDark ? "#A0A0A0" : "#404040", // Light gray in dark mode
+  }), [isDark])
 
   // Load question category preferences for "Remembering" category
   const { data: preferences = [] } = useQuery({
@@ -287,11 +287,11 @@ export default function RememberingThemSettings() {
       width: 32,
       height: 32,
       borderRadius: 16,
-      backgroundColor: theme2Colors.white,
+      backgroundColor: isDark ? theme2Colors.beige : theme2Colors.white, // Black in dark mode
       justifyContent: "center",
       alignItems: "center",
       borderWidth: 1,
-      borderColor: theme2Colors.text,
+      borderColor: theme2Colors.text, // Cream in dark mode
     },
     title: {
       fontFamily: "PMGothicLudington-Text115",
@@ -513,7 +513,7 @@ export default function RememberingThemSettings() {
     preferenceButtonTextActive: {
       color: theme2Colors.white,
     },
-  }), [colors, isDark, focusedInput])
+  }), [colors, isDark, focusedInput, theme2Colors])
 
   if (!isAdmin) {
     return null
@@ -659,8 +659,8 @@ export default function RememberingThemSettings() {
       <Modal visible={showAddModal} transparent animationType="fade" onRequestClose={() => setShowAddModal(false)}>
         <View style={styles.modalBackdrop}>
           {/* Warm fuzzy blur effect matching settings modal */}
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: theme2Colors.beige, opacity: 0.3 }]} />
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(232, 224, 213, 0.4)" }]} />
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? "rgba(0, 0, 0, 0.6)" : theme2Colors.beige, opacity: isDark ? 1 : 0.3 }]} />
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? "rgba(0, 0, 0, 0.3)" : "rgba(232, 224, 213, 0.4)" }]} />
           <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0, 0, 0, 0.1)" }]} />
           <TouchableOpacity
             style={StyleSheet.absoluteFill}

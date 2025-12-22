@@ -3547,19 +3547,38 @@ export default function Home() {
     },
   })
 
-  // Theme 2 color palette
-  const theme2Colors = {
-    red: "#B94444",
-    yellow: "#E8A037",
-    green: "#2D6F4A",
-    blue: "#3A5F8C",
-    beige: "#E8E0D5",
-    cream: "#F5F0EA",
-    white: "#FFFFFF",
-    text: "#000000",
-    textSecondary: "#404040",
-    onboardingPink: "#D97393", // Pink for onboarding CTAs
-  }
+  // Theme 2 color palette - dynamic based on dark/light mode
+  const theme2Colors = useMemo(() => {
+    if (isDark) {
+      // Dark mode colors
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#000000", // Black (was beige) - page background
+        cream: "#000000", // Black (was cream) - for EntryCard backgrounds
+        white: "#E8E0D5", // Beige (was white)
+        text: "#F5F0EA", // Cream (was black) - text color
+        textSecondary: "#A0A0A0", // Light gray (was dark gray)
+        onboardingPink: "#D97393", // Pink for onboarding CTAs - unchanged
+      }
+    } else {
+      // Light mode colors (current/default)
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#E8E0D5",
+        cream: "#F5F0EA",
+        white: "#FFFFFF",
+        text: "#000000",
+        textSecondary: "#404040",
+        onboardingPink: "#D97393", // Pink for onboarding CTAs
+      }
+    }
+  }, [isDark])
 
   // Create dynamic styles based on theme
   const styles = useMemo(() => StyleSheet.create({
@@ -3630,7 +3649,7 @@ export default function Home() {
       justifyContent: "center",
       alignItems: "center",
       borderWidth: 2,
-      borderColor: theme2Colors.yellow,
+      borderColor: isDark ? theme2Colors.textSecondary : theme2Colors.yellow, // Gray in dark mode, yellow in light mode
     },
     addMemberText: {
       ...typography.h2,
@@ -3653,7 +3672,7 @@ export default function Home() {
     dayNavigationDivider: {
       width: "60%", // Small divider, not spanning full screen
       height: 1,
-      backgroundColor: "#3A5F8C", // Blue color
+      backgroundColor: isDark ? "#E8E0D5" : theme2Colors.blue, // Beige in dark mode, blue in light mode
       alignSelf: "center",
       marginTop: spacing.lg, // Padding above divider
       marginBottom: spacing.sm, // Minimal padding below divider (reduced for target spacing)
@@ -3666,16 +3685,16 @@ export default function Home() {
       alignItems: "center",
       justifyContent: "center",
       height: 36, // Reduced height for more rectangular shape
-      backgroundColor: theme2Colors.white, // White inside for previous days
+      backgroundColor: isDark ? "#000000" : theme2Colors.white, // Black fill in dark mode, white in light mode
       borderRadius: 8,
       borderWidth: 1,
-      borderColor: theme2Colors.text, // Black stroke for previous days
+      borderColor: isDark ? "#F5F0EA" : theme2Colors.text, // Cream outline in dark mode, black in light mode
     },
     dayButtonSelected: {
       borderWidth: 2,
       borderRadius: 8,
-      borderColor: theme2Colors.blue,
-      backgroundColor: theme2Colors.yellow,
+      borderColor: isDark ? "#F5F0EA" : theme2Colors.blue, // Cream outline in dark mode, blue in light mode
+      backgroundColor: isDark ? "#F5F0EA" : theme2Colors.yellow, // Cream background in dark mode, yellow in light mode
     },
     dayButtonFuture: {
       opacity: 0.5,
@@ -3687,7 +3706,7 @@ export default function Home() {
       color: theme2Colors.text,
     },
     dayTextSelected: {
-      color: theme2Colors.text,
+      color: isDark ? "#000000" : theme2Colors.text, // Black text in dark mode when selected, normal text in light mode
     },
     dayTextFuture: {
       color: theme2Colors.textSecondary,
@@ -3698,7 +3717,7 @@ export default function Home() {
       color: theme2Colors.text,
     },
     dayNumSelected: {
-      color: theme2Colors.text,
+      color: isDark ? "#000000" : theme2Colors.text, // Black text in dark mode when selected, normal text in light mode
     },
     dayNumFuture: {
       color: theme2Colors.textSecondary,
@@ -3713,10 +3732,10 @@ export default function Home() {
       width: 6,
       height: 6,
       borderRadius: 3,
-      backgroundColor: "#E8E0D5", // Beige for unselected days
+      backgroundColor: isDark ? theme2Colors.text : "#E8E0D5", // Cream in dark mode, beige in light mode for unselected days
     },
     dayDotSelected: {
-      backgroundColor: "#3A5F8C", // Blue for selected days
+      backgroundColor: isDark ? "#000000" : theme2Colors.blue, // Black dot in dark mode when selected, blue in light mode
     },
     content: {
       flex: 1,
@@ -3757,7 +3776,7 @@ export default function Home() {
       borderColor: theme2Colors.white, // White outline for Remembering category
     },
     promptCardToday: {
-      backgroundColor: "#E8A037", // Yellow for today's question
+      backgroundColor: isDark ? "#010514" : "#E8A037", // Dark blue-black in dark mode, yellow in light mode
       padding: spacing.lg,
       borderRadius: 20,
       borderWidth: 2,
@@ -3810,7 +3829,7 @@ export default function Home() {
       ...typography.h3,
       fontSize: 22,
       marginBottom: spacing.sm,
-      color: theme2Colors.text,
+      color: theme2Colors.text, // Keep white/cream in dark mode
       fontFamily: "PMGothicLudington-Text115",
       width: "100%", // Take full width of card to ensure consistent wrapping
     },
@@ -3820,7 +3839,7 @@ export default function Home() {
     promptDescription: {
       ...typography.body,
       fontSize: 14,
-      color: theme2Colors.textSecondary,
+      color: isDark ? theme2Colors.white : theme2Colors.textSecondary, // White in dark mode for card condition 1
       marginBottom: spacing.md,
     },
     promptDescriptionRemembering: {
@@ -3862,7 +3881,7 @@ export default function Home() {
     },
     answerButtonToday: {
       marginTop: spacing.md,
-      backgroundColor: theme2Colors.cream, // Cream CTA for today's card
+      backgroundColor: isDark ? "#D97393" : theme2Colors.cream, // Pink in dark mode, cream in light mode
       borderRadius: 25,
       paddingVertical: spacing.md,
       paddingHorizontal: spacing.xl,
@@ -3937,12 +3956,12 @@ export default function Home() {
       width: 32,
       height: 32,
       borderRadius: 16,
-      backgroundColor: theme2Colors.white, // White background for X button
+      backgroundColor: isDark ? "#000000" : theme2Colors.white, // Black background in dark mode, white in light mode for X button
       justifyContent: "center",
       alignItems: "center",
       zIndex: 10,
       borderWidth: 1,
-      borderColor: theme2Colors.text, // Black outline
+      borderColor: isDark ? "#F5F0EA" : theme2Colors.text, // Cream outline in dark mode, black outline in light mode
     },
     groupModalTitle: {
       ...typography.h2,
@@ -3965,10 +3984,10 @@ export default function Home() {
       paddingVertical: spacing.md,
       paddingHorizontal: spacing.sm,
       borderRadius: 12,
-      backgroundColor: theme2Colors.white, // White for non-selected groups
+      backgroundColor: isDark ? "#000000" : theme2Colors.white, // Black in dark mode, white in light mode for non-selected groups
       flex: 1,
       borderWidth: 1,
-      borderColor: theme2Colors.textSecondary, // Gray stroke for non-selected
+      borderColor: isDark ? "#F5F0EA" : theme2Colors.textSecondary, // Cream outline in dark mode, gray stroke in light mode for non-selected
     },
     groupRowActive: {
       borderWidth: 2,
@@ -4351,7 +4370,7 @@ export default function Home() {
     },
     periodShade: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: "rgba(232, 224, 213, 0.3)", // Light beige overlay instead of dark
+      backgroundColor: isDark ? "rgba(0, 0, 0, 0.3)" : "rgba(232, 224, 213, 0.3)", // Light overlay (dark in dark mode, beige in light mode)
     },
     periodOverlay: {
       padding: spacing.xxl,
@@ -4545,9 +4564,9 @@ export default function Home() {
     },
     loadingOverlayMask: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: "rgba(232, 224, 213, 0.7)", // Semi-transparent beige overlay on top of fuzzy.png
+      backgroundColor: isDark ? "rgba(0, 0, 0, 0.7)" : "rgba(232, 224, 213, 0.7)", // Semi-transparent overlay on top of fuzzy.png (dark in dark mode, beige in light mode)
     },
-  }), [theme2Colors])
+  }), [theme2Colors, isDark])
 
   return (
     <View style={styles.container}>
@@ -4825,7 +4844,7 @@ export default function Home() {
                   {!isFutureDay && (
                     <View style={styles.dayIndicator}>
                       {hasEntry ? (
-                        <FontAwesome name="check" size={12} color={isSelected ? "#3A5F8C" : "#E8E0D5"} />
+                        <FontAwesome name="check" size={12} color={isSelected ? (isDark ? "#000000" : theme2Colors.blue) : (isDark ? theme2Colors.text : "#E8E0D5")} />
                       ) : (
                         <View style={[styles.dayDot, isSelected && styles.dayDotSelected]} />
                       )}
@@ -5693,8 +5712,8 @@ export default function Home() {
       <Modal visible={groupPickerVisible} transparent animationType="fade" onRequestClose={() => setGroupPickerVisible(false)}>
         <TouchableOpacity style={styles.groupModalBackdrop} activeOpacity={1} onPress={() => setGroupPickerVisible(false)}>
           {/* Backdrop overlays matching Profile Modal opacity */}
-          <View style={[StyleSheet.absoluteFillObject, { backgroundColor: "rgba(232, 224, 213, 0.4)" }]} />
-          <View style={[StyleSheet.absoluteFillObject, { backgroundColor: "rgba(0, 0, 0, 0.1)" }]} />
+          <View style={[StyleSheet.absoluteFillObject, { backgroundColor: isDark ? "rgba(0, 0, 0, 0.4)" : "rgba(232, 224, 213, 0.4)" }]} />
+          <View style={[StyleSheet.absoluteFillObject, { backgroundColor: isDark ? "rgba(0, 0, 0, 0.3)" : "rgba(0, 0, 0, 0.1)" }]} />
           <View style={[styles.groupModalSheet, Platform.OS === "android" && { paddingBottom: spacing.lg + insets.bottom }, { paddingBottom: spacing.lg + insets.bottom }]}>
             {/* Close Button - positioned at top right of card */}
             <TouchableOpacity
@@ -5702,7 +5721,7 @@ export default function Home() {
               onPress={() => setGroupPickerVisible(false)}
               activeOpacity={0.7}
             >
-              <FontAwesome name="times" size={16} color={theme2Colors.text} />
+              <FontAwesome name="times" size={16} color={isDark ? "#F5F0EA" : theme2Colors.text} />
             </TouchableOpacity>
             <Text style={styles.groupModalTitle}>Switch group</Text>
             <ScrollView contentContainerStyle={styles.groupList}>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useState, useRef, useMemo } from "react"
 import { View, Text, StyleSheet, Modal, TouchableOpacity, Animated, Dimensions, Image, Platform } from "react-native"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { Avatar } from "./Avatar"
@@ -54,18 +54,18 @@ export function UserProfileModal({
   const slideAnim = useRef(new Animated.Value(0)).current
   const fadeAnim = useRef(new Animated.Value(0)).current
 
-  // Theme 2 color palette
+  // Theme 2 color palette - dynamic based on dark/light mode
   const theme2Colors = {
     red: "#B94444",
     yellow: "#E8A037",
     green: "#2D6F4A",
     blue: "#3A5F8C",
-    beige: "#E8E0D5",
-    cream: "#F5F0EA",
-    white: "#FFFFFF",
-    text: "#000000",
-    textSecondary: "#404040",
-    onboardingPink: "#D97393", // Pink for onboarding CTAs
+    beige: isDark ? "#000000" : "#E8E0D5", // Black in dark mode
+    cream: isDark ? "#000000" : "#F5F0EA", // Black in dark mode
+    white: isDark ? "#E8E0D5" : "#FFFFFF", // Beige in dark mode
+    text: isDark ? "#F5F0EA" : "#000000", // Cream in dark mode
+    textSecondary: isDark ? "#A0A0A0" : "#404040", // Light gray in dark mode
+    onboardingPink: "#D97393", // Pink for onboarding CTAs (same in both modes)
   }
 
   useEffect(() => {
@@ -136,9 +136,7 @@ export function UserProfileModal({
     }
   }
 
-  if (!userId || !userName) return null
-
-  const styles = StyleSheet.create({
+  const styles = useMemo(() => StyleSheet.create({
     backdrop: {
       flex: 1,
       justifyContent: "flex-end", // Position at bottom
@@ -154,7 +152,7 @@ export function UserProfileModal({
       bottom: 0,
     },
     container: {
-      backgroundColor: theme2Colors.beige, // Beige background for profile card
+      backgroundColor: theme2Colors.beige, // Black in dark mode, beige in light mode
       borderRadius: 32, // More rounded edges
       paddingTop: spacing.xl + spacing.lg + spacing.xl + spacing.md, // Extra padding to prevent name cropping
       paddingBottom: insets.bottom + spacing.xl,
@@ -164,7 +162,7 @@ export function UserProfileModal({
       width: "100%",
       maxWidth: SCREEN_WIDTH - spacing.md * 2, // Account for side padding
       borderWidth: 2,
-      borderColor: theme2Colors.yellow, // Darker yellow stroke
+      borderColor: isDark ? theme2Colors.text : theme2Colors.yellow, // Cream outline in dark mode, yellow in light mode
       shadowColor: "#000",
       shadowOffset: {
         width: 0,
@@ -183,12 +181,12 @@ export function UserProfileModal({
       width: 32,
       height: 32,
       borderRadius: 16,
-      backgroundColor: theme2Colors.white, // White background for X button
+      backgroundColor: isDark ? theme2Colors.beige : theme2Colors.white, // Black in dark mode, white in light mode
       justifyContent: "center",
       alignItems: "center",
       zIndex: 10,
       borderWidth: 1,
-      borderColor: theme2Colors.text, // Black outline
+      borderColor: isDark ? theme2Colors.text : theme2Colors.text, // Cream outline in dark mode
     },
     geometricShapes: {
       position: "absolute",
@@ -232,12 +230,12 @@ export function UserProfileModal({
       width: 180, // Larger square image
       height: 180,
       borderRadius: 20, // Square with rounded edges
-      backgroundColor: theme2Colors.beige,
+      backgroundColor: theme2Colors.beige, // Black in dark mode
       overflow: "hidden",
       justifyContent: "center",
       alignItems: "center",
       borderWidth: 3,
-      borderColor: theme2Colors.onboardingPink,
+      borderColor: theme2Colors.onboardingPink, // Pink border (same in both modes)
     },
     name: {
       ...typography.h2,
@@ -287,7 +285,9 @@ export function UserProfileModal({
       position: "relative",
       zIndex: 2, // Above texture overlay
     },
-  })
+  }), [isDark, theme2Colors, insets.bottom])
+
+  if (!userId || !userName) return null
 
   return (
     <Modal
@@ -301,8 +301,8 @@ export function UserProfileModal({
         {/* Use fallback until native module is rebuilt - prevents warning */}
         {/* To enable native blur: run `npx expo prebuild --clean` then rebuild app */}
         <>
-          <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: theme2Colors.beige, opacity: opacity.interpolate({ inputRange: [0, 1], outputRange: [0, 0.3] }) }]} />
-          <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(232, 224, 213, 0.4)", opacity: opacity.interpolate({ inputRange: [0, 1], outputRange: [0, 1] }) }]} />
+          <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? "rgba(0, 0, 0, 0.6)" : theme2Colors.beige, opacity: opacity.interpolate({ inputRange: [0, 1], outputRange: [0, isDark ? 1 : 0.3] }) }]} />
+          <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? "rgba(0, 0, 0, 0.3)" : "rgba(232, 224, 213, 0.4)", opacity: opacity.interpolate({ inputRange: [0, 1], outputRange: [0, 1] }) }]} />
         </>
         <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0, 0, 0, 0.1)", opacity: opacity.interpolate({ inputRange: [0, 1], outputRange: [0, 1] }) }]} />
       <TouchableOpacity

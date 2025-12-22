@@ -60,18 +60,36 @@ export default function BirthdayCardComposer() {
   const entryId = params.entryId as string | undefined
   const editMode = !!entryId
 
-  // Theme 2 color palette matching new design system
-  const theme2Colors = {
-    red: "#B94444",
-    yellow: "#E8A037",
-    green: "#2D6F4A",
-    blue: "#3A5F8C",
-    beige: "#E8E0D5",
-    cream: "#F5F0EA",
-    white: "#FFFFFF",
-    text: "#000000",
-    textSecondary: "#404040",
-  }
+  // Theme 2 color palette - dynamic based on dark/light mode
+  const theme2Colors = useMemo(() => {
+    if (isDark) {
+      // Dark mode colors
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#000000", // Black (was beige) - page background
+        cream: "#000000", // Black (was cream) - for card backgrounds
+        white: "#E8E0D5", // Beige (was white)
+        text: "#F5F0EA", // Cream (was black) - text color
+        textSecondary: "#A0A0A0", // Light gray (was dark gray)
+      }
+    } else {
+      // Light mode colors (current/default)
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#E8E0D5",
+        cream: "#F5F0EA",
+        white: "#FFFFFF",
+        text: "#000000",
+        textSecondary: "#404040",
+      }
+    }
+  }, [isDark])
 
   const [text, setText] = useState("")
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([])
@@ -1105,7 +1123,7 @@ export default function BirthdayCardComposer() {
       borderRadius: 24,
       backgroundColor: theme2Colors.cream,
       borderWidth: 2,
-      borderColor: theme2Colors.blue,
+      borderColor: isDark ? theme2Colors.text : theme2Colors.blue, // Cream outline in dark mode
       justifyContent: "center",
       alignItems: "center",
     },
@@ -1114,9 +1132,9 @@ export default function BirthdayCardComposer() {
     },
     closeButtonIcon: {
       marginLeft: spacing.sm,
-      backgroundColor: theme2Colors.white,
+      backgroundColor: isDark ? theme2Colors.beige : theme2Colors.white, // Black in dark mode
       borderWidth: 1,
-      borderColor: theme2Colors.text,
+      borderColor: isDark ? theme2Colors.text : theme2Colors.text, // Cream in dark mode
     },
     postButtonInline: {
       backgroundColor: theme2Colors.blue,
@@ -1135,7 +1153,7 @@ export default function BirthdayCardComposer() {
     },
     voiceBackdropOverlay1: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: "rgba(232, 224, 213, 0.6)",
+      backgroundColor: isDark ? "rgba(0, 0, 0, 0.6)" : "rgba(232, 224, 213, 0.6)", // Dark overlay in dark mode, beige in light mode
     },
     voiceBackdropOverlay2: {
       ...StyleSheet.absoluteFillObject,
@@ -1172,10 +1190,10 @@ export default function BirthdayCardComposer() {
       height: 56,
       borderRadius: 28,
       borderWidth: 1,
-      borderColor: theme2Colors.textSecondary,
+      borderColor: isDark ? theme2Colors.text : theme2Colors.textSecondary, // Cream outline in dark mode
       justifyContent: "center",
       alignItems: "center",
-      backgroundColor: theme2Colors.white,
+      backgroundColor: isDark ? theme2Colors.beige : theme2Colors.white, // Black fill in dark mode
     },
     voiceSendButton: {
       width: 56,
@@ -1260,7 +1278,7 @@ export default function BirthdayCardComposer() {
     },
     successBackdropOverlay1: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: "rgba(232, 224, 213, 0.6)",
+      backgroundColor: isDark ? "rgba(0, 0, 0, 0.6)" : "rgba(232, 224, 213, 0.6)", // Dark overlay in dark mode, beige in light mode
     },
     successBackdropOverlay2: {
       ...StyleSheet.absoluteFillObject,
@@ -1308,7 +1326,7 @@ export default function BirthdayCardComposer() {
       textAlign: "center",
       marginTop: spacing.md,
     },
-  }), [colors, isDark])
+  }), [colors, isDark, theme2Colors])
 
   return (
     <View style={styles.container}>
@@ -1589,7 +1607,7 @@ export default function BirthdayCardComposer() {
                   }
                 }}
               >
-                <FontAwesome name={recording ? "stop" : "microphone"} size={22} color={theme2Colors.text} />
+                <FontAwesome name={recording ? "stop" : "microphone"} size={22} color={isDark ? colors.white : theme2Colors.text} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.voiceIconButton, !voiceUri && styles.voiceIconDisabled]}
@@ -1602,7 +1620,7 @@ export default function BirthdayCardComposer() {
                 <FontAwesome
                   name={isPlayingVoice ? "pause" : "play"}
                   size={22}
-                  color={voiceUri ? theme2Colors.text : theme2Colors.textSecondary}
+                  color={voiceUri ? (isDark ? colors.white : theme2Colors.text) : theme2Colors.textSecondary}
                 />
               </TouchableOpacity>
               <TouchableOpacity
@@ -1610,7 +1628,7 @@ export default function BirthdayCardComposer() {
                 disabled={!voiceUri}
                 onPress={cleanupVoiceModal}
               >
-                <FontAwesome name="trash" size={20} color={voiceUri ? theme2Colors.text : theme2Colors.textSecondary} />
+                <FontAwesome name="trash" size={20} color={voiceUri ? (isDark ? colors.white : theme2Colors.text) : theme2Colors.textSecondary} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.voiceSendButton, !voiceUri && styles.voiceIconDisabled]}

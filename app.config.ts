@@ -13,9 +13,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   // Disable New Architecture - causing crashes during native module registration
   newArchEnabled: false,
   splash: {
-    image: "./assets/images/welcome-home.png",
-    resizeMode: "cover",
-    backgroundColor: "#000000",
+    image: "./assets/images/loading.png",
+    resizeMode: "contain",
+    backgroundColor: "#E8E0D5", // Match new boot screen beige background
   },
   assetBundlePatterns: ["assets/*"],
   ios: {

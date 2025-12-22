@@ -24,18 +24,18 @@ export default function GroupNameSettings() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [focusedInput, setFocusedInput] = useState(false)
 
-  // Theme 2 color palette matching new design system
-  const theme2Colors = {
+  // Theme 2 color palette - dynamic based on dark/light mode
+  const theme2Colors = useMemo(() => ({
     red: "#B94444",
     yellow: "#E8A037",
     green: "#2D6F4A",
     blue: "#3A5F8C",
-    beige: "#E8E0D5",
-    cream: "#F5F0EA",
-    white: "#FFFFFF",
-    text: "#000000",
-    textSecondary: "#404040",
-  }
+    beige: isDark ? "#000000" : "#E8E0D5", // Black in dark mode
+    cream: isDark ? "#000000" : "#F5F0EA", // Black in dark mode
+    white: isDark ? "#E8E0D5" : "#FFFFFF", // Beige in dark mode
+    text: isDark ? "#F5F0EA" : "#000000", // Cream in dark mode
+    textSecondary: isDark ? "#A0A0A0" : "#404040", // Light gray in dark mode
+  }), [isDark])
 
   const { data: group } = useQuery({
     queryKey: ["group", groupId],
@@ -117,11 +117,11 @@ export default function GroupNameSettings() {
       width: 32,
       height: 32,
       borderRadius: 16,
-      backgroundColor: theme2Colors.white,
+      backgroundColor: isDark ? theme2Colors.beige : theme2Colors.white, // Black in dark mode
       justifyContent: "center",
       alignItems: "center",
       borderWidth: 1,
-      borderColor: theme2Colors.text,
+      borderColor: theme2Colors.text, // Cream in dark mode
     },
     title: {
       fontFamily: "PMGothicLudington-Text115",
@@ -173,7 +173,7 @@ export default function GroupNameSettings() {
       color: theme2Colors.white,
       textAlign: "center",
     },
-  }), [colors, isDark, focusedInput])
+  }), [colors, isDark, focusedInput, theme2Colors])
 
   if (!isAdmin) {
     return null

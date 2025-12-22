@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import {
   View,
   Text,
@@ -26,17 +26,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window")
 const CARD_WIDTH = (SCREEN_WIDTH - spacing.md * 3) / 2 // 2 columns with spacing
 
 // Theme 2 color palette matching new design system
-const theme2Colors = {
-  red: "#B94444",
-  yellow: "#E8A037",
-  green: "#2D6F4A",
-  blue: "#3A5F8C",
-  beige: "#E8E0D5",
-  cream: "#F5F0EA",
-  white: "#FFFFFF",
-  text: "#000000",
-  textSecondary: "#404040",
-}
+// Theme 2 color palette - will be made dynamic in component
 
 // Helper function to get deck image source based on deck name
 function getDeckImageSource(deckName: string | undefined, iconUrl: string | undefined) {
@@ -133,6 +123,37 @@ export default function CollectionDetail() {
   const { colors, isDark } = useTheme()
   const insets = useSafeAreaInsets()
   const posthog = usePostHog()
+  
+  // Theme 2 color palette - dynamic based on dark/light mode
+  const theme2Colors = useMemo(() => {
+    if (isDark) {
+      // Dark mode colors
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#000000", // Black (was beige) - page background
+        cream: "#000000", // Black (was cream) - for card backgrounds
+        white: "#E8E0D5", // Beige (was white)
+        text: "#F5F0EA", // Cream (was black) - text color
+        textSecondary: "#A0A0A0", // Light gray (was dark gray)
+      }
+    } else {
+      // Light mode colors (current/default)
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#E8E0D5",
+        cream: "#F5F0EA",
+        white: "#FFFFFF",
+        text: "#000000",
+        textSecondary: "#404040",
+      }
+    }
+  }, [isDark])
 
   const { data: collection } = useQuery({
     queryKey: ["collection", collectionId],
@@ -167,7 +188,7 @@ export default function CollectionDetail() {
     }
   }, [posthog, collection, collectionId, groupId])
 
-  const styles = StyleSheet.create({
+  const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: theme2Colors.beige,
@@ -269,7 +290,7 @@ export default function CollectionDetail() {
       bottom: spacing.md,
       right: spacing.md,
     },
-  })
+  }), [colors, isDark, theme2Colors])
 
   return (
     <View style={styles.container}>

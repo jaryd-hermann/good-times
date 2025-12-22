@@ -35,18 +35,7 @@ import { Avatar } from "../../components/Avatar"
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 const CARD_WIDTH = (SCREEN_WIDTH - spacing.md * 3) / 2 // 2 columns with spacing
 
-// Theme 2 color palette matching new design system
-const theme2Colors = {
-  red: "#B94444",
-  yellow: "#E8A037",
-  green: "#2D6F4A",
-  blue: "#3A5F8C",
-  beige: "#E8E0D5",
-  cream: "#F5F0EA",
-  white: "#FFFFFF",
-  text: "#000000",
-  textSecondary: "#404040",
-}
+// Theme 2 color palette - will be made dynamic in component
 
 // Helper function to get collection icon source and dimensions based on collection name
 // NOTE: Collection icons have been removed - this function is kept for potential future use
@@ -56,7 +45,7 @@ function getCollectionIconSource(collectionName: string | undefined) {
 }
 
 // Helper function to get collection card background color and text color based on collection name
-function getCollectionCardColors(collectionName: string | undefined): { backgroundColor: string; textColor: string; descriptionColor: string } {
+function getCollectionCardColors(collectionName: string | undefined, theme2Colors: { red: string; yellow: string; green: string; blue: string; white: string; text: string }): { backgroundColor: string; textColor: string; descriptionColor: string } {
   if (!collectionName) {
     return { backgroundColor: theme2Colors.red, textColor: theme2Colors.white, descriptionColor: theme2Colors.white }
   }
@@ -328,6 +317,37 @@ export default function ExploreDecks() {
   const params = useLocalSearchParams()
   const { colors, isDark } = useTheme()
   const insets = useSafeAreaInsets()
+  
+  // Theme 2 color palette - dynamic based on dark/light mode
+  const theme2Colors = useMemo(() => {
+    if (isDark) {
+      // Dark mode colors
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#000000", // Black (was beige) - page background
+        cream: "#000000", // Black (was cream) - for card backgrounds
+        white: "#E8E0D5", // Beige (was white)
+        text: "#F5F0EA", // Cream (was black) - text color
+        textSecondary: "#A0A0A0", // Light gray (was dark gray)
+      }
+    } else {
+      // Light mode colors (current/default)
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#E8E0D5",
+        cream: "#F5F0EA",
+        white: "#FFFFFF",
+        text: "#000000",
+        textSecondary: "#404040",
+      }
+    }
+  }, [isDark])
   const [currentGroupId, setCurrentGroupId] = useState<string>()
   const [userId, setUserId] = useState<string>()
   const [helpModalVisible, setHelpModalVisible] = useState(false)
@@ -1468,7 +1488,7 @@ export default function ExploreDecks() {
     [handleSwipe, queryClient, yesSwipeCount]
   )
 
-  const styles = StyleSheet.create({
+  const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: theme2Colors.beige,
@@ -1690,9 +1710,9 @@ export default function ExploreDecks() {
       paddingVertical: spacing.md,
       paddingHorizontal: spacing.lg,
       borderRadius: 20, // Rounded
-      borderWidth: 2, // Thick black outline
-      borderColor: theme2Colors.text,
-      backgroundColor: theme2Colors.white,
+      borderWidth: 2, // Thick outline
+      borderColor: isDark ? theme2Colors.text : theme2Colors.text, // Cream outline in dark mode
+      backgroundColor: isDark ? theme2Colors.beige : theme2Colors.white, // Black in dark mode
       alignItems: "center",
       justifyContent: "center",
       position: "relative", // For texture overlay
@@ -2110,8 +2130,22 @@ export default function ExploreDecks() {
       overflow: "hidden", // Clip texture
     },
     swipeCardTexture: {
-      ...StyleSheet.absoluteFillObject,
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      borderRadius: 20, // Match card borderRadius
       opacity: 0.3,
+      zIndex: 1,
+      pointerEvents: "none", // Allow touches to pass through
+      overflow: "hidden", // Ensure texture respects borderRadius
+    },
+    swipeCardTextureImage: {
+      width: "100%",
+      height: "100%",
+      minWidth: "100%",
+      minHeight: "100%",
     },
     swipeCardQuestion: {
       fontFamily: "PMGothicLudington-Text115",
@@ -2119,6 +2153,8 @@ export default function ExploreDecks() {
       color: theme2Colors.text,
       textAlign: "left", // Left align
       lineHeight: 32,
+      position: "relative",
+      zIndex: 2, // Above texture
     },
     progressBarContainer: {
       width: "100%",
@@ -2151,7 +2187,7 @@ export default function ExploreDecks() {
       width: 24,
       height: 24,
     },
-  })
+  }), [colors, isDark, theme2Colors])
 
   return (
     <View style={styles.container}>
@@ -2341,7 +2377,7 @@ export default function ExploreDecks() {
                 {collections
                   .filter((collection) => isLeftColumnCollection(collection.name))
                   .map((collection) => {
-                    const cardColors = getCollectionCardColors(collection.name)
+                    const cardColors = getCollectionCardColors(collection.name, theme2Colors)
                     const cardHeight = getCollectionCardHeight(collection.name)
                     return (
                       <TouchableOpacity
@@ -2401,7 +2437,7 @@ export default function ExploreDecks() {
                 {collections
                   .filter((collection) => !isLeftColumnCollection(collection.name))
                   .map((collection) => {
-                    const cardColors = getCollectionCardColors(collection.name)
+                    const cardColors = getCollectionCardColors(collection.name, theme2Colors)
                     const cardHeight = getCollectionCardHeight(collection.name)
                     return (
                       <TouchableOpacity
@@ -2695,11 +2731,14 @@ export default function ExploreDecks() {
                     ]}
                     {...panResponder.panHandlers}
                   >
-                    <Image 
-                      source={require("../../assets/images/texture.png")} 
-                      style={styles.swipeCardTexture}
-                      resizeMode="cover"
-                    />
+                    {/* Texture overlay */}
+                    <View style={styles.swipeCardTexture}>
+                      <Image 
+                        source={require("../../assets/images/texture.png")} 
+                        style={styles.swipeCardTextureImage}
+                        resizeMode="cover"
+                      />
+                    </View>
                     <Text style={styles.swipeCardQuestion}>
                       {swipeableQuestionsData[currentQuestionIndex].question}
                     </Text>

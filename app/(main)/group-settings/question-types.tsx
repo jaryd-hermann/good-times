@@ -32,18 +32,18 @@ export default function QuestionTypesSettings() {
   const [saving, setSaving] = useState<string | null>(null)
   const [groupType, setGroupType] = useState<"family" | "friends" | null>(null)
 
-  // Theme 2 color palette matching new design system
-  const theme2Colors = {
+  // Theme 2 color palette - dynamic based on dark/light mode
+  const theme2Colors = useMemo(() => ({
     red: "#B94444",
     yellow: "#E8A037",
     green: "#2D6F4A",
     blue: "#3A5F8C",
-    beige: "#E8E0D5",
-    cream: "#F5F0EA",
-    white: "#FFFFFF",
-    text: "#000000",
-    textSecondary: "#404040",
-  }
+    beige: isDark ? "#000000" : "#E8E0D5", // Black in dark mode
+    cream: isDark ? "#111111" : "#F5F0EA", // Dark gray in dark mode (for cards)
+    white: isDark ? "#E8E0D5" : "#FFFFFF", // Beige in dark mode
+    text: isDark ? "#F5F0EA" : "#000000", // Cream in dark mode
+    textSecondary: isDark ? "#A0A0A0" : "#404040", // Light gray in dark mode
+  }), [isDark])
 
   const { data: preferences = [] } = useQuery({
     queryKey: ["questionPreferences", groupId],
@@ -161,11 +161,11 @@ export default function QuestionTypesSettings() {
       width: 32,
       height: 32,
       borderRadius: 16,
-      backgroundColor: theme2Colors.white,
+      backgroundColor: isDark ? theme2Colors.beige : theme2Colors.white, // Black in dark mode
       justifyContent: "center",
       alignItems: "center",
       borderWidth: 1,
-      borderColor: theme2Colors.text,
+      borderColor: theme2Colors.text, // Cream in dark mode
     },
     title: {
       fontFamily: "PMGothicLudington-Text115",
@@ -228,7 +228,7 @@ export default function QuestionTypesSettings() {
     preferenceButtonTextActive: {
       color: theme2Colors.white,
     },
-  }), [colors, isDark])
+  }), [colors, isDark, theme2Colors])
 
   if (!isAdmin) {
     return null

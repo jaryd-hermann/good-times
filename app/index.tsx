@@ -4,7 +4,7 @@
 // Phase 6: Black screen prevention
 
 import { useEffect, useState, useRef } from "react";
-import { View, ActivityIndicator, Text, Pressable, Alert, ImageBackground, StyleSheet, AppState, Image, Animated } from "react-native";
+import { View, ActivityIndicator, Text, Pressable, Alert, StyleSheet, AppState, Image, Animated } from "react-native";
 import { useRouter, useSegments, usePathname } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -1059,7 +1059,7 @@ export default function Index() {
   });
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.black }}>
+    <View style={{ flex: 1, backgroundColor: theme2Colors.beige }}>
       {shouldRenderBootScreen ? (
         <View style={styles.bootContainer}>
           <Animated.View

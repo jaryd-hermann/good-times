@@ -22,18 +22,7 @@ import { Button } from "../../../components/Button"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { FontAwesome } from "@expo/vector-icons"
 
-// Theme 2 color palette matching new design system
-const theme2Colors = {
-  red: "#B94444",
-  yellow: "#E8A037",
-  green: "#2D6F4A",
-  blue: "#3A5F8C",
-  beige: "#E8E0D5",
-  cream: "#F5F0EA",
-  white: "#FFFFFF",
-  text: "#000000",
-  textSecondary: "#404040",
-}
+// Theme 2 color palette - dynamic based on dark/light mode
 
 export default function SuggestDeck() {
   const router = useRouter()
@@ -126,6 +115,37 @@ export default function SuggestDeck() {
     }
   }
 
+  // Theme 2 color palette - dynamic based on dark/light mode
+  const theme2Colors = useMemo(() => {
+    if (isDark) {
+      // Dark mode colors
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#000000", // Black (was beige) - page background
+        cream: "#000000", // Black (was cream) - for card backgrounds
+        white: "#E8E0D5", // Beige (was white)
+        text: "#F5F0EA", // Cream (was black) - text color
+        textSecondary: "#A0A0A0", // Light gray (was dark gray)
+      }
+    } else {
+      // Light mode colors (current/default)
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#E8E0D5",
+        cream: "#F5F0EA",
+        white: "#FFFFFF",
+        text: "#000000",
+        textSecondary: "#404040",
+      }
+    }
+  }, [isDark])
+
   const styles = useMemo(
     () =>
       StyleSheet.create({
@@ -151,9 +171,9 @@ export default function SuggestDeck() {
           width: 32,
           height: 32,
           borderRadius: 16,
-          backgroundColor: theme2Colors.white,
+          backgroundColor: isDark ? theme2Colors.beige : theme2Colors.white, // Black in dark mode
           borderWidth: 1,
-          borderColor: theme2Colors.text,
+          borderColor: isDark ? theme2Colors.text : theme2Colors.text, // Cream in dark mode
           justifyContent: "center",
           alignItems: "center",
         },
@@ -200,7 +220,7 @@ export default function SuggestDeck() {
           borderRadius: 25,
         },
       }),
-    [insets.top]
+    [insets.top, isDark, theme2Colors]
   )
 
   return (
@@ -212,7 +232,7 @@ export default function SuggestDeck() {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Suggest a Deck</Text>
         <TouchableOpacity onPress={() => router.back()} style={styles.closeButton}>
-          <FontAwesome name="times" size={16} color={theme2Colors.text} />
+          <FontAwesome name="times" size={16} color={isDark ? theme2Colors.text : theme2Colors.text} />
         </TouchableOpacity>
       </View>
 
