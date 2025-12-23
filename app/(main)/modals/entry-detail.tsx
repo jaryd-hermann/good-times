@@ -25,15 +25,7 @@ import { updateBadgeCount } from "../../../lib/notifications-badge"
 import { UserProfileModal } from "../../../components/UserProfileModal"
 import { MentionableText } from "../../../components/MentionableText"
 import * as ImagePicker from "expo-image-picker"
-// Lazy load CommentVideoModal to prevent crashes if native modules aren't available
-let CommentVideoModal: any
-try {
-  CommentVideoModal = require("../../../components/CommentVideoModal").CommentVideoModal
-} catch (error) {
-  console.error("[entry-detail] Failed to load CommentVideoModal:", error)
-  // Fallback component
-  CommentVideoModal = () => null
-}
+import { CommentVideoModal } from "../../../components/CommentVideoModal"
 import { uploadMedia } from "../../../lib/storage"
 import * as FileSystem from "expo-file-system/legacy"
 
@@ -117,6 +109,8 @@ export default function EntryDetail() {
   const [commentAudioPlaying, setCommentAudioPlaying] = useState(false)
   const commentAudioRef = useRef<Audio.Sound | null>(null)
   const commentRecordingRef = useRef<Audio.Recording | null>(null)
+  const commentVideoRefs = useRef<Record<string, Video>>({})
+  const [activeCommentVideoId, setActiveCommentVideoId] = useState<string | null>(null)
   const [commentLightboxVisible, setCommentLightboxVisible] = useState(false)
   const [commentLightboxIndex, setCommentLightboxIndex] = useState(0)
   const [commentLightboxPhotos, setCommentLightboxPhotos] = useState<string[]>([])
@@ -197,6 +191,13 @@ export default function EntryDetail() {
       const sounds = Object.values(audioRefs.current)
       sounds.forEach((sound) => {
         sound.unloadAsync().catch(() => {
+          /* noop */
+        })
+      })
+      // Clean up comment video refs
+      const videos = Object.values(commentVideoRefs.current)
+      videos.forEach((video) => {
+        video.unloadAsync().catch(() => {
           /* noop */
         })
       })
@@ -634,6 +635,46 @@ export default function EntryDetail() {
   }
 
   const canSendComment = Boolean(userId && commentText.trim() && !addCommentMutation.isPending)
+
+  async function handleToggleCommentVideo(commentId: string, videoUri: string) {
+    try {
+      const videoId = `comment-${commentId}`
+      
+      // Stop any other playing comment video
+      if (activeCommentVideoId && activeCommentVideoId !== videoId) {
+        const previousVideo = commentVideoRefs.current[activeCommentVideoId]
+        if (previousVideo) {
+          try {
+            await previousVideo.pauseAsync()
+            await previousVideo.setPositionAsync(0)
+          } catch {
+            // ignore
+          }
+        }
+        setActiveCommentVideoId(null)
+      }
+      
+      let video = commentVideoRefs.current[videoId]
+      if (!video) {
+        // Video ref will be set when component mounts
+        return
+      }
+      
+      const status = await video.getStatusAsync()
+      if (status.isLoaded && status.isPlaying) {
+        await video.pauseAsync()
+        setActiveCommentVideoId(null)
+      } else {
+        if (status.isLoaded && status.positionMillis && status.durationMillis && status.positionMillis >= status.durationMillis) {
+          await video.setPositionAsync(0)
+        }
+        await video.playAsync()
+        setActiveCommentVideoId(videoId)
+      }
+    } catch (error: any) {
+      console.error("[entry-detail] Error toggling comment video:", error)
+    }
+  }
 
   async function handleToggleAudio(id: string, uri: string) {
     try {
@@ -1106,15 +1147,17 @@ export default function EntryDetail() {
       height: 200,
       borderRadius: 12,
       backgroundColor: colors.gray[900],
+      overflow: "hidden",
     },
-    commentVideoOverlay: {
+    commentVideoPlayButton: {
       position: "absolute",
-      width: "100%",
-      height: "100%",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
       justifyContent: "center",
       alignItems: "center",
-      backgroundColor: "rgba(0, 0, 0, 0.3)",
-      borderRadius: 8,
+      backgroundColor: "rgba(0, 0, 0, 0.2)",
     },
     commentAudioPill: {
       flexDirection: "row",
@@ -1519,28 +1562,51 @@ export default function EntryDetail() {
                               />
                             </TouchableOpacity>
                           )}
-                          {comment.media_type === "video" && (
-                            <TouchableOpacity
-                              onPress={(e) => {
-                                e.stopPropagation()
-                                // For videos, we'll need to handle differently as PhotoLightbox doesn't support videos
-                                // For now, just show an alert or handle in a video player
-                                Alert.alert("Video", "Video playback will be implemented")
-                              }}
-                              activeOpacity={0.9}
-                            >
+                          {comment.media_type === "video" && comment.media_url && (
+                            <View style={styles.commentMediaThumbnail}>
                               <Video
+                                ref={(ref) => {
+                                  if (ref) {
+                                    commentVideoRefs.current[`comment-${comment.id}`] = ref
+                                  }
+                                }}
                                 source={{ uri: comment.media_url }}
                                 style={styles.commentMediaThumbnail}
                                 resizeMode={ResizeMode.COVER}
                                 isMuted={true}
-                                shouldPlay={false}
+                                shouldPlay={activeCommentVideoId === `comment-${comment.id}`}
                                 useNativeControls={false}
+                                onPlaybackStatusUpdate={(status) => {
+                                  if (status.isLoaded && status.didJustFinish) {
+                                    setActiveCommentVideoId(null)
+                                  }
+                                }}
                               />
-                              <View style={styles.commentVideoOverlay}>
-                                <FontAwesome name="play-circle" size={24} color={colors.white} />
-                              </View>
-                            </TouchableOpacity>
+                              {activeCommentVideoId !== `comment-${comment.id}` && (
+                                <TouchableOpacity
+                                  onPress={(e) => {
+                                    e.stopPropagation()
+                                    handleToggleCommentVideo(comment.id, comment.media_url)
+                                  }}
+                                  activeOpacity={0.8}
+                                  style={styles.commentVideoPlayButton}
+                                >
+                                  <FontAwesome name="play-circle" size={32} color={colors.white} />
+                                </TouchableOpacity>
+                              )}
+                              {activeCommentVideoId === `comment-${comment.id}` && (
+                                <TouchableOpacity
+                                  onPress={(e) => {
+                                    e.stopPropagation()
+                                    handleToggleCommentVideo(comment.id, comment.media_url)
+                                  }}
+                                  activeOpacity={0.8}
+                                  style={styles.commentVideoPlayButton}
+                                >
+                                  <FontAwesome name="pause-circle" size={32} color={colors.white} />
+                                </TouchableOpacity>
+                              )}
+                            </View>
                           )}
                           {comment.media_type === "audio" && comment.media_url && (
                             <TouchableOpacity

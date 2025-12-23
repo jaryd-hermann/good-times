@@ -896,19 +896,6 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     backgroundColor: colors.gray[900],
     position: "relative",
   },
-  commentMediaThumbnailVideo: {
-    width: "100%",
-    height: "100%",
-  },
-  commentVideoOverlay: {
-    position: "absolute",
-    width: "100%",
-    height: "100%",
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.3)",
-    borderRadius: 12,
-  },
   commentAudioThumbnail: {
     width: 40,
     height: 40,
@@ -1313,19 +1300,14 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                             }}
                             activeOpacity={0.9}
                           >
-                            <View style={styles.commentMediaThumbnail}>
-                              <Video
-                                source={{ uri: comment.media_url }}
-                                style={styles.commentMediaThumbnailVideo}
-                                resizeMode={ResizeMode.COVER}
-                                isMuted={true}
-                                shouldPlay={false}
-                                useNativeControls={false}
-                              />
-                              <View style={styles.commentVideoOverlay}>
-                                <FontAwesome name="play-circle" size={20} color={colors.white} />
-                              </View>
-                            </View>
+                            <Video
+                              source={{ uri: comment.media_url }}
+                              style={styles.commentMediaThumbnail}
+                              resizeMode={ResizeMode.COVER}
+                              isMuted={true}
+                              shouldPlay={false}
+                              useNativeControls={false}
+                            />
                           </TouchableOpacity>
                         )}
                         {comment.media_type === "audio" && comment.media_url && (
@@ -1426,19 +1408,14 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                               }}
                               activeOpacity={0.9}
                             >
-                              <View style={styles.commentMediaThumbnail}>
-                                <Video
-                                  source={{ uri: comment.media_url }}
-                                  style={styles.commentMediaThumbnailVideo}
-                                  resizeMode={ResizeMode.COVER}
-                                  isMuted={true}
-                                  shouldPlay={false}
-                                  useNativeControls={false}
-                                />
-                                <View style={styles.commentVideoOverlay}>
-                                  <FontAwesome name="play-circle" size={20} color={colors.white} />
-                                </View>
-                              </View>
+                              <Video
+                                source={{ uri: comment.media_url }}
+                                style={styles.commentMediaThumbnail}
+                                resizeMode={ResizeMode.COVER}
+                                isMuted={true}
+                                shouldPlay={false}
+                                useNativeControls={false}
+                              />
                             </TouchableOpacity>
                           )}
                           {comment.media_type === "audio" && (
