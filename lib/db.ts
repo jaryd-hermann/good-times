@@ -1680,11 +1680,29 @@ export async function toggleEmojiReaction(entryId: string, userId: string, emoji
 export async function getComments(entryId: string): Promise<Comment[]> {
   const { data, error } = await supabase
     .from("comments")
-    .select("*, user:users(*)")
+    .select("id, entry_id, user_id, text, created_at, media_url, media_type, user:users(*)")
     .eq("entry_id", entryId)
     .order("created_at", { ascending: true })
 
-  if (error) throw error
+  if (error) {
+    // If error is due to missing columns (migration not run), try without media columns
+    if (error.message?.includes("column") && error.message?.includes("media")) {
+      console.warn("[getComments] Media columns not found, fetching without them:", error.message)
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from("comments")
+        .select("id, entry_id, user_id, text, created_at, user:users(*)")
+        .eq("entry_id", entryId)
+        .order("created_at", { ascending: true })
+      
+      if (fallbackError) throw fallbackError
+      return (fallbackData || []).map((comment: any) => ({
+        ...comment,
+        media_url: undefined,
+        media_type: undefined,
+      }))
+    }
+    throw error
+  }
   return data || []
 }
 
@@ -1695,19 +1713,48 @@ export async function createComment(
   mediaUrl?: string,
   mediaType?: "photo" | "video" | "audio"
 ): Promise<Comment> {
+  // Build insert object conditionally based on whether media columns exist
+  const insertData: any = {
+    entry_id: entryId,
+    user_id: userId,
+    text,
+  }
+  
+  // Only include media fields if they're provided (migration should be run, but be defensive)
+  if (mediaUrl && mediaType) {
+    insertData.media_url = mediaUrl
+    insertData.media_type = mediaType
+  }
+  
   const { data, error } = await supabase
     .from("comments")
-    .insert({
-      entry_id: entryId,
-      user_id: userId,
-      text,
-      media_url: mediaUrl || null,
-      media_type: mediaType || null,
-    })
+    .insert(insertData)
     .select("*, user:users(*)")
     .single()
 
-  if (error) throw error
+  if (error) {
+    // If error is due to missing columns, try without media columns
+    if (error.message?.includes("column") && error.message?.includes("media") && mediaUrl && mediaType) {
+      console.warn("[createComment] Media columns not found, creating comment without media:", error.message)
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from("comments")
+        .insert({
+          entry_id: entryId,
+          user_id: userId,
+          text,
+        })
+        .select("*, user:users(*)")
+        .single()
+      
+      if (fallbackError) throw fallbackError
+      return {
+        ...fallbackData,
+        media_url: undefined,
+        media_type: undefined,
+      }
+    }
+    throw error
+  }
   return data
 }
 
