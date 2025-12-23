@@ -1688,10 +1688,22 @@ export async function getComments(entryId: string): Promise<Comment[]> {
   return data || []
 }
 
-export async function createComment(entryId: string, userId: string, text: string): Promise<Comment> {
+export async function createComment(
+  entryId: string,
+  userId: string,
+  text: string,
+  mediaUrl?: string,
+  mediaType?: "photo" | "video" | "audio"
+): Promise<Comment> {
   const { data, error } = await supabase
     .from("comments")
-    .insert({ entry_id: entryId, user_id: userId, text })
+    .insert({
+      entry_id: entryId,
+      user_id: userId,
+      text,
+      media_url: mediaUrl || null,
+      media_type: mediaType || null,
+    })
     .select("*, user:users(*)")
     .single()
 

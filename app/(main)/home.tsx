@@ -3417,15 +3417,19 @@ export default function Home() {
       // This is especially important after posting an entry
       if (currentGroupId && userId) {
         const todayDate = getTodayDate()
-        // Refetch today's data to ensure we see the latest entries
+        // CRITICAL: Refetch using the exact query keys that the useQuery hooks use
+        // The entries query uses selectedDate (line 1179), and dailyPrompt uses selectedDate + userId (line 924)
+        // Since selectedDate defaults to todayDate, we refetch both todayDate and selectedDate to be safe
+        queryClient.refetchQueries({ queryKey: ["entries", currentGroupId, selectedDate] })
         queryClient.refetchQueries({ queryKey: ["entries", currentGroupId, todayDate] })
         queryClient.refetchQueries({ queryKey: ["userEntry", currentGroupId, userId, todayDate] })
-        queryClient.refetchQueries({ queryKey: ["dailyPrompt", currentGroupId, todayDate] })
+        queryClient.refetchQueries({ queryKey: ["dailyPrompt", currentGroupId, selectedDate, userId] })
+        queryClient.refetchQueries({ queryKey: ["dailyPrompt", currentGroupId, todayDate, userId] })
         // Also refetch general entry queries
         queryClient.refetchQueries({ queryKey: ["entries", currentGroupId], exact: false })
         queryClient.refetchQueries({ queryKey: ["userEntry", currentGroupId], exact: false })
       }
-    }, [currentGroupId, userId, queryClient])
+    }, [currentGroupId, userId, selectedDate, queryClient])
   )
 
   const handleScroll = Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {

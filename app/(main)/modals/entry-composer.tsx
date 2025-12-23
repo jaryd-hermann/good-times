@@ -25,7 +25,7 @@ import * as ImagePicker from "expo-image-picker"
 import { Audio, Video, ResizeMode } from "expo-av"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { supabase } from "../../../lib/supabase"
-import { createEntry, updateEntry, getAllPrompts, getMemorials, getGroupMembers, getGroup, getEntryById } from "../../../lib/db"
+import { createEntry, updateEntry, getAllPrompts, getMemorials, getGroupMembers, getGroup, getEntryById, getEntriesForDate, getUserEntryForDate, getDailyPrompt } from "../../../lib/db"
 import type { Prompt } from "../../../lib/types"
 import { uploadMedia } from "../../../lib/storage"
 import { typography, spacing } from "../../../lib/theme"
@@ -130,6 +130,7 @@ export default function EntryComposer() {
   const [userProfileModalVisible, setUserProfileModalVisible] = useState(false)
   const cursorPositionRef = useRef<number>(0)
   const [isNavigating, setIsNavigating] = useState(false) // Track when navigating to hide content immediately
+  const [isRefreshingHome, setIsRefreshingHome] = useState(false) // Track when refreshing home data
   
   // CRITICAL: Reasonable file size limits to prevent memory crashes
   // Large files loaded entirely into memory can crash the app
@@ -1066,6 +1067,56 @@ export default function EntryComposer() {
     dragPosition.setValue({ x: 0, y: 0 })
   }
 
+  async function handleNavigateToHome() {
+    if (!currentGroupId || !userId) {
+      // Fallback: just navigate if we don't have group/user info
+      setShowSuccessModal(false)
+      setIsNavigating(true)
+      exitComposer()
+      return
+    }
+
+    setIsRefreshingHome(true)
+    
+    try {
+      // Do the EXACT same thing as pull-to-refresh on home screen
+      // This ensures consistent behavior and guarantees fresh data
+      
+      // 1. Remove queries for current group to clear cache (same as handleRefresh)
+      queryClient.removeQueries({ 
+        queryKey: ["dailyPrompt", currentGroupId],
+        exact: false 
+      })
+      queryClient.removeQueries({ 
+        queryKey: ["entries", currentGroupId],
+        exact: false 
+      })
+      queryClient.removeQueries({ 
+        queryKey: ["userEntry", currentGroupId],
+        exact: false 
+      })
+      
+      // 2. Invalidate all queries (same as handleRefresh)
+      await queryClient.invalidateQueries()
+      
+      // 3. Refetch all queries (same as handleRefresh)
+      await queryClient.refetchQueries()
+      
+      // Now navigate - data is ready
+      setShowSuccessModal(false)
+      setIsNavigating(true)
+      exitComposer()
+    } catch (error) {
+      console.error("[entry-composer] Error refreshing home data:", error)
+      // Still navigate even if refresh fails - home screen will refetch on focus
+      setShowSuccessModal(false)
+      setIsNavigating(true)
+      exitComposer()
+    } finally {
+      setIsRefreshingHome(false)
+    }
+  }
+
   async function exitComposer() {
     // Hide composer content immediately to prevent flash
     setIsNavigating(true)
@@ -1076,50 +1127,14 @@ export default function EntryComposer() {
       setActivePrompt(prompt as Prompt)
     }
     
-    // Navigate immediately - don't wait for refetches
-    // This prevents the composer from being visible during refetch delays
+    // Navigate to home
     if (returnTo && returnTo.includes("home")) {
       router.replace("/(main)/home")
     } else if (returnTo) {
       router.replace(returnTo)
     } else {
-      // Always navigate to home to ensure fresh load
+      // Always navigate to home
       router.replace("/(main)/home")
-    }
-    
-    // Invalidate and refetch queries in the background (don't await)
-    // Home screen's useFocusEffect will also refetch when it comes into focus
-    if (currentGroupId && userId) {
-      const todayDate = new Date().toISOString().split('T')[0]
-      
-      // Invalidate queries in background (fire and forget)
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["entries", currentGroupId], exact: false }),
-        queryClient.invalidateQueries({ queryKey: ["allEntries", currentGroupId] }),
-        queryClient.invalidateQueries({ queryKey: ["userEntry", currentGroupId], exact: false }),
-        queryClient.invalidateQueries({ queryKey: ["dailyPrompt", currentGroupId], exact: false }),
-        queryClient.invalidateQueries({ queryKey: ["userEntriesForHomeDates", currentGroupId], exact: false }),
-        queryClient.invalidateQueries({ queryKey: ["promptsForHomeDates", currentGroupId], exact: false }),
-        queryClient.invalidateQueries({ queryKey: ["entriesForHomeDatesWithoutUserEntry", currentGroupId], exact: false }),
-      ]).catch(() => {
-        // Ignore errors
-      }).then(() => {
-        // Refetch queries in background (fire and forget)
-        Promise.all([
-          queryClient.refetchQueries({ queryKey: ["entries", currentGroupId], exact: false }),
-          queryClient.refetchQueries({ queryKey: ["allEntries", currentGroupId] }),
-          queryClient.refetchQueries({ queryKey: ["userEntry", currentGroupId], exact: false }),
-          queryClient.refetchQueries({ queryKey: ["dailyPrompt", currentGroupId], exact: false }),
-          queryClient.refetchQueries({ queryKey: ["entries", currentGroupId, todayDate] }),
-          queryClient.refetchQueries({ queryKey: ["userEntry", currentGroupId, userId, todayDate] }),
-          queryClient.refetchQueries({ queryKey: ["dailyPrompt", currentGroupId, todayDate] }),
-          queryClient.refetchQueries({ queryKey: ["userEntriesForHomeDates", currentGroupId], exact: false }),
-          queryClient.refetchQueries({ queryKey: ["promptsForHomeDates", currentGroupId], exact: false }),
-          queryClient.refetchQueries({ queryKey: ["entriesForHomeDatesWithoutUserEntry", currentGroupId], exact: false }),
-        ]).catch(() => {
-          // Ignore errors - home screen will refetch anyway
-        })
-      })
     }
   }
 
@@ -1338,16 +1353,31 @@ export default function EntryComposer() {
           queryClient.invalidateQueries({ queryKey: ["historyComments"] }),
         ])
         
-        // Force immediate refetch of today's data to ensure fresh content when user returns to Home
+        // After creating entry, immediately fetch fresh data and update cache
+        // This ensures the data is ready when user navigates to home
         if (date) {
           const todayDate = new Date().toISOString().split('T')[0]
           if (date === todayDate || date.startsWith(todayDate)) {
-            // This is today's entry - force refetch immediately
-            await Promise.all([
-              queryClient.refetchQueries({ queryKey: ["entries", currentGroupId, todayDate] }),
-              queryClient.refetchQueries({ queryKey: ["userEntry", currentGroupId, userId, todayDate] }),
-              queryClient.refetchQueries({ queryKey: ["dailyPrompt", currentGroupId, todayDate] }),
-            ])
+            // Fetch fresh data directly from database and update cache
+            // This is more reliable than refetchQueries which may not work if queries aren't active
+            try {
+              const [freshEntries, freshUserEntry, freshPrompt] = await Promise.all([
+                getEntriesForDate(currentGroupId, todayDate),
+                getUserEntryForDate(currentGroupId, userId, todayDate),
+                getDailyPrompt(currentGroupId, todayDate, userId),
+              ])
+              
+              // CRITICAL: Update cache with exact query keys that home.tsx uses
+              // Home screen uses selectedDate in its queries (line 1179 for entries, line 924 for dailyPrompt)
+              // selectedDate defaults to getTodayDate(), which should match our todayDate
+              // We update with todayDate which should match selectedDate when user first lands on home
+              queryClient.setQueryData(["entries", currentGroupId, todayDate], freshEntries)
+              queryClient.setQueryData(["userEntry", currentGroupId, userId, todayDate], freshUserEntry)
+              queryClient.setQueryData(["dailyPrompt", currentGroupId, todayDate, userId], freshPrompt)
+            } catch (error) {
+              console.error("[entry-composer] Error fetching fresh data after create:", error)
+              // Continue anyway - home screen will refetch on focus
+            }
           }
         }
       }
@@ -2169,7 +2199,7 @@ export default function EntryComposer() {
         keyboardVerticalOffset={0}
         enabled={true} // Keep enabled - it only activates when keyboard appears (after user taps)
       >
-        {!isNavigating && (
+        {!isNavigating && !showSuccessModal && (
         <ScrollView 
           ref={scrollViewRef}
           style={styles.content} 
@@ -2466,7 +2496,7 @@ export default function EntryComposer() {
       )}
 
       {/* Toolbar - positioned above keyboard */}
-      {!isNavigating && (
+      {!isNavigating && !showSuccessModal && (
       <View style={[styles.toolbar, { bottom: Platform.OS === "android" ? keyboardHeight + spacing.xl + spacing.md : keyboardHeight }]}>
         <View style={styles.toolbarButtons}>
           <View style={styles.toolCluster}>
@@ -2649,28 +2679,26 @@ export default function EntryComposer() {
         animationType="fade"
         transparent={false}
         onRequestClose={() => {
-          // Hide composer content immediately to prevent flash
-          setIsNavigating(true)
-          // Close modal and navigate immediately
-          setShowSuccessModal(false)
-          exitComposer() // Navigates immediately, refetches in background
+          // Prevent closing while refreshing
+          if (!isRefreshingHome) {
+            handleNavigateToHome()
+          }
         }}
       >
         <View style={styles.successBackdrop}>
           <View style={styles.successContainer}>
             <Text style={styles.successTitle}>You've answered today's question!</Text>
             <TouchableOpacity
-              style={styles.successButton}
-              onPress={() => {
-                // Hide composer content immediately to prevent flash
-                setIsNavigating(true)
-                // Close modal and navigate immediately
-                setShowSuccessModal(false)
-                exitComposer() // Navigates immediately, refetches in background
-              }}
+              style={[styles.successButton, isRefreshingHome && styles.voiceIconDisabled]}
+              onPress={handleNavigateToHome}
+              disabled={isRefreshingHome}
               activeOpacity={0.7}
             >
-              <Text style={styles.successButtonText}>See what everyone else said</Text>
+              {isRefreshingHome ? (
+                <ActivityIndicator size="small" color={theme2Colors.white} />
+              ) : (
+                <Text style={styles.successButtonText}>See what everyone else said</Text>
+              )}
             </TouchableOpacity>
           </View>
           <Image

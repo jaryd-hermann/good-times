@@ -104,6 +104,8 @@ export interface Comment {
   entry_id: string
   user_id: string
   text: string
+  media_url?: string
+  media_type?: "photo" | "video" | "audio"
   created_at: string
   user?: User
 }

@@ -16,6 +16,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "../lib/prompts"
 import { MentionableText } from "./MentionableText"
 import { UserProfileModal } from "./UserProfileModal"
+import { PhotoLightbox } from "./PhotoLightbox"
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 
@@ -48,6 +49,9 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   const [userProfileModalVisible, setUserProfileModalVisible] = useState(false)
   const [carouselIndex, setCarouselIndex] = useState(0)
   const carouselScrollViewRef = useRef<ScrollView>(null)
+  const [commentLightboxVisible, setCommentLightboxVisible] = useState(false)
+  const [commentLightboxIndex, setCommentLightboxIndex] = useState(0)
+  const [commentLightboxPhotos, setCommentLightboxPhotos] = useState<string[]>([])
 
   useEffect(() => {
     async function loadUser() {
@@ -868,9 +872,13 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   },
   commentPreviewContent: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+  },
+  commentPreviewTextContainer: {
+    flex: 1,
     gap: spacing.xs,
+    minWidth: 0, // Allow flex item to shrink below its content size
   },
   commentPreviewUser: {
     ...typography.bodyMedium,
@@ -883,6 +891,61 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     fontSize: 14,
     color: theme2Colors.text,
     flex: 1,
+  },
+  commentMediaThumbnailContainer: {
+    marginTop: spacing.md,
+    width: "100%", // Take full width of container
+  },
+  commentMediaThumbnail: {
+    width: 230,
+    height: 230, // Fixed height to ensure square
+    borderRadius: 12,
+    backgroundColor: colors.gray[900],
+    position: "relative",
+  },
+  commentMediaThumbnailVideo: {
+    width: "100%",
+    height: "100%",
+  },
+  commentVideoOverlay: {
+    position: "absolute",
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.3)",
+    borderRadius: 12,
+  },
+  commentAudioThumbnail: {
+    width: 40,
+    height: 40,
+    borderRadius: 6,
+    backgroundColor: colors.gray[900],
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  commentAudioPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    padding: spacing.sm,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.gray[900],
+    borderRadius: 16,
+    alignSelf: "flex-start",
+  },
+  commentAudioIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.gray[800],
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  commentAudioLabel: {
+    ...typography.bodyMedium,
+    fontSize: 12,
+    color: colors.white,
   },
   commentPreviewMore: {
     ...typography.caption,
@@ -1212,13 +1275,96 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                     const colorIndex = comment.id ? parseInt(comment.id.slice(-1), 16) % 4 : 0
                     const borderColor = avatarColors[colorIndex]
                     return (
-                      <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={20} borderColor={borderColor} />
+                      <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={32} borderColor={isDark ? borderColor : undefined} />
                     )
                   })()}
-                  <Text style={styles.commentPreviewUser}>{comment.user?.name}: </Text>
-                  <Text style={styles.commentPreviewText} numberOfLines={1}>
-                    {comment.text}
-                  </Text>
+                  <View style={styles.commentPreviewTextContainer}>
+                    <Text style={styles.commentPreviewUser}>{comment.user?.name}: </Text>
+                    {comment.text && (
+                      <Text style={styles.commentPreviewText} numberOfLines={2}>
+                        {comment.text}
+                      </Text>
+                    )}
+                    {comment.media_url && comment.media_type && (
+                      <View style={styles.commentMediaThumbnailContainer}>
+                        {comment.media_type === "photo" && (
+                          <TouchableOpacity
+                            onPress={(e) => {
+                              e.stopPropagation()
+                              if (comment.media_type === "photo") {
+                                // Get all comment photos for lightbox
+                                const commentPhotos = comments
+                                  .map((c: any) => c.media_url && c.media_type === "photo" ? c.media_url : null)
+                                  .filter((url): url is string => url !== null)
+                                const photoIndex = commentPhotos.indexOf(comment.media_url)
+                                setCommentLightboxPhotos(commentPhotos)
+                                setCommentLightboxIndex(photoIndex >= 0 ? photoIndex : 0)
+                                setCommentLightboxVisible(true)
+                              }
+                            }}
+                            activeOpacity={0.9}
+                          >
+                            <Image
+                              source={{ uri: comment.media_url }}
+                              style={styles.commentMediaThumbnail}
+                              resizeMode="cover"
+                            />
+                          </TouchableOpacity>
+                        )}
+                        {comment.media_type === "video" && (
+                          <TouchableOpacity
+                            onPress={(e) => {
+                              e.stopPropagation()
+                              // For videos, navigate to entry detail (lightbox doesn't support videos well)
+                              handleEntryPress(true)
+                            }}
+                            activeOpacity={0.9}
+                          >
+                            <View style={styles.commentMediaThumbnail}>
+                              <Video
+                                source={{ uri: comment.media_url }}
+                                style={styles.commentMediaThumbnailVideo}
+                                resizeMode={ResizeMode.COVER}
+                                isMuted={true}
+                                shouldPlay={false}
+                                useNativeControls={false}
+                              />
+                              <View style={styles.commentVideoOverlay}>
+                                <FontAwesome name="play-circle" size={20} color={colors.white} />
+                              </View>
+                            </View>
+                          </TouchableOpacity>
+                        )}
+                        {comment.media_type === "audio" && (
+                          <TouchableOpacity
+                            style={styles.commentAudioPill}
+                            onPress={(e) => {
+                              e.stopPropagation()
+                              const audioId = `comment-${comment.id}`
+                              handleToggleAudio(audioId, comment.media_url!)
+                            }}
+                            activeOpacity={0.85}
+                          >
+                            <View style={styles.commentAudioIcon}>
+                              {audioLoading[`comment-${comment.id}`] ? (
+                                <ActivityIndicator size="small" color={colors.white} />
+                              ) : (
+                                <FontAwesome
+                                  name={activeAudioId === `comment-${comment.id}` ? "pause" : "play"}
+                                  size={14}
+                                  color={colors.white}
+                                />
+                              )}
+                            </View>
+                            <Text style={styles.commentAudioLabel}>
+                              {formatMillis(audioProgress[`comment-${comment.id}`] || 0)} /{" "}
+                              {audioDurations[`comment-${comment.id}`] ? formatMillis(audioDurations[`comment-${comment.id}`]) : "--:--"}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    )}
+                  </View>
                 </View>
               </TouchableOpacity>
             ))
@@ -1242,13 +1388,83 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                       const colorIndex = comment.id ? parseInt(comment.id.slice(-1), 16) % 4 : 0
                       const borderColor = avatarColors[colorIndex]
                       return (
-                        <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={20} borderColor={borderColor} />
+                        <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={40} borderColor={borderColor} />
                       )
                     })()}
-                    <Text style={styles.commentPreviewUser}>{comment.user?.name}: </Text>
-                    <Text style={styles.commentPreviewText} numberOfLines={2}>
-                      {comment.text}
-                    </Text>
+                    <View style={styles.commentPreviewTextContainer}>
+                      <Text style={styles.commentPreviewUser}>{comment.user?.name}: </Text>
+                      {comment.text && (
+                        <Text style={styles.commentPreviewText} numberOfLines={2}>
+                          {comment.text}
+                        </Text>
+                      )}
+                      {comment.media_url && comment.media_type && (
+                        <View style={styles.commentMediaThumbnailContainer}>
+                          {comment.media_type === "photo" && (
+                            <TouchableOpacity
+                              onPress={(e) => {
+                                e.stopPropagation()
+                                if (comment.media_type === "photo") {
+                                  // Get all comment photos for lightbox
+                                  const commentPhotos = comments
+                                    .map((c: any) => c.media_url && c.media_type === "photo" ? c.media_url : null)
+                                    .filter((url): url is string => url !== null)
+                                  const photoIndex = commentPhotos.indexOf(comment.media_url)
+                                  setCommentLightboxPhotos(commentPhotos)
+                                  setCommentLightboxIndex(photoIndex >= 0 ? photoIndex : 0)
+                                  setCommentLightboxVisible(true)
+                                }
+                              }}
+                              activeOpacity={0.9}
+                            >
+                              <Image
+                                source={{ uri: comment.media_url }}
+                                style={styles.commentMediaThumbnail}
+                                resizeMode="cover"
+                              />
+                            </TouchableOpacity>
+                          )}
+                          {comment.media_type === "video" && (
+                            <TouchableOpacity
+                              onPress={(e) => {
+                                e.stopPropagation()
+                                // For videos, navigate to entry detail (lightbox doesn't support videos well)
+                                handleEntryPress(true)
+                              }}
+                              activeOpacity={0.9}
+                            >
+                              <View style={styles.commentMediaThumbnail}>
+                                <Video
+                                  source={{ uri: comment.media_url }}
+                                  style={styles.commentMediaThumbnailVideo}
+                                  resizeMode={ResizeMode.COVER}
+                                  isMuted={true}
+                                  shouldPlay={false}
+                                  useNativeControls={false}
+                                />
+                                <View style={styles.commentVideoOverlay}>
+                                  <FontAwesome name="play-circle" size={20} color={colors.white} />
+                                </View>
+                              </View>
+                            </TouchableOpacity>
+                          )}
+                          {comment.media_type === "audio" && (
+                            <TouchableOpacity
+                              onPress={(e) => {
+                                e.stopPropagation()
+                                // For audio, navigate to entry detail
+                                handleEntryPress(true)
+                              }}
+                              activeOpacity={0.9}
+                            >
+                              <View style={styles.commentAudioThumbnail}>
+                                <FontAwesome name="microphone" size={14} color={theme2Colors.textSecondary} />
+                              </View>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      )}
+                    </View>
                   </View>
                 </TouchableOpacity>
               ))}
@@ -1301,6 +1517,14 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
             },
           })
         }}
+      />
+
+      {/* Comment Photo Lightbox */}
+      <PhotoLightbox
+        visible={commentLightboxVisible}
+        photos={commentLightboxPhotos}
+        initialIndex={commentLightboxIndex}
+        onClose={() => setCommentLightboxVisible(false)}
       />
     </View>
   )

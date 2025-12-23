@@ -24,6 +24,10 @@ import { markEntryAsVisited } from "../../../lib/notifications-in-app"
 import { updateBadgeCount } from "../../../lib/notifications-badge"
 import { UserProfileModal } from "../../../components/UserProfileModal"
 import { MentionableText } from "../../../components/MentionableText"
+import * as ImagePicker from "expo-image-picker"
+import { CommentVideoModal } from "../../../components/CommentVideoModal"
+import { uploadMedia } from "../../../lib/storage"
+import * as FileSystem from "expo-file-system/legacy"
 
 export default function EntryDetail() {
   const router = useRouter()
@@ -96,6 +100,21 @@ export default function EntryDetail() {
   const [selectedMentionUser, setSelectedMentionUser] = useState<{ id: string; name: string; avatar_url?: string } | null>(null)
   const insets = useSafeAreaInsets()
   const posthog = usePostHog()
+  
+  // Comment media state
+  const [commentMediaUri, setCommentMediaUri] = useState<string | null>(null)
+  const [commentMediaType, setCommentMediaType] = useState<"photo" | "video" | "audio" | null>(null)
+  const [showCommentVideoModal, setShowCommentVideoModal] = useState(false)
+  const [commentAudioDuration, setCommentAudioDuration] = useState(0)
+  const [commentAudioPlaying, setCommentAudioPlaying] = useState(false)
+  const commentAudioRef = useRef<Audio.Sound | null>(null)
+  const commentRecordingRef = useRef<Audio.Recording | null>(null)
+  const [commentLightboxVisible, setCommentLightboxVisible] = useState(false)
+  const [commentLightboxIndex, setCommentLightboxIndex] = useState(0)
+  const [commentLightboxPhotos, setCommentLightboxPhotos] = useState<string[]>([])
+  const [isRecordingCommentAudio, setIsRecordingCommentAudio] = useState(false)
+  const commentRecordingTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const [isCommentInputFocused, setIsCommentInputFocused] = useState(false)
 
   // Listen to keyboard events to adjust comment input position on Android
   useEffect(() => {
@@ -493,8 +512,10 @@ export default function EntryDetail() {
   })
 
   const addCommentMutation = useMutation({
-    mutationFn: (text: string) => createComment(entryId, userId!, text.trim()),
-    onSuccess: (_, text) => {
+    mutationFn: async ({ text, mediaUrl, mediaType }: { text: string; mediaUrl?: string; mediaType?: "photo" | "video" | "audio" }) => {
+      return createComment(entryId, userId!, text.trim(), mediaUrl, mediaType)
+    },
+    onSuccess: (_, { text }) => {
       queryClient.invalidateQueries({ queryKey: ["comments", entryId] })
       queryClient.invalidateQueries({ queryKey: ["historyComments"] })
       queryClient.invalidateQueries({ queryKey: ["historyEntries"] })
@@ -509,6 +530,8 @@ export default function EntryDetail() {
               prompt_id: entry.prompt_id,
               group_id: entry.group_id,
               comment_length: text.trim().length,
+              has_media: !!commentMediaUri,
+              media_type: commentMediaType,
             })
           } else {
             captureEvent("added_comment", {
@@ -516,6 +539,8 @@ export default function EntryDetail() {
               prompt_id: entry.prompt_id,
               group_id: entry.group_id,
               comment_length: text.trim().length,
+              has_media: !!commentMediaUri,
+              media_type: commentMediaType,
             })
           }
         } catch (error) {
@@ -524,6 +549,9 @@ export default function EntryDetail() {
       }
       
       setCommentText("")
+      setCommentMediaUri(null)
+      setCommentMediaType(null)
+      setCommentAudioDuration(0)
     },
   })
 
@@ -662,11 +690,193 @@ export default function EntryDetail() {
   }
 
   async function handleSubmitComment() {
-    if (!userId || !commentText.trim()) return
+    if (!userId || (!commentText.trim() && !commentMediaUri)) return
+    if (!entry?.group_id) return
+
     try {
-      await addCommentMutation.mutateAsync(commentText)
+      let mediaUrl: string | undefined
+      let mediaType: "photo" | "video" | "audio" | undefined
+
+      // Upload media if present
+      if (commentMediaUri) {
+        const storageKey = `comment-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+        mediaUrl = await uploadMedia(entry.group_id, storageKey, commentMediaUri, commentMediaType!)
+        mediaType = commentMediaType!
+      }
+
+      await addCommentMutation.mutateAsync({
+        text: commentText.trim() || "",
+        mediaUrl,
+        mediaType,
+      })
     } catch (error: any) {
-      Alert.alert("Comment error", error.message ?? "We couldn’t post your comment.")
+      Alert.alert("Comment error", error.message ?? "We couldn't post your comment.")
+    }
+  }
+
+  // Comment media handlers
+  async function openCommentGallery() {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Please grant photo library access")
+      return
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: false,
+      allowsEditing: false,
+      quality: 0.8,
+    })
+
+    if (!result.canceled && result.assets[0]) {
+      setCommentMediaUri(result.assets[0].uri)
+      setCommentMediaType("photo")
+    }
+  }
+
+  async function openCommentCamera() {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync()
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Please grant camera access")
+      return
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      quality: 0.8,
+    })
+
+    if (!result.canceled && result.assets[0]) {
+      setCommentMediaUri(result.assets[0].uri)
+      setCommentMediaType("photo")
+    }
+  }
+
+  function handleCommentVideo(videoUri: string) {
+    setCommentMediaUri(videoUri)
+    setCommentMediaType("video")
+  }
+
+  async function startCommentVoiceRecording() {
+    try {
+      const { status } = await Audio.requestPermissionsAsync()
+      if (status !== "granted") {
+        Alert.alert("Permission needed", "Please grant microphone access")
+        return
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      })
+
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      )
+      commentRecordingRef.current = recording
+      setIsRecordingCommentAudio(true)
+      setCommentAudioDuration(0)
+
+      commentRecordingTimerRef.current = setInterval(async () => {
+        const status = await recording.getStatusAsync()
+        if (status.isRecording) {
+          setCommentAudioDuration(Math.floor(status.durationMillis / 1000))
+        }
+      }, 300) as unknown as NodeJS.Timeout
+    } catch (error: any) {
+      Alert.alert("Error", error.message || "Failed to start recording")
+    }
+  }
+
+  async function stopCommentVoiceRecording() {
+    if (!commentRecordingRef.current) return
+
+    try {
+      await commentRecordingRef.current.stopAndUnloadAsync()
+      const uri = commentRecordingRef.current.getURI()
+      if (uri) {
+        setCommentMediaUri(uri)
+        setCommentMediaType("audio")
+        if (commentRecordingTimerRef.current) {
+          clearInterval(commentRecordingTimerRef.current)
+          commentRecordingTimerRef.current = null
+        }
+      }
+      commentRecordingRef.current = null
+      setIsRecordingCommentAudio(false)
+    } catch (error: any) {
+      Alert.alert("Error", error.message || "Failed to stop recording")
+      setIsRecordingCommentAudio(false)
+    }
+  }
+
+  function handleCommentVoiceMemo(uri: string, duration: number) {
+    setCommentMediaUri(uri)
+    setCommentMediaType("audio")
+    setCommentAudioDuration(duration)
+  }
+
+  function removeCommentMedia() {
+    setCommentMediaUri(null)
+    setCommentMediaType(null)
+    setCommentAudioDuration(0)
+    setIsRecordingCommentAudio(false)
+    if (commentAudioRef.current) {
+      commentAudioRef.current.unloadAsync().catch(() => {})
+      commentAudioRef.current = null
+    }
+    if (commentRecordingRef.current) {
+      commentRecordingRef.current.stopAndUnloadAsync().catch(() => {})
+      commentRecordingRef.current = null
+    }
+    if (commentRecordingTimerRef.current) {
+      clearInterval(commentRecordingTimerRef.current)
+      commentRecordingTimerRef.current = null
+    }
+  }
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (commentRecordingRef.current) {
+        commentRecordingRef.current.stopAndUnloadAsync().catch(() => {})
+      }
+      if (commentRecordingTimerRef.current) {
+        clearInterval(commentRecordingTimerRef.current)
+      }
+      if (commentAudioRef.current) {
+        commentAudioRef.current.unloadAsync().catch(() => {})
+      }
+    }
+  }, [])
+
+  async function toggleCommentAudio() {
+    if (!commentMediaUri || commentMediaType !== "audio") return
+
+    try {
+      if (commentAudioPlaying && commentAudioRef.current) {
+        await commentAudioRef.current.stopAsync()
+        await commentAudioRef.current.setPositionAsync(0)
+        setCommentAudioPlaying(false)
+        return
+      }
+
+      if (!commentAudioRef.current) {
+        const { sound } = await Audio.Sound.createAsync({ uri: commentMediaUri })
+        commentAudioRef.current = sound
+        sound.setOnPlaybackStatusUpdate((status) => {
+          if (status.isLoaded && status.didJustFinish) {
+            setCommentAudioPlaying(false)
+          }
+        })
+      }
+
+      await commentAudioRef.current.playAsync()
+      setCommentAudioPlaying(true)
+    } catch (error: any) {
+      Alert.alert("Audio error", "Could not play audio")
     }
   }
 
@@ -878,6 +1088,136 @@ export default function EntryDetail() {
       fontSize: 14,
       lineHeight: 20,
       color: theme2Colors.textSecondary,
+    },
+    commentMediaContainer: {
+      marginTop: spacing.md,
+      marginBottom: spacing.xs,
+    },
+    commentMediaThumbnail: {
+      width: 200,
+      height: 200,
+      borderRadius: 12,
+      backgroundColor: colors.gray[900],
+    },
+    commentVideoOverlay: {
+      position: "absolute",
+      width: "100%",
+      height: "100%",
+      justifyContent: "center",
+      alignItems: "center",
+      backgroundColor: "rgba(0, 0, 0, 0.3)",
+      borderRadius: 8,
+    },
+    commentAudioPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      padding: spacing.sm,
+      paddingHorizontal: spacing.md,
+      backgroundColor: colors.gray[900],
+      borderRadius: 16,
+      alignSelf: "flex-start",
+    },
+    commentAudioIcon: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: colors.gray[800],
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    commentAudioLabel: {
+      ...typography.bodyMedium,
+      fontSize: 12,
+      color: colors.white,
+    },
+    fixedCommentInputContainer: {
+      backgroundColor: theme2Colors.beige,
+      borderTopWidth: 1,
+      borderTopColor: theme2Colors.textSecondary,
+    },
+    commentMediaPreview: {
+      flexDirection: "row",
+      paddingHorizontal: spacing.md,
+      paddingTop: spacing.md,
+      paddingBottom: spacing.md,
+      gap: spacing.sm,
+    },
+    commentMediaPreviewItem: {
+      position: "relative",
+    },
+    commentMediaPreviewThumbnail: {
+      width: 60,
+      height: 60,
+      borderRadius: 8,
+      backgroundColor: colors.gray[900],
+    },
+    commentMediaPreviewDelete: {
+      position: "absolute",
+      top: -6,
+      right: -6,
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      backgroundColor: theme2Colors.red,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 2,
+      borderColor: theme2Colors.beige,
+    },
+    commentAudioPreviewPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+      padding: spacing.xs,
+      paddingHorizontal: spacing.sm,
+      backgroundColor: colors.gray[900],
+      borderRadius: 12,
+    },
+    commentToolbar: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      paddingHorizontal: spacing.md,
+      paddingTop: spacing.xs,
+      paddingBottom: spacing.xs,
+      borderTopWidth: 1,
+      borderTopColor: theme2Colors.textSecondary,
+    },
+    commentToolbarButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: theme2Colors.cream,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    commentToolbarButtonVideo: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: theme2Colors.cream,
+      borderWidth: 2,
+      borderColor: "#D97393", // Pink outline
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    sendButtonInline: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: theme2Colors.blue,
+      justifyContent: "center",
+      alignItems: "center",
+      marginLeft: "auto",
+    },
+    commentRecordingDuration: {
+      ...typography.body,
+      fontSize: 14,
+      color: theme2Colors.text,
+      marginLeft: spacing.xs,
     },
     fixedCommentInput: {
       flexDirection: "row",
@@ -1133,13 +1473,100 @@ export default function EntryDetail() {
               <View style={styles.commentsDivider} />
               <View ref={commentsSectionRef} style={styles.commentsSection}>
                 {comments.map((comment) => (
-                  <View key={comment.id} style={styles.comment}>
-                    <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={32} />
+                  <TouchableOpacity
+                    key={comment.id}
+                    style={styles.comment}
+                    onPress={() => {
+                      // Tapping comment text area opens entry detail (already on detail page, so do nothing or scroll to top)
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={40} />
                     <View style={styles.commentContent}>
                       <Text style={styles.commentUser}>{comment.user?.name}</Text>
-                      <Text style={styles.commentText}>{comment.text}</Text>
+                      {comment.text && <Text style={styles.commentText}>{comment.text}</Text>}
+                      {comment.media_url && comment.media_type && (
+                        <View style={styles.commentMediaContainer}>
+                          {comment.media_type === "photo" && (
+                            <TouchableOpacity
+                              onPress={(e) => {
+                                e.stopPropagation()
+                                // Get all comment photo URLs for lightbox
+                                const commentPhotos = comments
+                                  .map((c) => c.media_url && c.media_type === "photo" ? c.media_url : null)
+                                  .filter((url): url is string => url !== null)
+                                const photoIndex = commentPhotos.indexOf(comment.media_url)
+                                if (photoIndex >= 0) {
+                                  setCommentLightboxPhotos(commentPhotos)
+                                  setCommentLightboxIndex(photoIndex)
+                                  setCommentLightboxVisible(true)
+                                }
+                              }}
+                              activeOpacity={0.9}
+                            >
+                              <Image
+                                source={{ uri: comment.media_url }}
+                                style={styles.commentMediaThumbnail}
+                                resizeMode="cover"
+                              />
+                            </TouchableOpacity>
+                          )}
+                          {comment.media_type === "video" && (
+                            <TouchableOpacity
+                              onPress={(e) => {
+                                e.stopPropagation()
+                                // For videos, we'll need to handle differently as PhotoLightbox doesn't support videos
+                                // For now, just show an alert or handle in a video player
+                                Alert.alert("Video", "Video playback will be implemented")
+                              }}
+                              activeOpacity={0.9}
+                            >
+                              <Video
+                                source={{ uri: comment.media_url }}
+                                style={styles.commentMediaThumbnail}
+                                resizeMode={ResizeMode.COVER}
+                                isMuted={true}
+                                shouldPlay={false}
+                                useNativeControls={false}
+                              />
+                              <View style={styles.commentVideoOverlay}>
+                                <FontAwesome name="play-circle" size={24} color={colors.white} />
+                              </View>
+                            </TouchableOpacity>
+                          )}
+                          {comment.media_type === "audio" && (
+                            <TouchableOpacity
+                              style={styles.commentAudioPill}
+                              onPress={(e) => {
+                                e.stopPropagation()
+                                // Handle audio playback
+                                const audioId = `comment-${comment.id}`
+                                if (activeAudioId === audioId) {
+                                  handleToggleAudio(audioId, comment.media_url!)
+                                } else {
+                                  handleToggleAudio(audioId, comment.media_url!)
+                                }
+                              }}
+                              activeOpacity={0.85}
+                            >
+                              <View style={styles.commentAudioIcon}>
+                                {audioLoading[`comment-${comment.id}`] ? (
+                                  <ActivityIndicator size="small" color={colors.white} />
+                                ) : (
+                                  <FontAwesome
+                                    name={activeAudioId === `comment-${comment.id}` ? "pause" : "play"}
+                                    size={14}
+                                    color={colors.white}
+                                  />
+                                )}
+                              </View>
+                              <Text style={styles.commentAudioLabel}>Voice memo</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      )}
                     </View>
-                  </View>
+                  </TouchableOpacity>
                 ))}
               </View>
             </>
@@ -1148,54 +1575,159 @@ export default function EntryDetail() {
 
         {/* Fixed comment input at bottom */}
         <View style={[
-          styles.fixedCommentInput,
+          styles.fixedCommentInputContainer,
           Platform.OS === "android" && {
             position: "absolute",
             left: 0,
             right: 0,
-            bottom: keyboardHeight > 0 ? keyboardHeight + spacing.xl : 0,
-            paddingBottom: keyboardHeight > 0 ? spacing.md : insets.bottom + spacing.md,
+            bottom: keyboardHeight > 0 ? keyboardHeight : 0,
+            paddingBottom: keyboardHeight > 0 ? 0 : insets.bottom + spacing.md,
           },
           Platform.OS === "ios" && {
-            paddingBottom: insets.bottom + spacing.md,
+            paddingBottom: insets.bottom,
           },
         ]}>
-          <Avatar uri={currentUserAvatar} name={currentUserName} size={32} />
-          <TextInput
-            value={commentText}
-            onChangeText={setCommentText}
-            placeholder="Add a comment..."
-            placeholderTextColor={theme2Colors.textSecondary}
-            style={styles.commentInput}
-            multiline
-            onFocus={() => {
-              // Scroll to comments section when input is focused
-              setTimeout(() => {
-                if (scrollViewRef.current && commentsSectionRef.current) {
-                  commentsSectionRef.current.measureLayout(
-                    scrollViewRef.current as any,
-                    (x, y) => {
-                      scrollViewRef.current?.scrollTo({ y: Math.max(0, y - 100), animated: true })
-                    },
-                    () => {
-                      scrollViewRef.current?.scrollToEnd({ animated: true })
-                    }
-                  )
-                }
-              }, 300)
-            }}
-          />
-          {commentText.trim().length > 0 && (
-            <TouchableOpacity
-              style={styles.sendButton}
-              onPress={handleSubmitComment}
-            >
-              <FontAwesome
-                name="paper-plane"
-                size={16}
-                color={theme2Colors.white}
-              />
-            </TouchableOpacity>
+          {/* Media Preview */}
+          {commentMediaUri && (
+            <View style={styles.commentMediaPreview}>
+              {commentMediaType === "photo" && (
+                <View style={styles.commentMediaPreviewItem}>
+                  <Image source={{ uri: commentMediaUri }} style={styles.commentMediaPreviewThumbnail} resizeMode="cover" />
+                  <TouchableOpacity style={styles.commentMediaPreviewDelete} onPress={removeCommentMedia}>
+                    <FontAwesome name="times" size={12} color={colors.white} />
+                  </TouchableOpacity>
+                </View>
+              )}
+              {commentMediaType === "video" && (
+                <View style={styles.commentMediaPreviewItem}>
+                  <Video
+                    source={{ uri: commentMediaUri }}
+                    style={styles.commentMediaPreviewThumbnail}
+                    resizeMode={ResizeMode.COVER}
+                    isMuted={true}
+                    shouldPlay={false}
+                    useNativeControls={false}
+                  />
+                  <View style={styles.commentVideoOverlay}>
+                    <FontAwesome name="play-circle" size={20} color={colors.white} />
+                  </View>
+                  <TouchableOpacity style={styles.commentMediaPreviewDelete} onPress={removeCommentMedia}>
+                    <FontAwesome name="times" size={12} color={colors.white} />
+                  </TouchableOpacity>
+                </View>
+              )}
+              {commentMediaType === "audio" && (
+                <View style={styles.commentMediaPreviewItem}>
+                  <TouchableOpacity
+                    style={styles.commentAudioPreviewPill}
+                    onPress={toggleCommentAudio}
+                    activeOpacity={0.85}
+                  >
+                    <View style={styles.commentAudioIcon}>
+                      {commentAudioPlaying ? (
+                        <FontAwesome name="pause" size={14} color={colors.white} />
+                      ) : (
+                        <FontAwesome name="play" size={14} color={colors.white} />
+                      )}
+                    </View>
+                    <Text style={styles.commentAudioLabel}>
+                      {formatMillis(commentAudioDuration * 1000)}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.commentMediaPreviewDelete} onPress={removeCommentMedia}>
+                    <FontAwesome name="times" size={12} color={colors.white} />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* Comment Input */}
+          <View style={styles.fixedCommentInput}>
+            <Avatar uri={currentUserAvatar} name={currentUserName} size={32} />
+            <TextInput
+              value={commentText}
+              onChangeText={setCommentText}
+              placeholder="Add a comment..."
+              placeholderTextColor={theme2Colors.textSecondary}
+              style={styles.commentInput}
+              multiline
+              onFocus={() => {
+                setIsCommentInputFocused(true)
+                // Scroll to comments section when input is focused
+                setTimeout(() => {
+                  if (scrollViewRef.current && commentsSectionRef.current) {
+                    commentsSectionRef.current.measureLayout(
+                      scrollViewRef.current as any,
+                      (x, y) => {
+                        scrollViewRef.current?.scrollTo({ y: Math.max(0, y - 100), animated: true })
+                      },
+                      () => {
+                        scrollViewRef.current?.scrollToEnd({ animated: true })
+                      }
+                    )
+                  }
+                }, 300)
+              }}
+              onBlur={() => {
+                setIsCommentInputFocused(false)
+              }}
+            />
+          </View>
+
+          {/* Media Toolbar - Only show when keyboard is open or input is focused */}
+          {(isCommentInputFocused || keyboardHeight > 0) && (
+            <View style={styles.commentToolbar}>
+              <TouchableOpacity style={styles.commentToolbarButton} onPress={openCommentGallery}>
+                <FontAwesome name="image" size={18} color={theme2Colors.text} />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.commentToolbarButton} onPress={openCommentCamera}>
+                <FontAwesome name="camera" size={18} color={theme2Colors.text} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.commentToolbarButtonVideo}
+                onPress={() => {
+                  if (entry?.user?.name) {
+                    setShowCommentVideoModal(true)
+                  }
+                }}
+              >
+                <FontAwesome name="video-camera" size={18} color={theme2Colors.text} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.commentToolbarButton}
+                onPress={() => {
+                  if (isRecordingCommentAudio) {
+                    stopCommentVoiceRecording()
+                  } else {
+                    startCommentVoiceRecording()
+                  }
+                }}
+              >
+                <FontAwesome
+                  name={isRecordingCommentAudio ? "stop" : "microphone"}
+                  size={18}
+                  color={isRecordingCommentAudio ? theme2Colors.red : theme2Colors.text}
+                />
+              </TouchableOpacity>
+              {isRecordingCommentAudio && (
+                <Text style={styles.commentRecordingDuration}>
+                  {formatMillis(commentAudioDuration * 1000)}
+                </Text>
+              )}
+              {(commentText.trim().length > 0 || commentMediaUri) && (
+                <TouchableOpacity
+                  style={styles.sendButtonInline}
+                  onPress={handleSubmitComment}
+                >
+                  <FontAwesome
+                    name="paper-plane"
+                    size={16}
+                    color={theme2Colors.white}
+                  />
+                </TouchableOpacity>
+              )}
+            </View>
           )}
         </View>
       </View>
@@ -1234,6 +1766,24 @@ export default function EntryDetail() {
             },
           })
         }}
+      />
+
+      {/* Comment Video Modal */}
+      {entry?.user?.name && (
+        <CommentVideoModal
+          visible={showCommentVideoModal}
+          replyToName={entry.user.name}
+          onClose={() => setShowCommentVideoModal(false)}
+          onAddVideo={handleCommentVideo}
+        />
+      )}
+
+      {/* Photo Lightbox for Comment Media */}
+      <PhotoLightbox
+        visible={commentLightboxVisible}
+        photos={commentLightboxPhotos}
+        initialIndex={commentLightboxIndex}
+        onClose={() => setCommentLightboxVisible(false)}
       />
     </KeyboardAvoidingView>
   )

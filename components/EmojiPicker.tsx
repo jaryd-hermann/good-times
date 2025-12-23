@@ -1342,7 +1342,7 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
           <View style={[
             styles.content, 
             { 
-              backgroundColor: themeColors.gray[900],
+              backgroundColor: isDark ? themeColors.gray[900] : themeColors.white,
               paddingBottom: keyboardHeight > 0 ? spacing.xs : insets.bottom + spacing.md,
               maxHeight: keyboardHeight > 0
                 ? undefined // Don't restrict height when keyboard is open - let it size naturally
@@ -1353,12 +1353,12 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
             <View style={[styles.handleBar, { backgroundColor: themeColors.gray[700] }]} />
             
             {/* Search bar */}
-            <View style={styles.searchContainer}>
-              <FontAwesome name="search" size={16} color={themeColors.gray[400]} style={styles.searchIcon} />
+            <View style={[styles.searchContainer, { backgroundColor: isDark ? themeColors.gray[800] : themeColors.gray[200] }]}>
+              <FontAwesome name="search" size={16} color={isDark ? themeColors.gray[400] : themeColors.gray[600]} style={styles.searchIcon} />
               <TextInput
-                style={[styles.searchInput, { color: themeColors.white, backgroundColor: themeColors.gray[800] }]}
+                style={[styles.searchInput, { color: isDark ? themeColors.white : themeColors.gray[900], backgroundColor: isDark ? themeColors.gray[800] : themeColors.gray[200] }]}
                 placeholder="Search emojis..."
-                placeholderTextColor={themeColors.gray[400]}
+                placeholderTextColor={isDark ? themeColors.gray[400] : themeColors.gray[500]}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
                 autoCapitalize="none"
@@ -1366,7 +1366,7 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
               />
               {searchQuery.length > 0 && (
                 <TouchableOpacity onPress={() => setSearchQuery("")} style={styles.clearButton}>
-                  <FontAwesome name="times-circle" size={18} color={themeColors.gray[400]} />
+                  <FontAwesome name="times-circle" size={18} color={isDark ? themeColors.gray[400] : themeColors.gray[600]} />
                 </TouchableOpacity>
               )}
             </View>
@@ -1384,14 +1384,14 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
                     key={category}
                     style={[
                       styles.categoryTab,
+                      { backgroundColor: selectedCategory === category ? themeColors.accent : (isDark ? themeColors.gray[800] : themeColors.gray[200]) },
                       selectedCategory === category && styles.categoryTabActive,
-                      selectedCategory === category && { backgroundColor: themeColors.accent },
                     ]}
                     onPress={() => setSelectedCategory(selectedCategory === category ? null : category)}
                   >
                     <Text style={[
                       styles.categoryTabText,
-                      { color: selectedCategory === category ? themeColors.white : themeColors.gray[300] }
+                      { color: selectedCategory === category ? themeColors.white : (isDark ? themeColors.gray[300] : themeColors.gray[700]) }
                     ]}>
                       {category.split(" ")[0]}
                     </Text>
@@ -1465,7 +1465,8 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
                                 style={[
                                   styles.emojiButton,
                                   isSelected && styles.emojiButtonSelected,
-                                  isSelected && { backgroundColor: themeColors.gray[800] },
+                                  isSelected && { backgroundColor: isDark ? themeColors.gray[800] : themeColors.gray[200] },
+                                  isSelected && { borderColor: themeColors.accent },
                                 ]}
                                 onPress={() => handleSelectEmoji(emoji)}
                                 activeOpacity={0.7}
@@ -1482,7 +1483,7 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
               </>
             ) : (
               <View style={styles.noResults}>
-                <Text style={[styles.noResultsText, { color: themeColors.gray[400] }]}>
+                <Text style={[styles.noResultsText, { color: isDark ? themeColors.gray[400] : themeColors.gray[600] }]}>
                   No emojis found
                 </Text>
               </View>
@@ -1520,7 +1521,6 @@ const styles = StyleSheet.create({
   searchContainer: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: colors.gray[800],
     borderRadius: 8,
     paddingHorizontal: spacing.md,
     marginBottom: spacing.md,
@@ -1549,11 +1549,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: 16,
-    backgroundColor: colors.gray[800],
     marginRight: spacing.xs,
   },
   categoryTabActive: {
-    backgroundColor: colors.accent,
+    // Background color is set inline based on theme
   },
   categoryTabText: {
     fontSize: 12,
@@ -1603,7 +1602,7 @@ const styles = StyleSheet.create({
   },
   emojiButtonSelected: {
     borderWidth: 2,
-    borderColor: colors.accent,
+    // borderColor is set inline based on theme
   },
   emoji: {
     fontSize: 32,
