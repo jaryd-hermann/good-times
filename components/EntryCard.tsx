@@ -394,14 +394,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   // Fetch comments
   const { data: comments = [] } = useQuery({
     queryKey: ["comments", entry.id],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("comments")
-        .select("*, user:users(*)")
-        .eq("entry_id", entry.id)
-        .order("created_at", { ascending: true })
-      return data || []
-    },
+    queryFn: () => getComments(entry.id),
     enabled: !!entry.id,
   })
 
@@ -1199,12 +1192,12 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                 activeOpacity={0.7}
               >
                 <FontAwesome 
-                  name={comments.length > 0 ? "comment" : "comment-o"} 
+                  name={(comments || []).length > 0 ? "comment" : "comment-o"} 
                   size={20} 
                   color={theme2Colors.text}
-                  style={comments.length > 0 ? styles.iconSolid : styles.iconOutline}
+                  style={(comments || []).length > 0 ? styles.iconSolid : styles.iconOutline}
                 />
-                {comments.length > 0 && <Text style={styles.actionCount}>{comments.length}</Text>}
+                {(comments || []).length > 0 && <Text style={styles.actionCount}>{(comments || []).length}</Text>}
               </TouchableOpacity>
 
               {/* React Button and Reactions - moved to right of comment */}
@@ -1254,11 +1247,11 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
         </View>
 
         {/* Comments Preview - Inside the card */}
-        {comments.length > 0 && (
+        {(comments || []).length > 0 && (
           <View style={styles.commentsContainer}>
-          {comments.length <= 10 ? (
+          {(comments || []).length <= 10 ? (
             // Show all comments if 10 or fewer
-            comments.map((comment: any) => (
+            (comments || []).map((comment: any) => (
               <TouchableOpacity
                 key={comment.id}
                 style={styles.commentPreviewItem}
@@ -1335,13 +1328,13 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                             </View>
                           </TouchableOpacity>
                         )}
-                        {comment.media_type === "audio" && (
+                        {comment.media_type === "audio" && comment.media_url && (
                           <TouchableOpacity
                             style={styles.commentAudioPill}
                             onPress={(e) => {
                               e.stopPropagation()
                               const audioId = `comment-${comment.id}`
-                              handleToggleAudio(audioId, comment.media_url!)
+                              handleToggleAudio(audioId, comment.media_url)
                             }}
                             activeOpacity={0.85}
                           >
@@ -1371,7 +1364,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
           ) : (
             // Show first 10 comments and "+N comments" if more than 10
             <>
-              {comments.slice(0, 10).map((comment: any) => (
+              {(comments || []).slice(0, 10).map((comment: any) => (
                 <TouchableOpacity
                   key={comment.id}
                   style={styles.commentPreviewItem}
@@ -1475,7 +1468,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                 }}
                 activeOpacity={0.7}
               >
-                <Text style={styles.commentPreviewMore}>+{comments.length - 10} comments</Text>
+                <Text style={styles.commentPreviewMore}>+{(comments || []).length - 10} comments</Text>
               </TouchableOpacity>
             </>
           )}

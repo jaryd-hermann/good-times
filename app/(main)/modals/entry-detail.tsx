@@ -1472,7 +1472,7 @@ export default function EntryDetail() {
               {/* Comments */}
               <View style={styles.commentsDivider} />
               <View ref={commentsSectionRef} style={styles.commentsSection}>
-                {comments.map((comment) => (
+                {(comments || []).map((comment) => (
                   <TouchableOpacity
                     key={comment.id}
                     style={styles.comment}
@@ -1534,7 +1534,7 @@ export default function EntryDetail() {
                               </View>
                             </TouchableOpacity>
                           )}
-                          {comment.media_type === "audio" && (
+                          {comment.media_type === "audio" && comment.media_url && (
                             <TouchableOpacity
                               style={styles.commentAudioPill}
                               onPress={(e) => {
@@ -1542,9 +1542,9 @@ export default function EntryDetail() {
                                 // Handle audio playback
                                 const audioId = `comment-${comment.id}`
                                 if (activeAudioId === audioId) {
-                                  handleToggleAudio(audioId, comment.media_url!)
+                                  handleToggleAudio(audioId, comment.media_url)
                                 } else {
-                                  handleToggleAudio(audioId, comment.media_url!)
+                                  handleToggleAudio(audioId, comment.media_url)
                                 }
                               }}
                               activeOpacity={0.85}
