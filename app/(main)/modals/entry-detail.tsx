@@ -25,7 +25,15 @@ import { updateBadgeCount } from "../../../lib/notifications-badge"
 import { UserProfileModal } from "../../../components/UserProfileModal"
 import { MentionableText } from "../../../components/MentionableText"
 import * as ImagePicker from "expo-image-picker"
-import { CommentVideoModal } from "../../../components/CommentVideoModal"
+// Lazy load CommentVideoModal to prevent crashes if native modules aren't available
+let CommentVideoModal: any
+try {
+  CommentVideoModal = require("../../../components/CommentVideoModal").CommentVideoModal
+} catch (error) {
+  console.error("[entry-detail] Failed to load CommentVideoModal:", error)
+  // Fallback component
+  CommentVideoModal = () => null
+}
 import { uploadMedia } from "../../../lib/storage"
 import * as FileSystem from "expo-file-system/legacy"
 

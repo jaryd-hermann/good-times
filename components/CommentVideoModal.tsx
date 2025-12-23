@@ -14,7 +14,22 @@ import {
   Platform,
   AppState,
 } from "react-native"
-import { CameraView, CameraType, useCameraPermissions } from "expo-camera"
+// Safely import expo-camera to prevent crashes if native module isn't available
+let CameraView: any
+let CameraType: any
+let useCameraPermissions: any
+try {
+  const cameraModule = require("expo-camera")
+  CameraView = cameraModule.CameraView
+  CameraType = cameraModule.CameraType
+  useCameraPermissions = cameraModule.useCameraPermissions
+} catch (error) {
+  console.error("[CommentVideoModal] Failed to import expo-camera:", error)
+  // Provide fallbacks
+  CameraView = () => null
+  CameraType = { front: "front", back: "back" }
+  useCameraPermissions = () => [{ granted: false }, () => Promise.resolve({ granted: false })]
+}
 import { Video, ResizeMode } from "expo-av"
 import * as FileSystem from "expo-file-system/legacy"
 import { FontAwesome } from "@expo/vector-icons"
