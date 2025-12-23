@@ -51,7 +51,21 @@ interface CommentVideoModalProps {
 
 export function CommentVideoModal({ visible, replyToName, onClose, onAddVideo }: CommentVideoModalProps) {
   const { colors, isDark } = useTheme()
+  
+  // Call hook unconditionally (required by React rules)
+  // If camera module isn't available, the hook will return a fallback from our defensive import
   const [permission, requestPermission] = useCameraPermissions()
+  
+  // Don't render if camera module isn't available
+  if (!CameraView || typeof CameraView !== 'function') {
+    if (visible) {
+      console.warn("[CommentVideoModal] Camera module not available")
+      // Close immediately if trying to show but camera isn't available
+      setTimeout(() => onClose(), 0)
+    }
+    return null
+  }
+  
   const [recordingState, setRecordingState] = useState<RecordingState>("idle")
   const [cameraType, setCameraType] = useState<CameraType>("front")
   const [videoUri, setVideoUri] = useState<string | null>(null)
@@ -60,6 +74,7 @@ export function CommentVideoModal({ visible, replyToName, onClose, onAddVideo }:
   const [playbackPosition, setPlaybackPosition] = useState(0) // in milliseconds
   const [isPlaying, setIsPlaying] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isReady, setIsReady] = useState(false)
   
   const cameraRef = useRef<CameraView>(null)
   const recordingRef = useRef<{ stop: () => Promise<void>; uri: string } | null>(null)
@@ -100,10 +115,22 @@ export function CommentVideoModal({ visible, replyToName, onClose, onAddVideo }:
     }
   }, [isDark])
 
-  // Request permission when modal opens
+  // Request permission when modal opens and ensure app is ready
   useEffect(() => {
-    if (visible && !permission?.granted) {
-      requestPermission()
+    if (visible) {
+      // Small delay to ensure view hierarchy is ready before presenting modal
+      const timer = setTimeout(() => {
+        setIsReady(true)
+        if (!permission?.granted) {
+          requestPermission()
+        }
+      }, 100)
+      return () => {
+        clearTimeout(timer)
+        setIsReady(false)
+      }
+    } else {
+      setIsReady(false)
     }
   }, [visible, permission])
 
@@ -701,6 +728,11 @@ export function CommentVideoModal({ visible, replyToName, onClose, onAddVideo }:
   }), [colors, theme2Colors])
 
   if (!permission) {
+    return null
+  }
+
+  // Don't render modal until ready to prevent presentation crashes
+  if (!isReady || !visible) {
     return null
   }
 
