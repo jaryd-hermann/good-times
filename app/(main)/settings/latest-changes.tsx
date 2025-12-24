@@ -19,6 +19,19 @@ interface ChangeEntry {
 
 const CHANGES: ChangeEntry[] = [
   {
+    date: "2025-12-24",
+    title: "Wednesday, December 24th",
+    subtitle: "Release notes",
+    timestamp: "10:11am",
+    items: [
+      "Merry Christmas and happy holidays! I'm about to go get some pancakes, but did some changes first",
+      "You can now react to comments",
+      "You can now see who reacted to your answers",
+      "By default, answers are hidden until you answer the daily question, but, you can easily tap to reveal if you need some inspiration or just want to hear from everyone first",
+      "Some other performance improvements",
+    ],
+  },
+  {
     date: "2025-12-23",
     title: "Tuesday, December 23rd",
     subtitle: "Release notes",

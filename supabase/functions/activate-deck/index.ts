@@ -94,6 +94,41 @@ serve(async (req) => {
 
     // Check if majority has voted yes
     if (yesVotes >= majorityThreshold) {
+      // CRITICAL: Check if group already has 3 active decks (limit is 3)
+      const { data: activeDecks, error: activeDecksError } = await supabaseClient
+        .from("group_active_decks")
+        .select("id")
+        .eq("group_id", group_id)
+        .eq("status", "active")
+
+      if (activeDecksError) throw activeDecksError
+      if (activeDecks && activeDecks.length >= 3) {
+        // Reject this deck instead of activating (group already has 3 active decks)
+        const { error: rejectError } = await supabaseClient
+          .from("group_active_decks")
+          .update({
+            status: "rejected",
+          })
+          .eq("group_id", group_id)
+          .eq("deck_id", deck_id)
+
+        if (rejectError) throw rejectError
+
+        console.log(`[activate-deck] Deck ${deck_id} rejected for group ${group_id} - group already has 3 active decks`)
+
+        return new Response(
+          JSON.stringify({
+            success: false,
+            status: "rejected",
+            error: "Group already has 3 active decks. Please finish or remove a deck before adding another.",
+            yes_votes: yesVotes,
+            no_votes: noVotes,
+            total_members: totalMembers,
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
+        )
+      }
+
       // Activate the deck
       const { error: updateError } = await supabaseClient
         .from("group_active_decks")

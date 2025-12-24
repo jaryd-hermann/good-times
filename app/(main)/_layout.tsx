@@ -18,14 +18,17 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
   const pathname = usePathname()
   const insets = useSafeAreaInsets()
   const [isTabBarVisible, setIsTabBarVisible] = useState(true)
+  const currentOpacityRef = useRef(1) // Track current opacity value
   
   // Calculate bottom offset for Android navigation bar
   const bottomOffset = Platform.OS === "android" ? insets.bottom + 24 : 24
   
   // Track tab bar visibility to disable pointer events when hidden
+  // Use a lower threshold to ensure navigation works even when slightly faded
   useEffect(() => {
     const listenerId = tabBarOpacity.addListener(({ value }) => {
-      setIsTabBarVisible(value > 0.1)
+      currentOpacityRef.current = value
+      setIsTabBarVisible(value > 0.05) // Lower threshold to ensure navigation works
     })
     return () => {
       tabBarOpacity.removeListener(listenerId)
@@ -265,6 +268,15 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
         })
 
         const onPress = () => {
+          // Ensure tab bar is visible when navigating (in case it was faded from scrolling)
+          if (currentOpacityRef.current < 0.5) {
+            Animated.timing(tabBarOpacity, {
+              toValue: 1,
+              duration: 200,
+              useNativeDriver: true,
+            }).start()
+          }
+
           const event = navigation.emit({
             type: "tabPress",
             target: route.key,
@@ -296,7 +308,8 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
             onPress={onPress} 
             style={styles.tabButton} 
             activeOpacity={0.8}
-            disabled={!isTabBarVisible}
+            // Don't disable - allow navigation even when slightly faded
+            // The pointerEvents on the wrapper will handle visibility
           >
             <Animated.View 
               style={[

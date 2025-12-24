@@ -224,6 +224,13 @@ serve(async (req) => {
             date: today,
           })
 
+          // CRITICAL: Clear date_asked to prevent this custom question from being scheduled again
+          // This ensures custom questions are only asked once
+          await supabaseClient
+            .from("custom_questions")
+            .update({ date_asked: null })
+            .eq("id", customQuestion.id)
+
           results.push({ group_id: group.id, status: "custom_question_scheduled" })
           continue // Skip regular prompt scheduling
         }

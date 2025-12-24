@@ -272,14 +272,11 @@ function RefreshingOverlay() {
     }
   }, [refreshing])
   
-  // Animate icon rotation
+  // Animate icon rotation - start immediately on mount to ensure no gap
+  // This ensures spinner is always spinning when overlay is visible
   useEffect(() => {
-    if (!showOverlay) {
-      rotateAnim.setValue(0)
-      return
-    }
-
-    // Start rotation animation
+    // Start rotation animation immediately - don't wait for showOverlay
+    // This prevents any gap where overlay is visible but animation hasn't started
     const rotateAnimation = Animated.loop(
       Animated.timing(rotateAnim, {
         toValue: 1,
@@ -293,7 +290,7 @@ function RefreshingOverlay() {
     return () => {
       rotateAnimation.stop()
     }
-  }, [showOverlay, rotateAnim])
+  }, [rotateAnim]) // Remove showOverlay dependency - always animate
   
   if (!showOverlay) return null
   

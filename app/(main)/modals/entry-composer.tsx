@@ -30,6 +30,7 @@ import type { Prompt } from "../../../lib/types"
 import { uploadMedia } from "../../../lib/storage"
 import { typography, spacing } from "../../../lib/theme"
 import { useTheme } from "../../../lib/theme-context"
+import { getTodayDate } from "../../../lib/utils"
 import { Button } from "../../../components/Button"
 import { FontAwesome } from "@expo/vector-icons"
 import { parseEmbedUrl, extractEmbedUrls, type ParsedEmbed } from "../../../lib/embed-parser"
@@ -410,9 +411,10 @@ export default function EntryComposer() {
       }
     }
     
-    // Handle member_name variable - check prompt_name_usage first
+    // Handle member_name variable - ONLY use prompt_name_usage, NO fallback
+    // CRITICAL: Must use the exact name from prompt_name_usage that getDailyPrompt set
     if (question.match(/\{.*member_name.*\}/i)) {
-      if (promptId && date) {
+      if (promptId && date && currentGroupId) {
         const normalizedDate = date.split('T')[0]
         const usageKey = `${promptId}-${normalizedDate}`
         const memberNameUsed = memberUsageMap.get(usageKey)
@@ -421,21 +423,113 @@ export default function EntryComposer() {
           // Use the exact name from prompt_name_usage (ensures consistency)
           variables.member_name = memberNameUsed
           question = replaceDynamicVariables(question, variables)
-        } else if (members.length > 0) {
-          // Fallback: if no usage record exists, use first member
-          console.warn(`[entry-composer] No prompt_name_usage found for member_name, using first member as fallback`)
-          variables.member_name = members[0].user?.name || "them"
-          question = replaceDynamicVariables(question, variables)
+        } else {
+          // Missing record - create it using the SAME deterministic logic as getDailyPrompt
+          // This ensures consistency and fixes data inconsistencies
+          console.warn(`[entry-composer] No prompt_name_usage found for member_name, will create it. promptId: ${promptId}, date: ${date}, groupId: ${currentGroupId}`)
+          // Don't replace variable here - useEffect will create the record and refetch
         }
-      } else if (members.length > 0) {
-        // Fallback if we don't have promptId/date
-        variables.member_name = members[0].user?.name || "them"
-        question = replaceDynamicVariables(question, variables)
+      } else {
+        // Missing required data - log error
+        console.error(`[entry-composer] Missing data for member_name replacement. promptId: ${promptId}, date: ${date}, currentGroupId: ${currentGroupId}`)
+        // Leave {member_name} as-is
       }
     }
     
     return question
-  }, [activePrompt?.question, memorials, members, memberUsageMap, memorialUsageMap, promptId, date, currentGroupId])
+  }, [activePrompt?.question, memorials, members, memberUsageMap, memorialUsageMap, promptId, date, currentGroupId, userId])
+
+  // Create missing prompt_name_usage record if needed (matches getDailyPrompt logic)
+  useEffect(() => {
+    async function createMissingMemberNameRecord() {
+      if (!activePrompt?.question?.match(/\{.*member_name.*\}/i)) return
+      if (!promptId || !date || !currentGroupId || !userId) return
+      
+      const normalizedDate = date.split('T')[0]
+      const usageKey = `${promptId}-${normalizedDate}`
+      const memberNameUsed = memberUsageMap.get(usageKey)
+      
+      // If record already exists, nothing to do
+      if (memberNameUsed) return
+      
+      // Check if record exists in database (might not be in cache yet)
+      const { data: existingUsage } = await supabase
+        .from("prompt_name_usage")
+        .select("name_used")
+        .eq("group_id", currentGroupId)
+        .eq("prompt_id", promptId)
+        .eq("variable_type", "member_name")
+        .eq("date_used", normalizedDate)
+        .maybeSingle()
+      
+      if (existingUsage?.name_used) {
+        // Record exists, just refetch to update cache
+        queryClient.invalidateQueries({ queryKey: ["memberNameUsage", currentGroupId, date, promptId] })
+        return
+      }
+      
+      // Record doesn't exist - create it using same logic as getDailyPrompt
+      try {
+        const allMembers = await getGroupMembers(currentGroupId)
+        const otherMembers = allMembers.filter((m) => m.user_id !== userId)
+        
+        if (otherMembers.length > 0) {
+          // Get recently used member names
+          const { data: recentUsage } = await supabase
+            .from("prompt_name_usage")
+            .select("name_used")
+            .eq("group_id", currentGroupId)
+            .eq("variable_type", "member_name")
+            .neq("date_used", normalizedDate)
+            .order("date_used", { ascending: false })
+            .limit(otherMembers.length)
+
+          const usedNames = new Set(recentUsage?.map((u) => u.name_used) || [])
+          
+          const unusedMembers = otherMembers.filter((m) => {
+            const memberName = m.user?.name || "Unknown"
+            return !usedNames.has(memberName)
+          })
+          
+          const availableMembers = unusedMembers.length > 0 ? unusedMembers : otherMembers
+          
+          // Use same deterministic logic as getDailyPrompt
+          const dayIndex = getDayIndex(normalizedDate, currentGroupId)
+          const memberIndex = dayIndex % availableMembers.length
+          const selectedMember = availableMembers[memberIndex]
+          
+          const selectedName = selectedMember.user?.name || "them"
+
+          // Create the record
+          const { error: insertError } = await supabase.from("prompt_name_usage").insert({
+            group_id: currentGroupId,
+            prompt_id: promptId,
+            variable_type: "member_name",
+            name_used: selectedName,
+            date_used: normalizedDate,
+          })
+          
+          if (insertError) {
+            if (insertError.code !== '23505') {
+              console.error(`[entry-composer] Failed to create prompt_name_usage:`, insertError.message)
+            } else {
+              // Duplicate - another call created it, just refetch
+              console.log(`[entry-composer] Record already exists, refetching`)
+            }
+          } else {
+            console.log(`[entry-composer] Created missing prompt_name_usage record: ${selectedName}`)
+          }
+          
+          // Refetch to update cache
+          queryClient.invalidateQueries({ queryKey: ["memberNameUsage", currentGroupId, date, promptId] })
+        }
+      } catch (error) {
+        console.error(`[entry-composer] Error creating prompt_name_usage:`, error)
+      }
+    }
+    
+    createMissingMemberNameRecord()
+  }, [activePrompt?.question, promptId, date, currentGroupId, userId, memberUsageMap, queryClient])
 
   // Load existing entry data when in edit mode
   useEffect(() => {
@@ -1068,8 +1162,8 @@ export default function EntryComposer() {
   }
 
   async function handleNavigateToHome() {
-    if (!currentGroupId || !userId) {
-      // Fallback: just navigate if we don't have group/user info
+    if (!currentGroupId) {
+      // Fallback: just navigate if we don't have group info
       setShowSuccessModal(false)
       setIsNavigating(true)
       exitComposer()
@@ -1079,10 +1173,10 @@ export default function EntryComposer() {
     setIsRefreshingHome(true)
     
     try {
-      // Do the EXACT same thing as pull-to-refresh on home screen
-      // This ensures consistent behavior and guarantees fresh data
+      // EXACT SAME REFRESH LOGIC AS handleRefresh IN home.tsx (line 2883)
+      // This ensures the same behavior as pull-to-refresh or app reopening
       
-      // 1. Remove queries for current group to clear cache (same as handleRefresh)
+      // 1. Clear all queries for current group to ensure fresh data
       queryClient.removeQueries({ 
         queryKey: ["dailyPrompt", currentGroupId],
         exact: false 
@@ -1096,19 +1190,37 @@ export default function EntryComposer() {
         exact: false 
       })
       
-      // 2. Invalidate all queries (same as handleRefresh)
-      await queryClient.invalidateQueries()
+      // 2. Invalidate all queries (with timeout)
+      const invalidatePromise = queryClient.invalidateQueries()
+      const invalidateTimeout = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Invalidate timeout")), 5000)
+      )
       
-      // 3. Refetch all queries (same as handleRefresh)
-      await queryClient.refetchQueries()
+      try {
+        await Promise.race([invalidatePromise, invalidateTimeout])
+      } catch (invalidateError) {
+        console.warn("[entry-composer] Invalidate timed out, continuing...")
+      }
       
-      // Now navigate - data is ready
+      // 3. Refetch all queries (with timeout)
+      const refetchPromise = queryClient.refetchQueries()
+      const refetchTimeout = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Refetch timeout")), 5000)
+      )
+      
+      try {
+        await Promise.race([refetchPromise, refetchTimeout])
+      } catch (refetchError) {
+        console.warn("[entry-composer] Refetch timed out, continuing...")
+      }
+      
+      // Now navigate - data is fresh and ready
       setShowSuccessModal(false)
       setIsNavigating(true)
       exitComposer()
     } catch (error) {
       console.error("[entry-composer] Error refreshing home data:", error)
-      // Still navigate even if refresh fails - home screen will refetch on focus
+      // Still navigate even if refresh fails
       setShowSuccessModal(false)
       setIsNavigating(true)
       exitComposer()
@@ -1342,8 +1454,46 @@ export default function EntryComposer() {
           text_length: text.trim().length,
         })
 
+        // CRITICAL: Update cache for BOTH todayDate and selectedDate query keys
+        // home.tsx uses both ["entries", currentGroupId, todayDate] and ["entries", currentGroupId, selectedDate]
+        // selectedDate defaults to todayDate, but we need to update both to ensure consistency
+        if (date && newEntry) {
+          const todayDate = getTodayDate() // Use same function as home.tsx to ensure date format matches
+          const normalizedDate = date.split('T')[0] // Normalize date format
+          
+          if (normalizedDate === todayDate) {
+            // Update entries cache for todayDate (home.tsx line 992)
+            const todayEntriesKey = ["entries", currentGroupId, todayDate]
+            const existingTodayEntries = queryClient.getQueryData<any[]>(todayEntriesKey) || []
+            const todayEntryExists = existingTodayEntries.some(e => e.id === newEntry.id)
+            if (!todayEntryExists) {
+              queryClient.setQueryData(todayEntriesKey, [newEntry, ...existingTodayEntries])
+            }
+            
+            // Update entries cache for selectedDate (home.tsx line 1217) - selectedDate defaults to todayDate
+            // But we update both to be safe in case selectedDate is different
+            const selectedEntriesKey = ["entries", currentGroupId, todayDate] // Same as todayDate since selectedDate defaults to it
+            const existingSelectedEntries = queryClient.getQueryData<any[]>(selectedEntriesKey) || []
+            const selectedEntryExists = existingSelectedEntries.some(e => e.id === newEntry.id)
+            if (!selectedEntryExists) {
+              queryClient.setQueryData(selectedEntriesKey, [newEntry, ...existingSelectedEntries])
+            }
+            
+            // CRITICAL: Update userEntry cache for todayDate (home.tsx line 976)
+            // This is what determines if the question card shows or not
+            const todayUserEntryKey = ["userEntry", currentGroupId, userId, todayDate]
+            queryClient.setQueryData(todayUserEntryKey, newEntry)
+            
+            // CRITICAL: Update userEntry cache for selectedDate (home.tsx line 941)
+            // selectedDate defaults to todayDate, but update both to be safe
+            const selectedUserEntryKey = ["userEntry", currentGroupId, userId, todayDate] // Same as todayDate
+            queryClient.setQueryData(selectedUserEntryKey, newEntry)
+          }
+        }
+        
         // Invalidate queries scoped to the specific group to prevent cross-group contamination
         // Use prefix matching to invalidate all related queries
+        // Note: We invalidate AFTER updating cache so background refetch will merge properly
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: ["entries", currentGroupId], exact: false }),
           queryClient.invalidateQueries({ queryKey: ["userEntry", currentGroupId], exact: false }),
@@ -1352,34 +1502,6 @@ export default function EntryComposer() {
           queryClient.invalidateQueries({ queryKey: ["dailyPrompt", currentGroupId], exact: false }),
           queryClient.invalidateQueries({ queryKey: ["historyComments"] }),
         ])
-        
-        // After creating entry, immediately fetch fresh data and update cache
-        // This ensures the data is ready when user navigates to home
-        if (date) {
-          const todayDate = new Date().toISOString().split('T')[0]
-          if (date === todayDate || date.startsWith(todayDate)) {
-            // Fetch fresh data directly from database and update cache
-            // This is more reliable than refetchQueries which may not work if queries aren't active
-            try {
-              const [freshEntries, freshUserEntry, freshPrompt] = await Promise.all([
-                getEntriesForDate(currentGroupId, todayDate),
-                getUserEntryForDate(currentGroupId, userId, todayDate),
-                getDailyPrompt(currentGroupId, todayDate, userId),
-              ])
-              
-              // CRITICAL: Update cache with exact query keys that home.tsx uses
-              // Home screen uses selectedDate in its queries (line 1179 for entries, line 924 for dailyPrompt)
-              // selectedDate defaults to getTodayDate(), which should match our todayDate
-              // We update with todayDate which should match selectedDate when user first lands on home
-              queryClient.setQueryData(["entries", currentGroupId, todayDate], freshEntries)
-              queryClient.setQueryData(["userEntry", currentGroupId, userId, todayDate], freshUserEntry)
-              queryClient.setQueryData(["dailyPrompt", currentGroupId, todayDate, userId], freshPrompt)
-            } catch (error) {
-              console.error("[entry-composer] Error fetching fresh data after create:", error)
-              // Continue anyway - home screen will refetch on focus
-            }
-          }
-        }
       }
 
       // Hide uploading modal and show success
@@ -2112,6 +2234,7 @@ export default function EntryComposer() {
       ...StyleSheet.absoluteFillObject,
       opacity: 0.3,
       zIndex: 1,
+      pointerEvents: "none" as const,
     },
     successTitle: {
       fontFamily: "PMGothicLudington-Text115",
@@ -2216,7 +2339,7 @@ export default function EntryComposer() {
         >
         {/* Header with question and close button */}
         <View style={styles.header}>
-          <Text style={styles.question} numberOfLines={3}>{personalizedQuestion || activePrompt?.question}</Text>
+          <Text style={styles.question}>{personalizedQuestion || activePrompt?.question}</Text>
           <TouchableOpacity style={styles.headerCloseButton} onPress={exitComposer}>
             <FontAwesome name="times" size={18} color={theme2Colors.text} />
           </TouchableOpacity>
@@ -2701,12 +2824,6 @@ export default function EntryComposer() {
               )}
             </TouchableOpacity>
           </View>
-          <Image
-            source={require("../../../assets/images/texture.png")}
-            style={styles.successTexture}
-            resizeMode="cover"
-            pointerEvents="none"
-          />
         </View>
       </Modal>
 
@@ -2723,12 +2840,6 @@ export default function EntryComposer() {
             <Text style={styles.successTitle}>Uploading your media</Text>
             <Text style={styles.uploadingSubtitle}>Posting soon...</Text>
           </View>
-          <Image
-            source={require("../../../assets/images/texture.png")}
-            style={styles.successTexture}
-            resizeMode="cover"
-            pointerEvents="none"
-          />
         </View>
       </Modal>
 

@@ -17,7 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { FontAwesome } from "@expo/vector-icons"
 import { useTheme } from "../../lib/theme-context"
 import { typography, spacing } from "../../lib/theme"
-import { getDeckDetails, getDeckQuestions, requestDeckVote, getVoteStatus, getUserVote, getCurrentUser, getCollectionDetails, castVote } from "../../lib/db"
+import { getDeckDetails, getDeckQuestions, requestDeckVote, getVoteStatus, getUserVote, getCurrentUser, getCollectionDetails, castVote, getGroupActiveDecks } from "../../lib/db"
 import { supabase } from "../../lib/supabase"
 import { Button } from "../../components/Button"
 import AsyncStorage from "@react-native-async-storage/async-storage"
@@ -142,6 +142,16 @@ export default function DeckDetail() {
     queryFn: () => (groupId && deckId && userId ? getUserVote(groupId, deckId, userId) : null),
     enabled: !!groupId && !!deckId && !!userId,
   })
+
+  // Check active decks count to disable "Add this deck" button if 3 active decks exist
+  const { data: activeDecks = [] } = useQuery({
+    queryKey: ["groupActiveDecks", groupId],
+    queryFn: () => (groupId ? getGroupActiveDecks(groupId) : []),
+    enabled: !!groupId,
+  })
+
+  const activeDecksCount = activeDecks.filter((deck: any) => deck.status === "active").length
+  const hasMaxActiveDecks = activeDecksCount >= 3
 
   const requestVoteMutation = useMutation({
     mutationFn: async () => {
@@ -553,27 +563,55 @@ export default function DeckDetail() {
         {/* CTA Button */}
         {showVoteCTA && (
           <View style={styles.ctaContainer}>
-            <TouchableOpacity
-              style={{
-                backgroundColor: theme2Colors.blue,
-                borderRadius: 25,
-                paddingVertical: spacing.md,
-                paddingHorizontal: spacing.xl,
-                alignItems: "center",
-                justifyContent: "center",
-                minHeight: 56,
-                width: "100%",
-              }}
-              onPress={() => setVoteModalVisible(true)}
-              disabled={requestingVote}
-            >
-              <Text style={{ ...typography.bodyBold, fontSize: 16, color: theme2Colors.white }}>
-                {requestingVote ? "Loading..." : "Add this deck →"}
-              </Text>
-            </TouchableOpacity>
-            <Text style={styles.ctaSubtext}>
-              If the majority vote yes, we'll shuffle this deck of questions into your list.
-            </Text>
+            {hasMaxActiveDecks ? (
+              <>
+                <TouchableOpacity
+                  style={{
+                    backgroundColor: theme2Colors.textSecondary,
+                    borderRadius: 25,
+                    paddingVertical: spacing.md,
+                    paddingHorizontal: spacing.xl,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    minHeight: 56,
+                    width: "100%",
+                    opacity: 0.5,
+                  }}
+                  disabled={true}
+                >
+                  <Text style={{ ...typography.bodyBold, fontSize: 16, color: theme2Colors.white }}>
+                    Add this deck →
+                  </Text>
+                </TouchableOpacity>
+                <Text style={styles.ctaSubtext}>
+                  Your group already has 3 active decks. Please finish or remove a deck before adding another.
+                </Text>
+              </>
+            ) : (
+              <>
+                <TouchableOpacity
+                  style={{
+                    backgroundColor: theme2Colors.blue,
+                    borderRadius: 25,
+                    paddingVertical: spacing.md,
+                    paddingHorizontal: spacing.xl,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    minHeight: 56,
+                    width: "100%",
+                  }}
+                  onPress={() => setVoteModalVisible(true)}
+                  disabled={requestingVote}
+                >
+                  <Text style={{ ...typography.bodyBold, fontSize: 16, color: theme2Colors.white }}>
+                    {requestingVote ? "Loading..." : "Add this deck →"}
+                  </Text>
+                </TouchableOpacity>
+                <Text style={styles.ctaSubtext}>
+                  If the majority vote yes, we'll shuffle this deck of questions into your list.
+                </Text>
+              </>
+            )}
           </View>
         )}
       </ScrollView>

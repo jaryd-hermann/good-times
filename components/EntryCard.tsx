@@ -10,7 +10,7 @@ import { useTheme } from "../lib/theme-context"
 import { Avatar } from "./Avatar"
 import { FontAwesome } from "@expo/vector-icons"
 import { supabase } from "../lib/supabase"
-import { getComments, getMemorials, getReactions, toggleReaction, toggleEmojiReaction, getGroupMembers } from "../lib/db"
+import { getComments, getMemorials, getReactions, toggleReaction, toggleEmojiReaction, getGroupMembers, getAllCommentReactionsForEntry, toggleCommentEmojiReaction } from "../lib/db"
 import { EmojiPicker } from "./EmojiPicker"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "../lib/prompts"
@@ -27,15 +27,19 @@ interface EntryCardProps {
   returnTo?: string
   showFuzzyOverlay?: boolean
   onEntryPress?: (entryDate: string) => void // Callback to store entry date before navigation
+  onRevealAnswers?: () => void // Callback to reveal answers when fuzzy overlay is clicked
 }
 
-export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home", showFuzzyOverlay = false, onEntryPress }: EntryCardProps) {
+export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home", showFuzzyOverlay = false, onEntryPress, onRevealAnswers }: EntryCardProps) {
   const router = useRouter()
   const { colors, isDark } = useTheme()
   const audioRefs = useRef<Record<string, Audio.Sound>>({})
   const videoRefs = useRef<Record<string, Video>>({})
+  const commentVideoRefs = useRef<Record<string, Video>>({})
   const [activeAudioId, setActiveAudioId] = useState<string | null>(null)
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null)
+  const [activeCommentVideoId, setActiveCommentVideoId] = useState<string | null>(null)
+  const [commentVideoMuted, setCommentVideoMuted] = useState<Record<string, boolean>>({})
   const [audioProgress, setAudioProgress] = useState<Record<string, number>>({})
   const [audioDurations, setAudioDurations] = useState<Record<string, number>>({})
   const [audioLoading, setAudioLoading] = useState<Record<string, boolean>>({})
@@ -52,6 +56,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   const [commentLightboxVisible, setCommentLightboxVisible] = useState(false)
   const [commentLightboxIndex, setCommentLightboxIndex] = useState(0)
   const [commentLightboxPhotos, setCommentLightboxPhotos] = useState<string[]>([])
+  const [commentEmojiPickerCommentId, setCommentEmojiPickerCommentId] = useState<string | null>(null)
 
   useEffect(() => {
     async function loadUser() {
@@ -84,7 +89,11 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   }, [])
 
   function handleEntryPress(scrollToComments = false) {
-    // Removed fuzzy overlay logic - users can now view entries without answering
+    // If fuzzy overlay is shown, reveal answers instead of navigating
+    if (showFuzzyOverlay && onRevealAnswers) {
+      onRevealAnswers()
+      return
+    }
     
     // Store entry date before navigation for scroll restoration
     if (onEntryPress && entry.date) {
@@ -398,6 +407,13 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     enabled: !!entry.id,
   })
 
+  // Fetch all comment reactions for this entry
+  const { data: commentReactionsMap = {} } = useQuery({
+    queryKey: ["commentReactions", entry.id],
+    queryFn: () => getAllCommentReactionsForEntry(entry.id),
+    enabled: !!entry.id,
+  })
+
   const hasLiked = reactions.some((r) => r.user_id === userId)
   const reactionCount = reactions.length
   const queryClient = useQueryClient()
@@ -454,6 +470,24 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     if (!userId) return
     try {
       await toggleEmojiReactionMutation.mutateAsync(emoji)
+    } catch (error) {
+      // Silently fail - user can try again
+    }
+  }
+
+  const toggleCommentEmojiReactionMutation = useMutation({
+    mutationFn: ({ commentId, emoji }: { commentId: string; emoji: string }) => 
+      toggleCommentEmojiReaction(commentId, userId!, emoji),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["commentReactions", entry.id] })
+    },
+  })
+
+  async function handleSelectCommentEmoji(commentId: string, emoji: string) {
+    if (!userId) return
+    try {
+      await toggleCommentEmojiReactionMutation.mutateAsync({ commentId, emoji })
+      setCommentEmojiPickerCommentId(null)
     } catch (error) {
       // Silently fail - user can try again
     }
@@ -521,6 +555,46 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                   }
   }
 
+  async function handleToggleCommentVideo(commentId: string, videoUri: string) {
+    try {
+      const videoId = `comment-${commentId}`
+      
+      // Stop any other playing comment video
+      if (activeCommentVideoId && activeCommentVideoId !== videoId) {
+        const previousVideo = commentVideoRefs.current[activeCommentVideoId]
+        if (previousVideo) {
+          try {
+            await previousVideo.pauseAsync()
+            await previousVideo.setPositionAsync(0)
+          } catch {
+            // ignore
+          }
+        }
+        setActiveCommentVideoId(null)
+      }
+      
+      let video = commentVideoRefs.current[videoId]
+      if (!video) {
+        // Video ref will be set when component mounts
+        return
+      }
+      
+      const status = await video.getStatusAsync()
+      if (status.isLoaded && status.isPlaying) {
+        await video.pauseAsync()
+        setActiveCommentVideoId(null)
+      } else {
+        if (status.isLoaded && status.positionMillis && status.durationMillis && status.positionMillis >= status.durationMillis) {
+          await video.setPositionAsync(0)
+        }
+        await video.playAsync()
+        setActiveCommentVideoId(videoId)
+      }
+    } catch (error: any) {
+      console.error("[EntryCard] Error toggling comment video:", error)
+    }
+  }
+
   function formatMillis(ms: number) {
     const totalSeconds = Math.max(0, Math.floor(ms / 1000))
     const minutes = Math.floor(totalSeconds / 60)
@@ -577,7 +651,21 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
       position: "relative",
       overflow: "hidden",
   },
-    // Removed fuzzyOverlay style - no longer needed
+    fuzzyOverlay: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      zIndex: 10,
+      borderRadius: 16,
+      overflow: "hidden",
+    },
+    fuzzyOverlayImage: {
+      width: "100%",
+      height: "100%",
+      opacity: 1.0, // 100% opacity
+    },
   entryHeader: {
     flexDirection: "row",
       justifyContent: "space-between",
@@ -821,9 +909,32 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     reactionsRow: {
       flexDirection: "row",
       alignItems: "center",
-      gap: spacing.xs,
+      gap: spacing.sm,
       flexWrap: "wrap",
       marginLeft: -5, // Move 20% closer to comment icon (20% of spacing.lg = 24 * 0.2 = 4.8, rounded to 5)
+    },
+    reactionAvatarContainer: {
+      position: "relative",
+    },
+    reactionAvatarWrapper: {
+      opacity: 0.7, // 70% opacity for avatars
+    },
+    reactionEmojiOverlay: {
+      position: "absolute",
+      top: -4,
+      right: -8,
+      backgroundColor: theme2Colors.cream,
+      borderRadius: 10,
+      width: 20,
+      height: 20,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
+      zIndex: 1,
+    },
+    reactionEmojiOverlayText: {
+      fontSize: 12,
     },
     reactionBadge: {
       flexDirection: "row",
@@ -849,6 +960,51 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
       width: 25,
       height: 25,
     },
+    commentReactionsAndButtonContainer: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.md, // Increased gap between reactions and react icon
+    },
+    commentReactionsContainer: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+    },
+    commentReactionsContainerNoButton: {
+      // When user has reacted (no react button), add padding to left and right
+      paddingLeft: spacing.xs,
+      paddingRight: spacing.xs,
+    },
+    commentReactButton: {
+      padding: spacing.xs,
+    },
+    commentReactIcon: {
+      width: 20,
+      height: 20,
+    },
+    commentReactionAvatarContainer: {
+      position: "relative",
+    },
+    commentReactionAvatarWrapper: {
+      opacity: 0.7, // 70% opacity for avatars
+    },
+    commentReactionEmojiOverlay: {
+      position: "absolute",
+      top: -4,
+      right: -8,
+      backgroundColor: theme2Colors.cream,
+      borderRadius: 10,
+      width: 20,
+      height: 20,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
+      zIndex: 1,
+    },
+    commentReactionEmojiOverlayText: {
+      fontSize: 12,
+    },
     commentsContainer: {
       paddingHorizontal: 0,
     paddingTop: spacing.md,
@@ -861,7 +1017,8 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     padding: spacing.sm,
     marginBottom: spacing.xs,
     borderWidth: 1,
-    borderColor: theme2Colors.textSecondary,
+    borderColor: isDark ? "#1F1F1F" : "#CFCFCF",
+    overflow: "hidden", // Clip negative margins from media thumbnails
   },
   commentPreviewContent: {
     flexDirection: "row",
@@ -872,6 +1029,12 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     flex: 1,
     gap: spacing.xs,
     minWidth: 0, // Allow flex item to shrink below its content size
+  },
+  commentPreviewUserRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
   },
   commentPreviewUser: {
     ...typography.bodyMedium,
@@ -887,14 +1050,40 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   },
   commentMediaThumbnailContainer: {
     marginTop: spacing.md,
-    width: "100%", // Take full width of container
+    marginLeft: -(32 + spacing.sm), // Negative margin to align with avatar start (avatar width + gap from commentPreviewContent)
+    marginRight: -spacing.sm, // Negative margin to align with reactions end (extends to right edge of commentPreviewContent)
+    width: SCREEN_WIDTH - (spacing.md * 2) - (spacing.lg * 2) - (spacing.sm * 2), // Full width from avatar start to reactions end (screen width - entryWrapper padding - entryCard padding - commentPreviewItem padding)
   },
   commentMediaThumbnail: {
-    width: 230,
-    height: 230, // Fixed height to ensure square
+    width: "100%", // Use full width of container
+    aspectRatio: 1, // Maintain square aspect ratio
     borderRadius: 12,
     backgroundColor: colors.gray[900],
     position: "relative",
+    overflow: "hidden",
+  },
+  commentVideoPlayButton: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.2)",
+  },
+  commentVideoControls: {
+    position: "absolute",
+    top: spacing.xs,
+    right: spacing.xs,
+  },
+  commentVideoMuteButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   commentAudioThumbnail: {
     width: 40,
@@ -912,7 +1101,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     paddingHorizontal: spacing.md,
     backgroundColor: colors.gray[900],
     borderRadius: 16,
-    alignSelf: "flex-start",
+    width: "100%", // Use full width of container
   },
   commentAudioIcon: {
     width: 28,
@@ -1209,25 +1398,35 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                   </TouchableOpacity>
                 )}
                 
-                {/* Reactions inline with React button */}
-                {Object.entries(reactionsByEmoji).map(([emoji, data]) => (
-                  <TouchableOpacity
-                    key={emoji}
-                    style={styles.reactionBadge}
-                    onPress={(e) => {
-                      e.stopPropagation()
-                      if (userId) {
-                        handleSelectEmoji(emoji)
-                      }
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.reactionEmoji}>{emoji}</Text>
-                    {data.count > 1 && (
-                      <Text style={styles.reactionCount}>{data.count}</Text>
-                    )}
-                  </TouchableOpacity>
-                ))}
+                {/* Reactions as avatars with emojis */}
+                {reactions.map((reaction) => {
+                  const emoji = reaction.type || "❤️"
+                  const user = (reaction as any).user
+                  return (
+                    <TouchableOpacity
+                      key={reaction.id}
+                      style={styles.reactionAvatarContainer}
+                      onPress={(e) => {
+                        e.stopPropagation()
+                        if (userId) {
+                          handleSelectEmoji(emoji)
+                        }
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.reactionAvatarWrapper}>
+                        <Avatar
+                          uri={user?.avatar_url}
+                          name={user?.name || "User"}
+                          size={25}
+                        />
+                      </View>
+                      <View style={styles.reactionEmojiOverlay}>
+                        <Text style={styles.reactionEmojiOverlayText}>{emoji}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  )
+                })}
               </View>
             </View>
           </View>
@@ -1238,8 +1437,13 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
           <View style={styles.commentsContainer}>
           {(comments || []).length <= 10 ? (
             // Show all comments if 10 or fewer
-            (comments || []).map((comment: any) => (
-              <TouchableOpacity
+            <>
+              {(comments || []).map((comment: any) => {
+              const commentReactions = commentReactionsMap[comment.id] || []
+              const currentUserCommentReactions = commentReactions.filter((r: any) => r.user_id === userId).map((r: any) => r.type || "❤️")
+              
+              return (
+                <TouchableOpacity
                 key={comment.id}
                 style={styles.commentPreviewItem}
                 onPress={(e) => {
@@ -1259,7 +1463,66 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                     )
                   })()}
                   <View style={styles.commentPreviewTextContainer}>
-                    <Text style={styles.commentPreviewUser}>{comment.user?.name}: </Text>
+                    <View style={styles.commentPreviewUserRow}>
+                      <Text style={styles.commentPreviewUser}>{comment.user?.name} </Text>
+                      {/* Spacer to push reactions/react button to the right */}
+                      <View style={{ flex: 1 }} />
+                      {/* Reactions and React Button - Right aligned */}
+                      <View style={styles.commentReactionsAndButtonContainer}>
+                        {/* Comment Reactions - On right side, next to React button */}
+                        {commentReactions.length > 0 && (
+                          <View style={[styles.commentReactionsContainer, currentUserCommentReactions.length > 0 && styles.commentReactionsContainerNoButton]}>
+                            {commentReactions.map((reaction: any) => {
+                              const emoji = reaction.type || "❤️"
+                              const user = reaction.user
+                              return (
+                                <TouchableOpacity
+                                  key={reaction.id}
+                                  style={styles.commentReactionAvatarContainer}
+                                  onPress={(e) => {
+                                    e.stopPropagation()
+                                    if (userId) {
+                                      handleSelectCommentEmoji(comment.id, emoji)
+                                    }
+                                  }}
+                                  activeOpacity={0.7}
+                                >
+                                  <View style={styles.commentReactionAvatarWrapper}>
+                                    <Avatar
+                                      uri={user?.avatar_url}
+                                      name={user?.name || "User"}
+                                      size={25}
+                                    />
+                                  </View>
+                                  <View style={styles.commentReactionEmojiOverlay}>
+                                    <Text style={styles.commentReactionEmojiOverlayText}>{emoji}</Text>
+                                  </View>
+                                </TouchableOpacity>
+                              )
+                            })}
+                          </View>
+                        )}
+                        {/* React Button - Top right corner */}
+                        {currentUserCommentReactions.length === 0 && (
+                          <TouchableOpacity
+                            style={styles.commentReactButton}
+                            onPress={(e) => {
+                              e.stopPropagation()
+                              if (userId) {
+                                setCommentEmojiPickerCommentId(comment.id)
+                              }
+                            }}
+                            activeOpacity={0.7}
+                          >
+                            <Image
+                              source={require("../assets/images/react.png")}
+                              style={styles.commentReactIcon}
+                              resizeMode="contain"
+                            />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </View>
                     {comment.text && (
                       <Text style={styles.commentPreviewText} numberOfLines={2}>
                         {comment.text}
@@ -1291,24 +1554,69 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                             />
                           </TouchableOpacity>
                         )}
-                        {comment.media_type === "video" && (
-                          <TouchableOpacity
-                            onPress={(e) => {
-                              e.stopPropagation()
-                              // For videos, navigate to entry detail (lightbox doesn't support videos well)
-                              handleEntryPress(true)
-                            }}
-                            activeOpacity={0.9}
-                          >
-                            <Video
-                              source={{ uri: comment.media_url }}
+                        {comment.media_type === "video" && comment.media_url && (
+                          <View style={styles.commentMediaThumbnail}>
+                            <TouchableOpacity
+                              onPress={(e) => {
+                                e.stopPropagation()
+                                if (activeCommentVideoId === `comment-${comment.id}`) {
+                                  handleToggleCommentVideo(comment.id, comment.media_url)
+                                }
+                              }}
+                              activeOpacity={1}
                               style={styles.commentMediaThumbnail}
-                              resizeMode={ResizeMode.COVER}
-                              isMuted={true}
-                              shouldPlay={false}
-                              useNativeControls={false}
-                            />
-                          </TouchableOpacity>
+                            >
+                              <Video
+                                ref={(ref) => {
+                                  if (ref) {
+                                    commentVideoRefs.current[`comment-${comment.id}`] = ref
+                                  }
+                                }}
+                                source={{ uri: comment.media_url }}
+                                style={styles.commentMediaThumbnail}
+                                resizeMode={ResizeMode.COVER}
+                                isMuted={commentVideoMuted[`comment-${comment.id}`] ?? false}
+                                shouldPlay={activeCommentVideoId === `comment-${comment.id}`}
+                                useNativeControls={false}
+                                onPlaybackStatusUpdate={(status) => {
+                                  if (status.isLoaded && status.didJustFinish) {
+                                    setActiveCommentVideoId(null)
+                                  }
+                                }}
+                              />
+                            </TouchableOpacity>
+                            {activeCommentVideoId !== `comment-${comment.id}` && (
+                              <TouchableOpacity
+                                onPress={(e) => {
+                                  e.stopPropagation()
+                                  handleToggleCommentVideo(comment.id, comment.media_url)
+                                }}
+                                activeOpacity={0.8}
+                                style={styles.commentVideoPlayButton}
+                              >
+                                <FontAwesome name="play-circle" size={24} color="#ffffff" />
+                              </TouchableOpacity>
+                            )}
+                            {activeCommentVideoId === `comment-${comment.id}` && (
+                              <TouchableOpacity
+                                onPress={(e) => {
+                                  e.stopPropagation()
+                                  setCommentVideoMuted((prev) => ({
+                                    ...prev,
+                                    [`comment-${comment.id}`]: !(prev[`comment-${comment.id}`] ?? false),
+                                  }))
+                                }}
+                                activeOpacity={0.8}
+                                style={styles.commentVideoMuteButton}
+                              >
+                                <FontAwesome
+                                  name={commentVideoMuted[`comment-${comment.id}`] ? "volume-off" : "volume-up"}
+                                  size={16}
+                                  color={colors.white}
+                                />
+                              </TouchableOpacity>
+                            )}
+                          </View>
                         )}
                         {comment.media_type === "audio" && comment.media_url && (
                           <TouchableOpacity
@@ -1341,13 +1649,19 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                     )}
                   </View>
                 </View>
-              </TouchableOpacity>
-            ))
+                </TouchableOpacity>
+              )
+              })}
+            </>
           ) : (
             // Show first 10 comments and "+N comments" if more than 10
             <>
-              {(comments || []).slice(0, 10).map((comment: any) => (
-                <TouchableOpacity
+              {(comments || []).slice(0, 10).map((comment: any) => {
+                const commentReactions = commentReactionsMap[comment.id] || []
+                const currentUserCommentReactions = commentReactions.filter((r: any) => r.user_id === userId).map((r: any) => r.type || "❤️")
+                
+                return (
+                  <TouchableOpacity
                   key={comment.id}
                   style={styles.commentPreviewItem}
                   onPress={(e) => {
@@ -1367,7 +1681,66 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                       )
                     })()}
                     <View style={styles.commentPreviewTextContainer}>
-                      <Text style={styles.commentPreviewUser}>{comment.user?.name}: </Text>
+                      <View style={styles.commentPreviewUserRow}>
+                        <Text style={styles.commentPreviewUser}>{comment.user?.name} </Text>
+                        {/* Spacer to push reactions/react button to the right */}
+                        <View style={{ flex: 1 }} />
+                        {/* Reactions and React Button - Right aligned */}
+                        <View style={styles.commentReactionsAndButtonContainer}>
+                          {/* Comment Reactions - On right side, next to React button */}
+                          {commentReactions.length > 0 && (
+                            <View style={[styles.commentReactionsContainer, currentUserCommentReactions.length > 0 && styles.commentReactionsContainerNoButton]}>
+                              {commentReactions.map((reaction: any) => {
+                                const emoji = reaction.type || "❤️"
+                                const user = reaction.user
+                                return (
+                                  <TouchableOpacity
+                                    key={reaction.id}
+                                    style={styles.commentReactionAvatarContainer}
+                                    onPress={(e) => {
+                                      e.stopPropagation()
+                                      if (userId) {
+                                        handleSelectCommentEmoji(comment.id, emoji)
+                                      }
+                                    }}
+                                    activeOpacity={0.7}
+                                  >
+                                    <View style={styles.commentReactionAvatarWrapper}>
+                                      <Avatar
+                                        uri={user?.avatar_url}
+                                        name={user?.name || "User"}
+                                        size={25}
+                                      />
+                                    </View>
+                                    <View style={styles.commentReactionEmojiOverlay}>
+                                      <Text style={styles.commentReactionEmojiOverlayText}>{emoji}</Text>
+                                    </View>
+                                  </TouchableOpacity>
+                                )
+                              })}
+                            </View>
+                          )}
+                          {/* React Button - Top right corner */}
+                          {currentUserCommentReactions.length === 0 && (
+                            <TouchableOpacity
+                              style={styles.commentReactButton}
+                              onPress={(e) => {
+                                e.stopPropagation()
+                                if (userId) {
+                                  setCommentEmojiPickerCommentId(comment.id)
+                                }
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <Image
+                                source={require("../assets/images/react.png")}
+                                style={styles.commentReactIcon}
+                                resizeMode="contain"
+                              />
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      </View>
                       {comment.text && (
                         <Text style={styles.commentPreviewText} numberOfLines={2}>
                           {comment.text}
@@ -1399,24 +1772,69 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                               />
                             </TouchableOpacity>
                           )}
-                          {comment.media_type === "video" && (
-                            <TouchableOpacity
-                              onPress={(e) => {
-                                e.stopPropagation()
-                                // For videos, navigate to entry detail (lightbox doesn't support videos well)
-                                handleEntryPress(true)
-                              }}
-                              activeOpacity={0.9}
-                            >
-                              <Video
-                                source={{ uri: comment.media_url }}
+                          {comment.media_type === "video" && comment.media_url && (
+                            <View style={styles.commentMediaThumbnail}>
+                              <TouchableOpacity
+                                onPress={(e) => {
+                                  e.stopPropagation()
+                                  if (activeCommentVideoId === `comment-${comment.id}`) {
+                                    handleToggleCommentVideo(comment.id, comment.media_url)
+                                  }
+                                }}
+                                activeOpacity={1}
                                 style={styles.commentMediaThumbnail}
-                                resizeMode={ResizeMode.COVER}
-                                isMuted={true}
-                                shouldPlay={false}
-                                useNativeControls={false}
-                              />
-                            </TouchableOpacity>
+                              >
+                                <Video
+                                  ref={(ref) => {
+                                    if (ref) {
+                                      commentVideoRefs.current[`comment-${comment.id}`] = ref
+                                    }
+                                  }}
+                                  source={{ uri: comment.media_url }}
+                                  style={styles.commentMediaThumbnail}
+                                  resizeMode={ResizeMode.COVER}
+                                  isMuted={commentVideoMuted[`comment-${comment.id}`] ?? false}
+                                  shouldPlay={activeCommentVideoId === `comment-${comment.id}`}
+                                  useNativeControls={false}
+                                  onPlaybackStatusUpdate={(status) => {
+                                    if (status.isLoaded && status.didJustFinish) {
+                                      setActiveCommentVideoId(null)
+                                    }
+                                  }}
+                                />
+                              </TouchableOpacity>
+                              {activeCommentVideoId !== `comment-${comment.id}` && (
+                                <TouchableOpacity
+                                  onPress={(e) => {
+                                    e.stopPropagation()
+                                    handleToggleCommentVideo(comment.id, comment.media_url)
+                                  }}
+                                  activeOpacity={0.8}
+                                  style={styles.commentVideoPlayButton}
+                                >
+                                  <FontAwesome name="play-circle" size={24} color="#ffffff" />
+                                </TouchableOpacity>
+                              )}
+                              {activeCommentVideoId === `comment-${comment.id}` && (
+                                <TouchableOpacity
+                                  onPress={(e) => {
+                                    e.stopPropagation()
+                                    setCommentVideoMuted((prev) => ({
+                                      ...prev,
+                                      [`comment-${comment.id}`]: !(prev[`comment-${comment.id}`] ?? false),
+                                    }))
+                                  }}
+                                  activeOpacity={0.8}
+                                  style={styles.commentVideoMuteButton}
+                                >
+                                  <FontAwesome
+                                    name={commentVideoMuted[`comment-${comment.id}`] ? "volume-off" : "volume-up"}
+                                    size={16}
+                                    color={colors.white}
+                                  />
+                                </TouchableOpacity>
+                              )}
+                            </View>
                           )}
                           {comment.media_type === "audio" && (
                             <TouchableOpacity
@@ -1436,8 +1854,9 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                       )}
                     </View>
                   </View>
-                </TouchableOpacity>
-              ))}
+                  </TouchableOpacity>
+                )
+              })}
               <TouchableOpacity
                 onPress={(e) => {
                   e.stopPropagation()
@@ -1453,7 +1872,15 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
         )}
         
         {/* Fuzzy overlay when user hasn't answered */}
-        {/* Removed fuzzy overlay - users can now view entries without answering */}
+        {showFuzzyOverlay && (
+          <View style={styles.fuzzyOverlay} pointerEvents="none">
+            <Image
+              source={require("../assets/images/fuzzy.png")}
+              style={styles.fuzzyOverlayImage}
+              resizeMode="cover"
+            />
+          </View>
+        )}
       </TouchableOpacity>
 
       {/* Separator */}
@@ -1466,6 +1893,16 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
         onSelectEmoji={handleSelectEmoji}
         currentReactions={currentUserReactions}
       />
+
+      {/* Comment Emoji Picker Modal */}
+      {commentEmojiPickerCommentId && (
+        <EmojiPicker
+          visible={!!commentEmojiPickerCommentId}
+          onClose={() => setCommentEmojiPickerCommentId(null)}
+          onSelectEmoji={(emoji) => handleSelectCommentEmoji(commentEmojiPickerCommentId, emoji)}
+          currentReactions={commentReactionsMap[commentEmojiPickerCommentId]?.filter((r: any) => r.user_id === userId).map((r: any) => r.type || "❤️") || []}
+        />
+      )}
 
       {/* User Profile Modal */}
       <UserProfileModal

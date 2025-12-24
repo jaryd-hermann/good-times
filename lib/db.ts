@@ -389,11 +389,13 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
     }
     // Personalize prompts with dynamic variables using usage tracking
     let personalizedQuestion = prompt.question
+    const variables: Record<string, string> = {}
 
+    // Check if prompt has member_name variable (either in dynamic_variables OR in question text)
+    const hasMemberNameVariable = (prompt.dynamic_variables && Array.isArray(prompt.dynamic_variables) && prompt.dynamic_variables.includes("member_name")) || prompt.question?.match(/\{.*member_name.*\}/i)
+    
     // Handle dynamic variables
     if (prompt.dynamic_variables && Array.isArray(prompt.dynamic_variables)) {
-      const variables: Record<string, string> = {}
-
       // Handle memorial_name variable
       if (prompt.dynamic_variables.includes("memorial_name") && prompt.category === "Remembering") {
         const memorials = await getMemorials(groupId)
@@ -547,7 +549,7 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
         }
       }
 
-      // Handle member_name variable
+      // Handle member_name variable (if in dynamic_variables)
       if (prompt.dynamic_variables.includes("member_name")) {
         if (prompt.birthday_type === "their_birthday" || prompt.category === "Birthday") {
           // For birthday prompts, get ALL birthday people's names and combine them
@@ -566,7 +568,7 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
             variables.member_name = existingUsage.name_used
             console.log(`[getDailyPrompt] Using existing member name selection for ${date}: ${existingUsage.name_used}`)
           } else {
-            // No existing selection for this date - get ALL members with birthdays today
+            // Missing record - create it using birthday logic (same as new prompts)
             const { data: members } = await supabase
               .from("group_members")
               .select("user_id, user:users(id, name, birthday)")
@@ -588,11 +590,10 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
                 if (birthdayNames.length === 1) {
                   variables.member_name = birthdayNames[0]
                 } else {
-                  // Combine with "and": "Jaryd and Brett"
                   variables.member_name = birthdayNames.join(" and ")
                 }
                 
-                // Record usage for this date (ignore errors if already exists - might be race condition)
+                // Create the missing record (this fixes data inconsistency)
                 const { error: insertError } = await supabase.from("prompt_name_usage").insert({
                   group_id: groupId,
                   prompt_id: prompt.id,
@@ -602,11 +603,10 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
                 })
                 
                 if (insertError) {
-                  // Check if it's a duplicate constraint violation (23505 is unique violation)
                   if (insertError.code !== '23505') {
                     console.warn(`[getDailyPrompt] Failed to insert prompt_name_usage for ${prompt.id} on ${date}:`, insertError.message)
                   } else {
-                    // Duplicate - another call already inserted this. Re-fetch to get the correct name
+                    // Duplicate - re-fetch to get the correct name
                     const { data: duplicateUsage } = await supabase
                       .from("prompt_name_usage")
                       .select("name_used")
@@ -617,14 +617,14 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
                       .maybeSingle()
                     
                     if (duplicateUsage?.name_used) {
-                      // Use the name that was already inserted (prevents race condition issues)
                       variables.member_name = duplicateUsage.name_used
                       console.log(`[getDailyPrompt] Duplicate insert detected, using existing: ${duplicateUsage.name_used}`)
                     }
                   }
+                } else {
+                  console.log(`[getDailyPrompt] Created missing prompt_name_usage record for birthday prompt ${prompt.id} on ${date}: ${variables.member_name}`)
                 }
               } else {
-                // Fallback if no names found
                 variables.member_name = "them"
               }
             }
@@ -647,7 +647,8 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
             variables.member_name = existingUsage.name_used
             console.log(`[getDailyPrompt] Using existing member name selection for ${date}: ${existingUsage.name_used}`)
           } else {
-            // No existing selection for this date - calculate which member to use
+            // Missing record - create it using the SAME deterministic logic as new prompts
+            // This fixes data inconsistencies while ensuring consistency
             const members = await getGroupMembers(groupId)
             
             // Get current user ID to exclude them
@@ -659,7 +660,6 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
             
             if (otherMembers.length > 0) {
               // Get recently used member names across ALL member_name prompts (excluding this date)
-              // This ensures fair rotation across all prompts, not just this specific one
               const { data: recentUsage } = await supabase
                 .from("prompt_name_usage")
                 .select("name_used")
@@ -680,14 +680,14 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
               // If all have been used, reset and start fresh (still excluding current user)
               const availableMembers = unusedMembers.length > 0 ? unusedMembers : otherMembers
               
-              // Select next member (cycle through)
+              // Select next member using SAME deterministic logic as new prompts
               const dayIndex = getDayIndex(date, groupId)
               const memberIndex = dayIndex % availableMembers.length
               const selectedMember = availableMembers[memberIndex]
               
               variables.member_name = selectedMember.user?.name || "them"
 
-              // Record usage for this date (ignore errors if already exists - might be race condition)
+              // Create the missing record (this fixes data inconsistency)
               const { error: insertError } = await supabase.from("prompt_name_usage").insert({
                 group_id: groupId,
                 prompt_id: prompt.id,
@@ -712,12 +712,17 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
                     .maybeSingle()
                   
                   if (duplicateUsage?.name_used) {
-                    // Use the name that was already inserted (prevents race condition issues)
                     variables.member_name = duplicateUsage.name_used
                     console.log(`[getDailyPrompt] Duplicate insert detected, using existing: ${duplicateUsage.name_used}`)
                   }
                 }
+              } else {
+                console.log(`[getDailyPrompt] Created missing prompt_name_usage record for ${prompt.id} on ${date}: ${variables.member_name}`)
               }
+            } else {
+              // No other members available
+              variables.member_name = "them"
+              console.warn(`[getDailyPrompt] No other members available for member_name replacement in group ${groupId}, using fallback "them"`)
             }
           }
         }
@@ -725,6 +730,159 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
 
       // Replace variables in question text
       if (Object.keys(variables).length > 0) {
+        personalizedQuestion = replaceDynamicVariables(prompt.question, variables)
+      }
+    }
+    
+    // Handle member_name variable if it's in question text but NOT in dynamic_variables
+    // This handles prompts that have {member_name} in the question but don't have dynamic_variables set
+    if (hasMemberNameVariable && (!prompt.dynamic_variables || !Array.isArray(prompt.dynamic_variables) || !prompt.dynamic_variables.includes("member_name"))) {
+      if (prompt.birthday_type === "their_birthday" || prompt.category === "Birthday") {
+        // For birthday prompts, get ALL birthday people's names and combine them
+        const { data: existingUsage } = await supabase
+          .from("prompt_name_usage")
+          .select("name_used")
+          .eq("group_id", groupId)
+          .eq("prompt_id", prompt.id)
+          .eq("variable_type", "member_name")
+          .eq("date_used", date)
+          .maybeSingle()
+
+        if (existingUsage?.name_used) {
+          variables.member_name = existingUsage.name_used
+          console.log(`[getDailyPrompt] Using existing member name selection for ${date}: ${existingUsage.name_used}`)
+        } else {
+          // Missing record - create it using birthday logic
+          const { data: members } = await supabase
+            .from("group_members")
+            .select("user_id, user:users(id, name, birthday)")
+            .eq("group_id", groupId)
+          
+          if (members) {
+            const todayMonthDay = date.substring(5) // MM-DD
+            const birthdayNames: string[] = []
+            
+            for (const member of members) {
+              const user = member.user as any
+              if (user?.birthday && user.birthday.substring(5) === todayMonthDay && user.name) {
+                birthdayNames.push(user.name)
+              }
+            }
+            
+            if (birthdayNames.length > 0) {
+              variables.member_name = birthdayNames.length === 1 ? birthdayNames[0] : birthdayNames.join(" and ")
+              
+              const { error: insertError } = await supabase.from("prompt_name_usage").insert({
+                group_id: groupId,
+                prompt_id: prompt.id,
+                variable_type: "member_name",
+                name_used: variables.member_name,
+                date_used: date,
+              })
+              
+              if (insertError && insertError.code !== '23505') {
+                console.warn(`[getDailyPrompt] Failed to insert prompt_name_usage for ${prompt.id} on ${date}:`, insertError.message)
+              } else if (insertError?.code === '23505') {
+                const { data: duplicateUsage } = await supabase
+                  .from("prompt_name_usage")
+                  .select("name_used")
+                  .eq("group_id", groupId)
+                  .eq("prompt_id", prompt.id)
+                  .eq("variable_type", "member_name")
+                  .eq("date_used", date)
+                  .maybeSingle()
+                
+                if (duplicateUsage?.name_used) {
+                  variables.member_name = duplicateUsage.name_used
+                }
+              }
+            } else {
+              variables.member_name = "them"
+            }
+          }
+        }
+      } else {
+        // For general prompts with member_name, cycle through all group members
+        const { data: existingUsage } = await supabase
+          .from("prompt_name_usage")
+          .select("name_used")
+          .eq("group_id", groupId)
+          .eq("prompt_id", prompt.id)
+          .eq("variable_type", "member_name")
+          .eq("date_used", date)
+          .maybeSingle()
+
+        if (existingUsage?.name_used) {
+          variables.member_name = existingUsage.name_used
+          console.log(`[getDailyPrompt] Using existing member name selection for ${date}: ${existingUsage.name_used}`)
+        } else {
+          // Missing record - create it using the SAME deterministic logic as new prompts
+          const members = await getGroupMembers(groupId)
+          
+          const { data: { user: currentUser } } = await supabase.auth.getUser()
+          const currentUserId = currentUser?.id
+          
+          const otherMembers = members.filter((m) => m.user_id !== currentUserId)
+          
+          if (otherMembers.length > 0) {
+            const { data: recentUsage } = await supabase
+              .from("prompt_name_usage")
+              .select("name_used")
+              .eq("group_id", groupId)
+              .eq("variable_type", "member_name")
+              .neq("date_used", date)
+              .order("date_used", { ascending: false })
+              .limit(otherMembers.length)
+
+            const usedNames = new Set(recentUsage?.map((u) => u.name_used) || [])
+            
+            const unusedMembers = otherMembers.filter((m) => {
+              const memberName = m.user?.name || "Unknown"
+              return !usedNames.has(memberName)
+            })
+            
+            const availableMembers = unusedMembers.length > 0 ? unusedMembers : otherMembers
+            
+            const dayIndex = getDayIndex(date, groupId)
+            const memberIndex = dayIndex % availableMembers.length
+            const selectedMember = availableMembers[memberIndex]
+            
+            variables.member_name = selectedMember.user?.name || "them"
+
+            const { error: insertError } = await supabase.from("prompt_name_usage").insert({
+              group_id: groupId,
+              prompt_id: prompt.id,
+              variable_type: "member_name",
+              name_used: variables.member_name,
+              date_used: date,
+            })
+            
+            if (insertError && insertError.code !== '23505') {
+              console.warn(`[getDailyPrompt] Failed to insert prompt_name_usage for ${prompt.id} on ${date}:`, insertError.message)
+            } else if (insertError?.code === '23505') {
+              const { data: duplicateUsage } = await supabase
+                .from("prompt_name_usage")
+                .select("name_used")
+                .eq("group_id", groupId)
+                .eq("prompt_id", prompt.id)
+                .eq("variable_type", "member_name")
+                .eq("date_used", date)
+                .maybeSingle()
+              
+              if (duplicateUsage?.name_used) {
+                variables.member_name = duplicateUsage.name_used
+              }
+            } else {
+              console.log(`[getDailyPrompt] Created missing prompt_name_usage record for ${prompt.id} on ${date}: ${variables.member_name}`)
+            }
+          } else {
+            variables.member_name = "them"
+          }
+        }
+      }
+      
+      // Replace variables in question text
+      if (variables.member_name) {
         personalizedQuestion = replaceDynamicVariables(prompt.question, variables)
       }
     } else if (prompt.category === "Remembering") {
@@ -1060,7 +1218,9 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
       }
 
       // Handle member_name variable
-      if (prompt.dynamic_variables.includes("member_name")) {
+      // Check if prompt has dynamic_variables OR question contains {member_name} pattern
+      const hasMemberNameVariable = (prompt.dynamic_variables && Array.isArray(prompt.dynamic_variables) && prompt.dynamic_variables.includes("member_name")) || prompt.question?.match(/\{.*member_name.*\}/i)
+      if (hasMemberNameVariable) {
         // CRITICAL: FIRST check if this exact date/prompt already has a member name selected
         const { data: existingUsage } = await supabase
           .from("prompt_name_usage")
@@ -1127,8 +1287,17 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
             }
           } else {
             // For general prompts with member_name, cycle through all group members
+            // CRITICAL: Exclude the current user from member_name selection
             const members = await getGroupMembers(groupId)
-            if (members.length > 0) {
+            
+            // Get current user ID to exclude them
+            const { data: { user: currentUser } } = await supabase.auth.getUser()
+            const currentUserId = currentUser?.id || userId // Fallback to userId parameter if auth fails
+            
+            // Filter out current user from available members
+            const otherMembers = members.filter((m) => m.user_id !== currentUserId)
+            
+            if (otherMembers.length > 0) {
               // Get recently used member names across ALL member_name prompts (excluding this date)
               // This ensures fair rotation across all prompts, not just this specific one
               const { data: recentUsage } = await supabase
@@ -1138,18 +1307,18 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
                 .eq("variable_type", "member_name")
                 .neq("date_used", date) // Exclude this date to avoid conflicts
                 .order("date_used", { ascending: false })
-                .limit(members.length)
+                .limit(otherMembers.length)
 
               const usedNames = new Set(recentUsage?.map((u) => u.name_used) || [])
               
-              // Find unused members first (filter by name)
-              const unusedMembers = members.filter((m) => {
+              // Find unused members first (filter by name, excluding current user)
+              const unusedMembers = otherMembers.filter((m) => {
                 const memberName = m.user?.name || "Unknown"
                 return !usedNames.has(memberName)
               })
               
-              // If all have been used, reset and start fresh
-              const availableMembers = unusedMembers.length > 0 ? unusedMembers : members
+              // If all have been used, reset and start fresh (still excluding current user)
+              const availableMembers = unusedMembers.length > 0 ? unusedMembers : otherMembers
               
               // Select next member (cycle through)
             const dayIndex = getDayIndex(date, groupId)
@@ -1188,6 +1357,10 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
                 }
               }
             }
+          } else {
+            // No members available - use fallback
+            variables.member_name = "them"
+            console.warn(`[getDailyPrompt] No members available for member_name replacement in group ${groupId}, using fallback "them"`)
           }
         }
         }
@@ -1610,8 +1783,11 @@ export async function deleteMemorial(memorialId: string, userId: string): Promis
 }
 
 // Reaction queries
-export async function getReactions(entryId: string): Promise<Reaction[]> {
-  const { data, error } = await supabase.from("reactions").select("*").eq("entry_id", entryId)
+export async function getReactions(entryId: string): Promise<(Reaction & { user?: { id: string; name: string; avatar_url?: string } })[]> {
+  const { data, error } = await supabase
+    .from("reactions")
+    .select("*, user:users(id, name, avatar_url)")
+    .eq("entry_id", entryId)
   if (error) throw error
   return data || []
 }
@@ -1756,6 +1932,186 @@ export async function createComment(
     throw error
   }
   return data
+}
+
+export async function updateComment(
+  commentId: string,
+  userId: string,
+  text: string,
+  mediaUrl?: string | null,
+  mediaType?: "photo" | "video" | "audio" | null
+): Promise<Comment> {
+  // Verify the comment belongs to the user
+  const { data: existingComment, error: fetchError } = await supabase
+    .from("comments")
+    .select("user_id")
+    .eq("id", commentId)
+    .single()
+
+  if (fetchError) throw fetchError
+  if (existingComment.user_id !== userId) {
+    throw new Error("You can only edit your own comments")
+  }
+
+  // Build update object
+  const updateData: any = {
+    text,
+  }
+
+  // Handle media - if mediaUrl is null, remove media; if provided, update it
+  if (mediaUrl === null) {
+    // Remove media
+    updateData.media_url = null
+    updateData.media_type = null
+  } else if (mediaUrl && mediaType) {
+    // Update media
+    updateData.media_url = mediaUrl
+    updateData.media_type = mediaType
+  }
+  // If neither provided, keep existing media
+
+  const { data, error } = await supabase
+    .from("comments")
+    .update(updateData)
+    .eq("id", commentId)
+    .select("*, user:users(*)")
+    .single()
+
+  if (error) {
+    // If error is due to missing columns, try without media columns
+    if (error.message?.includes("column") && error.message?.includes("media")) {
+      console.warn("[updateComment] Media columns not found, updating comment without media:", error.message)
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from("comments")
+        .update({ text })
+        .eq("id", commentId)
+        .select("*, user:users(*)")
+        .single()
+      
+      if (fallbackError) throw fallbackError
+      return {
+        ...fallbackData,
+        media_url: undefined,
+        media_type: undefined,
+      }
+    }
+    throw error
+  }
+  return data
+}
+
+export async function deleteComment(commentId: string, userId: string): Promise<void> {
+  // Verify the comment belongs to the user
+  const { data: existingComment, error: fetchError } = await supabase
+    .from("comments")
+    .select("user_id")
+    .eq("id", commentId)
+    .single()
+
+  if (fetchError) throw fetchError
+  if (existingComment.user_id !== userId) {
+    throw new Error("You can only delete your own comments")
+  }
+
+  const { error } = await supabase
+    .from("comments")
+    .delete()
+    .eq("id", commentId)
+
+  if (error) throw error
+}
+
+// Comment reaction queries
+export async function getCommentReactions(commentId: string): Promise<(Reaction & { user?: { id: string; name: string; avatar_url?: string } })[]> {
+  const { data, error } = await supabase
+    .from("comment_reactions")
+    .select("*, user:users(id, name, avatar_url)")
+    .eq("comment_id", commentId)
+  if (error) throw error
+  return data || []
+}
+
+// Get all comment reactions for an entry (for efficiency)
+export async function getAllCommentReactionsForEntry(entryId: string): Promise<Record<string, (Reaction & { user?: { id: string; name: string; avatar_url?: string } })[]>> {
+  // First get all comment IDs for this entry
+  const { data: entryComments, error: commentsError } = await supabase
+    .from("comments")
+    .select("id")
+    .eq("entry_id", entryId)
+  
+  if (commentsError || !entryComments || entryComments.length === 0) {
+    return {}
+  }
+  
+  const commentIds = entryComments.map(c => c.id)
+  
+  // Fetch all reactions for these comments
+  const { data, error } = await supabase
+    .from("comment_reactions")
+    .select("*, user:users(id, name, avatar_url), comment_id")
+    .in("comment_id", commentIds)
+  
+  if (error) {
+    console.error("[getAllCommentReactionsForEntry] Error:", error)
+    return {}
+  }
+  
+  // Group by comment_id
+  const grouped: Record<string, (Reaction & { user?: { id: string; name: string; avatar_url?: string } })[]> = {}
+  ;(data || []).forEach((reaction: any) => {
+    const commentId = reaction.comment_id
+    if (!grouped[commentId]) {
+      grouped[commentId] = []
+    }
+    grouped[commentId].push(reaction)
+  })
+  
+  return grouped
+}
+
+/**
+ * Add or remove an emoji reaction for a comment
+ * If user already has this emoji reaction, remove it
+ * If user has a different emoji reaction, replace it
+ * If user has no reaction, add it
+ */
+export async function toggleCommentEmojiReaction(commentId: string, userId: string, emoji: string): Promise<void> {
+  // Check if user already has this exact emoji reaction
+  const { data: existing } = await supabase
+    .from("comment_reactions")
+    .select("id")
+    .eq("comment_id", commentId)
+    .eq("user_id", userId)
+    .eq("type", emoji)
+    .maybeSingle()
+
+  if (existing) {
+    // User already has this emoji - remove it
+    await supabase.from("comment_reactions").delete().eq("id", existing.id)
+  } else {
+    // Check if user has any other reaction for this comment
+    const { data: otherReaction } = await supabase
+      .from("comment_reactions")
+      .select("id")
+      .eq("comment_id", commentId)
+      .eq("user_id", userId)
+      .maybeSingle()
+
+    if (otherReaction) {
+      // User has a different reaction - replace it
+      await supabase
+        .from("comment_reactions")
+        .update({ type: emoji })
+        .eq("id", otherReaction.id)
+    } else {
+      // User has no reaction - add new one
+      await supabase.from("comment_reactions").insert({ 
+        comment_id: commentId, 
+        user_id: userId, 
+        type: emoji 
+      })
+    }
+  }
 }
 
 // Group Settings functions

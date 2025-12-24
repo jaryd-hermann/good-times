@@ -5,7 +5,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, TextInput,
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { supabase } from "../../../lib/supabase"
-import { getEntryById, getReactions, getComments, toggleReaction, createComment, getAllEntriesForGroup, getMemorials, getGroupMembers } from "../../../lib/db"
+import { getEntryById, getReactions, getComments, toggleReaction, createComment, updateComment, deleteComment, getAllEntriesForGroup, getMemorials, getGroupMembers, getAllCommentReactionsForEntry, toggleCommentEmojiReaction } from "../../../lib/db"
 import { typography, spacing } from "../../../lib/theme"
 import { useTheme } from "../../../lib/theme-context"
 import { Avatar } from "../../../components/Avatar"
@@ -24,8 +24,10 @@ import { markEntryAsVisited } from "../../../lib/notifications-in-app"
 import { updateBadgeCount } from "../../../lib/notifications-badge"
 import { UserProfileModal } from "../../../components/UserProfileModal"
 import { MentionableText } from "../../../components/MentionableText"
+import { EmojiPicker } from "../../../components/EmojiPicker"
 import * as ImagePicker from "expo-image-picker"
-import { CommentVideoModal } from "../../../components/CommentVideoModal"
+// Lazy load CommentVideoModal only when needed to prevent crashes at app launch
+// Don't import it at module level - import it dynamically when the modal is actually opened
 import { uploadMedia } from "../../../lib/storage"
 import * as FileSystem from "expo-file-system/legacy"
 
@@ -105,18 +107,28 @@ export default function EntryDetail() {
   const [commentMediaUri, setCommentMediaUri] = useState<string | null>(null)
   const [commentMediaType, setCommentMediaType] = useState<"photo" | "video" | "audio" | null>(null)
   const [showCommentVideoModal, setShowCommentVideoModal] = useState(false)
+  const [CommentVideoModalComponent, setCommentVideoModalComponent] = useState<React.ComponentType<any> | null>(null)
   const [commentAudioDuration, setCommentAudioDuration] = useState(0)
   const [commentAudioPlaying, setCommentAudioPlaying] = useState(false)
   const commentAudioRef = useRef<Audio.Sound | null>(null)
   const commentRecordingRef = useRef<Audio.Recording | null>(null)
   const commentVideoRefs = useRef<Record<string, Video>>({})
   const [activeCommentVideoId, setActiveCommentVideoId] = useState<string | null>(null)
+  const [commentVideoMuted, setCommentVideoMuted] = useState<Record<string, boolean>>({})
   const [commentLightboxVisible, setCommentLightboxVisible] = useState(false)
   const [commentLightboxIndex, setCommentLightboxIndex] = useState(0)
   const [commentLightboxPhotos, setCommentLightboxPhotos] = useState<string[]>([])
   const [isRecordingCommentAudio, setIsRecordingCommentAudio] = useState(false)
   const commentRecordingTimerRef = useRef<NodeJS.Timeout | null>(null)
   const [isCommentInputFocused, setIsCommentInputFocused] = useState(false)
+  
+  // Comment editing state
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
+  const [editCommentText, setEditCommentText] = useState("")
+  const [editCommentMediaUri, setEditCommentMediaUri] = useState<string | null>(null)
+  const [editCommentMediaType, setEditCommentMediaType] = useState<"photo" | "video" | "audio" | null>(null)
+  const [editCommentAudioDuration, setEditCommentAudioDuration] = useState(0)
+  const [commentEmojiPickerCommentId, setCommentEmojiPickerCommentId] = useState<string | null>(null)
 
   // Listen to keyboard events to adjust comment input position on Android
   useEffect(() => {
@@ -268,6 +280,13 @@ export default function EntryDetail() {
   const { data: comments = [] } = useQuery({
     queryKey: ["comments", entryId],
     queryFn: () => getComments(entryId),
+    enabled: !!entryId,
+  })
+
+  // Fetch all comment reactions for this entry
+  const { data: commentReactionsMap = {} } = useQuery({
+    queryKey: ["commentReactions", entryId],
+    queryFn: () => getAllCommentReactionsForEntry(entryId),
     enabled: !!entryId,
   })
 
@@ -564,6 +583,62 @@ export default function EntryDetail() {
     },
   })
 
+  const updateCommentMutation = useMutation({
+    mutationFn: async ({ commentId, text, mediaUrl, mediaType }: { commentId: string; text: string; mediaUrl?: string | null; mediaType?: "photo" | "video" | "audio" | null }) => {
+      return updateComment(commentId, userId!, text.trim(), mediaUrl, mediaType)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["comments", entryId] })
+      queryClient.invalidateQueries({ queryKey: ["historyComments"] })
+      queryClient.invalidateQueries({ queryKey: ["historyEntries"] })
+      queryClient.invalidateQueries({ queryKey: ["entries"] })
+      
+      // Reset editing state
+      setEditingCommentId(null)
+      setEditCommentText("")
+      setEditCommentMediaUri(null)
+      setEditCommentMediaType(null)
+      setEditCommentAudioDuration(0)
+    },
+  })
+
+  const deleteCommentMutation = useMutation({
+    mutationFn: async (commentId: string) => {
+      return deleteComment(commentId, userId!)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["comments", entryId] })
+      queryClient.invalidateQueries({ queryKey: ["historyComments"] })
+      queryClient.invalidateQueries({ queryKey: ["historyEntries"] })
+      queryClient.invalidateQueries({ queryKey: ["entries"] })
+      
+      // Reset editing state
+      setEditingCommentId(null)
+      setEditCommentText("")
+      setEditCommentMediaUri(null)
+      setEditCommentMediaType(null)
+      setEditCommentAudioDuration(0)
+    },
+  })
+
+  const toggleCommentEmojiReactionMutation = useMutation({
+    mutationFn: ({ commentId, emoji }: { commentId: string; emoji: string }) => 
+      toggleCommentEmojiReaction(commentId, userId!, emoji),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["commentReactions", entryId] })
+    },
+  })
+
+  async function handleSelectCommentEmoji(commentId: string, emoji: string) {
+    if (!userId) return
+    try {
+      await toggleCommentEmojiReactionMutation.mutateAsync({ commentId, emoji })
+      setCommentEmojiPickerCommentId(null)
+    } catch (error) {
+      // Silently fail - user can try again
+    }
+  }
+
   const hasLiked = reactions.some((r) => r.user_id === userId)
 
   function handleBack() {
@@ -804,8 +879,16 @@ export default function EntryDetail() {
   }
 
   function handleCommentVideo(videoUri: string) {
-    setCommentMediaUri(videoUri)
-    setCommentMediaType("video")
+    if (editingCommentId) {
+      // Updating edit state
+      setEditCommentMediaUri(videoUri)
+      setEditCommentMediaType("video")
+    } else {
+      // Updating new comment state
+      setCommentMediaUri(videoUri)
+      setCommentMediaType("video")
+    }
+    setShowCommentVideoModal(false)
   }
 
   async function startCommentVoiceRecording() {
@@ -884,6 +967,124 @@ export default function EntryDetail() {
       clearInterval(commentRecordingTimerRef.current)
       commentRecordingTimerRef.current = null
     }
+  }
+
+  // Comment editing media handlers (update edit state instead of comment state)
+  async function openEditCommentGallery() {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Please grant photo library access")
+      return
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: false,
+      allowsEditing: false,
+      quality: 0.8,
+    })
+
+    if (!result.canceled && result.assets[0]) {
+      setEditCommentMediaUri(result.assets[0].uri)
+      setEditCommentMediaType("photo")
+    }
+  }
+
+  async function openEditCommentCamera() {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync()
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Please grant camera access")
+      return
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      quality: 0.8,
+    })
+
+    if (!result.canceled && result.assets[0]) {
+      setEditCommentMediaUri(result.assets[0].uri)
+      setEditCommentMediaType("photo")
+    }
+  }
+
+  function handleEditCommentVideo(videoUri: string) {
+    setEditCommentMediaUri(videoUri)
+    setEditCommentMediaType("video")
+  }
+
+  // Comment editing handlers
+  function startEditingComment(comment: any) {
+    setEditingCommentId(comment.id)
+    setEditCommentText(comment.text || "")
+    setEditCommentMediaUri(comment.media_url || null)
+    setEditCommentMediaType(comment.media_type || null)
+    setEditCommentAudioDuration(0) // Will be calculated if needed
+  }
+
+  function cancelEditingComment() {
+    setEditingCommentId(null)
+    setEditCommentText("")
+    setEditCommentMediaUri(null)
+    setEditCommentMediaType(null)
+    setEditCommentAudioDuration(0)
+  }
+
+  async function saveEditedComment() {
+    if (!editingCommentId || !userId) return
+
+    try {
+      let mediaUrl: string | null | undefined = editCommentMediaUri
+      let mediaType: "photo" | "video" | "audio" | null | undefined = editCommentMediaType
+
+      // If media was removed, set to null
+      if (!editCommentMediaUri && editCommentMediaType) {
+        mediaUrl = null
+        mediaType = null
+      }
+
+      // If new media was added, upload it
+      if (editCommentMediaUri && editCommentMediaType && entry?.group_id) {
+        // Check if it's a new local file (starts with file://) or already uploaded (starts with http)
+        if (editCommentMediaUri.startsWith("file://")) {
+          const storageKey = `comment-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+          mediaUrl = await uploadMedia(entry.group_id, storageKey, editCommentMediaUri, editCommentMediaType)
+          mediaType = editCommentMediaType
+        }
+        // Otherwise, keep existing mediaUrl
+      }
+
+      await updateCommentMutation.mutateAsync({
+        commentId: editingCommentId,
+        text: editCommentText.trim() || "",
+        mediaUrl,
+        mediaType,
+      })
+    } catch (error: any) {
+      Alert.alert("Error", error.message || "Failed to update comment")
+    }
+  }
+
+  async function handleDeleteComment(commentId: string) {
+    Alert.alert(
+      "Delete comment",
+      "Are you sure you want to delete this comment?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteCommentMutation.mutateAsync(commentId)
+            } catch (error: any) {
+              Alert.alert("Error", error.message || "Failed to delete comment")
+            }
+          },
+        },
+      ]
+    )
   }
 
   // Cleanup on unmount
@@ -1126,11 +1327,65 @@ export default function EntryDetail() {
       marginLeft: spacing.sm,
       flex: 1,
     },
+    commentUserRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: spacing.xs,
+    },
+    commentUserLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      flex: 1,
+    },
     commentUser: {
       ...typography.bodyBold,
       fontSize: 14,
-      marginBottom: spacing.xs,
       color: theme2Colors.text,
+    },
+    commentReactionsContainer: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      marginLeft: spacing.xs,
+    },
+    commentReactButton: {
+      padding: spacing.xs,
+      marginLeft: "auto",
+    },
+    commentReactIcon: {
+      width: 20,
+      height: 20,
+    },
+    commentReactionAvatarContainer: {
+      position: "relative",
+    },
+    commentReactionAvatarWrapper: {
+      opacity: 0.7, // 70% opacity for avatars
+    },
+    commentReactionEmojiOverlay: {
+      position: "absolute",
+      top: -4,
+      right: -8,
+      backgroundColor: theme2Colors.cream,
+      borderRadius: 10,
+      width: 20,
+      height: 20,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
+      zIndex: 1,
+    },
+    commentReactionEmojiOverlayText: {
+      fontSize: 12,
+    },
+    editLink: {
+      ...typography.bodyMedium,
+      fontSize: 13,
+      color: isDark ? "#D97393" : colors.accent,
+      textDecorationLine: "underline",
+      marginLeft: spacing.sm,
     },
     commentText: {
       ...typography.body,
@@ -1138,16 +1393,92 @@ export default function EntryDetail() {
       lineHeight: 20,
       color: theme2Colors.textSecondary,
     },
+    editCommentInput: {
+      ...typography.body,
+      fontSize: 14,
+      color: theme2Colors.text,
+      backgroundColor: theme2Colors.cream,
+      borderRadius: 8,
+      padding: spacing.sm,
+      marginBottom: spacing.sm,
+      minHeight: 60,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
+    },
+    editCommentToolbar: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      marginBottom: spacing.sm,
+    },
+    editCommentActions: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginTop: spacing.xs,
+    },
+    deleteCommentButton: {
+      paddingVertical: spacing.xs,
+      paddingHorizontal: spacing.sm,
+    },
+    deleteCommentButtonText: {
+      ...typography.bodyMedium,
+      fontSize: 13,
+      color: theme2Colors.red,
+      textDecorationLine: "underline",
+    },
+    editCommentActionButtons: {
+      flexDirection: "row",
+      gap: spacing.sm,
+      alignItems: "center",
+    },
+    cancelEditButton: {
+      paddingVertical: spacing.xs,
+      paddingHorizontal: spacing.md,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
+    },
+    cancelEditButtonText: {
+      ...typography.bodyMedium,
+      fontSize: 13,
+      color: theme2Colors.text,
+    },
+    saveEditButton: {
+      paddingVertical: spacing.xs,
+      paddingHorizontal: spacing.md,
+      borderRadius: 16,
+      backgroundColor: theme2Colors.blue,
+    },
+    saveEditButtonDisabled: {
+      opacity: 0.5,
+    },
+    saveEditButtonText: {
+      ...typography.bodyMedium,
+      fontSize: 13,
+      color: theme2Colors.white,
+    },
     commentMediaContainer: {
       marginTop: spacing.md,
       marginBottom: spacing.xs,
     },
-    commentMediaThumbnail: {
+    commentMediaThumbnailContainer: {
       width: 200,
       height: 200,
       borderRadius: 12,
-      backgroundColor: colors.gray[900],
+      position: "relative",
       overflow: "hidden",
+    },
+    commentMediaThumbnail: {
+      width: "100%",
+      height: "100%",
+      borderRadius: 12,
+      backgroundColor: colors.gray[900],
+    },
+    commentVideoWrapper: {
+      width: "100%",
+      height: "100%",
+      borderRadius: 12,
     },
     commentVideoPlayButton: {
       position: "absolute",
@@ -1158,6 +1489,19 @@ export default function EntryDetail() {
       justifyContent: "center",
       alignItems: "center",
       backgroundColor: "rgba(0, 0, 0, 0.2)",
+    },
+    commentVideoControls: {
+      position: "absolute",
+      top: spacing.xs,
+      right: spacing.xs,
+    },
+    commentVideoMuteButton: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: "rgba(0, 0, 0, 0.6)",
+      justifyContent: "center",
+      alignItems: "center",
     },
     commentAudioPill: {
       flexDirection: "row",
@@ -1202,6 +1546,16 @@ export default function EntryDetail() {
       height: 60,
       borderRadius: 8,
       backgroundColor: colors.gray[900],
+    },
+    commentVideoOverlay: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      justifyContent: "center",
+      alignItems: "center",
+      backgroundColor: "rgba(0, 0, 0, 0.3)",
     },
     commentMediaPreviewDelete: {
       position: "absolute",
@@ -1254,6 +1608,24 @@ export default function EntryDetail() {
       borderColor: "#D97393", // Pink outline
       justifyContent: "center",
       alignItems: "center",
+    },
+    commentToolbarButtonVideoWithText: {
+      backgroundColor: theme2Colors.cream,
+      borderWidth: 2,
+      borderColor: "#D97393", // Pink outline
+      borderRadius: 20,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+      justifyContent: "center",
+      minHeight: 40,
+    },
+    commentVideoButtonLabel: {
+      ...typography.caption,
+      color: theme2Colors.text,
+      fontSize: 12,
     },
     sendButtonInline: {
       width: 40,
@@ -1523,19 +1895,217 @@ export default function EntryDetail() {
               {/* Comments */}
               <View style={styles.commentsDivider} />
               <View ref={commentsSectionRef} style={styles.commentsSection}>
-                {(comments || []).map((comment) => (
-                  <TouchableOpacity
-                    key={comment.id}
-                    style={styles.comment}
-                    onPress={() => {
-                      // Tapping comment text area opens entry detail (already on detail page, so do nothing or scroll to top)
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={40} />
-                    <View style={styles.commentContent}>
-                      <Text style={styles.commentUser}>{comment.user?.name}</Text>
-                      {comment.text && <Text style={styles.commentText}>{comment.text}</Text>}
+                {(comments || []).map((comment) => {
+                  const isEditing = editingCommentId === comment.id
+                  const isOwnComment = comment.user_id === userId
+                  const commentReactions = commentReactionsMap[comment.id] || []
+                  const currentUserCommentReactions = commentReactions.filter((r: any) => r.user_id === userId).map((r: any) => r.type || "❤️")
+                  
+                  return (
+                    <View key={comment.id} style={styles.comment}>
+                      <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={40} />
+                      <View style={styles.commentContent}>
+                        <View style={styles.commentUserRow}>
+                          <View style={styles.commentUserLeft}>
+                            <Text style={styles.commentUser}>{comment.user?.name}</Text>
+                            {isOwnComment && !isEditing && (
+                              <TouchableOpacity
+                                onPress={() => startEditingComment(comment)}
+                                activeOpacity={0.7}
+                              >
+                                <Text style={styles.editLink}>Edit</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                          {/* Comment Reactions - On same line as user name */}
+                          {commentReactions.length > 0 && (
+                            <View style={styles.commentReactionsContainer}>
+                              {commentReactions.map((reaction: any) => {
+                                const emoji = reaction.type || "❤️"
+                                const user = reaction.user
+                                return (
+                                  <TouchableOpacity
+                                    key={reaction.id}
+                                    style={styles.commentReactionAvatarContainer}
+                                    onPress={(e) => {
+                                      e.stopPropagation()
+                                      if (userId) {
+                                        handleSelectCommentEmoji(comment.id, emoji)
+                                      }
+                                    }}
+                                    activeOpacity={0.7}
+                                  >
+                                    <View style={styles.commentReactionAvatarWrapper}>
+                                      <Avatar
+                                        uri={user?.avatar_url}
+                                        name={user?.name || "User"}
+                                        size={25}
+                                      />
+                                    </View>
+                                    <View style={styles.commentReactionEmojiOverlay}>
+                                      <Text style={styles.commentReactionEmojiOverlayText}>{emoji}</Text>
+                                    </View>
+                                  </TouchableOpacity>
+                                )
+                              })}
+                            </View>
+                          )}
+                          {/* React Button - Top right corner */}
+                          {currentUserCommentReactions.length === 0 && (
+                            <TouchableOpacity
+                              style={styles.commentReactButton}
+                              onPress={(e) => {
+                                e.stopPropagation()
+                                if (userId) {
+                                  setCommentEmojiPickerCommentId(comment.id)
+                                }
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <Image
+                                source={require("../../../assets/images/react.png")}
+                                style={styles.commentReactIcon}
+                                resizeMode="contain"
+                              />
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                        
+                        {isEditing ? (
+                          // Editor UI
+                          <View>
+                            <TextInput
+                              value={editCommentText}
+                              onChangeText={setEditCommentText}
+                              placeholder="Edit your comment..."
+                              placeholderTextColor={theme2Colors.textSecondary}
+                              style={styles.editCommentInput}
+                              multiline
+                              autoFocus
+                            />
+                            
+                            {/* Media Preview in Editor */}
+                            {editCommentMediaUri && editCommentMediaType && (
+                              <View style={styles.commentMediaPreview}>
+                                {editCommentMediaType === "photo" && (
+                                  <View style={styles.commentMediaPreviewItem}>
+                                    <Image source={{ uri: editCommentMediaUri }} style={styles.commentMediaPreviewThumbnail} resizeMode="cover" />
+                                    <TouchableOpacity style={styles.commentMediaPreviewDelete} onPress={() => {
+                                      setEditCommentMediaUri(null)
+                                      setEditCommentMediaType(null)
+                                    }}>
+                                      <FontAwesome name="times" size={12} color={colors.white} />
+                                    </TouchableOpacity>
+                                  </View>
+                                )}
+                                {editCommentMediaType === "video" && (
+                                  <View style={styles.commentMediaPreviewItem}>
+                                    <Video
+                                      source={{ uri: editCommentMediaUri }}
+                                      style={styles.commentMediaPreviewThumbnail}
+                                      resizeMode={ResizeMode.COVER}
+                                      isMuted={true}
+                                      shouldPlay={false}
+                                      useNativeControls={false}
+                                    />
+                                    <TouchableOpacity style={styles.commentMediaPreviewDelete} onPress={() => {
+                                      setEditCommentMediaUri(null)
+                                      setEditCommentMediaType(null)
+                                    }}>
+                                      <FontAwesome name="times" size={12} color={colors.white} />
+                                    </TouchableOpacity>
+                                  </View>
+                                )}
+                                {editCommentMediaType === "audio" && (
+                                  <View style={styles.commentMediaPreviewItem}>
+                                    <View style={styles.commentAudioPreviewPill}>
+                                      <FontAwesome name="microphone" size={14} color={colors.white} />
+                                      <Text style={styles.commentAudioLabel}>
+                                        {editCommentAudioDuration > 0 ? formatMillis(editCommentAudioDuration * 1000) : "Voice memo"}
+                                      </Text>
+                                    </View>
+                                    <TouchableOpacity style={styles.commentMediaPreviewDelete} onPress={() => {
+                                      setEditCommentMediaUri(null)
+                                      setEditCommentMediaType(null)
+                                      setEditCommentAudioDuration(0)
+                                    }}>
+                                      <FontAwesome name="times" size={12} color={colors.white} />
+                                    </TouchableOpacity>
+                                  </View>
+                                )}
+                              </View>
+                            )}
+                            
+                            {/* Media Toolbar in Editor */}
+                            {!editCommentMediaUri && (
+                              <View style={styles.editCommentToolbar}>
+                                <TouchableOpacity style={styles.commentToolbarButton} onPress={openEditCommentGallery}>
+                                  <FontAwesome name="image" size={18} color={theme2Colors.text} />
+                                </TouchableOpacity>
+                                <TouchableOpacity style={styles.commentToolbarButton} onPress={openEditCommentCamera}>
+                                  <FontAwesome name="camera" size={18} color={theme2Colors.text} />
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={styles.commentToolbarButtonVideoWithText}
+                                  onPress={async () => {
+                                    if (!entry?.user?.name) return
+                                    // Lazy load CommentVideoModal only when user taps the button
+                                    if (!CommentVideoModalComponent) {
+                                      try {
+                                        const CommentVideoModalModule = await import("../../../components/CommentVideoModal")
+                                        setCommentVideoModalComponent(() => CommentVideoModalModule.CommentVideoModal)
+                                      } catch (error) {
+                                        console.error("[entry-detail] Failed to load CommentVideoModal:", error)
+                                        Alert.alert("Error", "Unable to open video recorder. Please try again.")
+                                        return
+                                      }
+                                    }
+                                    // Use a flag to track if we're editing
+                                    setShowCommentVideoModal(true)
+                                  }}
+                                >
+                                  <FontAwesome name="video-camera" size={18} color={theme2Colors.text} />
+                                  <Text style={styles.commentVideoButtonLabel}>Video</Text>
+                                </TouchableOpacity>
+                              </View>
+                            )}
+                            
+                            {/* Editor Actions */}
+                            <View style={styles.editCommentActions}>
+                              <TouchableOpacity
+                                style={styles.deleteCommentButton}
+                                onPress={() => handleDeleteComment(comment.id)}
+                                activeOpacity={0.7}
+                              >
+                                <Text style={styles.deleteCommentButtonText}>Delete</Text>
+                              </TouchableOpacity>
+                              <View style={styles.editCommentActionButtons}>
+                                <TouchableOpacity
+                                  style={styles.cancelEditButton}
+                                  onPress={cancelEditingComment}
+                                  activeOpacity={0.7}
+                                >
+                                  <Text style={styles.cancelEditButtonText}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={[styles.saveEditButton, (!editCommentText.trim() && !editCommentMediaUri) && styles.saveEditButtonDisabled]}
+                                  onPress={saveEditedComment}
+                                  disabled={(!editCommentText.trim() && !editCommentMediaUri) || updateCommentMutation.isPending}
+                                  activeOpacity={0.7}
+                                >
+                                  {updateCommentMutation.isPending ? (
+                                    <ActivityIndicator size="small" color={theme2Colors.white} />
+                                  ) : (
+                                    <Text style={styles.saveEditButtonText}>Save</Text>
+                                  )}
+                                </TouchableOpacity>
+                              </View>
+                            </View>
+                          </View>
+                        ) : (
+                          // Normal comment display
+                          <>
+                            {comment.text && <Text style={styles.commentText}>{comment.text}</Text>}
                       {comment.media_url && comment.media_type && (
                         <View style={styles.commentMediaContainer}>
                           {comment.media_type === "photo" && (
@@ -1563,25 +2133,36 @@ export default function EntryDetail() {
                             </TouchableOpacity>
                           )}
                           {comment.media_type === "video" && comment.media_url && (
-                            <View style={styles.commentMediaThumbnail}>
-                              <Video
-                                ref={(ref) => {
-                                  if (ref) {
-                                    commentVideoRefs.current[`comment-${comment.id}`] = ref
+                            <View style={styles.commentMediaThumbnailContainer}>
+                              <TouchableOpacity
+                                onPress={(e) => {
+                                  e.stopPropagation()
+                                  if (activeCommentVideoId === `comment-${comment.id}`) {
+                                    handleToggleCommentVideo(comment.id, comment.media_url)
                                   }
                                 }}
-                                source={{ uri: comment.media_url }}
-                                style={styles.commentMediaThumbnail}
-                                resizeMode={ResizeMode.COVER}
-                                isMuted={true}
-                                shouldPlay={activeCommentVideoId === `comment-${comment.id}`}
-                                useNativeControls={false}
-                                onPlaybackStatusUpdate={(status) => {
-                                  if (status.isLoaded && status.didJustFinish) {
-                                    setActiveCommentVideoId(null)
-                                  }
-                                }}
-                              />
+                                activeOpacity={1}
+                                style={styles.commentVideoWrapper}
+                              >
+                                <Video
+                                  ref={(ref) => {
+                                    if (ref) {
+                                      commentVideoRefs.current[`comment-${comment.id}`] = ref
+                                    }
+                                  }}
+                                  source={{ uri: comment.media_url }}
+                                  style={styles.commentMediaThumbnail}
+                                  resizeMode={ResizeMode.COVER}
+                                  isMuted={commentVideoMuted[`comment-${comment.id}`] ?? false}
+                                  shouldPlay={activeCommentVideoId === `comment-${comment.id}`}
+                                  useNativeControls={false}
+                                  onPlaybackStatusUpdate={(status) => {
+                                    if (status.isLoaded && status.didJustFinish) {
+                                      setActiveCommentVideoId(null)
+                                    }
+                                  }}
+                                />
+                              </TouchableOpacity>
                               {activeCommentVideoId !== `comment-${comment.id}` && (
                                 <TouchableOpacity
                                   onPress={(e) => {
@@ -1591,19 +2172,26 @@ export default function EntryDetail() {
                                   activeOpacity={0.8}
                                   style={styles.commentVideoPlayButton}
                                 >
-                                  <FontAwesome name="play-circle" size={32} color={colors.white} />
+                                  <FontAwesome name="play-circle" size={32} color="#ffffff" />
                                 </TouchableOpacity>
                               )}
                               {activeCommentVideoId === `comment-${comment.id}` && (
                                 <TouchableOpacity
                                   onPress={(e) => {
                                     e.stopPropagation()
-                                    handleToggleCommentVideo(comment.id, comment.media_url)
+                                    setCommentVideoMuted((prev) => ({
+                                      ...prev,
+                                      [`comment-${comment.id}`]: !(prev[`comment-${comment.id}`] ?? false),
+                                    }))
                                   }}
                                   activeOpacity={0.8}
-                                  style={styles.commentVideoPlayButton}
+                                  style={styles.commentVideoMuteButton}
                                 >
-                                  <FontAwesome name="pause-circle" size={32} color={colors.white} />
+                                  <FontAwesome
+                                    name={commentVideoMuted[`comment-${comment.id}`] ? "volume-off" : "volume-up"}
+                                    size={16}
+                                    color={colors.white}
+                                  />
                                 </TouchableOpacity>
                               )}
                             </View>
@@ -1639,9 +2227,12 @@ export default function EntryDetail() {
                           )}
                         </View>
                       )}
+                          </>
+                        )}
+                      </View>
                     </View>
-                  </TouchableOpacity>
-                ))}
+                  )
+                })}
               </View>
             </>
           )}
@@ -1759,16 +2350,6 @@ export default function EntryDetail() {
                 <FontAwesome name="camera" size={18} color={theme2Colors.text} />
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.commentToolbarButtonVideo}
-                onPress={() => {
-                  if (entry?.user?.name) {
-                    setShowCommentVideoModal(true)
-                  }
-                }}
-              >
-                <FontAwesome name="video-camera" size={18} color={theme2Colors.text} />
-              </TouchableOpacity>
-              <TouchableOpacity
                 style={styles.commentToolbarButton}
                 onPress={() => {
                   if (isRecordingCommentAudio) {
@@ -1789,6 +2370,27 @@ export default function EntryDetail() {
                   {formatMillis(commentAudioDuration * 1000)}
                 </Text>
               )}
+              <TouchableOpacity
+                style={styles.commentToolbarButtonVideoWithText}
+                onPress={async () => {
+                  if (!entry?.user?.name) return
+                  // Lazy load CommentVideoModal only when user taps the button
+                  if (!CommentVideoModalComponent) {
+                    try {
+                      const CommentVideoModalModule = await import("../../../components/CommentVideoModal")
+                      setCommentVideoModalComponent(() => CommentVideoModalModule.CommentVideoModal)
+                    } catch (error) {
+                      console.error("[entry-detail] Failed to load CommentVideoModal:", error)
+                      Alert.alert("Error", "Unable to open video recorder. Please try again.")
+                      return
+                    }
+                  }
+                  setShowCommentVideoModal(true)
+                }}
+              >
+                <FontAwesome name="video-camera" size={18} color={theme2Colors.text} />
+                <Text style={styles.commentVideoButtonLabel}>Video reply</Text>
+              </TouchableOpacity>
               {(commentText.trim().length > 0 || commentMediaUri) && (
                 <TouchableOpacity
                   style={styles.sendButtonInline}
@@ -1842,9 +2444,9 @@ export default function EntryDetail() {
         }}
       />
 
-      {/* Comment Video Modal */}
-      {entry?.user?.name && (
-        <CommentVideoModal
+      {/* Comment Video Modal - Lazy loaded */}
+      {entry?.user?.name && CommentVideoModalComponent && showCommentVideoModal && (
+        <CommentVideoModalComponent
           visible={showCommentVideoModal}
           replyToName={entry.user.name}
           onClose={() => setShowCommentVideoModal(false)}
@@ -1859,6 +2461,16 @@ export default function EntryDetail() {
         initialIndex={commentLightboxIndex}
         onClose={() => setCommentLightboxVisible(false)}
       />
+
+      {/* Comment Emoji Picker Modal */}
+      {commentEmojiPickerCommentId && (
+        <EmojiPicker
+          visible={!!commentEmojiPickerCommentId}
+          onClose={() => setCommentEmojiPickerCommentId(null)}
+          onSelectEmoji={(emoji) => handleSelectCommentEmoji(commentEmojiPickerCommentId, emoji)}
+          currentReactions={commentReactionsMap[commentEmojiPickerCommentId]?.filter((r: any) => r.user_id === userId).map((r: any) => r.type || "❤️") || []}
+        />
+      )}
     </KeyboardAvoidingView>
   )
 }

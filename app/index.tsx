@@ -1020,14 +1020,10 @@ export default function Index() {
     return () => clearInterval(interval);
   }, [shouldShowBooting]);
 
-  // Animate icon rotation
+  // Animate icon rotation - start immediately on mount and keep running
+  // This ensures spinner is always visible when beige background is shown
   useEffect(() => {
-    if (!shouldShowBooting) {
-      rotateAnim.setValue(0);
-      return;
-    }
-
-    // Start rotation animation
+    // Start rotation animation immediately - don't wait for shouldShowBooting
     const rotateAnimation = Animated.loop(
       Animated.timing(rotateAnim, {
         toValue: 1,
@@ -1041,7 +1037,7 @@ export default function Index() {
     return () => {
       rotateAnimation.stop();
     };
-  }, [shouldShowBooting, rotateAnim]);
+  }, [rotateAnim]); // Remove shouldShowBooting dependency - always animate
 
   // CRITICAL: If we're handling a password reset link, don't render boot screen - let navigation happen
   // Also, if we're not on the root route anymore, don't render (navigation has happened)
@@ -1074,7 +1070,8 @@ export default function Index() {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme2Colors.beige }}>
-      {shouldRenderBootScreen ? (
+      {/* Always show spinner when beige background is visible, unless showing error */}
+      {!err ? (
         <View style={styles.bootContainer}>
           <Animated.View
             style={[

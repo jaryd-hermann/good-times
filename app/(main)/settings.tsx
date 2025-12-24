@@ -41,6 +41,7 @@ import {
   type SessionState,
 } from "../../lib/test-session-utils"
 import { OnboardingGallery } from "../../components/OnboardingGallery"
+import { openAppStoreReview } from "../../lib/app-store-review"
 
 export default function SettingsScreen() {
   const router = useRouter()
@@ -129,6 +130,10 @@ export default function SettingsScreen() {
       pathname: "/(onboarding)/create-group/invite",
       params: { groupId: primaryGroupId },
     })
+  }
+
+  async function handleAppRating() {
+    await openAppStoreReview()
   }
 
   async function handleBiometricToggle(value: boolean) {
@@ -701,6 +706,20 @@ export default function SettingsScreen() {
           </View>
         </TouchableOpacity>
 
+        {/* App Rating Card */}
+        <TouchableOpacity style={styles.inviteCard} onPress={handleAppRating} activeOpacity={0.7}>
+          <View style={styles.inviteCardContent}>
+            <View style={styles.inviteCardIcon}>
+              <FontAwesome name="star" size={20} color={theme2Colors.yellow} />
+            </View>
+            <View style={styles.inviteCardText}>
+              <Text style={styles.inviteCardTitle}>Help with an app rating</Text>
+              <Text style={styles.inviteCardSubtitle}>Rate and review Good Times on the app store</Text>
+            </View>
+            <FontAwesome name="chevron-right" size={16} color={theme2Colors.textSecondary} style={{ marginLeft: spacing.md }} />
+          </View>
+        </TouchableOpacity>
+
         {/* Inline Settings */}
         <View style={styles.settingRow}>
           <View style={styles.settingRowText}>
@@ -872,6 +891,32 @@ export default function SettingsScreen() {
               <Button
                 title="Onboarding"
                 onPress={() => setOnboardingGalleryVisible(true)}
+                variant="secondary"
+              />
+            </View>
+
+            {/* App Review Modal Dev Tool */}
+            <View style={[styles.profileCard, { marginTop: spacing.md }]}>
+              <View style={styles.profileCardContent}>
+                <View style={styles.profileCardIcon}>
+                  <FontAwesome name="star" size={20} color={theme2Colors.yellow} />
+                </View>
+                <View style={styles.profileCardText}>
+                  <Text style={styles.profileCardTitle}>App Review Modal</Text>
+                  <Text style={styles.profileCardSubtitle}>Test the review modal design</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.actions}>
+              <Button
+                title="Show Review Modal"
+                onPress={async () => {
+                  // Set flag to trigger modal on home screen
+                  await AsyncStorage.setItem("dev_show_app_review_modal", "true")
+                  // Navigate to home
+                  router.push("/(main)/home")
+                }}
                 variant="secondary"
               />
             </View>

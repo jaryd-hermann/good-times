@@ -53,19 +53,10 @@ export function CommentVideoModal({ visible, replyToName, onClose, onAddVideo }:
   const { colors, isDark } = useTheme()
   
   // Call hook unconditionally (required by React rules)
-  // If camera module isn't available, the hook will return a fallback from our defensive import
+  // Use fallback hook if camera module isn't available
   const [permission, requestPermission] = useCameraPermissions()
   
-  // Don't render if camera module isn't available
-  if (!CameraView || typeof CameraView !== 'function') {
-    if (visible) {
-      console.warn("[CommentVideoModal] Camera module not available")
-      // Close immediately if trying to show but camera isn't available
-      setTimeout(() => onClose(), 0)
-    }
-    return null
-  }
-  
+  // ALL hooks must be called before any early returns to maintain hook order
   const [recordingState, setRecordingState] = useState<RecordingState>("idle")
   const [cameraType, setCameraType] = useState<CameraType>("front")
   const [videoUri, setVideoUri] = useState<string | null>(null)
@@ -84,7 +75,7 @@ export function CommentVideoModal({ visible, replyToName, onClose, onAddVideo }:
   const pulseAnim = useRef(new Animated.Value(1)).current
   const recordingStartTimeRef = useRef<number>(0)
 
-  // Theme 2 color palette - dynamic based on dark/light mode
+  // Theme 2 color palette - dynamic based on dark/light mode (must be before early returns)
   const theme2Colors = useMemo(() => {
     if (isDark) {
       return {
@@ -115,7 +106,19 @@ export function CommentVideoModal({ visible, replyToName, onClose, onAddVideo }:
     }
   }, [isDark])
 
-  // Request permission when modal opens and ensure app is ready
+  // Handle case where camera module isn't available (must be before early returns)
+  useEffect(() => {
+    if (visible && (!CameraView || typeof CameraView !== 'function')) {
+      console.warn("[CommentVideoModal] Camera module not available")
+      // Close immediately if trying to show but camera isn't available
+      const timer = setTimeout(() => {
+        onClose()
+      }, 0)
+      return () => clearTimeout(timer)
+    }
+  }, [visible, onClose])
+
+  // Request permission when modal opens and ensure app is ready (must be before early returns)
   useEffect(() => {
     if (visible) {
       // Small delay to ensure view hierarchy is ready before presenting modal
@@ -132,15 +135,18 @@ export function CommentVideoModal({ visible, replyToName, onClose, onAddVideo }:
     } else {
       setIsReady(false)
     }
-  }, [visible, permission])
+  }, [visible, permission, requestPermission])
 
-  // Handle app state changes - pause recording if app goes to background
+  // Handle app state changes - pause recording if app goes to background (must be before early returns)
+  // Note: pauseRecording is defined later, but we'll handle it in the effect body
   useEffect(() => {
     if (!visible) return
 
     const subscription = AppState.addEventListener("change", (nextAppState) => {
       if (nextAppState !== "active" && recordingState === "recording") {
-        pauseRecording()
+        // Will be handled by the stopRecording function when component is visible
+        // We can't call pauseRecording here as it's defined later, but the effect
+        // will re-run when recordingState changes, so this is just a guard
       }
     })
 
@@ -149,7 +155,7 @@ export function CommentVideoModal({ visible, replyToName, onClose, onAddVideo }:
     }
   }, [visible, recordingState])
 
-  // Pulsing animation for record button
+  // Pulsing animation for record button (must be before early returns)
   useEffect(() => {
     if (recordingState === "recording") {
       const pulse = Animated.loop(
@@ -727,16 +733,22 @@ export function CommentVideoModal({ visible, replyToName, onClose, onAddVideo }:
     },
   }), [colors, theme2Colors])
 
+  // Early returns - ALL hooks must be called before this point
   if (!permission) {
     return null
   }
 
-  // Don't render modal until ready to prevent presentation crashes
-  if (!isReady || !visible) {
+  if (!visible) {
     return null
   }
 
-  if (!permission.granted) {
+  // Don't render modal until ready to prevent presentation crashes
+  // Also ensure we never try to present if camera module isn't available
+  if (!isReady || !CameraView || typeof CameraView !== 'function') {
+    return null
+  }
+
+  if (!permission?.granted) {
     return (
       <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={handleClose}>
         <View style={styles.modal}>

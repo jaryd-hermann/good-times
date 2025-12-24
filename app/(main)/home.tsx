@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useMemo } from "react"
+import { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react"
 import {
   View,
   Text,
@@ -67,6 +67,7 @@ import { updateBadgeCount } from "../../lib/notifications-badge"
 import { UserProfileModal } from "../../components/UserProfileModal"
 import { useAuth } from "../../components/AuthProvider"
 import { OnboardingGallery } from "../../components/OnboardingGallery"
+import { AppReviewModal } from "../../components/AppReviewModal"
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 
@@ -303,6 +304,8 @@ export default function Home() {
   const [userProfileModalVisible, setUserProfileModalVisible] = useState(false)
   const [selectedMember, setSelectedMember] = useState<{ id: string; name: string; avatar_url?: string } | null>(null)
   const [onboardingGalleryVisible, setOnboardingGalleryVisible] = useState(false)
+  const [showAppReviewModal, setShowAppReviewModal] = useState(false)
+  const [revealedAnswersForToday, setRevealedAnswersForToday] = useState(false)
   const scrollY = useRef(new Animated.Value(0)).current
   const headerTranslateY = useRef(new Animated.Value(0)).current
   // CRITICAL: Initialize with safe minimum padding to prevent content cropping before headerHeight is calculated
@@ -312,8 +315,11 @@ export default function Home() {
   const lastScrollTime = useRef(0)
   const scrollViewRef = useRef<ScrollView>(null)
   const isResettingScroll = useRef(false)
+  const savedScrollPosition = useRef<number | null>(null) // Save scroll position when loading more entries
   const { opacity: tabBarOpacity, showBackToTop, setShowBackToTop, backToTopOpacity } = useTabBar()
   const posthog = usePostHog()
+  const loadingRotation = useRef(new Animated.Value(0)).current
+  const loadingAnimationRef = useRef<Animated.CompositeAnimation | null>(null)
   
   // Filtering and view mode state (like history.tsx)
   type ViewMode = "Days" | "Weeks" | "Months" | "Years"
@@ -366,13 +372,59 @@ export default function Home() {
     const subscription = AppState.addEventListener("change", (nextAppState) => {
       if (nextAppState === "background" || nextAppState === "inactive") {
         AsyncStorage.removeItem("posthog_home_session_tracked")
+      } else if (nextAppState === "active") {
+        // App came back from background - check if we should show review modal
+        checkAndShowReviewModal()
       }
     })
 
     return () => {
       subscription.remove()
     }
-  }, [posthog])
+  }, [posthog, userId, currentGroupId])
+
+  // Helper function to check entry count and show review modal if needed
+  const checkAndShowReviewModal = useCallback(async () => {
+    if (!userId || !currentGroupId) return
+    
+    try {
+      // Check if dev tool is requesting to show the modal
+      const devShowModal = await AsyncStorage.getItem("dev_show_app_review_modal")
+      if (devShowModal === "true") {
+        // Clear the flag
+        await AsyncStorage.removeItem("dev_show_app_review_modal")
+        // Show modal immediately
+        setTimeout(() => {
+          setShowAppReviewModal(true)
+        }, 500)
+        return
+      }
+      
+      // Check if we've already shown the review modal
+      const hasShownReviewModal = await AsyncStorage.getItem(`app_review_modal_shown_${userId}`)
+      
+      if (hasShownReviewModal) return // Already shown, don't check again
+      
+      // Count user's entries in this group
+      const { count, error: countError } = await supabase
+        .from("entries")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .eq("group_id", currentGroupId)
+      
+      if (!countError && count !== null && count >= 5) {
+        // Mark as shown so we don't show it again
+        await AsyncStorage.setItem(`app_review_modal_shown_${userId}`, "true")
+        // Show modal after a short delay
+        setTimeout(() => {
+          setShowAppReviewModal(true)
+        }, 1000) // 1 second delay
+      }
+    } catch (error) {
+      console.warn("[home] Error checking entry count for review modal:", error)
+      // Silently fail - don't disrupt user flow
+    }
+  }, [userId, currentGroupId])
 
   useEffect(() => {
     loadUser()
@@ -382,6 +434,9 @@ export default function Home() {
   // But don't reset group - only update if focusGroupId param is provided
   useFocusEffect(
     useCallback(() => {
+      // Check if we should show review modal when screen comes into focus
+      checkAndShowReviewModal()
+      
       // Only reload user profile, not group (preserve current group)
       async function reloadProfile() {
         try {
@@ -944,6 +999,33 @@ export default function Home() {
   // Get today's date - call directly to ensure fresh value
   const todayDate = getTodayDate()
   
+  // Load revealed answers state for today from AsyncStorage
+  const prevTodayDateRef = useRef<string | null>(null)
+  useEffect(() => {
+    async function loadRevealedState() {
+      if (!userId || !todayDate) return
+      
+      // Check if date has changed (new day)
+      const dateChanged = prevTodayDateRef.current !== null && prevTodayDateRef.current !== todayDate
+      prevTodayDateRef.current = todayDate
+      
+      // If date changed, reset state first
+      if (dateChanged) {
+        setRevealedAnswersForToday(false)
+      }
+      
+      // Load state from AsyncStorage
+      try {
+        const key = `revealed_answers_${userId}_${todayDate}`
+        const revealed = await AsyncStorage.getItem(key)
+        setRevealedAnswersForToday(revealed === "true")
+      } catch (error) {
+        console.error("[home] Error loading revealed state:", error)
+      }
+    }
+    loadRevealedState()
+  }, [userId, todayDate])
+  
   // Helper function to generate date range (7 days going backwards from start date)
   const generateDateRange = useCallback((startDate: string, daysBack: number = 7): string[] => {
     const dates: string[] = []
@@ -975,6 +1057,21 @@ export default function Home() {
     queryFn: () => (currentGroupId && userId ? getUserEntryForDate(currentGroupId, userId, todayDate) : null),
     enabled: !!currentGroupId && !!userId,
   })
+
+  // Clear revealed state when user answers today's question
+  useEffect(() => {
+    if (todayUserEntry && revealedAnswersForToday) {
+      // User has answered, so clear the revealed state (answers are always visible when user has answered)
+      setRevealedAnswersForToday(false)
+      // Also clear from AsyncStorage
+      if (userId && todayDate) {
+        const key = `revealed_answers_${userId}_${todayDate}`
+        AsyncStorage.removeItem(key).catch(() => {
+          // Ignore errors
+        })
+      }
+    }
+  }, [todayUserEntry, revealedAnswersForToday, userId, todayDate])
   
   // Query for today's prompt (always fetch, regardless of selectedDate)
   const { data: todayDailyPrompt, isLoading: isLoadingTodayPrompt, isFetching: isFetchingTodayPrompt } = useQuery({
@@ -1035,6 +1132,42 @@ export default function Home() {
     // Update previous group ID
     previousGroupIdRef.current = currentGroupId
   }, [currentGroupId, isLoadingTodayPrompt, isLoadingTodayEntries, isLoadingMembers, isLoadingAllGroupsMembers, isGroupSwitching])
+
+  // Start/stop loading spinner rotation animation
+  useEffect(() => {
+    if (showLoadingOverlay) {
+      // Start rotation animation
+      loadingRotation.setValue(0)
+      loadingAnimationRef.current = Animated.loop(
+        Animated.timing(loadingRotation, {
+          toValue: 1,
+          duration: 2000, // 2 seconds per rotation
+          useNativeDriver: true,
+        })
+      )
+      loadingAnimationRef.current.start()
+    } else {
+      // Stop rotation animation
+      if (loadingAnimationRef.current) {
+        loadingAnimationRef.current.stop()
+        loadingAnimationRef.current = null
+      }
+    }
+
+    return () => {
+      // Cleanup on unmount
+      if (loadingAnimationRef.current) {
+        loadingAnimationRef.current.stop()
+        loadingAnimationRef.current = null
+      }
+    }
+  }, [showLoadingOverlay, loadingRotation])
+
+  // Calculate rotation transform for loading spinner
+  const loadingSpin = loadingRotation.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  })
 
   // Query for previous day's entries (always fetch on boot/refresh)
   // Include todayDate in query key to force refetch when date changes
@@ -1600,6 +1733,13 @@ export default function Home() {
       return
     }
 
+    // CRITICAL: Save current scroll position before loading new data
+    // This prevents scroll position from resetting when new content is added
+    if (scrollViewRef.current) {
+      // Get current scroll position from the scroll event handler's tracked value
+      savedScrollPosition.current = lastScrollY.current
+    }
+
     setIsLoadingMoreEntries(true)
 
     try {
@@ -1653,6 +1793,48 @@ export default function Home() {
       setIsLoadingMoreEntries(false)
     }
   }, [viewMode, isLoadingMoreEntries, hasMoreEntries, currentGroupId, loadedDateRanges, currentGroup, generateDateRange])
+
+  // CRITICAL: Restore scroll position after content size changes (when new dates are loaded)
+  // This prevents the scroll position from jumping to top when new content is added
+  const handleContentSizeChange = useCallback((contentWidth: number, contentHeight: number) => {
+    if (savedScrollPosition.current !== null && scrollViewRef.current && !isLoadingMoreEntries) {
+      // Restore exact scroll position after content size has changed
+      // Use multiple requestAnimationFrame calls to ensure layout is complete
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            if (scrollViewRef.current && savedScrollPosition.current !== null) {
+              scrollViewRef.current.scrollTo({
+                y: savedScrollPosition.current,
+                animated: false, // Instant scroll to avoid visible jump
+              })
+              // Clear saved position after restoring
+              savedScrollPosition.current = null
+            }
+          }, 50) // Small delay to ensure layout is fully complete
+        })
+      })
+    }
+  }, [isLoadingMoreEntries])
+
+  // CRITICAL: Also restore scroll position when loadedDateRanges changes (backup to onContentSizeChange)
+  // Use useLayoutEffect to restore synchronously before paint to prevent visible jump
+  useLayoutEffect(() => {
+    if (!isLoadingMoreEntries && savedScrollPosition.current !== null && scrollViewRef.current) {
+      // Restore scroll position synchronously before paint
+      // Use requestAnimationFrame to ensure ScrollView is ready
+      requestAnimationFrame(() => {
+        if (scrollViewRef.current && savedScrollPosition.current !== null) {
+          scrollViewRef.current.scrollTo({
+            y: savedScrollPosition.current,
+            animated: false, // Instant scroll to avoid visible jump
+          })
+          // Clear saved position after restoring
+          savedScrollPosition.current = null
+        }
+      })
+    }
+  }, [loadedDateRanges, isLoadingMoreEntries])
 
   // Function to scroll to a specific date in the feed
   function scrollToDate(date: string) {
@@ -2496,7 +2678,8 @@ export default function Home() {
           }
         }
         
-        // Handle member_name variable - check prompt_name_usage first
+        // Handle member_name variable - ONLY use prompt_name_usage, NO fallback
+        // CRITICAL: Must use the exact name from prompt_name_usage that getDailyPrompt set
         if (question.match(/\{.*member_name.*\}/i) && dailyPrompt?.prompt_id && selectedDate) {
           const normalizedDate = selectedDate.split('T')[0]
           const usageKey = `${dailyPrompt.prompt_id}-${normalizedDate}`
@@ -2510,7 +2693,10 @@ export default function Home() {
               console.warn(`[home] replaceDynamicVariables failed to replace member_name. Question: ${question}, Member: ${memberNameUsed}`)
             }
           } else {
-            console.warn(`[home] getDailyPrompt returned unpersonalized member_name but no prompt_name_usage found`)
+            // NO FALLBACK - if prompt_name_usage doesn't exist, that's a bug
+            // Log error but don't replace the variable
+            console.error(`[home] CRITICAL: No prompt_name_usage found for member_name. promptId: ${dailyPrompt.prompt_id}, date: ${selectedDate}, groupId: ${currentGroupId}`)
+            // Leave {member_name} as-is - this indicates a bug that needs to be fixed
           }
         }
         
@@ -2691,7 +2877,8 @@ export default function Home() {
           }
         }
         
-        // Handle member_name variable - check prompt_name_usage first
+        // Handle member_name variable - ONLY use prompt_name_usage, NO fallback
+        // CRITICAL: Must use the exact name from prompt_name_usage that getDailyPrompt set
         if (question.match(/\{.*member_name.*\}/i) && todayDailyPrompt?.prompt_id && todayDate) {
           const normalizedDate = todayDate.split('T')[0]
           const usageKey = `${todayDailyPrompt.prompt_id}-${normalizedDate}`
@@ -2705,7 +2892,10 @@ export default function Home() {
               console.warn(`[home] replaceDynamicVariables failed to replace member_name. Question: ${question}, Member: ${memberNameUsed}`)
             }
           } else {
-            console.warn(`[home] getDailyPrompt returned unpersonalized member_name but no prompt_name_usage found`)
+            // NO FALLBACK - if prompt_name_usage doesn't exist, that's a bug
+            // Log error but don't replace the variable
+            console.error(`[home] CRITICAL: No prompt_name_usage found for member_name. promptId: ${todayDailyPrompt.prompt_id}, date: ${todayDate}, groupId: ${currentGroupId}`)
+            // Leave {member_name} as-is - this indicates a bug that needs to be fixed
           }
         }
         
@@ -2765,7 +2955,7 @@ export default function Home() {
     
     // No valid prompt available - return empty string (skeleton will be shown)
     return ""
-  }, [todayDailyPrompt?.prompt?.question, todayDailyPrompt?.prompt_id, todayEntries, memorials, groupMembersForVariables, currentGroupId, todayDate, todayMemberUsageMap, todayMemberNameUsage, todayMemorialUsageMap, todayMemorialNameUsage])
+  }, [todayDailyPrompt?.prompt?.question, todayDailyPrompt?.prompt_id, todayEntries, memorials, groupMembersForVariables, members, userId, currentGroupId, todayDate, todayMemberUsageMap, todayMemberNameUsage, todayMemorialUsageMap, todayMemorialNameUsage])
 
   // Check if CTA should show (load immediately, not waiting for scroll)
   // Only show when viewing today's date
@@ -2908,6 +3098,9 @@ export default function Home() {
           console.warn("[home] Failed to update badge count:", error)
         })
       }
+      
+      // Check if we should show review modal after refresh
+      checkAndShowReviewModal()
       
       // Keep spinner visible for at least 1 second total
       const minDisplayTime = setTimeout(() => {
@@ -3810,6 +4003,17 @@ export default function Home() {
     color: theme2Colors.text, // Black font instead of textSecondary
     marginLeft: spacing.sm,
   },
+  customQuestionIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: spacing.xs,
+    gap: spacing.xs,
+  },
+  customQuestionIndicatorText: {
+    ...typography.body,
+    fontSize: 13,
+    color: isDark ? theme2Colors.white : theme2Colors.textSecondary,
+  },
   loadingContainer: {
       padding: spacing.lg,
       alignItems: "center",
@@ -4239,13 +4443,16 @@ export default function Home() {
       color: theme2Colors.text,
       fontWeight: "600",
     },
+    dateHeaderContainer: {
+      marginBottom: spacing.xl,
+      marginHorizontal: spacing.lg,
+    },
     dateHeader: {
       ...typography.h2,
       fontSize: 22,
-      marginBottom: spacing.xl,
-      marginHorizontal: spacing.lg,
       flexDirection: "row",
       alignItems: "center", // Align text vertically
+      marginBottom: spacing.md,
     },
     dateHeaderDay: {
       fontFamily: "Roboto-Regular",
@@ -4258,6 +4465,21 @@ export default function Home() {
       fontFamily: "Roboto-Regular",
       fontSize: 22,
       color: theme2Colors.textSecondary,
+    },
+    revealAnswersContainer: {
+      marginTop: spacing.xs,
+    },
+    revealAnswersText: {
+      fontFamily: "Roboto-Regular",
+      fontSize: 14,
+      color: theme2Colors.text,
+      lineHeight: 20,
+    },
+    revealAnswersLink: {
+      fontFamily: "Roboto-Bold",
+      fontSize: 14,
+      fontWeight: "700",
+      color: "#D97393", // Pink color matching onboardingPink
     },
     daySection: {
       marginBottom: spacing.xl,
@@ -4541,6 +4763,16 @@ export default function Home() {
       ...StyleSheet.absoluteFillObject,
       backgroundColor: isDark ? "rgba(0, 0, 0, 0.4)" : "rgba(232, 224, 213, 0.4)", // Reduced opacity since fuzzy.png now has opacity too
     },
+    loadingSpinnerContainer: {
+      ...StyleSheet.absoluteFillObject,
+      justifyContent: "center",
+      alignItems: "center",
+      zIndex: 1000, // Above fuzzy overlay
+    },
+    loadingSpinner: {
+      width: 80,
+      height: 80,
+    },
     backToTopButton: {
       position: "absolute",
       bottom: spacing.xs + insets.bottom, // Original position - tab bar is hidden when this shows
@@ -4585,6 +4817,19 @@ export default function Home() {
           >
             {/* Semi-transparent overlay on top of fuzzy.png */}
             <View style={styles.loadingOverlayMask} />
+            {/* Rotating loading spinner on top */}
+            <View style={styles.loadingSpinnerContainer}>
+              <Animated.Image
+                source={require("../../assets/images/1.png")}
+                style={[
+                  styles.loadingSpinner,
+                  {
+                    transform: [{ rotate: loadingSpin }],
+                  },
+                ]}
+                resizeMode="contain"
+              />
+            </View>
           </ImageBackground>
         </View>
       </Modal>
@@ -4597,6 +4842,7 @@ export default function Home() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme2Colors.text} />}
         onScroll={handleScroll}
         scrollEventThrottle={16}
+        onContentSizeChange={handleContentSizeChange}
       >
         {/* Header - now inside ScrollView so it scrolls naturally */}
         <View
@@ -4673,29 +4919,26 @@ export default function Home() {
                 // Show actual prompt content (not about current user)
                 return (
                   <>
-                    {/* Custom Question Branding - check today's custom question */}
-                    {todayDailyPrompt?.is_custom && todayDailyPrompt?.custom_question_data && (
-                      <View style={styles.customQuestionBanner}>
-                        {todayDailyPrompt.custom_question_data.is_anonymous ? (
-                          <View style={styles.customQuestionHeader}>
-                            <FontAwesome name="question-circle" size={20} color={theme2Colors.yellow} style={{ marginRight: spacing.sm }} />
-                            <Text style={styles.customQuestionLabel}>
-                              Custom question! Someone in your group asked everyone this:
-                            </Text>
-                          </View>
-                        ) : (
-                          <View style={styles.customQuestionHeader}>
-                            <Avatar
-                              uri={todayDailyPrompt.custom_question_data.user?.avatar_url}
-                              name={todayDailyPrompt.custom_question_data.user?.name || "User"}
-                              size={32}
-                              borderColor={theme2Colors.text}
-                            />
-                            <Text style={styles.customQuestionLabel}>
-                              {todayDailyPrompt.custom_question_data.user?.name || "Someone"} has a question for you
-                            </Text>
-                          </View>
-                        )}
+                    {/* Custom Question Indicator - show above question text */}
+                    {todayDailyPrompt?.prompt?.is_custom && (todayDailyPrompt.prompt as any)?.customQuestion && !(todayDailyPrompt.prompt as any).customQuestion.is_anonymous && (
+                      <View style={styles.customQuestionIndicator}>
+                        <Avatar
+                          uri={(todayDailyPrompt.prompt as any).customQuestion.user?.avatar_url}
+                          name={(todayDailyPrompt.prompt as any).customQuestion.user?.name || "User"}
+                          size={25}
+                        />
+                        <Text style={styles.customQuestionIndicatorText}>
+                          {(todayDailyPrompt.prompt as any).customQuestion.user?.name || "Someone"} asked you this question
+                        </Text>
+                      </View>
+                    )}
+                    {/* Also show indicator for anonymous custom questions */}
+                    {todayDailyPrompt?.prompt?.is_custom && (todayDailyPrompt.prompt as any)?.customQuestion && (todayDailyPrompt.prompt as any).customQuestion.is_anonymous && (
+                      <View style={styles.customQuestionIndicator}>
+                        <FontAwesome name="question-circle" size={16} color={theme2Colors.textSecondary} />
+                        <Text style={styles.customQuestionIndicatorText}>
+                          Custom question! Someone in your group asked everyone this:
+                        </Text>
                       </View>
                     )}
                     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginBottom: spacing.md }}>
@@ -5327,40 +5570,74 @@ export default function Home() {
                   {/* Show "Today's answers" header for today if there are entries */}
                   {isDateToday && visibleEntries.length > 0 && (
                     <View 
-                      style={styles.dateHeader}
+                      style={styles.dateHeaderContainer}
                       ref={(ref) => {
                         if (ref) {
                           dateRefs.current[date] = ref
                         }
                       }}
                     >
-                      <Text style={styles.dateHeaderDay}>Today's answers</Text>
+                      <View style={styles.dateHeader}>
+                        <Text style={styles.dateHeaderDay}>Today's answers</Text>
+                      </View>
+                      {/* Show reveal link if user hasn't answered and hasn't revealed yet */}
+                      {!hasUserEntry && !revealedAnswersForToday && (
+                        <View style={styles.revealAnswersContainer}>
+                          <Text style={styles.revealAnswersText}>
+                            Answer,{" "}
+                            <Text 
+                              style={styles.revealAnswersLink}
+                              onPress={async () => {
+                                if (!userId || !todayDate) return
+                                try {
+                                  const key = `revealed_answers_${userId}_${todayDate}`
+                                  await AsyncStorage.setItem(key, "true")
+                                  setRevealedAnswersForToday(true)
+                                  
+                                  // Track reveal via link
+                                  safeCapture(posthog, "revealed_answers", {
+                                    method: "link",
+                                    group_id: currentGroupId,
+                                    date: todayDate,
+                                  })
+                                } catch (error) {
+                                  console.error("[home] Error saving revealed state:", error)
+                                }
+                              }}
+                            >
+                              or tap to reveal what they said
+                            </Text>
+                          </Text>
+                        </View>
+                      )}
                     </View>
                   )}
                   {/* Show date header for past days */}
                   {!isDateToday && (
                     <View 
-                      style={styles.dateHeader}
+                      style={styles.dateHeaderContainer}
                       ref={(ref) => {
                         if (ref) {
                           dateRefs.current[date] = ref
                         }
                       }}
                     >
-                      <Text style={styles.dateHeaderDay}>{format(parseISO(date), "EEEE")}</Text>
-                      <Text style={styles.dateHeaderDate}>
-                        , {(() => {
-                          const dateObj = parseISO(date)
-                          const currentYear = new Date().getFullYear()
-                          const dateYear = dateObj.getFullYear()
-                          // Only show year if it's not the current year
-                          if (dateYear !== currentYear) {
-                            return format(dateObj, "d MMMM yyyy")
-                          } else {
-                            return format(dateObj, "d MMMM")
-                          }
-                        })()}
-                      </Text>
+                      <View style={styles.dateHeader}>
+                        <Text style={styles.dateHeaderDay}>{format(parseISO(date), "EEEE")}</Text>
+                        <Text style={styles.dateHeaderDate}>
+                          , {(() => {
+                            const dateObj = parseISO(date)
+                            const currentYear = new Date().getFullYear()
+                            const dateYear = dateObj.getFullYear()
+                            // Only show year if it's not the current year
+                            if (dateYear !== currentYear) {
+                              return format(dateObj, "d MMMM yyyy")
+                            } else {
+                              return format(dateObj, "d MMMM")
+                            }
+                          })()}
+                        </Text>
+                      </View>
                     </View>
                   )}
                   {/* For today with no entries, attach ref to a marker at the top */}
@@ -5541,7 +5818,9 @@ export default function Home() {
                     
                     // Regular entry card
                     const entryIdList = visibleEntries.map((item: any) => item.id)
-                    const shouldShowFuzzy = !hasUserEntry && !entry.is_birthday_card
+                    // Show fuzzy overlay only for today if user hasn't answered AND hasn't revealed answers
+                    // For previous days, never show fuzzy overlay
+                    const shouldShowFuzzy = isDateToday && !hasUserEntry && !revealedAnswersForToday && !entry.is_birthday_card
                     
                     return (
                       <EntryCard
@@ -5554,6 +5833,24 @@ export default function Home() {
                         onEntryPress={(entryDate) => {
                           // Store entry date for scroll restoration when returning
                           lastViewedEntryDateRef.current = entryDate
+                        }}
+                        onRevealAnswers={async () => {
+                          // Reveal answers when fuzzy overlay is clicked
+                          if (!userId || !todayDate) return
+                          try {
+                            const key = `revealed_answers_${userId}_${todayDate}`
+                            await AsyncStorage.setItem(key, "true")
+                            setRevealedAnswersForToday(true)
+                            
+                            // Track reveal via fuzzy overlay click
+                            safeCapture(posthog, "revealed_answers", {
+                              method: "fuzzy_overlay",
+                              group_id: currentGroupId,
+                              date: todayDate,
+                            })
+                          } catch (error) {
+                            console.error("[home] Error saving revealed state:", error)
+                          }
                         }}
                       />
                     )
@@ -5866,6 +6163,19 @@ export default function Home() {
           setSelectedMember(null)
           // Scroll to top to show filtered results
           scrollViewRef.current?.scrollTo({ y: 0, animated: true })
+        }}
+      />
+
+      {/* App Review Modal */}
+      <AppReviewModal
+        visible={showAppReviewModal}
+        onClose={() => setShowAppReviewModal(false)}
+        onRate={async () => {
+          // Track that user clicked rate
+          safeCapture(posthog, "app_review_modal_rate_clicked", {
+            user_id: userId,
+            group_id: currentGroupId,
+          })
         }}
       />
 
