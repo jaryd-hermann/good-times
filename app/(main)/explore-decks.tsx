@@ -652,8 +652,9 @@ export default function ExploreDecks() {
         // CRITICAL: Always invalidate and refetch featured prompts query when screen comes into focus
         // This ensures the section shows if prompts exist for the current week
         // This fixes the issue where the section disappears after adding a question
-        queryClient.invalidateQueries({ queryKey: ["featuredPrompts"] })
-        queryClient.refetchQueries({ queryKey: ["featuredPrompts"] })
+        // Use exact: false to invalidate all queries with this key prefix (handles week changes)
+        queryClient.invalidateQueries({ queryKey: ["featuredPrompts"], exact: false })
+        queryClient.refetchQueries({ queryKey: ["featuredPrompts"], exact: false })
         
         // CRITICAL: If swipe tab is active, ensure queries refetch when screen comes into focus
         // This fixes blank content when switching groups or returning to the screen
@@ -773,26 +774,42 @@ export default function ExploreDecks() {
     enabled: !!currentGroupId && activeDecks.some(d => d.status === "voting"),
   })
 
-  // Get current week Monday for query key (memoized to ensure stability)
-  // CRITICAL: Memoize this value so the query key doesn't change on every render
-  // This prevents React Query from treating it as a new query each time
-  // Calculate based on current date, but memoize to prevent unnecessary recalculations
-  const currentWeekMonday = useMemo(() => {
+  // Get current week Monday for query key
+  // CRITICAL: Recalculate when screen comes into focus to handle week changes
+  // This ensures the query key is always current, even if the app was open when the week changed
+  const [currentWeekMonday, setCurrentWeekMonday] = useState(() => {
     const today = new Date()
     const dayOfWeek = today.getDay() // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
     const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1
     const monday = new Date(today)
     monday.setDate(today.getDate() - daysToSubtract)
     return monday.toISOString().split("T")[0]
-  }, []) // Memoize this value - it will be recalculated on component remount
+  })
+  
+  // Recalculate week Monday when screen comes into focus (handles week changes)
+  useFocusEffect(
+    useCallback(() => {
+      const today = new Date()
+      const dayOfWeek = today.getDay()
+      const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+      const monday = new Date(today)
+      monday.setDate(today.getDate() - daysToSubtract)
+      const weekMonday = monday.toISOString().split("T")[0]
+      setCurrentWeekMonday(weekMonday)
+    }, [])
+  )
 
   // Get featured prompts for current week
   // CRITICAL: Include current week Monday in query key so it refetches when week changes
   // This ensures the section always shows when there are prompts for the current week
   // The query key changes when the week changes, forcing a refetch
+  // NOTE: getFeaturedPromptsForCurrentWeek calculates the week internally, so even if currentWeekMonday is stale,
+  // the function will fetch the correct week. However, React Query caches by query key, so we need to ensure
+  // proper invalidation when switching tabs or when the week might have changed.
   const { data: featuredPrompts = [], error: featuredPromptsError, isLoading: isLoadingFeaturedPrompts, isFetching: isFetchingFeaturedPrompts, refetch: refetchFeaturedPrompts } = useQuery({
     queryKey: ["featuredPrompts", currentWeekMonday], // Use memoized value
     queryFn: getFeaturedPromptsForCurrentWeek,
+    enabled: true, // Always enabled - featured prompts are group-agnostic
     staleTime: 0, // Always consider stale to ensure fresh data
     refetchOnMount: true, // Always refetch on mount
     refetchOnWindowFocus: true, // Refetch when screen comes into focus
@@ -804,8 +821,9 @@ export default function ExploreDecks() {
   // This fixes the issue where prompts don't show when first opening the tab
   useEffect(() => {
     if (activeTab === "featured") {
-      // Invalidate and refetch to ensure fresh data
-      queryClient.invalidateQueries({ queryKey: ["featuredPrompts"] })
+      // Invalidate all featured prompts queries (including any with different week keys)
+      queryClient.invalidateQueries({ queryKey: ["featuredPrompts"], exact: false })
+      // Force a fresh refetch - this ensures we get the latest week's data
       refetchFeaturedPrompts()
     }
   }, [activeTab, refetchFeaturedPrompts, queryClient])
@@ -1719,7 +1737,15 @@ export default function ExploreDecks() {
       overflow: "hidden", // Clip texture
     },
     suggestDeckButtonTexture: {
-      ...StyleSheet.absoluteFillObject,
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      width: "100%",
+      height: "100%",
+      minWidth: "100%",
+      minHeight: "100%",
       opacity: 0.3,
     },
     suggestDeckButtonText: {
@@ -1929,19 +1955,39 @@ export default function ExploreDecks() {
       marginRight: spacing.md, // Margin between cards
       borderWidth: 2,
       borderColor: theme2Colors.textSecondary, // Gray outline like prompt cards
-      minHeight: 200,
+      minHeight: 105, // Reduced by 30% from 150 (150 * 0.7 = 105)
       position: "relative", // For texture overlay
       overflow: "hidden", // Clip texture
+      justifyContent: "center", // Center content vertically
     },
     featuredCardTexture: {
-      ...StyleSheet.absoluteFillObject,
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
       opacity: 0.4,
       zIndex: 1,
       pointerEvents: "none",
+      borderRadius: 20, // Match card border radius
+      overflow: "hidden", // Ensure texture respects border radius
+    },
+    featuredCardTextureImage: {
+      position: "absolute",
+      top: -10, // Extend beyond container to ensure full coverage
+      left: -10, // Extend beyond container to ensure full coverage
+      right: -10, // Extend beyond container to ensure full coverage
+      bottom: -10, // Extend beyond container to ensure full coverage
+      width: SCREEN_WIDTH, // Use screen width to ensure full coverage
+      height: "120%", // Slightly larger than container
+      minWidth: SCREEN_WIDTH,
+      minHeight: "120%",
     },
     featuredCardContent: {
       position: "relative",
       zIndex: 2, // Above texture
+      flex: 1,
+      justifyContent: "center", // Center content vertically
     },
     featuredCardQuestion: {
       fontFamily: "PMGothicLudington-Text115", // Question font
@@ -2221,7 +2267,9 @@ export default function ExploreDecks() {
               style={[styles.tab, activeTab === "featured" && styles.tabActive]}
               onPress={() => {
                 setActiveTab("featured")
-                // Refetch featured prompts when switching to featured tab
+                // Invalidate and refetch featured prompts when switching to featured tab
+                // Use exact: false to invalidate all queries with this key prefix
+                queryClient.invalidateQueries({ queryKey: ["featuredPrompts"], exact: false })
                 refetchFeaturedPrompts()
               }}
             >
@@ -2499,11 +2547,6 @@ export default function ExploreDecks() {
               style={styles.suggestDeckButton}
               onPress={() => router.push(`/(main)/modals/suggest-deck?groupId=${currentGroupId}&returnTo=/(main)/explore-decks`)}
             >
-              <Image 
-                source={require("../../assets/images/texture.png")} 
-                style={styles.suggestDeckButtonTexture}
-                resizeMode="cover"
-              />
               <Text style={styles.suggestDeckButtonText}>Suggest a deck</Text>
             </TouchableOpacity>
           </>
@@ -2595,7 +2638,7 @@ export default function ExploreDecks() {
                     <View style={styles.featuredCardTexture}>
                       <Image 
                         source={require("../../assets/images/texture.png")} 
-                        style={StyleSheet.absoluteFillObject}
+                        style={styles.featuredCardTextureImage}
                         resizeMode="cover"
                       />
                     </View>

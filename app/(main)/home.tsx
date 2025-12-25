@@ -3585,19 +3585,34 @@ export default function Home() {
   }, [selectedDate, contentPaddingValue, scrollY])
 
   // Register scroll to top callback with tab bar context
-  const { setScrollToTopCallback, scrollToTop } = useTabBar()
+  const { setScrollToTopCallback } = useTabBar()
+  
+  // Use a ref to ensure callback always has latest scrollViewRef
+  const scrollToTopCallbackRef = useRef<(() => void) | null>(null)
+  
   useEffect(() => {
-    const scrollToTopFn = () => {
+    // Update callback ref whenever scrollViewRef might change
+    scrollToTopCallbackRef.current = () => {
       console.log("[home] scrollToTop callback called")
-      if (scrollViewRef.current) {
-        console.log("[home] scrollViewRef.current exists in callback, scrolling...")
-        scrollViewRef.current.scrollTo({ y: 0, animated: true })
+      const scrollView = scrollViewRef.current
+      if (scrollView) {
+        console.log("[home] scrollViewRef.current exists, scrolling...")
+        scrollView.scrollTo({ y: 0, animated: true })
       } else {
-        console.log("[home] scrollViewRef.current is null in callback!")
+        console.log("[home] scrollViewRef.current is null!")
       }
     }
-    setScrollToTopCallback(scrollToTopFn)
+    
+    // Register the callback
+    setScrollToTopCallback(() => {
+      // Always call the latest callback from ref
+      if (scrollToTopCallbackRef.current) {
+        scrollToTopCallbackRef.current()
+      }
+    })
+    
     return () => {
+      scrollToTopCallbackRef.current = null
       setScrollToTopCallback(() => {}) // Clear callback on unmount
     }
   }, [setScrollToTopCallback])
@@ -4919,6 +4934,69 @@ export default function Home() {
                 // Show actual prompt content (not about current user)
                 return (
                   <>
+                    {/* Birthday Message - show above question text for birthday prompts */}
+                    {(() => {
+                      const prompt = todayDailyPrompt?.prompt || todayEntries[0]?.prompt
+                      const birthdayType = (prompt as any)?.birthday_type
+                      
+                      if (birthdayType === "their_birthday" || birthdayType === "your_birthday") {
+                        // Get members with birthdays today
+                        const todayMonthDay = todayDate.substring(5) // MM-DD format
+                        const birthdayMembers = members.filter((member) => {
+                          // For "their_birthday", exclude current user (it's about other members)
+                          if (birthdayType === "their_birthday" && member.user_id === userId) {
+                            return false
+                          }
+                          const birthday = member.user?.birthday
+                          if (!birthday) return false
+                          return birthday.substring(5) === todayMonthDay
+                        })
+                        
+                        if (birthdayType === "their_birthday" && birthdayMembers.length > 0) {
+                          // Show avatars and "It's X's birthday today!"
+                          const birthdayNames = birthdayMembers.map((m) => m.user?.name || "Someone").filter(Boolean)
+                          const namesText = birthdayNames.length === 1 
+                            ? `${birthdayNames[0]}'s`
+                            : birthdayNames.length === 2
+                            ? `${birthdayNames[0]} and ${birthdayNames[1]}'s`
+                            : `${birthdayNames.slice(0, -1).join(", ")}, and ${birthdayNames[birthdayNames.length - 1]}'s`
+                          
+                          return (
+                            <View style={styles.customQuestionIndicator}>
+                              <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.xs }}>
+                                {birthdayMembers.slice(0, 3).map((member, index) => (
+                                  <View key={member.user_id} style={{ marginLeft: index > 0 ? -8 : 0 }}>
+                                    <Avatar
+                                      uri={member.user?.avatar_url}
+                                      name={member.user?.name || "User"}
+                                      size={25}
+                                    />
+                                  </View>
+                                ))}
+                              </View>
+                              <Text style={styles.customQuestionIndicatorText}>
+                                It's {namesText} birthday today!
+                              </Text>
+                            </View>
+                          )
+                        } else if (birthdayType === "your_birthday" && userId) {
+                          // Check if current user has birthday today
+                          const currentUser = members.find((m) => m.user_id === userId)
+                          const userBirthday = currentUser?.user?.birthday
+                          if (userBirthday && userBirthday.substring(5) === todayMonthDay) {
+                            const userName = currentUser?.user?.name || "there"
+                            return (
+                              <View style={styles.customQuestionIndicator}>
+                                <Text style={styles.customQuestionIndicatorText}>
+                                  Happy birthday, {userName}!
+                                </Text>
+                              </View>
+                            )
+                          }
+                        }
+                      }
+                      return null
+                    })()}
                     {/* Custom Question Indicator - show above question text */}
                     {todayDailyPrompt?.prompt?.is_custom && (todayDailyPrompt.prompt as any)?.customQuestion && !(todayDailyPrompt.prompt as any).customQuestion.is_anonymous && (
                       <View style={styles.customQuestionIndicator}>
@@ -6185,11 +6263,12 @@ export default function Home() {
         screenshots={[
           { id: "1", source: require("../../assets/images/onboarding-1-one-question.png") },
           { id: "2", source: require("../../assets/images/onboarding-2-your-answer.png") },
-          { id: "3", source: require("../../assets/images/onboarding-3-their-answer.png") },
-          { id: "4", source: require("../../assets/images/onboarding-4-your-group.png") },
-          { id: "5", source: require("../../assets/images/onboarding-5-ask-them.png") },
-          { id: "6", source: require("../../assets/images/onboarding-6-themed-decks.png") },
-          { id: "7", source: require("../../assets/images/onboarding-7-set-your-vibe.png") },
+          { id: "3", source: require("../../assets/images/onboarding-video.png") },
+          { id: "4", source: require("../../assets/images/onboarding-3-their-answer.png") },
+          { id: "5", source: require("../../assets/images/onboarding-4-your-group.png") },
+          { id: "6", source: require("../../assets/images/onboarding-5-ask-them.png") },
+          { id: "7", source: require("../../assets/images/onboarding-6-themed-decks.png") },
+          { id: "8", source: require("../../assets/images/onboarding-7-set-your-vibe.png") },
         ]}
         onComplete={() => setOnboardingGalleryVisible(false)}
         returnRoute="/(main)/home"
@@ -6197,3 +6276,4 @@ export default function Home() {
     </View>
   )
 }
+

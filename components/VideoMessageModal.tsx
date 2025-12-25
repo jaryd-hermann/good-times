@@ -45,6 +45,7 @@ export function VideoMessageModal({ visible, question, onClose, onAddVideo }: Vi
   const [playbackPosition, setPlaybackPosition] = useState(0) // in milliseconds
   const [isPlaying, setIsPlaying] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isReady, setIsReady] = useState(false)
   
   const cameraRef = useRef<CameraView>(null)
   const recordingRef = useRef<{ stop: () => Promise<void>; uri: string } | null>(null)
@@ -85,12 +86,24 @@ export function VideoMessageModal({ visible, question, onClose, onAddVideo }: Vi
     }
   }, [isDark])
 
-  // Request permission when modal opens
+  // Request permission when modal opens and ensure app is ready (must be before early returns)
   useEffect(() => {
-    if (visible && !permission?.granted) {
-      requestPermission()
+    if (visible) {
+      // Small delay to ensure view hierarchy is ready before presenting modal
+      const timer = setTimeout(() => {
+        setIsReady(true)
+        if (!permission?.granted) {
+          requestPermission()
+        }
+      }, 100)
+      return () => {
+        clearTimeout(timer)
+        setIsReady(false)
+      }
+    } else {
+      setIsReady(false)
     }
-  }, [visible, permission])
+  }, [visible, permission, requestPermission])
 
   // Handle app state changes - pause recording if app goes to background
   useEffect(() => {
@@ -724,7 +737,17 @@ export function VideoMessageModal({ visible, question, onClose, onAddVideo }: Vi
     },
   }), [colors, theme2Colors])
 
+  // Early returns - ALL hooks must be called before this point
   if (!permission) {
+    return null
+  }
+
+  if (!visible) {
+    return null
+  }
+
+  // Don't render modal until ready to prevent presentation crashes
+  if (!isReady) {
     return null
   }
 

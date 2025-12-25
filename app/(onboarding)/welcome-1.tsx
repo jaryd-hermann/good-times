@@ -263,7 +263,7 @@ export default function Welcome1() {
 
           {/* Tagline */}
           <Text style={styles.subtitle}>
-            Answer just one question a day with your favorite people
+            Answer one question a day with your favorite people
           </Text>
 
           {/* Show me first link */}
@@ -272,7 +272,7 @@ export default function Welcome1() {
             onPress={() => setOnboardingGalleryVisible(true)}
             activeOpacity={0.7}
           >
-            <Text style={styles.showMeFirstText}>show and tell me more first</Text>
+            <Text style={styles.showMeFirstText}>show me first</Text>
           </TouchableOpacity>
 
           {/* CTA Buttons */}
@@ -385,11 +385,12 @@ export default function Welcome1() {
         screenshots={[
           { id: "1", source: require("../../assets/images/onboarding-1-one-question.png") },
           { id: "2", source: require("../../assets/images/onboarding-2-your-answer.png") },
-          { id: "3", source: require("../../assets/images/onboarding-3-their-answer.png") },
-          { id: "4", source: require("../../assets/images/onboarding-4-your-group.png") },
-          { id: "5", source: require("../../assets/images/onboarding-5-ask-them.png") },
-          { id: "6", source: require("../../assets/images/onboarding-6-themed-decks.png") },
-          { id: "7", source: require("../../assets/images/onboarding-7-set-your-vibe.png") },
+          { id: "3", source: require("../../assets/images/onboarding-video.png") },
+          { id: "4", source: require("../../assets/images/onboarding-3-their-answer.png") },
+          { id: "5", source: require("../../assets/images/onboarding-4-your-group.png") },
+          { id: "6", source: require("../../assets/images/onboarding-5-ask-them.png") },
+          { id: "7", source: require("../../assets/images/onboarding-6-themed-decks.png") },
+          { id: "8", source: require("../../assets/images/onboarding-7-set-your-vibe.png") },
         ]}
         onComplete={() => setOnboardingGalleryVisible(false)}
         returnRoute="/(onboarding)/welcome-1"
@@ -518,11 +519,6 @@ const styles = StyleSheet.create({
     opacity: 0.3,
     zIndex: 1,
   },
-  textureImage: {
-    ...StyleSheet.absoluteFillObject,
-    width: "100%",
-    height: "100%",
-  },
   joinButtonText: {
     fontFamily: "Roboto-Bold",
     fontSize: 18,
@@ -592,4 +588,3 @@ const styles = StyleSheet.create({
     color: theme2Colors.text,
   },
 })
-

@@ -377,10 +377,10 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
               justifyContent: "center",
               alignItems: "center",
               opacity: backToTopButtonOpacity,
-              pointerEvents: isTabBarVisible ? "none" : "auto",
-              zIndex: 10000,
+              zIndex: 10001, // Higher than tab bar to ensure it's clickable
             },
           ]}
+          pointerEvents="box-none" // Allow touches to pass through container, but not button
         >
           <TouchableOpacity
             style={{
@@ -405,6 +405,7 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
             }}
             activeOpacity={0.8}
             hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+            pointerEvents="auto" // Ensure button itself is always clickable
           >
             <FontAwesome name="angle-up" size={18} color={isDark ? "#000000" : theme2Colors.text} />
           </TouchableOpacity>

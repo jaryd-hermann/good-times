@@ -188,58 +188,58 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
 
   const panResponder = useMemo(
     () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: (_, gestureState) => {
-          // Only become responder if there's significant movement
-          return Math.abs(gestureState.dx) > 10 || Math.abs(gestureState.dy) > 10
-        },
-        onPanResponderMove: (_, gestureState) => {
-          // Only allow horizontal swiping
-          pan.setValue({ x: gestureState.dx, y: 0 })
-          
-          // Scale down slightly when dragging
-          const dragProgress = Math.abs(gestureState.dx) / SCREEN_WIDTH
-          scale.setValue(1 - dragProgress * 0.1)
-          opacity.setValue(1 - dragProgress * 0.3)
-        },
-        onPanResponderRelease: (_, gestureState) => {
-          const swipeThreshold = SCREEN_WIDTH * 0.25 // 25% of screen width
-          const velocityThreshold = 0.5
-          const idx = currentIndexRef.current
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // Only become responder if there's significant movement
+        return Math.abs(gestureState.dx) > 10 || Math.abs(gestureState.dy) > 10
+      },
+      onPanResponderMove: (_, gestureState) => {
+        // Only allow horizontal swiping
+        pan.setValue({ x: gestureState.dx, y: 0 })
+        
+        // Scale down slightly when dragging
+        const dragProgress = Math.abs(gestureState.dx) / SCREEN_WIDTH
+        scale.setValue(1 - dragProgress * 0.1)
+        opacity.setValue(1 - dragProgress * 0.3)
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        const swipeThreshold = SCREEN_WIDTH * 0.25 // 25% of screen width
+        const velocityThreshold = 0.5
+        const idx = currentIndexRef.current
 
           // If it's a tap (very small movement)
-          if (Math.abs(gestureState.dx) < 10 && Math.abs(gestureState.dy) < 10) {
-            if (idx < screenshots.length - 1) {
-              goToNext()
+        if (Math.abs(gestureState.dx) < 10 && Math.abs(gestureState.dy) < 10) {
+          if (idx < screenshots.length - 1) {
+            goToNext()
             } else {
               // On last screen, tap closes the gallery
               handleSkip()
-            }
-            return
           }
+          return
+        }
 
-          if (gestureState.dx > swipeThreshold || gestureState.vx > velocityThreshold) {
-            // Swipe right - go to previous
-            if (idx > 0) {
-              goToPrevious()
-            } else {
-              // Snap back
-              snapBack()
-            }
-          } else if (gestureState.dx < -swipeThreshold || gestureState.vx < -velocityThreshold) {
-            // Swipe left - go to next
-            if (idx < screenshots.length - 1) {
-              goToNext()
-            } else {
-              // On last screen, swipe left closes the gallery
-              handleSkip()
-            }
+        if (gestureState.dx > swipeThreshold || gestureState.vx > velocityThreshold) {
+          // Swipe right - go to previous
+          if (idx > 0) {
+            goToPrevious()
           } else {
-            // Snap back to center
+            // Snap back
             snapBack()
           }
-        },
+        } else if (gestureState.dx < -swipeThreshold || gestureState.vx < -velocityThreshold) {
+          // Swipe left - go to next
+          if (idx < screenshots.length - 1) {
+            goToNext()
+          } else {
+              // On last screen, swipe left closes the gallery
+              handleSkip()
+          }
+        } else {
+          // Snap back to center
+          snapBack()
+        }
+      },
       }),
     [handleSkip, goToNext, goToPrevious, snapBack, screenshots.length]
   )

@@ -334,8 +334,8 @@ export default function SwipeOnboarding() {
         AsyncStorage.getItem("pending_group_created"),
         AsyncStorage.getItem("pending_group_join"),
       ]).then(([pendingGroupCreated, pendingGroupId]) => {
-        // Small delay to let animation complete, then redirect
-        setTimeout(() => {
+      // Small delay to let animation complete, then redirect
+      setTimeout(() => {
           // Route to set-theme for new users, otherwise go to home
           if (pendingGroupCreated || pendingGroupId) {
             // New user - go to set theme onboarding
@@ -345,12 +345,12 @@ export default function SwipeOnboarding() {
             })
           } else {
             // Existing user creating another group - go straight to home
-            router.replace({
-              pathname: "/(main)/home",
-              params: { focusGroupId: groupId },
-            })
+        router.replace({
+          pathname: "/(main)/home",
+          params: { focusGroupId: groupId },
+        })
           }
-        }, 500)
+      }, 500)
       })
     }
   }, [yesSwipeCount, groupId, userId, router])

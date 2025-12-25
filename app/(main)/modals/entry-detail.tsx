@@ -121,6 +121,7 @@ export default function EntryDetail() {
   const [isRecordingCommentAudio, setIsRecordingCommentAudio] = useState(false)
   const commentRecordingTimerRef = useRef<NodeJS.Timeout | null>(null)
   const [isCommentInputFocused, setIsCommentInputFocused] = useState(false)
+  const [isUploadingComment, setIsUploadingComment] = useState(false)
   
   // Comment editing state
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
@@ -816,8 +817,10 @@ export default function EntryDetail() {
   async function handleSubmitComment() {
     if (!userId || (!commentText.trim() && !commentMediaUri)) return
     if (!entry?.group_id) return
+    if (isUploadingComment || addCommentMutation.isPending) return // Prevent multiple clicks
 
     try {
+      setIsUploadingComment(true) // Start upload loading state
       let mediaUrl: string | undefined
       let mediaType: "photo" | "video" | "audio" | undefined
 
@@ -835,6 +838,9 @@ export default function EntryDetail() {
       })
     } catch (error: any) {
       Alert.alert("Comment error", error.message ?? "We couldn't post your comment.")
+      setIsUploadingComment(false) // Reset on error
+    } finally {
+      setIsUploadingComment(false) // Always reset when done
     }
   }
 
@@ -1902,12 +1908,12 @@ export default function EntryDetail() {
                   const currentUserCommentReactions = commentReactions.filter((r: any) => r.user_id === userId).map((r: any) => r.type || "❤️")
                   
                   return (
-                    <View key={comment.id} style={styles.comment}>
+                  <View key={comment.id} style={styles.comment}>
                       <Avatar uri={comment.user?.avatar_url} name={comment.user?.name || "User"} size={40} />
-                      <View style={styles.commentContent}>
+                    <View style={styles.commentContent}>
                         <View style={styles.commentUserRow}>
                           <View style={styles.commentUserLeft}>
-                            <Text style={styles.commentUser}>{comment.user?.name}</Text>
+                      <Text style={styles.commentUser}>{comment.user?.name}</Text>
                             {isOwnComment && !isEditing && (
                               <TouchableOpacity
                                 onPress={() => startEditingComment(comment)}
@@ -1916,7 +1922,7 @@ export default function EntryDetail() {
                                 <Text style={styles.editLink}>Edit</Text>
                               </TouchableOpacity>
                             )}
-                          </View>
+                    </View>
                           {/* Comment Reactions - On same line as user name */}
                           {commentReactions.length > 0 && (
                             <View style={styles.commentReactionsContainer}>
@@ -1941,7 +1947,7 @@ export default function EntryDetail() {
                                         name={user?.name || "User"}
                                         size={25}
                                       />
-                                    </View>
+                  </View>
                                     <View style={styles.commentReactionEmojiOverlay}>
                                       <Text style={styles.commentReactionEmojiOverlayText}>{emoji}</Text>
                                     </View>
@@ -2309,31 +2315,31 @@ export default function EntryDetail() {
 
           {/* Comment Input */}
           <View style={styles.fixedCommentInput}>
-            <Avatar uri={currentUserAvatar} name={currentUserName} size={32} />
-            <TextInput
-              value={commentText}
-              onChangeText={setCommentText}
-              placeholder="Add a comment..."
-              placeholderTextColor={theme2Colors.textSecondary}
-              style={styles.commentInput}
-              multiline
-              onFocus={() => {
+          <Avatar uri={currentUserAvatar} name={currentUserName} size={32} />
+          <TextInput
+            value={commentText}
+            onChangeText={setCommentText}
+            placeholder="Add a comment..."
+            placeholderTextColor={theme2Colors.textSecondary}
+            style={styles.commentInput}
+            multiline
+            onFocus={() => {
                 setIsCommentInputFocused(true)
-                // Scroll to comments section when input is focused
-                setTimeout(() => {
-                  if (scrollViewRef.current && commentsSectionRef.current) {
-                    commentsSectionRef.current.measureLayout(
-                      scrollViewRef.current as any,
-                      (x, y) => {
-                        scrollViewRef.current?.scrollTo({ y: Math.max(0, y - 100), animated: true })
-                      },
-                      () => {
-                        scrollViewRef.current?.scrollToEnd({ animated: true })
-                      }
-                    )
-                  }
-                }, 300)
-              }}
+              // Scroll to comments section when input is focused
+              setTimeout(() => {
+                if (scrollViewRef.current && commentsSectionRef.current) {
+                  commentsSectionRef.current.measureLayout(
+                    scrollViewRef.current as any,
+                    (x, y) => {
+                      scrollViewRef.current?.scrollTo({ y: Math.max(0, y - 100), animated: true })
+                    },
+                    () => {
+                      scrollViewRef.current?.scrollToEnd({ animated: true })
+                    }
+                  )
+                }
+              }, 300)
+            }}
               onBlur={() => {
                 setIsCommentInputFocused(false)
               }}
@@ -2349,7 +2355,7 @@ export default function EntryDetail() {
               <TouchableOpacity style={styles.commentToolbarButton} onPress={openCommentCamera}>
                 <FontAwesome name="camera" size={18} color={theme2Colors.text} />
               </TouchableOpacity>
-              <TouchableOpacity
+            <TouchableOpacity
                 style={styles.commentToolbarButton}
                 onPress={() => {
                   if (isRecordingCommentAudio) {
@@ -2393,14 +2399,23 @@ export default function EntryDetail() {
               </TouchableOpacity>
               {(commentText.trim().length > 0 || commentMediaUri) && (
                 <TouchableOpacity
-                  style={styles.sendButtonInline}
+                  style={[
+                    styles.sendButtonInline,
+                    (isUploadingComment || addCommentMutation.isPending) && styles.sendButtonDisabled
+                  ]}
                   onPress={handleSubmitComment}
+                  disabled={isUploadingComment || addCommentMutation.isPending}
+                  activeOpacity={0.7}
                 >
-                  <FontAwesome
-                    name="paper-plane"
-                    size={16}
-                    color={theme2Colors.white}
-                  />
+                  {(isUploadingComment || addCommentMutation.isPending) ? (
+                    <ActivityIndicator size="small" color={theme2Colors.white} />
+                  ) : (
+                    <FontAwesome
+                      name="paper-plane"
+                      size={16}
+                      color={theme2Colors.white}
+                    />
+                  )}
                 </TouchableOpacity>
               )}
             </View>

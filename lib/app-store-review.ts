@@ -1,49 +1,62 @@
 import { Linking, Platform } from "react-native"
 import * as Application from "expo-application"
+import * as StoreReview from "expo-store-review"
 
 /**
- * Opens the app store review page for the current app
- * Uses native app store URLs when available, falls back to web URLs
+ * Opens the native app store review modal (iOS) or app store page (Android)
+ * On iOS, shows the native StoreKit rating modal with preset 5 stars
+ * On Android, opens the Play Store review page
  */
 export async function openAppStoreReview(): Promise<void> {
   try {
-    const bundleId = Application.applicationId
-    
     if (Platform.OS === "ios") {
-      // iOS App Store URL
-      // Get app store ID from Constants or use bundle ID as fallback
-      // Note: You'll need to set this in app.json or expo-constants
-      const appStoreId = process.env.EXPO_PUBLIC_APP_STORE_ID || bundleId
+      // Use native iOS StoreKit rating modal
+      // This shows the native in-app rating modal with preset 5 stars
+      // NOTE: StoreKit rating modal does NOT work in iOS Simulator - only on real devices
+      const isAvailable = await StoreReview.isAvailableAsync()
       
-      if (appStoreId && appStoreId !== bundleId) {
-        // If we have a numeric App Store ID
-        const url = `itms-apps://itunes.apple.com/app/id${appStoreId}?action=write-review`
+      if (__DEV__) {
+        console.log("[app-store-review] StoreReview.isAvailableAsync():", isAvailable)
+        console.log("[app-store-review] Platform.isSimulator:", Platform.isPad === false && Platform.isTV === false) // Basic check
+      }
+      
+      if (isAvailable) {
+        // Request the native rating modal
+        // This will silently fail in simulator - Apple's StoreKit limitation
+        await StoreReview.requestReview()
         
-        // Try native URL first
-        const canOpen = await Linking.canOpenURL(url)
-        if (canOpen) {
-          await Linking.openURL(url)
-          return
+        if (__DEV__) {
+          console.log("[app-store-review] StoreReview.requestReview() called")
+          console.log("[app-store-review] Note: Rating modal may not appear in simulator - test on real device")
+        }
+      } else {
+        // Fallback: open App Store page if native modal is not available
+        // This can happen if:
+        // - Running in iOS Simulator (StoreKit doesn't work there)
+        // - User has already rated recently (Apple rate limits)
+        // - App hasn't been used enough (Apple's requirements)
+        if (__DEV__) {
+          console.log("[app-store-review] StoreReview not available, falling back to App Store URL")
         }
         
-        // Fallback to web URL
-        const webUrl = `https://apps.apple.com/app/id${appStoreId}?action=write-review`
-        await Linking.openURL(webUrl)
-      } else {
-        // Fallback: open App Store search for the app
-        const searchUrl = `itms-apps://itunes.apple.com/search?term=${encodeURIComponent("Good Times")}`
-        const canOpen = await Linking.canOpenURL(searchUrl)
+        const bundleId = Application.applicationId
+        const appStoreId = "6755366013" // From the App Store URL
+        
+        const url = `itms-apps://itunes.apple.com/app/id${appStoreId}?action=write-review`
+        const canOpen = await Linking.canOpenURL(url)
+        
         if (canOpen) {
-          await Linking.openURL(searchUrl)
+          await Linking.openURL(url)
         } else {
-          // Final fallback: web search
-          await Linking.openURL(`https://apps.apple.com/search?term=${encodeURIComponent("Good Times")}`)
+          // Final fallback: web URL
+          const webUrl = `https://apps.apple.com/app/id${appStoreId}?action=write-review`
+          await Linking.openURL(webUrl)
         }
       }
     } else if (Platform.OS === "android") {
       // Android Play Store URL
-      const packageName = bundleId || "com.yourcompany.goodtimes" // Fallback if bundleId not available
-      const url = `market://details?id=${packageName}`
+      const bundleId = Application.applicationId || "com.goodtimes.app"
+      const url = `market://details?id=${bundleId}`
       
       // Try native URL first
       const canOpen = await Linking.canOpenURL(url)
@@ -53,7 +66,7 @@ export async function openAppStoreReview(): Promise<void> {
       }
       
       // Fallback to web URL
-      const webUrl = `https://play.google.com/store/apps/details?id=${packageName}`
+      const webUrl = `https://play.google.com/store/apps/details?id=${bundleId}`
       await Linking.openURL(webUrl)
     }
   } catch (error) {
