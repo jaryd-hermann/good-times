@@ -74,21 +74,44 @@ export default function NotificationsOnboarding() {
         const minutesSinceCreation = (now.getTime() - userCreatedAt.getTime()) / (1000 * 60)
         const isExistingUser = minutesSinceCreation >= 10
         
-        // If has completed onboarding OR is existing user, check for pending group join before redirecting
+        // If has completed onboarding OR is existing user, check for pending group join/creation before redirecting
         // Prioritize hasCompletedPostAuth check (more reliable)
         if (hasCompletedPostAuth || isExistingUser) {
           // Profile and group joining are handled in auth.tsx immediately after authentication
-          // Check if there's a pending group join - if so, route to swipe-onboarding
+          // Check if there's a pending group join - route to set-theme (then group-interests, then home)
           const pendingGroupId = await AsyncStorage.getItem(PENDING_GROUP_KEY)
           if (pendingGroupId) {
-            // User just joined a group - route to swipe-onboarding
-            console.log(`[notifications-onboarding] User joined group, routing to swipe-onboarding with groupId: ${pendingGroupId}`)
+            // User just joined a group - route to set-theme (then group-interests, then home)
+            console.log(`[notifications-onboarding] User joined group, routing to set-theme for groupId: ${pendingGroupId}`)
             router.replace({
-              pathname: "/(onboarding)/swipe-onboarding",
+              pathname: "/(onboarding)/set-theme",
               params: { groupId: pendingGroupId },
             })
             return
           }
+          
+          // Check if there's a pending group creation
+          const pendingGroupCreated = await AsyncStorage.getItem("pending_group_created")
+          if (pendingGroupCreated) {
+            // If user has completed post-auth onboarding, they already have a theme set - skip set-theme, go to group-interests
+            if (hasCompletedPostAuth) {
+              console.log(`[notifications-onboarding] Existing user created group, routing to group-interests (skipping set-theme) for groupId: ${pendingGroupCreated}`)
+              await AsyncStorage.removeItem("pending_group_created")
+              router.replace({
+                pathname: "/(main)/group-interests",
+                params: { groupId: pendingGroupCreated },
+              })
+              return
+            }
+            // New user (hasn't completed post-auth onboarding) - route to set-theme
+            console.log(`[notifications-onboarding] New user created group, routing to set-theme for groupId: ${pendingGroupCreated}`)
+            router.replace({
+              pathname: "/(onboarding)/set-theme",
+              params: { groupId: pendingGroupCreated },
+            })
+            return
+          }
+          
           router.replace("/(main)/home")
           return
         }
@@ -145,10 +168,7 @@ export default function NotificationsOnboarding() {
 
     console.log(`[notifications-onboarding] User ID: ${user.id}`)
 
-    const onboardingKey = getPostAuthOnboardingKey(user.id)
-    await AsyncStorage.setItem(onboardingKey, "true")
-    
-    // Get the group ID - check pending group created first, then pending group join, then user's first group
+    // Get the group ID FIRST - check pending group created first, then pending group join, then user's first group
     let targetGroupId: string | undefined
     
     // Check for pending group created (from group creation flow)
@@ -157,7 +177,6 @@ export default function NotificationsOnboarding() {
     if (pendingGroupCreated) {
       targetGroupId = pendingGroupCreated
       console.log(`[notifications-onboarding] Using pending_group_created: ${targetGroupId}`)
-      // Don't remove it yet - we'll remove it after swipe onboarding
     } else {
       // Check for pending group join (from invite link)
       const pendingGroupId = await AsyncStorage.getItem(PENDING_GROUP_KEY)
@@ -185,45 +204,106 @@ export default function NotificationsOnboarding() {
     console.log(`[notifications-onboarding] Final targetGroupId: ${targetGroupId}`)
 
     if (!targetGroupId) {
-      // No group found - go to home
+      // No group found - mark onboarding complete and go to home
+      const onboardingKey = getPostAuthOnboardingKey(user.id)
+      await AsyncStorage.setItem(onboardingKey, "true")
       console.log("[notifications-onboarding] No group found, routing to home")
       router.replace("/(main)/home")
       return
     }
 
-    // Check if user has completed swipe onboarding for this group
-    const SWIPE_ONBOARDING_KEY_PREFIX = "has_completed_swipe_onboarding"
-    const swipeOnboardingKey = `${SWIPE_ONBOARDING_KEY_PREFIX}_${user.id}_${targetGroupId}`
-    const hasCompletedSwipeOnboarding = await AsyncStorage.getItem(swipeOnboardingKey)
+    // Check if user needs to see set-theme screen BEFORE marking post-auth as complete
+    // This applies to both joining a group and creating a group
+    const SET_THEME_ONBOARDING_KEY_PREFIX = "has_completed_set_theme_onboarding"
+    const setThemeOnboardingKey = `${SET_THEME_ONBOARDING_KEY_PREFIX}_${user.id}_${targetGroupId}`
+    const hasCompletedSetTheme = await AsyncStorage.getItem(setThemeOnboardingKey)
     
-    if (hasCompletedSwipeOnboarding === "true") {
-      // Already completed swipe onboarding - go to home
-      // Clean up pending group keys
-      const pendingGroupCreated = await AsyncStorage.getItem("pending_group_created")
-      const pendingGroupId = await AsyncStorage.getItem(PENDING_GROUP_KEY)
-      if (pendingGroupCreated) {
-        await AsyncStorage.removeItem("pending_group_created")
-      }
-      if (pendingGroupId) {
-        await AsyncStorage.removeItem(PENDING_GROUP_KEY)
-      }
-      if (pendingGroupCreated || pendingGroupId) {
-        router.replace({
-          pathname: "/(main)/home",
-          params: { focusGroupId: targetGroupId },
-        })
-      } else {
-        router.replace("/(main)/home")
-      }
+    // Check if user has completed post-auth onboarding (before we set it)
+    const onboardingKey = getPostAuthOnboardingKey(user.id)
+    const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
+    
+    // Check if user is joining a group (has pending_group_join) - always route to set-theme if not completed
+    const pendingGroupId = await AsyncStorage.getItem(PENDING_GROUP_KEY)
+    if (pendingGroupId && !hasCompletedSetTheme) {
+      console.log(`[notifications-onboarding] User joining group, routing to set-theme for groupId: ${targetGroupId}`)
+      // Mark post-auth onboarding as complete so they don't see notifications screen again
+      await AsyncStorage.setItem(onboardingKey, "true")
+      router.replace({
+        pathname: "/(onboarding)/set-theme",
+        params: { groupId: targetGroupId },
+      })
       return
     }
-
-    // Route to swipe onboarding (with groupId param)
-    console.log(`[notifications-onboarding] Routing to swipe onboarding with groupId: ${targetGroupId}`)
-    router.replace({
-      pathname: "/(onboarding)/swipe-onboarding",
-      params: { groupId: targetGroupId },
-    })
+    
+    // If user is creating a new group (has pending_group_created) and hasn't set theme, route to set-theme
+    // Don't mark post-auth as complete yet - let set-theme screen handle that
+    if (pendingGroupCreated && !hasCompletedSetTheme) {
+      console.log(`[notifications-onboarding] New user creating group, routing to set-theme for groupId: ${targetGroupId}`)
+      // Mark post-auth onboarding as complete so they don't see notifications screen again
+      await AsyncStorage.setItem(onboardingKey, "true")
+      router.replace({
+        pathname: "/(onboarding)/set-theme",
+        params: { groupId: targetGroupId },
+      })
+      return
+    }
+    
+    // Mark post-auth onboarding as complete
+    await AsyncStorage.setItem(onboardingKey, "true")
+    
+    // Otherwise, go to home
+    // Clean up pending group keys
+    const pendingGroupIdForCleanup = await AsyncStorage.getItem(PENDING_GROUP_KEY)
+    if (pendingGroupCreated) {
+      await AsyncStorage.removeItem("pending_group_created")
+    }
+    if (pendingGroupIdForCleanup) {
+      await AsyncStorage.removeItem(PENDING_GROUP_KEY)
+    }
+    if (pendingGroupCreated || pendingGroupIdForCleanup) {
+      console.log(`[notifications-onboarding] Going to home with groupId: ${targetGroupId}`)
+      router.replace({
+        pathname: "/(main)/home",
+        params: { focusGroupId: targetGroupId },
+      })
+    } else {
+      router.replace("/(main)/home")
+    }
+    
+    // OLD CODE - TEMPORARILY DISABLED:
+    // // Check if user has completed swipe onboarding for this group
+    // const SWIPE_ONBOARDING_KEY_PREFIX = "has_completed_swipe_onboarding"
+    // const swipeOnboardingKey = `${SWIPE_ONBOARDING_KEY_PREFIX}_${user.id}_${targetGroupId}`
+    // const hasCompletedSwipeOnboarding = await AsyncStorage.getItem(swipeOnboardingKey)
+    // 
+    // if (hasCompletedSwipeOnboarding === "true") {
+    //   // Already completed swipe onboarding - go to home
+    //   // Clean up pending group keys
+    //   const pendingGroupCreated = await AsyncStorage.getItem("pending_group_created")
+    //   const pendingGroupId = await AsyncStorage.getItem(PENDING_GROUP_KEY)
+    //   if (pendingGroupCreated) {
+    //     await AsyncStorage.removeItem("pending_group_created")
+    //   }
+    //   if (pendingGroupId) {
+    //     await AsyncStorage.removeItem(PENDING_GROUP_KEY)
+    //   }
+    //   if (pendingGroupCreated || pendingGroupId) {
+    //     router.replace({
+    //       pathname: "/(main)/home",
+    //       params: { focusGroupId: targetGroupId },
+    //     })
+    //   } else {
+    //     router.replace("/(main)/home")
+    //   }
+    //   return
+    // }
+    // 
+    // // Route to swipe onboarding (with groupId param)
+    // console.log(`[notifications-onboarding] Routing to swipe onboarding with groupId: ${targetGroupId}`)
+    // router.replace({
+    //   pathname: "/(onboarding)/swipe-onboarding",
+    //   params: { groupId: targetGroupId },
+    // })
   }
 
   async function handleYes() {

@@ -36,6 +36,7 @@ function seededShuffle<T>(array: T[], seed: string): T[] {
 
 // Determine eligible categories based on group settings
 // Note: Fun/A Bit Deeper removed - replaced with deck system
+// Note: Friends/Family merged to Standard category
 function getEligibleCategories(
   groupType: "family" | "friends",
   hasNSFW: boolean,
@@ -44,15 +45,14 @@ function getEligibleCategories(
 ): string[] {
   const eligible: string[] = []
   
-  // Group type specific (Fun/A Bit Deeper removed)
-  if (groupType === "family" && !disabledCategories.has("Family")) {
-    eligible.push("Family")
-  } else if (groupType === "friends" && !disabledCategories.has("Friends")) {
-    eligible.push("Friends")
+  // Standard category (replaces Friends/Family)
+  if (!disabledCategories.has("Standard")) {
+    eligible.push("Standard")
   }
   
   // Conditional categories
-  if (hasNSFW && !disabledCategories.has("Edgy/NSFW")) {
+  // NSFW only available for friends groups
+  if (groupType === "friends" && hasNSFW && !disabledCategories.has("Edgy/NSFW")) {
     eligible.push("Edgy/NSFW")
   }
   
@@ -187,9 +187,14 @@ serve(async (req) => {
 
     const categoryWeights = getCategoryWeights(preferences || [])
 
+    // Check if NSFW is enabled for friends groups
+    // NSFW is only available for friends groups, and must be explicitly enabled
+    const hasNSFW = groupType === "friends" && 
+      (preferences || []).some((p) => p.category === "Edgy/NSFW" && p.preference !== "none")
+
     const eligibleCategories = getEligibleCategories(
       groupType,
-      !disabledCategories.has("Edgy/NSFW"),
+      hasNSFW,
       hasMemorials,
       disabledCategories
     )

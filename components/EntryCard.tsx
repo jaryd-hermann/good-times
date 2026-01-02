@@ -27,10 +27,13 @@ interface EntryCardProps {
   returnTo?: string
   showFuzzyOverlay?: boolean
   onEntryPress?: (entryDate: string) => void // Callback to store entry date before navigation
-  onRevealAnswers?: () => void // Callback to reveal answers when fuzzy overlay is clicked
+  // REMOVED: onRevealAnswers prop - tapping fuzzy card now navigates to entry-composer
+  fuzzyOverlayPromptId?: string // Prompt ID to navigate to entry-composer when fuzzy overlay is tapped
+  fuzzyOverlayDate?: string // Date to navigate to entry-composer when fuzzy overlay is tapped
+  fuzzyOverlayGroupId?: string // Group ID to navigate to entry-composer when fuzzy overlay is tapped
 }
 
-export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home", showFuzzyOverlay = false, onEntryPress, onRevealAnswers }: EntryCardProps) {
+export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home", showFuzzyOverlay = false, onEntryPress, fuzzyOverlayPromptId, fuzzyOverlayDate, fuzzyOverlayGroupId }: EntryCardProps) {
   const router = useRouter()
   const { colors, isDark } = useTheme()
   const audioRefs = useRef<Record<string, Audio.Sound>>({})
@@ -89,9 +92,17 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   }, [])
 
   function handleEntryPress(scrollToComments = false) {
-    // If fuzzy overlay is shown, reveal answers instead of navigating
-    if (showFuzzyOverlay && onRevealAnswers) {
-      onRevealAnswers()
+    // If fuzzy overlay is shown, navigate to entry-composer instead of showing entry detail
+    if (showFuzzyOverlay && fuzzyOverlayPromptId && fuzzyOverlayDate && fuzzyOverlayGroupId) {
+      router.push({
+        pathname: "/(main)/modals/entry-composer",
+        params: {
+          promptId: fuzzyOverlayPromptId,
+          date: fuzzyOverlayDate,
+          returnTo: returnTo,
+          groupId: fuzzyOverlayGroupId,
+        },
+      })
       return
     }
     

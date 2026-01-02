@@ -42,13 +42,12 @@ function getEligibleCategories(
 ): string[] {
   const eligible: string[] = []
   
-  // Group type specific (Fun/A Bit Deeper removed)
-  if (groupType === "family" && !disabledCategories.has("Family")) {
-    eligible.push("Family")
-  } else if (groupType === "friends" && !disabledCategories.has("Friends")) {
-    eligible.push("Friends")
+  // Standard category (replaces Friends/Family)
+  if (!disabledCategories.has("Standard")) {
+    eligible.push("Standard")
   }
   
+  // Conditional categories
   if (hasNSFW && !disabledCategories.has("Edgy/NSFW")) {
     eligible.push("Edgy/NSFW")
   }
@@ -173,9 +172,20 @@ serve(async (req) => {
 
     const categoryWeights = getCategoryWeights(preferences || [])
 
+    // Check NSFW preference: for friends groups, NSFW is opt-in (default false)
+    // For family groups, NSFW is always disabled
+    let hasNSFW = false
+    if (groupType === "friends") {
+      const nsfwPref = (preferences || []).find((p) => p.category === "Edgy/NSFW")
+      hasNSFW = nsfwPref ? nsfwPref.preference !== "none" : false // Default to false if not set
+    } else {
+      // Family groups: NSFW always disabled
+      hasNSFW = false
+    }
+
     const eligibleCategories = getEligibleCategories(
       groupType,
-      !disabledCategories.has("Edgy/NSFW"),
+      hasNSFW,
       hasMemorials,
       disabledCategories
     )
@@ -200,10 +210,24 @@ serve(async (req) => {
 
     if (promptsError) throw promptsError
     if (!allPrompts || allPrompts.length === 0) {
+      console.error(`[update-group-queue] No prompts found!`, {
+        eligibleCategories,
+        groupType,
+        hasNSFW: !disabledCategories.has("Edgy/NSFW"),
+        hasMemorials,
+        disabledCategories: Array.from(disabledCategories),
+      })
       return new Response(
         JSON.stringify({ 
           success: false, 
-          error: "No prompts available for eligible categories" 
+          error: "No prompts available for eligible categories",
+          eligible_categories: eligibleCategories,
+          debug: {
+            groupType,
+            hasNSFW: !disabledCategories.has("Edgy/NSFW"),
+            hasMemorials,
+            disabledCategories: Array.from(disabledCategories),
+          }
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
       )

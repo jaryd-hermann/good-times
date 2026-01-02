@@ -27,6 +27,7 @@ const theme2Colors = {
 const { width, height } = Dimensions.get("window")
 const POST_AUTH_ONBOARDING_KEY_PREFIX = "has_completed_post_auth_onboarding"
 const PENDING_GROUP_KEY = "pending_group_join"
+const PENDING_GROUP_CREATED_KEY = "pending_group_created"
 
 // Helper function to get user-specific onboarding key
 function getPostAuthOnboardingKey(userId: string): string {
@@ -72,17 +73,39 @@ export default function WelcomePostAuth() {
         const minutesSinceCreation = (now.getTime() - userCreatedAt.getTime()) / (1000 * 60)
         const isExistingUser = minutesSinceCreation >= 10
         
-        // If has completed onboarding OR is existing user, check for pending group join before redirecting
+        // If has completed onboarding OR is existing user, check for pending group join/creation before redirecting
         // Prioritize hasCompletedPostAuth check (more reliable)
         if (hasCompletedPostAuth || isExistingUser) {
           // Profile and group joining are handled in auth.tsx immediately after authentication
-          // Check if there's a pending group join - if so, route to swipe-onboarding
+          // Check if there's a pending group creation
+          const pendingGroupCreated = await AsyncStorage.getItem(PENDING_GROUP_CREATED_KEY)
+          if (pendingGroupCreated) {
+            // If user has completed post-auth onboarding, they already have a theme set - skip set-theme, go to group-interests
+            if (hasCompletedPostAuth) {
+              console.log(`[welcome-post-auth] Existing user created group, routing to group-interests (skipping set-theme) for groupId: ${pendingGroupCreated}`)
+              await AsyncStorage.removeItem(PENDING_GROUP_CREATED_KEY)
+              router.replace({
+                pathname: "/(main)/group-interests",
+                params: { groupId: pendingGroupCreated },
+              })
+              return
+            }
+            // New user (hasn't completed post-auth onboarding) - route to set-theme
+            console.log(`[welcome-post-auth] New user created group, routing to set-theme for groupId: ${pendingGroupCreated}`)
+            router.replace({
+              pathname: "/(onboarding)/set-theme",
+              params: { groupId: pendingGroupCreated },
+            })
+            return
+          }
+          
+          // Check if there's a pending group join - route to set-theme (then group-interests, then home)
           const pendingGroupId = await AsyncStorage.getItem(PENDING_GROUP_KEY)
           if (pendingGroupId) {
-            // User just joined a group - route to swipe-onboarding
-            console.log(`[welcome-post-auth] User joined group, routing to swipe-onboarding with groupId: ${pendingGroupId}`)
+            // User just joined a group - route to set-theme (then group-interests, then home)
+            console.log(`[welcome-post-auth] User joined group, routing to set-theme for groupId: ${pendingGroupId}`)
             router.replace({
-              pathname: "/(onboarding)/swipe-onboarding",
+              pathname: "/(onboarding)/set-theme",
               params: { groupId: pendingGroupId },
             })
             return

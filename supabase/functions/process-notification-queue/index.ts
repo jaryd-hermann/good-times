@@ -17,12 +17,15 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
     )
 
-    // Get unprocessed notifications from queue (limit 50 per run)
+    // Get unprocessed notifications from queue that are ready to send
+    // Either scheduled_time is NULL (send immediately) or scheduled_time <= now()
+    const now = new Date().toISOString()
     const { data: queueItems, error: queueError } = await supabaseClient
       .from("notification_queue")
       .select("*")
       .eq("processed", false)
-      .order("created_at", { ascending: true })
+      .or(`scheduled_time.is.null,scheduled_time.lte.${now}`)
+      .order("scheduled_time", { ascending: true, nullsFirst: false })
       .limit(50)
 
     if (queueError) throw queueError

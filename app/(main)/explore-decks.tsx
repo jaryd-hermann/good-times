@@ -317,6 +317,7 @@ export default function ExploreDecks() {
   const params = useLocalSearchParams()
   const { colors, isDark } = useTheme()
   const insets = useSafeAreaInsets()
+  const queryClient = useQueryClient()
   
   // Theme 2 color palette - dynamic based on dark/light mode
   const theme2Colors = useMemo(() => {
@@ -356,6 +357,13 @@ export default function ExploreDecks() {
   const [featuredQuestionCarouselIndex, setFeaturedQuestionCarouselIndex] = useState(0)
   const [activeTab, setActiveTab] = useState<"decks" | "featured" | "matches">("decks")
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
+  
+  // TEMPORARILY DISABLED: Ensure matches and featured tabs are never active
+  useEffect(() => {
+    if (activeTab === "matches" || activeTab === "featured") {
+      setActiveTab("decks")
+    }
+  }, [activeTab])
   const [matchModalVisible, setMatchModalVisible] = useState(false)
   const [matchInfo, setMatchInfo] = useState<{ matchedWithUsers: string[] } | null>(null)
   const [isSwiping, setIsSwiping] = useState(false)
@@ -384,7 +392,6 @@ export default function ExploreDecks() {
   const isResettingScroll = useRef(false)
   const { opacity: tabBarOpacity } = useTabBar()
   const posthog = usePostHog()
-  const queryClient = useQueryClient()
   
   // Modal animations
   const featuredModalBackdropOpacity = useRef(new Animated.Value(0)).current
@@ -2263,7 +2270,8 @@ export default function ExploreDecks() {
             >
               <Text style={[styles.tabText, activeTab === "decks" && styles.tabTextActive]}>Decks</Text>
             </TouchableOpacity>
-            <TouchableOpacity
+            {/* TEMPORARILY HIDDEN: Featured tab */}
+            {/* <TouchableOpacity
               style={[styles.tab, activeTab === "featured" && styles.tabActive]}
               onPress={() => {
                 setActiveTab("featured")
@@ -2274,8 +2282,9 @@ export default function ExploreDecks() {
               }}
             >
               <Text style={[styles.tabText, activeTab === "featured" && styles.tabTextActive]}>Featured</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
+            </TouchableOpacity> */}
+            {/* TEMPORARILY HIDDEN: Swipe tab */}
+            {/* <TouchableOpacity
               style={[styles.tab, activeTab === "matches" && styles.tabActive]}
               onPress={() => {
                 setActiveTab("matches")
@@ -2290,20 +2299,22 @@ export default function ExploreDecks() {
               }}
             >
               <Text style={[styles.tabText, activeTab === "matches" && styles.tabTextActive]}>Swipe</Text>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
           </View>
           
           <Text style={styles.title}>
             {activeTab === "decks" && "Add a deck"}
             {activeTab === "featured" && "This week only"}
-            {activeTab === "matches" && "Like some questions"}
+            {/* TEMPORARILY HIDDEN: matches tab */}
+            {/* {activeTab === "matches" && "Like some questions"} */}
           </Text>
           
           {/* Show subtitle */}
           <Text style={styles.subtitle}>
             {activeTab === "decks" && "Explore theme of questions you can vote on for you all to answer."}
             {activeTab === "featured" && "See a question you like? Ask it to everyone. Max 2 a week."}
-            {activeTab === "matches" && "Help us understand your vibe by swiping on some example questions."}
+            {/* TEMPORARILY HIDDEN: matches tab */}
+            {/* {activeTab === "matches" && "Help us understand your vibe by swiping on some example questions."} */}
           </Text>
         </View>
         <View style={styles.headerRight}>
@@ -2702,8 +2713,8 @@ export default function ExploreDecks() {
           </View>
         )}
 
-        {/* Matches Tab Content - Swipe Interface */}
-        {activeTab === "matches" && (
+        {/* TEMPORARILY HIDDEN: Matches Tab Content - Swipe Interface */}
+        {false && activeTab === "matches" && (
           <View style={styles.swipeContainer}>
             {isLoadingSwipeableQuestions ? (
               <View style={styles.swipeEmptyState}>
@@ -3030,7 +3041,8 @@ export default function ExploreDecks() {
                 </Text>
               </>
             )}
-            {activeTab === "featured" && (
+            {/* TEMPORARILY HIDDEN: Featured tab help */}
+            {false && activeTab === "featured" && (
               <>
                 <Text style={styles.modalTitle}>Featured Questions</Text>
                 <Text style={styles.modalText}>
@@ -3040,7 +3052,8 @@ export default function ExploreDecks() {
                 </Text>
               </>
             )}
-            {activeTab === "matches" && (
+            {/* TEMPORARILY HIDDEN: matches tab help content */}
+            {false && activeTab === "matches" && (
               <>
                 <Text style={styles.modalTitle}>Like Some Questions</Text>
                 <Text style={styles.modalText}>

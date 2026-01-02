@@ -305,7 +305,7 @@ export default function Home() {
   const [selectedMember, setSelectedMember] = useState<{ id: string; name: string; avatar_url?: string } | null>(null)
   const [onboardingGalleryVisible, setOnboardingGalleryVisible] = useState(false)
   const [showAppReviewModal, setShowAppReviewModal] = useState(false)
-  const [revealedAnswersForToday, setRevealedAnswersForToday] = useState(false)
+  // REMOVED: revealedAnswersForToday state - users can no longer reveal answers before answering
   const scrollY = useRef(new Animated.Value(0)).current
   const headerTranslateY = useRef(new Animated.Value(0)).current
   // CRITICAL: Initialize with safe minimum padding to prevent content cropping before headerHeight is calculated
@@ -999,32 +999,7 @@ export default function Home() {
   // Get today's date - call directly to ensure fresh value
   const todayDate = getTodayDate()
   
-  // Load revealed answers state for today from AsyncStorage
-  const prevTodayDateRef = useRef<string | null>(null)
-  useEffect(() => {
-    async function loadRevealedState() {
-      if (!userId || !todayDate) return
-      
-      // Check if date has changed (new day)
-      const dateChanged = prevTodayDateRef.current !== null && prevTodayDateRef.current !== todayDate
-      prevTodayDateRef.current = todayDate
-      
-      // If date changed, reset state first
-      if (dateChanged) {
-        setRevealedAnswersForToday(false)
-      }
-      
-      // Load state from AsyncStorage
-      try {
-        const key = `revealed_answers_${userId}_${todayDate}`
-        const revealed = await AsyncStorage.getItem(key)
-        setRevealedAnswersForToday(revealed === "true")
-      } catch (error) {
-        console.error("[home] Error loading revealed state:", error)
-      }
-    }
-    loadRevealedState()
-  }, [userId, todayDate])
+  // REMOVED: Load revealed answers state - users can no longer reveal answers before answering
   
   // Helper function to generate date range (7 days going backwards from start date)
   const generateDateRange = useCallback((startDate: string, daysBack: number = 7): string[] => {
@@ -1058,20 +1033,7 @@ export default function Home() {
     enabled: !!currentGroupId && !!userId,
   })
 
-  // Clear revealed state when user answers today's question
-  useEffect(() => {
-    if (todayUserEntry && revealedAnswersForToday) {
-      // User has answered, so clear the revealed state (answers are always visible when user has answered)
-      setRevealedAnswersForToday(false)
-      // Also clear from AsyncStorage
-      if (userId && todayDate) {
-        const key = `revealed_answers_${userId}_${todayDate}`
-        AsyncStorage.removeItem(key).catch(() => {
-          // Ignore errors
-        })
-      }
-    }
-  }, [todayUserEntry, revealedAnswersForToday, userId, todayDate])
+  // REMOVED: Clear revealed state logic - users can no longer reveal answers before answering
   
   // Query for today's prompt (always fetch, regardless of selectedDate)
   const { data: todayDailyPrompt, isLoading: isLoadingTodayPrompt, isFetching: isFetchingTodayPrompt } = useQuery({
@@ -1651,13 +1613,15 @@ export default function Home() {
       
       let filteredCategories = Array.from(entryCategories)
       
+      // Filter based on group type and NSFW settings
+      // Both family and friends groups now use "Standard" category
       if (group.type === "family") {
         filteredCategories = filteredCategories.filter(
-          (cat) => cat !== "Edgy/NSFW" && cat !== "Friends" && cat !== "Seasonal"
+          (cat) => cat !== "Edgy/NSFW" && cat !== "Seasonal"
         )
       } else if (group.type === "friends") {
         filteredCategories = filteredCategories.filter((cat) => {
-          if (cat === "Family" || cat === "Seasonal") return false
+          if (cat === "Seasonal") return false
           if (cat === "Edgy/NSFW" && !enableNSFW) return false
           return true
         })
@@ -4144,6 +4108,10 @@ export default function Home() {
       alignItems: "center",
       gap: spacing.sm,
     },
+    groupRowContainerFullWidth: {
+      width: "100%",
+      marginBottom: spacing.sm,
+    },
     groupRowFlex: {
       flex: 1,
     },
@@ -4153,6 +4121,15 @@ export default function Home() {
       borderRadius: 12,
       backgroundColor: isDark ? "#000000" : theme2Colors.white, // Black in dark mode, white in light mode for non-selected groups
       flex: 1,
+      borderWidth: 1,
+      borderColor: isDark ? "#F5F0EA" : theme2Colors.textSecondary, // Cream outline in dark mode, gray stroke in light mode for non-selected
+    },
+    groupRowFullWidth: {
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.md,
+      borderRadius: 12,
+      backgroundColor: isDark ? "#000000" : theme2Colors.white, // Black in dark mode, white in light mode for non-selected groups
+      width: "100%",
       borderWidth: 1,
       borderColor: isDark ? "#F5F0EA" : theme2Colors.textSecondary, // Cream outline in dark mode, gray stroke in light mode for non-selected
     },
@@ -4220,6 +4197,57 @@ export default function Home() {
       alignItems: "center",
       borderWidth: 1,
       borderColor: theme2Colors.text, // Black stroke
+    },
+    groupActionButtons: {
+      flexDirection: "row",
+      gap: spacing.sm,
+      marginTop: spacing.md,
+      width: "100%",
+    },
+    groupActionButton: {
+      flex: 1,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+      borderRadius: 25, // Round buttons
+      backgroundColor: theme2Colors.white, // Solid white
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary, // Light gray outline
+      alignItems: "center",
+      justifyContent: "center",
+      shadowColor: "#000",
+      shadowOffset: {
+        width: 0,
+        height: 2,
+      },
+      shadowOpacity: 0.1,
+      shadowRadius: 3,
+      elevation: 3, // Android shadow
+    },
+    groupActionButtonSmall: {
+      flex: 0, // Don't flex, use fixed width
+      minWidth: 100, // Smaller fixed width for Settings
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+      borderRadius: 25, // Round buttons
+      backgroundColor: theme2Colors.white, // Solid white
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary, // Light gray outline
+      alignItems: "center",
+      justifyContent: "center",
+      shadowColor: "#000",
+      shadowOffset: {
+        width: 0,
+        height: 2,
+      },
+      shadowOpacity: 0.1,
+      shadowRadius: 3,
+      elevation: 3, // Android shadow
+    },
+    groupActionButtonText: {
+      ...typography.body,
+      fontSize: 14,
+      fontWeight: "600", // Increased font weight
+      color: isDark ? "#000000" : theme2Colors.text, // Black text in dark mode (button is white)
     },
     unseenDot: {
       width: 8,
@@ -4462,12 +4490,16 @@ export default function Home() {
       marginBottom: spacing.xl,
       marginHorizontal: spacing.lg,
     },
+    dateHeaderContainerPreviousDay: {
+      marginBottom: spacing.sm, // Reduced padding for previous days
+      marginHorizontal: spacing.lg,
+    },
     dateHeader: {
       ...typography.h2,
       fontSize: 22,
       flexDirection: "row",
       alignItems: "center", // Align text vertically
-      marginBottom: spacing.md,
+      marginBottom: spacing.xs, // Reduced from spacing.md for previous days
     },
     dateHeaderDay: {
       fontFamily: "Roboto-Regular",
@@ -4487,15 +4519,10 @@ export default function Home() {
     revealAnswersText: {
       fontFamily: "Roboto-Regular",
       fontSize: 14,
-      color: theme2Colors.text,
+      color: theme2Colors.textSecondary, // Changed to secondary text color (no pink/hyperlink)
       lineHeight: 20,
     },
-    revealAnswersLink: {
-      fontFamily: "Roboto-Bold",
-      fontSize: 14,
-      fontWeight: "700",
-      color: "#D97393", // Pink color matching onboardingPink
-    },
+    // REMOVED: revealAnswersLink style - no longer using pink/hyperlink
     daySection: {
       marginBottom: spacing.xl,
     },
@@ -5013,9 +5040,8 @@ export default function Home() {
                     {/* Also show indicator for anonymous custom questions */}
                     {todayDailyPrompt?.prompt?.is_custom && (todayDailyPrompt.prompt as any)?.customQuestion && (todayDailyPrompt.prompt as any).customQuestion.is_anonymous && (
                       <View style={styles.customQuestionIndicator}>
-                        <FontAwesome name="question-circle" size={16} color={theme2Colors.textSecondary} />
                         <Text style={styles.customQuestionIndicatorText}>
-                          Custom question! Someone in your group asked everyone this:
+                          Someone here asked this question
                         </Text>
                       </View>
                     )}
@@ -5658,33 +5684,11 @@ export default function Home() {
                       <View style={styles.dateHeader}>
                         <Text style={styles.dateHeaderDay}>Today's answers</Text>
                       </View>
-                      {/* Show reveal link if user hasn't answered and hasn't revealed yet */}
-                      {!hasUserEntry && !revealedAnswersForToday && (
+                      {/* Show helper text if user hasn't answered yet */}
+                      {!hasUserEntry && (
                         <View style={styles.revealAnswersContainer}>
                           <Text style={styles.revealAnswersText}>
-                            Answer,{" "}
-                            <Text 
-                              style={styles.revealAnswersLink}
-                              onPress={async () => {
-                                if (!userId || !todayDate) return
-                                try {
-                                  const key = `revealed_answers_${userId}_${todayDate}`
-                                  await AsyncStorage.setItem(key, "true")
-                                  setRevealedAnswersForToday(true)
-                                  
-                                  // Track reveal via link
-                                  safeCapture(posthog, "revealed_answers", {
-                                    method: "link",
-                                    group_id: currentGroupId,
-                                    date: todayDate,
-                                  })
-                                } catch (error) {
-                                  console.error("[home] Error saving revealed state:", error)
-                                }
-                              }}
-                            >
-                              or tap to reveal what they said
-                            </Text>
+                            Answer today's question to reveal what they said
                           </Text>
                         </View>
                       )}
@@ -5693,7 +5697,7 @@ export default function Home() {
                   {/* Show date header for past days */}
                   {!isDateToday && (
                     <View 
-                      style={styles.dateHeaderContainer}
+                      style={styles.dateHeaderContainerPreviousDay}
                       ref={(ref) => {
                         if (ref) {
                           dateRefs.current[date] = ref
@@ -5738,7 +5742,7 @@ export default function Home() {
                     const isRememberingCategory = promptForDate.prompt?.category === "Remembering"
                     
                     return (
-                      <View style={{ marginBottom: spacing.md }}>
+                      <View style={{ marginTop: spacing.xs, marginBottom: spacing.sm }}>
                         <View style={styles.promptCardWrapper}>
                           <TouchableOpacity
                             style={[
@@ -5896,9 +5900,14 @@ export default function Home() {
                     
                     // Regular entry card
                     const entryIdList = visibleEntries.map((item: any) => item.id)
-                    // Show fuzzy overlay only for today if user hasn't answered AND hasn't revealed answers
+                    // Show fuzzy overlay only for today if user hasn't answered
                     // For previous days, never show fuzzy overlay
-                    const shouldShowFuzzy = isDateToday && !hasUserEntry && !revealedAnswersForToday && !entry.is_birthday_card
+                    const shouldShowFuzzy = isDateToday && !hasUserEntry && !entry.is_birthday_card
+                    
+                    // Get prompt ID for today to navigate to entry-composer (use existing todayPromptId or fallback)
+                    const promptIdForNavigation = isDateToday 
+                      ? (todayPromptId || todayDailyPrompt?.prompt_id || promptsForDatesWithoutEntry[date]?.prompt_id)
+                      : null
                     
                     return (
                       <EntryCard
@@ -5912,24 +5921,11 @@ export default function Home() {
                           // Store entry date for scroll restoration when returning
                           lastViewedEntryDateRef.current = entryDate
                         }}
-                        onRevealAnswers={async () => {
-                          // Reveal answers when fuzzy overlay is clicked
-                          if (!userId || !todayDate) return
-                          try {
-                            const key = `revealed_answers_${userId}_${todayDate}`
-                            await AsyncStorage.setItem(key, "true")
-                            setRevealedAnswersForToday(true)
-                            
-                            // Track reveal via fuzzy overlay click
-                            safeCapture(posthog, "revealed_answers", {
-                              method: "fuzzy_overlay",
-                              group_id: currentGroupId,
-                              date: todayDate,
-                            })
-                          } catch (error) {
-                            console.error("[home] Error saving revealed state:", error)
-                          }
-                        }}
+                        // REMOVED: onRevealAnswers prop - tapping fuzzy card now navigates to entry-composer
+                        // Pass prompt info for navigation when fuzzy overlay is tapped
+                        fuzzyOverlayPromptId={shouldShowFuzzy ? promptIdForNavigation : undefined}
+                        fuzzyOverlayDate={shouldShowFuzzy ? todayDate : undefined}
+                        fuzzyOverlayGroupId={shouldShowFuzzy ? currentGroupId : undefined}
                       />
                     )
                   })}
@@ -6125,18 +6121,18 @@ export default function Home() {
             >
               <FontAwesome name="times" size={16} color={isDark ? "#F5F0EA" : theme2Colors.text} />
             </TouchableOpacity>
-            <Text style={styles.groupModalTitle}>Switch group</Text>
+            <Text style={styles.groupModalTitle}>Your groups</Text>
             <ScrollView contentContainerStyle={styles.groupList}>
               {groups.map((group) => {
                 const groupMembers = allGroupsMembers[group.id] || []
+                const isSelected = group.id === currentGroupId
                 
                 return (
-                  <View key={group.id} style={styles.groupRowContainer}>
+                  <View key={group.id} style={styles.groupRowContainerFullWidth}>
                     <TouchableOpacity
                       style={[
-                        styles.groupRow,
-                        group.id === currentGroupId && styles.groupRowActive,
-                        styles.groupRowFlex,
+                        styles.groupRowFullWidth,
+                        isSelected && styles.groupRowActive,
                       ]}
                       onPress={() => handleSelectGroup(group.id)}
                     >
@@ -6149,7 +6145,7 @@ export default function Home() {
                                 key={member.id}
                                 style={[
                                   styles.groupAvatarSmall,
-                                  group.id === currentGroupId && styles.groupAvatarSmallActive
+                                  isSelected && styles.groupAvatarSmallActive
                                 ]}
                               >
                                 <Avatar
@@ -6166,25 +6162,43 @@ export default function Home() {
                             <Text style={styles.groupRowText}>{group.name}</Text>
                             {/* Show yellow indicator next to group name if there are new answers */}
                             {groups.length > 1 && 
-                             group.id !== currentGroupId && 
+                             !isSelected && 
                              groupUnseenStatus[group.id] && (
                               <View style={styles.unseenDot} />
                             )}
                           </View>
                         </View>
                       </View>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.groupSettingsButton}
-                      onPress={() => {
-                        setGroupPickerVisible(false)
-                        router.push({
-                          pathname: "/(main)/group-settings",
-                          params: { groupId: group.id },
-                        })
-                      }}
-                    >
-                      <FontAwesome name="cog" size={16} color={theme2Colors.textSecondary} />
+                      
+                      {/* Show buttons only for selected group */}
+                      {isSelected && (
+                        <View style={styles.groupActionButtons}>
+                          <TouchableOpacity
+                            style={styles.groupActionButton}
+                            onPress={() => {
+                              setGroupPickerVisible(false)
+                              router.push({
+                                pathname: "/(main)/group-interests",
+                                params: { groupId: group.id },
+                              })
+                            }}
+                          >
+                            <Text style={styles.groupActionButtonText}>Edit what you're into</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.groupActionButtonSmall}
+                            onPress={() => {
+                              setGroupPickerVisible(false)
+                              router.push({
+                                pathname: "/(main)/group-settings",
+                                params: { groupId: group.id },
+                              })
+                            }}
+                          >
+                            <Text style={styles.groupActionButtonText}>Settings</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
                     </TouchableOpacity>
                   </View>
                 )
@@ -6267,7 +6281,6 @@ export default function Home() {
           { id: "4", source: require("../../assets/images/onboarding-3-their-answer.png") },
           { id: "5", source: require("../../assets/images/onboarding-4-your-group.png") },
           { id: "6", source: require("../../assets/images/onboarding-5-ask-them.png") },
-          { id: "7", source: require("../../assets/images/onboarding-6-themed-decks.png") },
           { id: "8", source: require("../../assets/images/onboarding-7-set-your-vibe.png") },
         ]}
         onComplete={() => setOnboardingGalleryVisible(false)}

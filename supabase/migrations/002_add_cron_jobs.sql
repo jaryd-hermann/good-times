@@ -14,12 +14,13 @@ SELECT cron.schedule(
   $$
 );
 
--- Schedule daily notifications at 9:00 AM UTC (adjust based on user timezones)
--- Note: This sends at 9 AM UTC. For local time support, you'll need to run multiple cron jobs
--- or use a more sophisticated scheduling system
+-- Schedule daily notifications - queues notifications for 8 AM local time per user
+-- Note: Updated in migration 057 to queue notifications with scheduled_time
+-- Migration 058 adds timezone support and scheduled_time column
+-- The process-notification-queue cron job (runs every 5 min) sends them at the right time
 SELECT cron.schedule(
   'send-daily-notifications',
-  '0 9 * * *',
+  '5 0 * * *',
   $$
   SELECT
     net.http_post(
@@ -55,10 +56,11 @@ SELECT cron.schedule(
   $$
 );
 
--- Assign custom question opportunities every Monday at 12:01 AM UTC
+-- Assign custom question opportunities every Monday and Thursday at 12:01 AM UTC
+-- Note: This runs twice per week (Monday and Thursday) to assign 2 opportunities per week
 SELECT cron.schedule(
   'assign-custom-question-opportunity',
-  '1 0 * * 1',
+  '1 0 * * 1,4',
   $$
   SELECT
     net.http_post(

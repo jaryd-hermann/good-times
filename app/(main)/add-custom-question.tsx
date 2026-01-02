@@ -27,19 +27,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage"
 import { usePostHog } from "posthog-react-native"
 import { captureEvent } from "../../lib/posthog"
 
-// Theme 2 color palette matching new design system
-const theme2Colors = {
-  red: "#B94444",
-  yellow: "#E8A037",
-  green: "#2D6F4A",
-  blue: "#3A5F8C",
-  beige: "#E8E0D5",
-  cream: "#F5F0EA",
-  white: "#FFFFFF",
-  text: "#000000",
-  textSecondary: "#404040",
-}
-
 export default function AddCustomQuestion() {
   const router = useRouter()
   const params = useLocalSearchParams()
@@ -48,6 +35,37 @@ export default function AddCustomQuestion() {
   const queryClient = useQueryClient()
   const groupId = (params.groupId as string) || undefined
   const date = (params.date as string) || getTodayDate()
+
+  // Theme 2 color palette - dynamic based on dark/light mode
+  const theme2Colors = useMemo(() => {
+    if (isDark) {
+      // Dark mode colors
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#000000", // Black (was beige) - page background
+        cream: "#000000", // Black (was cream) - for card backgrounds
+        white: "#E8E0D5", // Beige (was white)
+        text: "#F5F0EA", // Cream (was black) - text color
+        textSecondary: "#A0A0A0", // Light gray (was dark gray)
+      }
+    } else {
+      // Light mode colors (current/default)
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#E8E0D5",
+        cream: "#F5F0EA",
+        white: "#FFFFFF",
+        text: "#000000",
+        textSecondary: "#404040",
+      }
+    }
+  }, [isDark])
 
   const [question, setQuestion] = useState("")
   const [isAnonymous, setIsAnonymous] = useState(false)
@@ -140,7 +158,6 @@ export default function AddCustomQuestion() {
         groupId,
         userId,
         question: question.trim(),
-        description: undefined, // Removed description field
         isAnonymous,
         dateAssigned: date,
       })
@@ -208,7 +225,7 @@ export default function AddCustomQuestion() {
       width: 32,
       height: 32,
       borderRadius: 16,
-      backgroundColor: theme2Colors.white,
+      backgroundColor: isDark ? theme2Colors.beige : theme2Colors.white,
       borderWidth: 1,
       borderColor: theme2Colors.text,
       justifyContent: "center",
@@ -280,7 +297,7 @@ export default function AddCustomQuestion() {
     },
     visibilityButtonSelected: {
       borderColor: theme2Colors.yellow,
-      backgroundColor: theme2Colors.white,
+      backgroundColor: isDark ? theme2Colors.beige : theme2Colors.white,
     },
     anonymousIcon: {
       width: 40,
@@ -319,7 +336,7 @@ export default function AddCustomQuestion() {
     buttonText: {
       color: theme2Colors.white,
     },
-  }), [insets.top, isOverLimit])
+  }), [insets.top, isOverLimit, theme2Colors, isDark])
 
   return (
     <KeyboardAvoidingView
@@ -330,7 +347,7 @@ export default function AddCustomQuestion() {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>It's your turn</Text>
         <TouchableOpacity onPress={() => router.back()} style={styles.closeButton}>
-          <FontAwesome name="times" size={16} color={theme2Colors.text} />
+          <FontAwesome name="times" size={16} color={isDark ? theme2Colors.white : theme2Colors.text} />
         </TouchableOpacity>
       </View>
 
@@ -398,7 +415,10 @@ export default function AddCustomQuestion() {
               ]}
               onPress={() => setIsAnonymous(true)}
             >
-              <View style={styles.anonymousIcon}>
+              <View style={[
+                styles.anonymousIcon,
+                isAnonymous && { backgroundColor: theme2Colors.text }
+              ]}>
                 <FontAwesome name="user-secret" size={24} color={isAnonymous ? theme2Colors.white : theme2Colors.textSecondary} />
               </View>
               <Text style={[

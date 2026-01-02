@@ -7,6 +7,7 @@ export interface User {
   theme_preference?: "dark" | "light"
   has_seen_custom_question_onboarding?: boolean
   app_tutorial_seen?: boolean
+  active_interests?: string[] // Array of interest names
   created_at: string
 }
 
@@ -15,6 +16,7 @@ export interface Group {
   name: string
   type: "family" | "friends"
   created_by: string
+  active_interests?: string[] // Array of interest names
   created_at: string
 }
 
@@ -29,20 +31,18 @@ export interface GroupMember {
 export interface Prompt {
   id: string
   question: string
-  description: string
   category: string
-  is_default: boolean
   birthday_type?: "your_birthday" | "their_birthday" | null
   dynamic_variables?: string[] // Array of variable names like ["member_name", "memorial_name"]
   is_custom?: boolean
   custom_question_id?: string | null
   deck_id?: string | null
   deck_order?: number | null
-  swipeable?: boolean
-  yes_swipes_count?: number
-  no_swipes_count?: number
   ice_breaker?: boolean
+  ice_breaker_order?: number | null
+  question_type?: string | null
   featured_prompt_id?: string | null
+  interests?: string[] // Array of interest names
   created_at: string
 }
 
@@ -117,12 +117,13 @@ export interface CustomQuestion {
   group_id: string
   user_id: string
   question: string
-  description?: string
   is_anonymous: boolean
   created_at: string
   date_assigned: string
   date_asked?: string | null
   prompt_id?: string | null
+  user_name?: string | null
+  group_name?: string | null
   user?: User
   group?: Group
   prompt?: Prompt
@@ -268,4 +269,29 @@ export interface GroupQuestionMatch {
   matched_at: string
   asked: boolean
   created_at: string
+}
+
+export interface Interest {
+  id: string
+  name: string
+  display_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface GroupInterest {
+  id: string
+  group_id: string
+  interest_id: string
+  created_at: string
+  interest?: Interest
+}
+
+export interface UserInterest {
+  id: string
+  user_id: string
+  interest_id: string
+  created_at: string
+  interest?: Interest
+  user?: User
 }

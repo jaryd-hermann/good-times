@@ -15,20 +15,27 @@ function getDayIndex(dateString: string, groupId: string): number {
   return diff + groupOffset
 }
 
-// Get user's local time (9 AM)
-function getUserLocalTime(userTimezone: string = "America/New_York"): Date {
-  const now = new Date()
-  const userTime = new Date(now.toLocaleString("en-US", { timeZone: userTimezone }))
-  const utcTime = new Date(now.toLocaleString("en-US", { timeZone: "UTC" }))
+// Calculate 8 AM local time for a user's timezone, converted to UTC
+function get8AMLocalTimeUTC(userTimezone: string, date: Date = new Date()): Date {
+  // Get current time in user's timezone
+  const userTimeString = date.toLocaleString("en-US", { timeZone: userTimezone })
+  const userTime = new Date(userTimeString)
+  
+  // Get current UTC time
+  const utcTimeString = date.toLocaleString("en-US", { timeZone: "UTC" })
+  const utcTime = new Date(utcTimeString)
+  
+  // Calculate offset between user timezone and UTC
   const offset = userTime.getTime() - utcTime.getTime()
   
-  // Set to 9 AM local time
-  const local9AM = new Date(userTime)
-  local9AM.setHours(9, 0, 0, 0)
+  // Set to 8 AM in user's local time
+  const local8AM = new Date(userTime)
+  local8AM.setHours(8, 0, 0, 0)
   
-  // Convert back to UTC
-  const utc9AM = new Date(local9AM.getTime() - offset)
-  return utc9AM
+  // Convert back to UTC by subtracting the offset
+  const utc8AM = new Date(local8AM.getTime() - offset)
+  
+  return utc8AM
 }
 
 serve(async (req) => {
@@ -111,11 +118,25 @@ serve(async (req) => {
       }
 
       for (const targetUser of targetUsers) {
-        // Get push token for this user
-        // Also get user info to check platform and log Android tokens
+        // Get user info including timezone
+        const { data: userData, error: userError } = await supabaseClient
+          .from("users")
+          .select("id, name, email, timezone")
+          .eq("id", targetUser.user_id)
+          .single()
+
+        if (userError || !userData) {
+          console.log(`[send-daily-notifications] User not found: ${targetUser.user_id}`)
+          continue
+        }
+
+        // Get user's timezone (default to America/New_York if not set)
+        const userTimezone = userData.timezone || "America/New_York"
+        
+        // Check if user has push token
         const { data: pushTokens, error: tokenError } = await supabaseClient
           .from("push_tokens")
-          .select("token, user:users(id, name, email)")
+          .select("token")
           .eq("user_id", targetUser.user_id)
           .limit(1)
 
@@ -123,15 +144,6 @@ serve(async (req) => {
           console.log(`[send-daily-notifications] No push token found for user ${targetUser.user_id}`)
           continue
         }
-
-        const pushToken = pushTokens[0].token
-        if (!pushToken) continue
-        
-        // Log Android tokens for verification (Android tokens start with ExponentPushToken)
-        // iOS tokens also start with ExponentPushToken, but we can check device info if needed
-        const isAndroidToken = pushToken.startsWith("ExponentPushToken")
-        const userInfo = (pushTokens[0] as any).user
-        console.log(`[send-daily-notifications] Sending to user ${targetUser.user_id} (${userInfo?.name || userInfo?.email || 'unknown'}), token: ${pushToken.substring(0, 20)}...`)
 
         // Personalize prompt text with dynamic variables
         // CRITICAL: Use prompt_name_usage table to get the EXACT same name that was selected
@@ -289,62 +301,38 @@ serve(async (req) => {
           )
         }
 
-        // Send push notification via Expo
-        const message = {
-          to: pushToken,
-          sound: "default",
-          title: `Answer today's question in ${group.name}`,
-          body: "Take a minute to answer so you can see what the others said",
-          data: {
-            type: "daily_prompt",
-            group_id: group.id,
-            prompt_id: dailyPrompt.prompt_id,
-          },
-        }
-
-        try {
-          const response = await fetch("https://exp.host/--/api/v2/push/send", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(message),
-          })
-
-          const result = await response.json()
-          
-          // Log Android notification status for debugging
-          if (isAndroidToken) {
-            console.log(`[send-daily-notifications] Android notification result for user ${targetUser.user_id}:`, JSON.stringify(result))
-          }
-          
-          // Check if notification was successfully sent
-          const status = result.data?.status || "unknown"
-          if (status === "error") {
-            console.error(`[send-daily-notifications] Expo push service returned error for user ${targetUser.user_id}:`, result.data)
-          }
-          
-          // Save notification to database
-          const { error: insertError } = await supabaseClient.from("notifications").insert({
+        // Calculate 8 AM local time for this user (in UTC)
+        const scheduledTime = get8AMLocalTimeUTC(userTimezone, new Date(today + "T00:00:00"))
+        
+        // Queue notification for 8 AM local time
+        const notificationTitle = `Answer today's question in ${group.name}`
+        const notificationBody = "Take a minute to answer so you can see what the others said"
+        
+        const { error: queueError } = await supabaseClient
+          .from("notification_queue")
+          .insert({
             user_id: targetUser.user_id,
             type: "daily_prompt",
-            title: message.title,
-            body: message.body, // "Take a minute to answer so you can see what the others said"
-            data: message.data,
+            title: notificationTitle,
+            body: notificationBody,
+            data: {
+              type: "daily_prompt",
+              group_id: group.id,
+              prompt_id: dailyPrompt.prompt_id,
+            },
+            scheduled_time: scheduledTime.toISOString(),
           })
 
-          if (insertError) {
-            console.error(`[send-daily-notifications] Error saving notification for user ${targetUser.user_id}:`, insertError)
-          }
-
+        if (queueError) {
+          console.error(`[send-daily-notifications] Error queueing notification for user ${targetUser.user_id}:`, queueError)
+        } else {
+          console.log(`[send-daily-notifications] Queued notification for user ${targetUser.user_id} at ${scheduledTime.toISOString()} (8 AM ${userTimezone})`)
           notifications.push({ 
             user_id: targetUser.user_id, 
-            status: status,
-            platform: isAndroidToken ? "android" : "ios"
+            status: "queued",
+            scheduled_time: scheduledTime.toISOString(),
+            timezone: userTimezone
           })
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error)
-          console.error(`[send-daily-notifications] Error sending to user ${targetUser.user_id}:`, errorMessage)
         }
       }
     }

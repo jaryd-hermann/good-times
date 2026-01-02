@@ -171,10 +171,10 @@ export default function SetTheme() {
       await AsyncStorage.removeItem("pending_group_join")
     }
     
-    // Route to home with focus on the group
+    // Route to group-interests (onboarding step) with focus on the group
     router.replace({
-      pathname: "/(main)/home",
-      params: { focusGroupId: groupId },
+      pathname: "/(main)/group-interests",
+      params: { groupId },
     })
   }
 

@@ -43,7 +43,8 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
     })
   }, [tabBarOpacity])
 
-  const visibleRoutes = state.routes.filter((route) => route.name === "home" || route.name === "explore-decks")
+  // TEMPORARILY HIDDEN: explore-decks tab removed from navigation
+  const visibleRoutes = state.routes.filter((route) => route.name === "home" /* || route.name === "explore-decks" */)
 
   // Initialize animated values for each route
   visibleRoutes.forEach((route) => {
@@ -223,36 +224,39 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
     currentRoute.name.startsWith("collection-detail") ||
     currentRoute.name.startsWith("deck-detail") ||
     currentRoute.name.startsWith("deck-vote") ||
-    currentRoute.name === "birthday-card-details"
+    currentRoute.name === "birthday-card-details" ||
+    currentRoute.name === "group-interests"
   ) {
     return null
   }
 
   return (
     <>
-      <Animated.View 
-        style={[styles.tabWrapper, { opacity: tabBarOpacity }]}
-        pointerEvents={isTabBarVisible ? "auto" : "box-none"}
-      >
-        <View style={styles.tabContainer}>
-          {/* Texture overlay for entire nav container - must be inside container to respect borderRadius */}
-          <View style={styles.tabContainerTexture} pointerEvents="none">
-            <Image
-              source={require("../../assets/images/texture.png")}
-              style={{ 
-                position: "absolute",
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                width: "100%",
-                height: "100%",
-                borderRadius: 38, // Match container border radius
-              }}
-              resizeMode="cover"
-            />
-          </View>
-        {visibleRoutes.map((route) => {
+      {/* TEMPORARILY HIDDEN: Tab navigation bar - hidden since we only have one tab (home) */}
+      {false && (
+        <Animated.View 
+          style={[styles.tabWrapper, { opacity: tabBarOpacity }]}
+          pointerEvents={isTabBarVisible ? "auto" : "box-none"}
+        >
+          <View style={styles.tabContainer}>
+            {/* Texture overlay for entire nav container - must be inside container to respect borderRadius */}
+            <View style={styles.tabContainerTexture} pointerEvents="none">
+              <Image
+                source={require("../../assets/images/texture.png")}
+                style={{ 
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  width: "100%",
+                  height: "100%",
+                  borderRadius: 38, // Match container border radius
+                }}
+                resizeMode="cover"
+              />
+            </View>
+          {visibleRoutes.map((route) => {
         const isFocused = state.index === state.routes.indexOf(route)
         const label = route.name === "home" ? "Answer" : "Ask"
         const animatedValue = animatedValuesRef.current[route.key] || new Animated.Value(isFocused ? 1 : 0)
@@ -363,8 +367,9 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
           </TouchableOpacity>
         )
       })}
-        </View>
-      </Animated.View>
+          </View>
+        </Animated.View>
+      )}
       
       {/* "Back to top" button - fades in when tab bar fades out (inverse relationship) */}
       {showBackToTop && (
@@ -426,7 +431,20 @@ export default function MainLayout() {
       tabBar={(props) => <FloatingTabBar {...props} />}
     >
       <Tabs.Screen name="home" />
-      <Tabs.Screen name="explore-decks" />
+      {/* TEMPORARILY HIDDEN: explore-decks tab */}
+      <Tabs.Screen
+        name="explore-decks"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="group-interests"
+        options={{
+          href: null,
+          tabBarStyle: { display: "none" },
+        }}
+      />
       <Tabs.Screen
         name="settings"
         options={{

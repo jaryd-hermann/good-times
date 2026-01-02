@@ -29,6 +29,7 @@ import { View, ActivityIndicator, StyleSheet, Text, AppState, AppStateStatus, An
 import { typography, colors as themeColors } from "../lib/theme"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { wasInactiveTooLong } from "../lib/session-lifecycle"
+import { openAppStoreReview } from "../lib/app-store-review"
 // Import supabase with error handling
 let supabase: any
 try {
@@ -856,6 +857,10 @@ export default function RootLayout() {
           if (groupId) {
             router.push(`/join/${groupId}`)
           }
+        }
+        // Handle app store rating deep link
+        else if (url.includes("goodtimes://rate")) {
+          await openAppStoreReview()
         }
       } catch (error) {
         console.error("[_layout] Error handling URL:", error)

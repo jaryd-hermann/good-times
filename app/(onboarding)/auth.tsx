@@ -198,6 +198,16 @@ async function ensureProfileAndJoinGroup(
         }
       }
 
+      // Get device timezone for new user
+      const deviceTimezone = (() => {
+        try {
+          return Intl.DateTimeFormat().resolvedOptions().timeZone
+        } catch (error) {
+          console.error("[ensureProfileAndJoinGroup] Failed to get device timezone:", error)
+          return "America/New_York" // Fallback
+        }
+      })()
+
       const { error: profileError } = await supabase
         .from("users")
         .insert({
@@ -206,6 +216,7 @@ async function ensureProfileAndJoinGroup(
           name: profileData?.userName?.trim() || null,
           birthday: birthday,
           avatar_url: finalAvatarUrl, // Use uploaded URL if available, null otherwise
+          timezone: deviceTimezone, // Set timezone from device
         } as any)
 
       if (profileError) {

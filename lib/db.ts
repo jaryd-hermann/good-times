@@ -1,5 +1,5 @@
 import { supabase } from "./supabase"
-import type { User, Group, GroupMember, Prompt, DailyPrompt, Entry, Memorial, Reaction, Comment, CustomQuestion, CustomQuestionRotation, GroupActivityTracking, Collection, Deck, GroupDeckVote, GroupActiveDeck, BirthdayCard, BirthdayCardEntry, FeaturedPrompt, GroupFeaturedQuestion } from "./types"
+import type { User, Group, GroupMember, Prompt, DailyPrompt, Entry, Memorial, Reaction, Comment, CustomQuestion, CustomQuestionRotation, GroupActivityTracking, Collection, Deck, GroupDeckVote, GroupActiveDeck, BirthdayCard, BirthdayCardEntry, FeaturedPrompt, GroupFeaturedQuestion, Interest, GroupInterest, UserInterest } from "./types"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "./prompts"
 
 // Helper function to select next memorial in rotation (week-based)
@@ -118,6 +118,60 @@ export async function updateUser(userId: string, updates: Partial<User>) {
   return data
 }
 
+// Get device timezone (e.g., "America/New_York", "Europe/London")
+export function getDeviceTimezone(): string {
+  try {
+    // Use Intl API to get IANA timezone identifier
+    return Intl.DateTimeFormat().resolvedOptions().timeZone
+  } catch (error) {
+    console.error("[db] Failed to get device timezone:", error)
+    // Fallback to America/New_York if detection fails
+    return "America/New_York"
+  }
+}
+
+// Ensure user has timezone set and update it if it has changed (e.g., user traveled)
+// This updates the timezone whenever called, so notifications adjust to user's current location
+export async function ensureUserTimezone(userId: string): Promise<void> {
+  try {
+    const deviceTimezone = getDeviceTimezone()
+    
+    // Get current user data
+    const { data: user, error: fetchError } = await supabase
+      .from("users")
+      .select("timezone")
+      .eq("id", userId)
+      .single()
+
+    if (fetchError) {
+      console.error("[db] Failed to fetch user for timezone check:", fetchError)
+      return
+    }
+
+    // Update timezone if:
+    // 1. It's not set, OR
+    // 2. It has changed (user traveled to different timezone)
+    if (!user?.timezone || user.timezone !== deviceTimezone) {
+      const { error: updateError } = await supabase
+        .from("users")
+        .update({ timezone: deviceTimezone })
+        .eq("id", userId)
+
+      if (updateError) {
+        console.error("[db] Failed to update user timezone:", updateError)
+      } else {
+        if (!user?.timezone) {
+          console.log(`[db] Set timezone for user ${userId}: ${deviceTimezone}`)
+        } else {
+          console.log(`[db] Updated timezone for user ${userId}: ${user.timezone} -> ${deviceTimezone}`)
+        }
+      }
+    }
+  } catch (error) {
+    console.error("[db] Error ensuring user timezone:", error)
+  }
+}
+
 export async function markAppTutorialSeen(userId: string) {
   const { data, error } = await supabase
     .from("users")
@@ -218,12 +272,19 @@ export async function createGroup(
         
         // Try to read the response body if available
         try {
-          if (context._bodyBlob && !context.bodyUsed) {
+          // Try to read from response if it's a Response object
+          if (context instanceof Response) {
+            const text = await context.text()
+            console.error("[createGroup] Error response body:", text)
+          } else if (context._bodyBlob && typeof context._bodyBlob.text === 'function' && !context.bodyUsed) {
             const text = await context._bodyBlob.text()
             console.error("[createGroup] Error response body:", text)
-          } else if (context._bodyInit) {
+          } else if (context._bodyInit && typeof context._bodyInit.text === 'function') {
             const text = await context._bodyInit.text()
             console.error("[createGroup] Error response body:", text)
+          } else if (context.status === 400) {
+            // For 400 errors, try to get the error from data if available
+            console.error("[createGroup] 400 error - check Supabase function logs for details")
           }
         } catch (e) {
           console.error("[createGroup] Could not read error response body:", e)
@@ -231,6 +292,10 @@ export async function createGroup(
       }
       if (queueError.message) {
         console.error("[createGroup] Error message:", queueError.message)
+      }
+      // Log the data if available (might contain error details)
+      if (data) {
+        console.error("[createGroup] Error data:", data)
       }
       // Don't throw - group creation succeeded, queue can be initialized later
     } else {
@@ -348,6 +413,88 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
     .eq("date", date)
     .is("user_id", null)
     .maybeSingle()
+
+  // If no prompt exists, check if this is a new group and create an ice breaker
+  if (!existing || existingError || !existing.prompt) {
+    // Check if group was created recently (within last 24 hours) or has no prompts at all
+    const { data: group } = await supabase
+      .from("groups")
+      .select("created_at")
+      .eq("id", groupId)
+      .maybeSingle()
+    
+    // Check if group has any prompts at all
+    const { data: anyPrompts } = await supabase
+      .from("daily_prompts")
+      .select("id")
+      .eq("group_id", groupId)
+      .limit(1)
+    
+    const isNewGroup = group && (!anyPrompts || anyPrompts.length === 0)
+    const groupCreatedAt = group?.created_at ? new Date(group.created_at) : null
+    const isRecentlyCreated = groupCreatedAt && (Date.now() - groupCreatedAt.getTime()) < 24 * 60 * 60 * 1000 // 24 hours
+    
+    // If this is a new group or recently created, create an ice breaker prompt
+    if (isNewGroup || isRecentlyCreated) {
+      console.log(`[getDailyPrompt] No prompt found for new/recent group ${groupId}, creating ice breaker...`)
+      
+      // Get the first ice breaker question (ice_breaker_order = 1)
+      const { data: iceBreakerPrompt, error: iceBreakerError } = await supabase
+        .from("prompts")
+        .select("id, question, description, category, is_default, is_custom, custom_question_id, dynamic_variables, birthday_type, deck_id, ice_breaker, ice_breaker_order")
+        .eq("ice_breaker", true)
+        .eq("ice_breaker_order", 1)
+        .maybeSingle()
+      
+      if (iceBreakerPrompt && !iceBreakerError) {
+        // Try to insert the ice breaker question
+        // Use upsert or handle duplicate key error gracefully
+        const { data: newPrompt, error: insertError } = await supabase
+          .from("daily_prompts")
+          .insert({
+            group_id: groupId,
+            prompt_id: iceBreakerPrompt.id,
+            date: date,
+          })
+          .select("*, prompt:prompts(*)")
+          .single()
+        
+        // If insert failed due to duplicate key, fetch the existing prompt instead
+        if (insertError && insertError.code === "23505") {
+          console.log(`[getDailyPrompt] Prompt already exists (duplicate key), fetching existing...`)
+          // Fetch the existing prompt that was just inserted (possibly by another concurrent call)
+          const { data: existingPrompt } = await supabase
+            .from("daily_prompts")
+            .select("*, prompt:prompts(*)")
+            .eq("group_id", groupId)
+            .eq("date", date)
+            .is("user_id", null)
+            .maybeSingle()
+          
+          if (existingPrompt && existingPrompt.prompt) {
+            console.log(`[getDailyPrompt] ✅ Fetched existing ice breaker prompt`)
+            return existingPrompt
+          }
+        } else if (newPrompt && !insertError && newPrompt.prompt) {
+          console.log(`[getDailyPrompt] ✅ Created ice breaker prompt for new group`)
+          return {
+            ...newPrompt,
+            prompt: {
+              ...iceBreakerPrompt,
+              ...newPrompt.prompt,
+            },
+          }
+        } else if (insertError) {
+          console.error(`[getDailyPrompt] Failed to insert ice breaker prompt:`, insertError)
+        }
+      } else {
+        console.warn(`[getDailyPrompt] Ice breaker question (order 1) not found:`, iceBreakerError)
+      }
+    }
+    
+    // If we couldn't create a prompt, return null
+    return null
+  }
 
   if (existing && !existingError && existing.prompt) {
     // Check if this is a custom question
@@ -2291,23 +2438,15 @@ export async function checkCustomQuestionEligibility(groupId: string): Promise<b
     .eq("group_id", groupId)
     .maybeSingle()
 
+  // Groups are eligible if they have 3+ members (7-day requirement removed)
+  // The check-custom-question-eligibility function updates the tracking table
   if (tracking?.is_eligible_for_custom_questions) {
     return true
   }
 
-  // Check if 7 days have passed since first non-admin member joined
-  const nonAdminMembers = members.filter((m) => m.role !== "admin")
-  if (nonAdminMembers.length === 0) return false
-
-  const firstMemberJoin = nonAdminMembers.sort((a, b) => 
-    new Date(a.joined_at).getTime() - new Date(b.joined_at).getTime()
-  )[0]
-
-  const daysSinceFirstMember = Math.floor(
-    (Date.now() - new Date(firstMemberJoin.joined_at).getTime()) / (1000 * 60 * 60 * 24)
-  )
-
-  return daysSinceFirstMember >= 7
+  // If tracking doesn't exist or says not eligible, but group has 3+ members, they're eligible
+  // (The cron job will update the tracking table, but this provides a fallback check)
+  return members.length >= 3
 }
 
 export async function getCustomQuestionOpportunity(
@@ -2347,7 +2486,6 @@ export async function createCustomQuestion(data: {
   groupId: string
   userId: string
   question: string
-  description?: string
   isAnonymous: boolean
   dateAssigned: string
 }): Promise<CustomQuestion> {
@@ -2372,14 +2510,25 @@ export async function createCustomQuestion(data: {
     throw new Error("No custom question opportunity found for this date")
   }
 
+  // Get user and group names for custom_questions table
+  const { data: userData } = await supabase
+    .from("users")
+    .select("name")
+    .eq("id", data.userId)
+    .single()
+  
+  const { data: groupData } = await supabase
+    .from("groups")
+    .select("name")
+    .eq("id", data.groupId)
+    .single()
+
   // Create prompt entry for the custom question
   const { data: prompt, error: promptError } = await supabase
     .from("prompts")
     .insert({
       question: data.question,
-      description: data.description || null,
       category: "Custom",
-      is_default: false,
       is_custom: true,
       custom_question_id: existingOpportunity.id,
     })
@@ -2430,10 +2579,11 @@ export async function createCustomQuestion(data: {
     .from("custom_questions")
     .update({
       question: data.question,
-      description: data.description || null,
       is_anonymous: data.isAnonymous,
       date_asked: nextAvailableDate,
       prompt_id: prompt.id,
+      user_name: userData?.name || null,
+      group_name: groupData?.name || null,
     })
     .eq("id", existingOpportunity.id)
     .select("*, user:users(*), group:groups(*), prompt:prompts!prompt_id(*)")
@@ -3361,7 +3511,6 @@ export async function addFeaturedQuestionToQueue(
     .from("prompts")
     .insert({
       question: featuredPrompt.question,
-      description: featuredPrompt.description,
       category: "Featured",
       featured_prompt_id: featuredPromptId,
     })
@@ -3743,4 +3892,153 @@ export async function getMatchInfo(
   })
 
   return { matched: true, matchedWithUsers }
+}
+
+// ============================================================================
+// INTERESTS FUNCTIONS
+// ============================================================================
+
+export async function getAllInterests(): Promise<Interest[]> {
+  const { data, error } = await supabase
+    .from("interests")
+    .select("*")
+    .order("display_order", { ascending: true })
+
+  if (error) throw error
+  return data || []
+}
+
+export async function getGroupInterests(groupId: string): Promise<(Interest & { users: User[] })[]> {
+  // Get all interests that have been selected by this group
+  const { data: groupInterests, error: groupError } = await supabase
+    .from("group_interests")
+    .select("interest:interests(*)")
+    .eq("group_id", groupId)
+
+  if (groupError) throw groupError
+
+  // Get all users in the group
+  const { data: members, error: membersError } = await supabase
+    .from("group_members")
+    .select("user:users(*)")
+    .eq("group_id", groupId)
+
+  if (membersError) throw membersError
+
+  const memberIds = (members || []).map((m: any) => m.user?.id).filter(Boolean)
+
+  // For each group interest, get users who selected it
+  const result: (Interest & { users: User[] })[] = []
+  
+  if (groupInterests) {
+    for (const item of groupInterests) {
+      const interest = item.interest as any
+      if (!interest) continue
+
+      // Get users in this group who selected this interest
+      const { data: userInterests } = await supabase
+        .from("user_interests")
+        .select("user:users(*)")
+        .eq("interest_id", interest.id)
+        .in("user_id", memberIds)
+
+      const users = (userInterests || [])
+        .map((ui: any) => ui.user)
+        .filter(Boolean) as User[]
+
+      result.push({
+        ...interest,
+        users,
+      })
+    }
+  }
+  
+  return result
+}
+
+export async function getUserInterestsForGroup(groupId: string, userId: string): Promise<string[]> {
+  // Get interest IDs that this user has selected
+  const { data, error } = await supabase
+    .from("user_interests")
+    .select("interest:interests(name)")
+    .eq("user_id", userId)
+
+  if (error) throw error
+  
+  // Also check if these interests are selected by the group
+  const userInterestNames = (data || []).map((item: any) => item.interest?.name).filter(Boolean)
+  
+  // Get group interests to filter
+  const { data: groupInterests } = await supabase
+    .from("group_interests")
+    .select("interest:interests(name)")
+    .eq("group_id", groupId)
+  
+  const groupInterestNames = new Set((groupInterests || []).map((item: any) => item.interest?.name).filter(Boolean))
+  
+  // Return only interests that are both user and group interests
+  return userInterestNames.filter((name: string) => groupInterestNames.has(name))
+}
+
+export async function toggleUserInterest(groupId: string, userId: string, interestId: string, isSelected: boolean): Promise<void> {
+  if (isSelected) {
+    // Add user interest
+    const { error: userError } = await supabase
+      .from("user_interests")
+      .upsert({ user_id: userId, interest_id: interestId }, { onConflict: "user_id,interest_id" })
+    
+    if (userError) throw userError
+    
+    // Ensure group interest exists
+    const { error: groupError } = await supabase
+      .from("group_interests")
+      .upsert({ group_id: groupId, interest_id: interestId }, { onConflict: "group_id,interest_id" })
+    
+    if (groupError) throw groupError
+  } else {
+    // Remove user interest
+    const { error: userError } = await supabase
+      .from("user_interests")
+      .delete()
+      .eq("user_id", userId)
+      .eq("interest_id", interestId)
+    
+    if (userError) throw userError
+    
+    // Check if any other users in the group have this interest
+    const { data: otherUsers } = await supabase
+      .from("user_interests")
+      .select("user_id")
+      .eq("interest_id", interestId)
+      .neq("user_id", userId)
+    
+    // Check if any of these users are in the group
+    if (otherUsers && otherUsers.length > 0) {
+      const { data: groupMembers } = await supabase
+        .from("group_members")
+        .select("user_id")
+        .eq("group_id", groupId)
+        .in("user_id", otherUsers.map(u => u.user_id))
+      
+      // If no group members have this interest, remove from group_interests
+      if (!groupMembers || groupMembers.length === 0) {
+        const { error: groupError } = await supabase
+          .from("group_interests")
+          .delete()
+          .eq("group_id", groupId)
+          .eq("interest_id", interestId)
+        
+        if (groupError) throw groupError
+      }
+    } else {
+      // No other users have this interest, remove from group_interests
+      const { error: groupError } = await supabase
+        .from("group_interests")
+        .delete()
+        .eq("group_id", groupId)
+        .eq("interest_id", interestId)
+      
+      if (groupError) throw groupError
+    }
+  }
 }

@@ -147,52 +147,87 @@ export default function Invite() {
     const verifyPending = await AsyncStorage.getItem("pending_group_created")
     console.log(`[invite] Verified pending_group_created: ${verifyPending}`)
     
-    // Check if they've completed swipe onboarding for this group
-    const SWIPE_ONBOARDING_KEY_PREFIX = "has_completed_swipe_onboarding"
-    const swipeOnboardingKey = `${SWIPE_ONBOARDING_KEY_PREFIX}_${user.id}_${groupId}`
-    const hasCompletedSwipeOnboarding = await AsyncStorage.getItem(swipeOnboardingKey)
-    console.log(`[invite] hasCompletedSwipeOnboarding for group ${groupId}: ${hasCompletedSwipeOnboarding}`)
+    // TEMPORARILY DISABLED: Skip swipe onboarding - go directly to set-theme or home
+    // Check if this is a new group creation (pending_group_created exists)
+    // If so, route to set-theme for new users, otherwise go to home
+    const pendingGroupCreated = await AsyncStorage.getItem("pending_group_created")
     
-    if (hasCompletedSwipeOnboarding === "true") {
-      // Already completed swipe onboarding - clear pending_group_created and go to home
-      console.log(`[invite] Already completed swipe onboarding, going to home`)
-      await AsyncStorage.removeItem("pending_group_created")
-      if (mode === "add") {
+    if (pendingGroupCreated === groupId) {
+      // New group creation - check if user has completed post-auth onboarding
+      // hasCompletedPostAuth was already checked above, so use that value
+      // Only show set-theme if user hasn't completed post-auth onboarding (brand new user)
+      if (!hasCompletedPostAuth) {
+        // Brand new user creating first group - go to set-theme
+        console.log(`[invite] New user detected, routing to set-theme for group ${groupId}`)
         router.replace({
-          pathname: "/(main)/home",
-          params: { focusGroupId: groupId },
+          pathname: "/(onboarding)/set-theme",
+          params: { groupId },
         })
-        return
+      } else {
+        // Existing user creating another group - skip set-theme, go directly to group-interests
+        console.log(`[invite] Existing user creating another group, routing to group-interests (skipping set-theme)`)
+        await AsyncStorage.removeItem("pending_group_created")
+        router.replace({
+          pathname: "/(main)/group-interests",
+          params: { groupId },
+        })
       }
-      router.replace("/(main)/home")
-      return
-    }
-
-    // Route to swipe onboarding (with groupId param)
-    console.log(`[invite] ⭐ About to navigate to swipe-onboarding`)
-    console.log(`[invite] groupId: ${groupId}`)
-    console.log(`[invite] pending_group_created (verified): ${verifyPending}`)
-    console.log(`[invite] hasCompletedSwipeOnboarding: ${hasCompletedSwipeOnboarding}`)
-    
-    // Use a small delay to ensure AsyncStorage write completes
-    await new Promise(resolve => setTimeout(resolve, 100))
-    
-    // Verify one more time before navigating
-    const finalCheck = await AsyncStorage.getItem("pending_group_created")
-    console.log(`[invite] Final check before navigation - pending_group_created: ${finalCheck}`)
-    
-    if (!finalCheck) {
-      console.error(`[invite] ❌ ERROR: pending_group_created was cleared before navigation! Re-setting it.`)
-      await AsyncStorage.setItem("pending_group_created", groupId)
+    } else {
+      // Not a new group creation - go to group-interests
+      await AsyncStorage.removeItem("pending_group_created")
+      router.replace({
+        pathname: "/(main)/group-interests",
+        params: { groupId },
+      })
     }
     
-    // Use push instead of replace to ensure navigation works
-    console.log(`[invite] 🚀 Navigating to swipe-onboarding...`)
-    router.push({
-      pathname: "/(onboarding)/swipe-onboarding",
-      params: { groupId },
-    })
-    console.log(`[invite] ✅ Navigation called`)
+    // OLD CODE - TEMPORARILY DISABLED:
+    // // Check if they've completed swipe onboarding for this group
+    // const SWIPE_ONBOARDING_KEY_PREFIX = "has_completed_swipe_onboarding"
+    // const swipeOnboardingKey = `${SWIPE_ONBOARDING_KEY_PREFIX}_${user.id}_${groupId}`
+    // const hasCompletedSwipeOnboarding = await AsyncStorage.getItem(swipeOnboardingKey)
+    // console.log(`[invite] hasCompletedSwipeOnboarding for group ${groupId}: ${hasCompletedSwipeOnboarding}`)
+    // 
+    // if (hasCompletedSwipeOnboarding === "true") {
+    //   // Already completed swipe onboarding - clear pending_group_created and go to home
+    //   console.log(`[invite] Already completed swipe onboarding, going to home`)
+    //   await AsyncStorage.removeItem("pending_group_created")
+    //   if (mode === "add") {
+    //     router.replace({
+    //       pathname: "/(main)/home",
+    //       params: { focusGroupId: groupId },
+    //     })
+    //     return
+    //   }
+    //   router.replace("/(main)/home")
+    //   return
+    // }
+    // 
+    // // Route to swipe onboarding (with groupId param)
+    // console.log(`[invite] ⭐ About to navigate to swipe-onboarding`)
+    // console.log(`[invite] groupId: ${groupId}`)
+    // console.log(`[invite] pending_group_created (verified): ${verifyPending}`)
+    // console.log(`[invite] hasCompletedSwipeOnboarding: ${hasCompletedSwipeOnboarding}`)
+    // 
+    // // Use a small delay to ensure AsyncStorage write completes
+    // await new Promise(resolve => setTimeout(resolve, 100))
+    // 
+    // // Verify one more time before navigating
+    // const finalCheck = await AsyncStorage.getItem("pending_group_created")
+    // console.log(`[invite] Final check before navigation - pending_group_created: ${finalCheck}`)
+    // 
+    // if (!finalCheck) {
+    //   console.error(`[invite] ❌ ERROR: pending_group_created was cleared before navigation! Re-setting it.`)
+    //   await AsyncStorage.setItem("pending_group_created", groupId)
+    // }
+    // 
+    // // Use push instead of replace to ensure navigation works
+    // console.log(`[invite] 🚀 Navigating to swipe-onboarding...`)
+    // router.push({
+    //   pathname: "/(onboarding)/swipe-onboarding",
+    //   params: { groupId },
+    // })
+    // console.log(`[invite] ✅ Navigation called`)
   }
 
   const filteredContacts = useMemo(() => {

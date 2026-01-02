@@ -15,13 +15,32 @@ function getWeekStartDate(dateString: string): string {
   return monday.toISOString().split("T")[0]
 }
 
-// Helper function to get a random day of the week (Mon-Sun) as date string
-function getRandomDayOfWeek(weekStart: string): string {
+// Helper function to get Thursday of the current week as date string
+function getThursdayOfWeek(weekStart: string): string {
   const monday = new Date(weekStart)
-  const randomDay = Math.floor(Math.random() * 7) // 0-6
-  const targetDate = new Date(monday)
-  targetDate.setDate(monday.getDate() + randomDay)
-  return targetDate.toISOString().split("T")[0]
+  const thursday = new Date(monday)
+  thursday.setDate(monday.getDate() + 3) // Thursday is 3 days after Monday
+  return thursday.toISOString().split("T")[0]
+}
+
+// Helper function to determine target date based on current day
+// This function is called when cron runs on Monday or Thursday at 12:01 AM UTC
+function getTargetDate(today: Date): { date: string; dayName: string } {
+  const dayOfWeek = today.getDay() // 0 = Sunday, 1 = Monday, ..., 4 = Thursday
+  const todayStr = today.toISOString().split("T")[0]
+  
+  if (dayOfWeek === 1) {
+    // Today is Monday - assign for today (Monday)
+    return { date: todayStr, dayName: "Monday" }
+  } else if (dayOfWeek === 4) {
+    // Today is Thursday - assign for today (Thursday)
+    return { date: todayStr, dayName: "Thursday" }
+  } else {
+    // Should not happen if cron is set correctly, but handle gracefully
+    // Log warning and default to today
+    console.warn(`[assign-custom-question-opportunity] Unexpected day of week: ${dayOfWeek}, defaulting to today`)
+    return { date: todayStr, dayName: dayOfWeek === 1 ? "Monday" : "Thursday" }
+  }
 }
 
 serve(async (req) => {
@@ -35,9 +54,13 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
     )
 
-    // Get current week start (Monday)
+    // Get current date and determine target date (Monday or Thursday)
     const today = new Date()
-    const weekStart = getWeekStartDate(today.toISOString().split("T")[0])
+    const todayStr = today.toISOString().split("T")[0]
+    const { date: targetDate, dayName } = getTargetDate(today)
+    const weekStart = getWeekStartDate(todayStr)
+
+    console.log(`[assign-custom-question-opportunity] Running for ${dayName} (${targetDate})`)
 
     // Get all eligible groups
     const { data: eligibleGroups, error: groupsError } = await supabaseClient
@@ -52,16 +75,22 @@ serve(async (req) => {
     for (const tracking of eligibleGroups || []) {
       const groupId = tracking.group_id
 
-      // Check if group already has an assignment for this week
+      // Check if group already has an assignment for this specific date (Monday or Thursday)
       const { data: existingAssignment } = await supabaseClient
         .from("custom_question_rotation")
         .select("user_id, date_assigned")
         .eq("group_id", groupId)
-        .eq("week_start_date", weekStart)
+        .eq("date_assigned", targetDate)
         .maybeSingle()
 
       if (existingAssignment) {
-        results.push({ group_id: groupId, status: "already_assigned", user_id: existingAssignment.user_id })
+        results.push({ 
+          group_id: groupId, 
+          status: "already_assigned", 
+          user_id: existingAssignment.user_id,
+          date: targetDate,
+          day: dayName
+        })
         continue
       }
 
@@ -100,38 +129,53 @@ serve(async (req) => {
         selectedMember = members[Math.floor(Math.random() * members.length)]
       }
 
-      // Check for same-day conflicts across all groups for this user
-      const randomDay = getRandomDayOfWeek(weekStart)
+      // Check for same-day conflicts across all groups for this user on the target date
       const { data: sameDayConflicts } = await supabaseClient
         .from("custom_questions")
         .select("id")
         .eq("user_id", selectedMember.user_id)
-        .eq("date_assigned", randomDay)
+        .eq("date_assigned", targetDate)
         .is("date_asked", null)
 
-      // If conflict exists, try another random day (max 7 attempts)
-      let finalDate = randomDay
-      let attempts = 0
-      while (sameDayConflicts && sameDayConflicts.length > 0 && attempts < 7) {
-        finalDate = getRandomDayOfWeek(weekStart)
-        const { data: conflicts } = await supabaseClient
-          .from("custom_questions")
-          .select("id")
-          .eq("user_id", selectedMember.user_id)
-          .eq("date_assigned", finalDate)
-          .is("date_asked", null)
-
-        if (!conflicts || conflicts.length === 0) {
-          break
+      // If conflict exists, try to find another member for this date
+      if (sameDayConflicts && sameDayConflicts.length > 0) {
+        // Try other members who don't have conflicts
+        const membersWithoutConflicts = members.filter((m: any) => {
+          // Check if this member has a conflict on targetDate
+          // We'll check this by trying to find them in conflicts
+          return m.user_id !== selectedMember.user_id
+        })
+        
+        let foundMember = false
+        for (const member of membersWithoutConflicts) {
+          const { data: conflicts } = await supabaseClient
+            .from("custom_questions")
+            .select("id")
+            .eq("user_id", member.user_id)
+            .eq("date_assigned", targetDate)
+            .is("date_asked", null)
+          
+          if (!conflicts || conflicts.length === 0) {
+            selectedMember = member
+            foundMember = true
+            break
+          }
         }
-        attempts++
+        
+        // If no member found without conflicts, skip this assignment
+        if (!foundMember) {
+          results.push({ 
+            group_id: groupId, 
+            status: "skipped_due_to_conflict", 
+            user_id: selectedMember.user_id,
+            date: targetDate,
+            day: dayName
+          })
+          continue
+        }
       }
 
-      // If still conflict after 7 attempts, skip this week for this user
-      if (attempts >= 7 && sameDayConflicts && sameDayConflicts.length > 0) {
-        results.push({ group_id: groupId, status: "skipped_due_to_conflict", user_id: selectedMember.user_id })
-        continue
-      }
+      const finalDate = targetDate
 
       // Create rotation record
       const { error: rotationError } = await supabaseClient
@@ -177,6 +221,7 @@ serve(async (req) => {
         status: "assigned",
         user_id: selectedMember.user_id,
         date_assigned: finalDate,
+        day: dayName,
         week_start: weekStart,
       })
     }

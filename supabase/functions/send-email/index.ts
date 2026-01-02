@@ -19,31 +19,31 @@ const EMAIL_TEMPLATES = {
     templateId: null, // Uses inline HTML
   },
   onboarding_day_2: {
-    subject: "How's it going?",
+    subject: "Answering with video (1/6)",
     templateId: null, // Uses inline HTML
   },
   onboarding_day_3: {
-    subject: "Did you know?",
+    subject: "Answering with voice (2/6)",
     templateId: null, // Uses inline HTML
   },
   onboarding_day_4: {
-    subject: "Building deeper connections",
+    subject: "What's your group into? (3/6)",
     templateId: null, // Uses inline HTML
   },
   onboarding_day_5: {
-    subject: "Making it a habit",
+    subject: "Adding and switching groups (4/6)",
     templateId: null, // Uses inline HTML
   },
   onboarding_day_6: {
-    subject: "Share the love!",
+    subject: "It's your turn to ask a question (5/6)",
     templateId: null, // Uses inline HTML
   },
   onboarding_day_7: {
-    subject: "You're all set! 🎊",
+    subject: "Birthday cards on Good Times (6/6)",
     templateId: null, // Uses inline HTML
   },
   birthday_card: {
-    subject: "Your birthday card is ready! 🎂",
+    subject: "Your group made you a birthday card!",
     templateId: "birthday-card-email", // Resend template ID
   },
   deck_suggestion: {
@@ -63,12 +63,6 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
   switch (emailType) {
     case "welcome": {
       const memberName = templateData.member_name || "there"
-      const groupName = templateData.group_name
-      
-      // Build welcome message - handle both cases: with group name and without
-      const welcomeMessage = groupName 
-        ? `Welcome to Good Times! We're so excited to have you join <strong>${groupName}</strong>.`
-        : `Welcome to Good Times! We're so excited to have you join us.`
       
       return `
 <!DOCTYPE html>
@@ -83,40 +77,44 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
   <div style="background-color: #F5F0EA; border-radius: 12px; overflow: hidden;">
     <!-- Content area -->
     <div style="padding: 40px 30px; background-color: #F5F0EA;">
-      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Hi ${memberName},</p>
+      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Hey ${memberName},</p>
       
       <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
-      ${welcomeMessage}
-    </p>
+        Welcome to Good Times, I'm Jaryd. I made this app because I was over scrolling through performative social media full of AI slop, and I found group texts can both quickly become overwhelming, and no actually interesting conversation is really ever going on in them.
+      </p>
       
       <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
-      Good Times helps you and your loved ones capture and share meaningful moments together. 
-      You'll receive daily prompts to spark conversations and create lasting memories.
-    </p>
+        I have friends and family all over the world after I moved to New York, and I've been craving something low-effort, yet meaningful that still kept me close to the people I care about.
+      </p>
       
-      <!-- CTA Section -->
-      <div style="background-color: #F5F0EA; border-left: 4px solid #D97393; padding: 20px; margin: 30px 0; border-radius: 4px;">
-        <p style="font-size: 16px; margin: 0; color: #000000; font-weight: 600;">
-          ✨ Get started by opening the app and responding to today's prompt!
-        </p>
-      </div>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        I think a good question has so much power to get people thinking and bring people closer.
+      </p>
       
-      <!-- Features list -->
-      <div style="margin: 30px 0;">
-        <p style="font-size: 14px; font-weight: 600; color: #404040; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">What to expect:</p>
-        <ul style="font-size: 15px; color: #000000; line-height: 1.8; padding-left: 20px; margin: 0;">
-          <li style="margin-bottom: 8px;">Daily prompts delivered at 9 AM</li>
-          <li style="margin-bottom: 8px;">Share photos, videos, or text responses</li>
-          <li style="margin-bottom: 8px;">Build a beautiful timeline of memories</li>
-        </ul>
-      </div>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        So I made Good Times with a dead simple premise:
+      </p>
+      
+      <ol style="font-size: 16px; color: #000000; line-height: 1.8; padding-left: 20px; margin: 20px 0;">
+        <li style="margin-bottom: 12px;">We'll ask you and your group just one question a day.</li>
+        <li style="margin-bottom: 12px;">Answer it however you like. Add photos, videos, or just keep it simple with text.</li>
+        <li style="margin-bottom: 12px;">After you answer, you'll see what everyone else said and can reply.</li>
+      </ol>
+      
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        That's it, see where the daily question takes you.
+      </p>
+      
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        Thanks for being here, I hope you find it's a fun way to bring you closer to your favorite people.
+      </p>
       
       <!-- Sign-off -->
       <div style="margin-top: 40px; text-align: left;">
         <p style="font-size: 16px; color: #000000; margin: 0 0 4px 0;">Have a good one!</p>
         <p style="font-size: 16px; color: #000000; margin: 0 0 20px 0;"><em>Jaryd</em></p>
         <p style="font-size: 14px; color: #000000; margin: 0;">
-          <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+          <em>p.s I made this solo, so if you have any feedback or see a bug, <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">please let me know</a>!</em>
         </p>
       </div>
     </div>
@@ -143,22 +141,38 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #000000; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #F5F0EA;">
   <div style="background-color: #F5F0EA; border-radius: 12px; overflow: hidden;">
     <div style="padding: 40px 30px; background-color: #F5F0EA;">
-      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Hi ${memberName},</p>
+      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Hey ${memberName},</p>
       <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
-        We hope you're enjoying Good Times! Have you had a chance to respond to today's prompt yet?
+        Welcome to your second day of Good Times.
       </p>
       <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
-        Every day at 9 AM, you'll receive a new question designed to spark meaningful conversations with your group. 
-        The best part? You can respond with text, photos, or videos to make your memories come alive.
+        I want to let you know about one of my personal favorite parts of the app, Video Answers.
       </p>
       <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
-        If you haven't already, try responding to today's prompt and see how your group reacts!
+        When I was testing the app with my first group, I realized I often had quite a bit I wanted to say, like a story. And typing it out over text suddenly felt like work.
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        So, I solved my own problem and added the ability to answer the question with a video instead.
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        Because this isn't social media, the best part is the video is just for my group to see, and I found I never cared at all about polish or anything like that. Just raw, candid, authentic video.
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        It also just adds some personality and an extra layer of you to the answer.
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        The next time you're answering a question, tap the pink "Video" circle in the toolbar and record your answer.
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        Oh, you can also reply to other others with video.
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        Give it a go, and have fun with it!
       </p>
       <div style="margin-top: 40px; text-align: left;">
-        <p style="font-size: 16px; color: #000000; margin: 0 0 4px 0;">Have a good one!</p>
         <p style="font-size: 16px; color: #000000; margin: 0 0 20px 0;"><em>Jaryd</em></p>
         <p style="font-size: 14px; color: #000000; margin: 0;">
-          <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+          <em>p.s I made this solo, so if you have any feedback or see a bug, <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">please let me know</a>!</em>
         </p>
       </div>
     </div>
@@ -183,23 +197,30 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #000000; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #F5F0EA;">
   <div style="background-color: #F5F0EA; border-radius: 12px; overflow: hidden;">
     <div style="padding: 40px 30px; background-color: #F5F0EA;">
-      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Hi ${memberName},</p>
+      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Hey ${memberName},</p>
       <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
-        Good Times is more than just daily prompts! Here are some features you might not have discovered yet:
+        Yesterday I told you about how you can use Video Messages to answer a question or comment on someone else's answer.
       </p>
-      <ul style="font-size: 15px; color: #000000; line-height: 1.8; padding-left: 20px; margin: 0;">
-        <li style="margin-bottom: 8px;"><strong style="color: #000000;">Browse History:</strong> Look back at all your shared memories organized by day, week, month, or year</li>
-        <li style="margin-bottom: 8px;"><strong style="color: #000000;">React & Comment:</strong> Show love for entries with hearts and leave comments to keep the conversation going</li>
-        <li style="margin-bottom: 8px;"><strong style="color: #000000;">Custom Decks:</strong> Suggest new question decks tailored to your group's interests</li>
-      </ul>
       <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
-        Take a moment to explore the app and see what else Good Times has to offer!
+        Today, I want to tell you about another similar feature: Voice Messages
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        So much research tells us that the power of voice does a ton to make people feel closer. And that hearing someone vs reading someone is a much better way of communicating.
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        I know some people (like my wife) are shy to send voice messages and avoid them. I get that.
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        But Good Times is all about small, intimate groups where performance is irrelevant.
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        If you want to give it a try, hit the "Mic" button the next time you answer a question (or comment).
       </p>
       <div style="margin-top: 40px; text-align: left;">
-        <p style="font-size: 16px; color: #000000; margin: 0 0 4px 0;">Have a good one!</p>
+        <p style="font-size: 16px; color: #000000; margin: 0 0 20px 0;">Have a good one!</p>
         <p style="font-size: 16px; color: #000000; margin: 0 0 20px 0;"><em>Jaryd</em></p>
         <p style="font-size: 14px; color: #000000; margin: 0;">
-          <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+          <em>p.s I made this solo, so if you have any feedback or see a bug, <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">please let me know</a>!</em>
         </p>
       </div>
     </div>
@@ -224,22 +245,24 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #000000; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #F5F0EA;">
   <div style="background-color: #F5F0EA; border-radius: 12px; overflow: hidden;">
     <div style="padding: 40px 30px; background-color: #F5F0EA;">
-      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Hi ${memberName},</p>
+      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Hey ${memberName},</p>
       <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
-        The magic of Good Times happens when everyone in your group participates. 
-        When you share your responses, you're creating a shared story that grows richer with each contribution.
+        Who wants to answer questions that aren't interesting to them?
       </p>
       <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
-        <strong style="color: #000000;">Tip:</strong> Try responding with a photo or video this week! Visual memories often spark the most meaningful conversations and reactions from your group.
+        That's why in Good Times, you can tell us what you're into, and we'll make sure the one question we ask you a day is about something you care about.
       </p>
       <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
-        Keep the momentum going - your group is counting on you! 💫
+        You likely did this when you joined already, but to see what your current interests are, or make changed, just tap your group name in the top left corner.
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        Then hit "Edit what we're into" and you can set what you guys like. We'll take it from there
       </p>
       <div style="margin-top: 40px; text-align: left;">
-        <p style="font-size: 16px; color: #000000; margin: 0 0 4px 0;">Have a good one!</p>
+        <p style="font-size: 16px; color: #000000; margin: 0 0 20px 0;">Have a good one!</p>
         <p style="font-size: 16px; color: #000000; margin: 0 0 20px 0;"><em>Jaryd</em></p>
         <p style="font-size: 14px; color: #000000; margin: 0;">
-          <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+          <em>p.s I made this solo, so if you have any feedback or see a bug, <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">please let me know</a>!</em>
         </p>
       </div>
     </div>
@@ -264,23 +287,33 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #000000; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #F5F0EA;">
   <div style="background-color: #F5F0EA; border-radius: 12px; overflow: hidden;">
     <div style="padding: 40px 30px; background-color: #F5F0EA;">
-      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Hi ${memberName},</p>
+      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Hey ${memberName},</p>
       <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
-        Consistency is key to building lasting memories. When you respond to prompts regularly, 
-        you're creating a beautiful timeline of your shared experiences.
+        Good Times isn't a social media. There are no ads, no strangers, and none of this recent AI slop flooding every feed.
       </p>
       <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
-        <strong style="color: #000000;">Pro tip:</strong> Set a daily reminder or make responding to prompts part of your morning routine. 
-        Even a quick response is better than no response - your group will appreciate it!
+        It's all about you and your group having your own private, fun, and meaningful space to learn about each other, share opinions, and feel closer.
       </p>
       <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
-        You're doing great! Keep up the amazing work. 🌟
+        Each group has it's own space, and groups are interested in different things and have different norms and roles.
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        That's why on Good Times, you can be in multiple groups.
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        I have my family group, and then I'm in 4 different friends groups.
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        If you have another group in mind (small or big), just tap your group name in the top left corner, and tap "Create another group".
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        Then pick a name, invite your people, set the interests for the group, and start answering!
       </p>
       <div style="margin-top: 40px; text-align: left;">
-        <p style="font-size: 16px; color: #000000; margin: 0 0 4px 0;">Have a good one!</p>
+        <p style="font-size: 16px; color: #000000; margin: 0 0 20px 0;">Have a good one!</p>
         <p style="font-size: 16px; color: #000000; margin: 0 0 20px 0;"><em>Jaryd</em></p>
         <p style="font-size: 14px; color: #000000; margin: 0;">
-          <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+          <em>p.s I made this solo, so if you have any feedback or see a bug, <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">please let me know</a>!</em>
         </p>
       </div>
     </div>
@@ -305,23 +338,35 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #000000; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #F5F0EA;">
   <div style="background-color: #F5F0EA; border-radius: 12px; overflow: hidden;">
     <div style="padding: 40px 30px; background-color: #F5F0EA;">
-      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Hi ${memberName},</p>
+      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Hey ${memberName},</p>
       <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
-        The more people in your group, the richer your shared memories become! 
-        Consider inviting more friends or family members to join your Good Times group.
+        Good Times is all about the question—the power of the question as a spark for conversation.
       </p>
       <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
-        You can invite people directly from the app - just look for the invite button in your group settings. 
-        Each new member brings new perspectives and stories to your shared timeline.
+        When my sister Lucy first saw the app, she instantly told me I have to make it possible for people to be able to ask their own questions to the group.
       </p>
       <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
-        Ready to grow your Good Times family? 🎉
+        I thought it was a great idea, and it's now one of the most used parts of the app.
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        Here's how it works
+      </p>
+      <ol style="font-size: 16px; color: #000000; line-height: 1.8; padding-left: 20px; margin: 20px 0;">
+        <li style="margin-bottom: 12px;">Twice a week, someone in the group gets a chance to ask a question</li>
+        <li style="margin-bottom: 12px;">This chance only lasts the day, if you skip it, it's passed along to someone else</li>
+        <li style="margin-bottom: 12px;">Show your name, or keep it anonymous</li>
+        <li style="margin-bottom: 12px;">Everyone then answers your question!</li>
+      </ol>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        Simple, fun, and it gives you the power of the question.
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        Keep an eye out for it.
       </p>
       <div style="margin-top: 40px; text-align: left;">
-        <p style="font-size: 16px; color: #000000; margin: 0 0 4px 0;">Have a good one!</p>
         <p style="font-size: 16px; color: #000000; margin: 0 0 20px 0;"><em>Jaryd</em></p>
         <p style="font-size: 14px; color: #000000; margin: 0;">
-          <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+          <em>p.s I made this solo, so if you have any feedback or see a bug, <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">please let me know</a>!</em>
         </p>
       </div>
     </div>
@@ -346,27 +391,40 @@ function generateEmailHTML(emailType: EmailType, templateData: Record<string, an
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #000000; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #F5F0EA;">
   <div style="background-color: #F5F0EA; border-radius: 12px; overflow: hidden;">
     <div style="padding: 40px 30px; background-color: #F5F0EA;">
-      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Hi ${memberName},</p>
+      <p style="font-size: 18px; margin-bottom: 24px; color: #000000;">Hey ${memberName},</p>
       <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
-        Congratulations! You've completed your first week with Good Times. 
-        You now know everything you need to make the most of your shared memories.
+        Day 7 of Good Times!
       </p>
       <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
-        From here on out, you'll continue receiving daily prompts at 9 AM. 
-        Keep responding, keep sharing, and keep building those meaningful connections with your group.
+        Thanks for being here, answering, and contributing to your groups daily connection.
       </p>
       <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
-        If you ever have questions or feedback, we're here for you. 
-        Just reply to this email - we'd love to hear from you!
+        You know everything you need to know: How to answer, how to edit what we ask, and how to add and switch groups.
       </p>
       <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
-        Here's to many more good times ahead! 🥂
+        My last note to you is just to tell about a few other cool things.
+      </p>
+      <ol style="font-size: 16px; color: #000000; line-height: 1.8; padding-left: 20px; margin: 20px 0;">
+        <li style="margin-bottom: 12px;">Keep an eye out for "Birthday Cards", where you add to someone's group card.</li>
+        <li style="margin-bottom: 12px;">As your timeline grows, you can easily find conversations in your history with filters.</li>
+        <li style="margin-bottom: 12px;">I made Good Times in memory of my mom who passed away. If your group has lost someone, open your group settings, and tap "Memorials". We'll ask occasional questions about them to your group. This is the favorite question I get with my family group.</li>
+      </ol>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        I really hope you have fun here, and I hope this app brings you and your people more good times.
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        If you've enjoyed using it so far, it would mean a ton to me if you left a rating on the App Store.
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        <a href="goodtimes://rate" style="color: #E8A037; text-decoration: underline;">Rate Good Times quickly</a>
+      </p>
+      <p style="font-size: 16px; margin-bottom: 20px; color: #000000; line-height: 1.7;">
+        Thanks again.
       </p>
       <div style="margin-top: 40px; text-align: left;">
-        <p style="font-size: 16px; color: #000000; margin: 0 0 4px 0;">Have a good one!</p>
         <p style="font-size: 16px; color: #000000; margin: 0 0 20px 0;"><em>Jaryd</em></p>
         <p style="font-size: 14px; color: #000000; margin: 0;">
-          <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">Have feedback or an idea? Let me know</a>
+          <em>p.s I made this solo, so if you have any feedback or see a bug, <a href="goodtimes://feedback" style="color: #E8A037; text-decoration: underline;">please let me know</a>!</em>
         </p>
       </div>
     </div>
@@ -587,142 +645,185 @@ function generateEmailText(emailType: EmailType, templateData: Record<string, an
   switch (emailType) {
     case "welcome": {
       const memberName = templateData.member_name || "there"
-      const groupName = templateData.group_name
-      
-      // Build welcome message - handle both cases: with group name and without
-      const welcomeMessage = groupName 
-        ? `Welcome to Good Times! We're so excited to have you join ${groupName}.`
-        : `Welcome to Good Times! We're so excited to have you join us.`
       
       return `
-Hi ${memberName},
+Hey ${memberName},
 
-${welcomeMessage}
+Welcome to Good Times, I'm Jaryd. I made this app because I was over scrolling through performative social media full of AI slop, and I found group texts can both quickly become overwhelming, and no actually interesting conversation is really ever going on in them.
 
-Good Times helps you and your loved ones capture and share meaningful moments together. 
-You'll receive daily prompts to spark conversations and create lasting memories.
+I have friends and family all over the world after I moved to New York, and I've been craving something low-effort, yet meaningful that still kept me close to the people I care about.
 
-Get started by opening the app and responding to today's prompt!
+I think a good question has so much power to get people thinking and bring people closer.
+
+So I made Good Times with a dead simple premise:
+
+1. We'll ask you and your group just one question a day.
+2. Answer it however you like. Add photos, videos, or just keep it simple with text.
+3. After you answer, you'll see what everyone else said and can reply.
+
+That's it, see where the daily question takes you.
+
+Thanks for being here, I hope you find it's a fun way to bring you closer to your favorite people.
 
 Have a good one!
 *Jaryd*
 
-Have feedback or an idea? Let me know: goodtimes://feedback
+p.s I made this solo, so if you have any feedback or see a bug, please let me know: goodtimes://feedback
       `.trim()
     }
     case "onboarding_day_2": {
       const memberName = templateData.member_name || "there"
       return `
-Hi ${memberName},
+Hey ${memberName},
 
-We hope you're enjoying Good Times! Have you had a chance to respond to today's prompt yet?
+Welcome to your second day of Good Times.
 
-Every day at 9 AM, you'll receive a new question designed to spark meaningful conversations with your group. 
-The best part? You can respond with text, photos, or videos to make your memories come alive.
+I want to let you know about one of my personal favorite parts of the app, Video Answers.
 
-If you haven't already, try responding to today's prompt and see how your group reacts!
+When I was testing the app with my first group, I realized I often had quite a bit I wanted to say, like a story. And typing it out over text suddenly felt like work.
 
-Have a good one!
+So, I solved my own problem and added the ability to answer the question with a video instead.
+
+Because this isn't social media, the best part is the video is just for my group to see, and I found I never cared at all about polish or anything like that. Just raw, candid, authentic video.
+
+It also just adds some personality and an extra layer of you to the answer.
+
+The next time you're answering a question, tap the pink "Video" circle in the toolbar and record your answer.
+
+Oh, you can also reply to other others with video.
+
+Give it a go, and have fun with it!
+
 *Jaryd*
 
-Have feedback or an idea? Let me know: goodtimes://feedback
+p.s I made this solo, so if you have any feedback or see a bug, please let me know: goodtimes://feedback
       `.trim()
     }
     case "onboarding_day_3": {
       const memberName = templateData.member_name || "there"
       return `
-Hi ${memberName},
+Hey ${memberName},
 
-Good Times is more than just daily prompts! Here are some features you might not have discovered yet:
+Yesterday I told you about how you can use Video Messages to answer a question or comment on someone else's answer.
 
-• Browse History: Look back at all your shared memories organized by day, week, month, or year
-• React & Comment: Show love for entries with hearts and leave comments to keep the conversation going
-• Custom Decks: Suggest new question decks tailored to your group's interests
+Today, I want to tell you about another similar feature: Voice Messages
 
-Take a moment to explore the app and see what else Good Times has to offer!
+So much research tells us that the power of voice does a ton to make people feel closer. And that hearing someone vs reading someone is a much better way of communicating.
+
+I know some people (like my wife) are shy to send voice messages and avoid them. I get that.
+
+But Good Times is all about small, intimate groups where performance is irrelevant.
+
+If you want to give it a try, hit the "Mic" button the next time you answer a question (or comment).
 
 Have a good one!
+
 *Jaryd*
 
-Have feedback or an idea? Let me know: goodtimes://feedback
+p.s I made this solo, so if you have any feedback or see a bug, please let me know: goodtimes://feedback
       `.trim()
     }
     case "onboarding_day_4": {
       const memberName = templateData.member_name || "there"
       return `
-Hi ${memberName},
+Hey ${memberName},
 
-The magic of Good Times happens when everyone in your group participates. 
-When you share your responses, you're creating a shared story that grows richer with each contribution.
+Who wants to answer questions that aren't interesting to them?
 
-Tip: Try responding with a photo or video this week! Visual memories often spark the most meaningful conversations and reactions from your group.
+That's why in Good Times, you can tell us what you're into, and we'll make sure the one question we ask you a day is about something you care about.
 
-Keep the momentum going - your group is counting on you! 💫
+You likely did this when you joined already, but to see what your current interests are, or make changed, just tap your group name in the top left corner.
+
+Then hit "Edit what we're into" and you can set what you guys like. We'll take it from there
 
 Have a good one!
+
 *Jaryd*
 
-Have feedback or an idea? Let me know: goodtimes://feedback
+p.s I made this solo, so if you have any feedback or see a bug, please let me know: goodtimes://feedback
       `.trim()
     }
     case "onboarding_day_5": {
       const memberName = templateData.member_name || "there"
       return `
-Hi ${memberName},
+Hey ${memberName},
 
-Consistency is key to building lasting memories. When you respond to prompts regularly, 
-you're creating a beautiful timeline of your shared experiences.
+Good Times isn't a social media. There are no ads, no strangers, and none of this recent AI slop flooding every feed.
 
-Pro tip: Set a daily reminder or make responding to prompts part of your morning routine. 
-Even a quick response is better than no response - your group will appreciate it!
+It's all about you and your group having your own private, fun, and meaningful space to learn about each other, share opinions, and feel closer.
 
-You're doing great! Keep up the amazing work. 🌟
+Each group has it's own space, and groups are interested in different things and have different norms and roles.
+
+That's why on Good Times, you can be in multiple groups.
+
+I have my family group, and then I'm in 4 different friends groups.
+
+If you have another group in mind (small or big), just tap your group name in the top left corner, and tap "Create another group".
+
+Then pick a name, invite your people, set the interests for the group, and start answering!
 
 Have a good one!
+
 *Jaryd*
 
-Have feedback or an idea? Let me know: goodtimes://feedback
+p.s I made this solo, so if you have any feedback or see a bug, please let me know: goodtimes://feedback
       `.trim()
     }
     case "onboarding_day_6": {
       const memberName = templateData.member_name || "there"
       return `
-Hi ${memberName},
+Hey ${memberName},
 
-The more people in your group, the richer your shared memories become! 
-Consider inviting more friends or family members to join your Good Times group.
+Good Times is all about the question—the power of the question as a spark for conversation.
 
-You can invite people directly from the app - just look for the invite button in your group settings. 
-Each new member brings new perspectives and stories to your shared timeline.
+When my sister Lucy first saw the app, she instantly told me I have to make it possible for people to be able to ask their own questions to the group.
 
-Ready to grow your Good Times family? 🎉
+I thought it was a great idea, and it's now one of the most used parts of the app.
 
-Have a good one!
+Here's how it works
+
+1. Twice a week, someone in the group gets a chance to ask a question
+2. This chance only lasts the day, if you skip it, it's passed along to someone else
+3. Show your name, or keep it anonymous
+4. Everyone then answers your question!
+
+Simple, fun, and it gives you the power of the question.
+
+Keep an eye out for it.
+
 *Jaryd*
 
-Have feedback or an idea? Let me know: goodtimes://feedback
+p.s I made this solo, so if you have any feedback or see a bug, please let me know: goodtimes://feedback
       `.trim()
     }
     case "onboarding_day_7": {
       const memberName = templateData.member_name || "there"
       return `
-Hi ${memberName},
+Hey ${memberName},
 
-Congratulations! You've completed your first week with Good Times. 
-You now know everything you need to make the most of your shared memories.
+Day 7 of Good Times!
 
-From here on out, you'll continue receiving daily prompts at 9 AM. 
-Keep responding, keep sharing, and keep building those meaningful connections with your group.
+Thanks for being here, answering, and contributing to your groups daily connection.
 
-If you ever have questions or feedback, we're here for you. 
-Just reply to this email - we'd love to hear from you!
+You know everything you need to know: How to answer, how to edit what we ask, and how to add and switch groups.
 
-Here's to many more good times ahead! 🥂
+My last note to you is just to tell about a few other cool things.
 
-Have a good one!
+1. Keep an eye out for "Birthday Cards", where you add to someone's group card.
+2. As your timeline grows, you can easily find conversations in your history with filters.
+3. I made Good Times in memory of my mom who passed away. If your group has lost someone, open your group settings, and tap "Memorials". We'll ask occasional questions about them to your group. This is the favorite question I get with my family group.
+
+I really hope you have fun here, and I hope this app brings you and your people more good times.
+
+If you've enjoyed using it so far, it would mean a ton to me if you left a rating on the App Store.
+
+Rate Good Times quickly: goodtimes://rate
+
+Thanks again.
+
 *Jaryd*
 
-Have feedback or an idea? Let me know: goodtimes://feedback
+p.s I made this solo, so if you have any feedback or see a bug, please let me know: goodtimes://feedback
       `.trim()
     }
     case "birthday_card": {
@@ -1000,4 +1101,5 @@ serve(async (req: Request) => {
     )
   }
 })
+
 

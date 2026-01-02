@@ -54,18 +54,15 @@ serve(async (req) => {
         continue
       }
 
-      // Get first non-admin member join date
+      // Get first non-admin member join date (for tracking purposes only)
       const nonAdminMembers = members.filter((m) => m.role !== "admin")
-      if (nonAdminMembers.length === 0) {
-        results.push({ group_id: group.id, status: "not_eligible", reason: "no_non_admin_members" })
-        continue
-      }
+      const firstMemberJoin = nonAdminMembers.length > 0
+        ? nonAdminMembers.sort((a, b) =>
+            new Date(a.joined_at).getTime() - new Date(b.joined_at).getTime()
+          )[0]
+        : null
 
-      const firstMemberJoin = nonAdminMembers.sort((a, b) =>
-        new Date(a.joined_at).getTime() - new Date(b.joined_at).getTime()
-      )[0]
-
-      // Get first entry date
+      // Get first entry date (for tracking purposes only)
       const { data: firstEntry } = await supabaseClient
         .from("entries")
         .select("created_at, date")
@@ -76,15 +73,9 @@ serve(async (req) => {
 
       const firstEntryDate = firstEntry?.date || null
 
-      // Check if 7 days have passed since first non-admin member joined
-      const daysSinceFirstMember = Math.floor(
-        (Date.now() - new Date(firstMemberJoin.joined_at).getTime()) / (1000 * 60 * 60 * 24)
-      )
-
-      const isEligible = daysSinceFirstMember >= 7
-      const eligibleSince = isEligible && !firstEntryDate
-        ? new Date(Date.now() - (daysSinceFirstMember - 7) * 24 * 60 * 60 * 1000).toISOString()
-        : null
+      // Groups are now eligible immediately if they have 3+ members (removed 7-day requirement)
+      const isEligible = true
+      const eligibleSince = firstMemberJoin ? firstMemberJoin.joined_at : new Date().toISOString()
 
       // Upsert activity tracking record
       const { error: trackingError } = await supabaseClient
@@ -92,7 +83,7 @@ serve(async (req) => {
         .upsert(
           {
             group_id: group.id,
-            first_member_joined_at: firstMemberJoin.joined_at,
+            first_member_joined_at: firstMemberJoin?.joined_at || null,
             first_entry_date: firstEntryDate,
             is_eligible_for_custom_questions: isEligible,
             eligible_since: eligibleSince,
@@ -108,8 +99,7 @@ serve(async (req) => {
 
       results.push({
         group_id: group.id,
-        status: isEligible ? "eligible" : "not_eligible",
-        days_since_first_member: daysSinceFirstMember,
+        status: "eligible",
         member_count: members.length,
       })
     }

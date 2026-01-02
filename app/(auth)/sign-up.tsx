@@ -46,10 +46,21 @@ export default function SignUp() {
       if (error) throw error
 
       if (data.user) {
-        // Create user profile
+        // Get device timezone
+        const deviceTimezone = (() => {
+          try {
+            return Intl.DateTimeFormat().resolvedOptions().timeZone
+          } catch (error) {
+            console.error("[sign-up] Failed to get device timezone:", error)
+            return "America/New_York" // Fallback
+          }
+        })()
+
+        // Create user profile with timezone
         const { error: profileError } = await supabase.from("users").insert({
           id: data.user.id,
           email: data.user.email!,
+          timezone: deviceTimezone,
         })
 
         if (profileError) throw profileError

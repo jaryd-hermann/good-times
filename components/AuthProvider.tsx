@@ -336,9 +336,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // and user load was skipped
         try {
           const { data: { session } } = await supabase.auth.getSession()
-          if (session?.user && !user) {
-            console.log("[AuthProvider] App came to foreground - session exists but no user, loading user now")
-            await loadUser(session.user.id)
+          if (session?.user) {
+            if (!user) {
+              console.log("[AuthProvider] App came to foreground - session exists but no user, loading user now")
+              await loadUser(session.user.id)
+            } else {
+              // User is already loaded - update timezone in case they traveled
+              // This ensures notifications adjust to their current location
+              try {
+                const { ensureUserTimezone } = await import("../lib/db")
+                await ensureUserTimezone(session.user.id)
+              } catch (timezoneError) {
+                console.warn("[AuthProvider] Failed to update timezone on foreground:", timezoneError)
+              }
+            }
           }
         } catch (error) {
           console.warn("[AuthProvider] Failed to check session on foreground:", error)
@@ -397,6 +408,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let userData: any = null
     try {
       console.log('[AuthProvider] Loading user:', userId)
+      
+      // Ensure user has timezone set (for existing users who don't have it)
+      try {
+        const { ensureUserTimezone } = await import("../lib/db")
+        await ensureUserTimezone(userId)
+      } catch (timezoneError) {
+        // Don't fail user load if timezone update fails
+        console.warn("[AuthProvider] Failed to ensure user timezone:", timezoneError)
+      }
       
       // CRITICAL: Check if app is active before loading user
       // If app is backgrounded, skip user load (will load when app comes to foreground)

@@ -11,6 +11,7 @@ import {
   Image,
   Switch,
   Platform,
+  Share,
 } from "react-native"
 import { useRouter } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -126,10 +127,29 @@ export default function SettingsScreen() {
       return
     }
 
-    router.push({
-      pathname: "/(onboarding)/create-group/invite",
-      params: { groupId: primaryGroupId },
-    })
+    try {
+      const userName = profile?.name || "me"
+      const inviteLink = `https://thegoodtimes.app/join/${primaryGroupId}`
+      const inviteMessage = `I've created a group for us on this new app, Good Times. Join ${userName} here: ${inviteLink}`
+      
+      // Platform-specific sharing to prevent duplicate URLs on iOS
+      // iOS: Only use message (URL included in text) to avoid preview card duplication
+      // Android: Use both url and message for better integration
+      if (Platform.OS === "ios") {
+        await Share.share({
+          message: inviteMessage,
+          title: "Invite someone",
+        })
+      } else {
+        await Share.share({
+          url: inviteLink,
+          message: inviteMessage,
+          title: "Invite someone",
+        })
+      }
+    } catch (error: any) {
+      Alert.alert("Error", error.message)
+    }
   }
 
   async function handleAppRating() {
@@ -951,7 +971,6 @@ export default function SettingsScreen() {
           { id: "4", source: require("../../assets/images/onboarding-3-their-answer.png") },
           { id: "5", source: require("../../assets/images/onboarding-4-your-group.png") },
           { id: "6", source: require("../../assets/images/onboarding-5-ask-them.png") },
-          { id: "7", source: require("../../assets/images/onboarding-6-themed-decks.png") },
           { id: "8", source: require("../../assets/images/onboarding-7-set-your-vibe.png") },
         ]}
         onComplete={() => setOnboardingGalleryVisible(false)}

@@ -1074,8 +1074,8 @@ export default function EntryComposer() {
         if (p.category === "Remembering" && !hasMemorials) return false
         
         // Filter by group type
-        if (group.type === "family" && p.category === "Friends") return false
-        if (group.type === "friends" && p.category === "Family") return false
+        // Note: Friends/Family categories have been merged to Standard
+        // No need to filter by group type anymore
         
         // Filter prompts that require memorials but group has none
         if (p.dynamic_variables?.includes("memorial_name") && !hasMemorials) return false

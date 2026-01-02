@@ -299,7 +299,7 @@ export default function CollectionDetail() {
           style={styles.backButton}
           onPress={() => router.push(`/(main)/explore-decks?groupId=${groupId}`)}
         >
-          <FontAwesome name="angle-left" size={16} color={theme2Colors.text} />
+          <FontAwesome name="angle-left" size={18} color={isDark ? "#000000" : theme2Colors.text} />
         </TouchableOpacity>
         <View style={styles.headerContent}>
           <Text style={styles.collectionName}>{collection?.name || "Collection"}</Text>
