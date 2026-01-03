@@ -85,6 +85,7 @@ export default function EntryDetail() {
   const returnTo = (params.returnTo as string) || undefined
   const scrollToComments = params.scrollToComments === "true"
   const scrollViewRef = useRef<ScrollView>(null)
+  const commentInputRef = useRef<TextInput>(null)
   const [userId, setUserId] = useState<string>()
   const [commentText, setCommentText] = useState("")
   const [currentUserAvatar, setCurrentUserAvatar] = useState<string | undefined>()
@@ -515,9 +516,10 @@ export default function EntryDetail() {
 
   const commentsSectionRef = useRef<View>(null)
 
-  // Scroll to comments section if scrollToComments is true
+  // Scroll to comments section and auto-focus comment input if scrollToComments is true
   useEffect(() => {
     if (scrollToComments && scrollViewRef.current && commentsSectionRef.current) {
+      // First, scroll to comments section
       setTimeout(() => {
         commentsSectionRef.current?.measureLayout(
           scrollViewRef.current as any,
@@ -529,6 +531,12 @@ export default function EntryDetail() {
             scrollViewRef.current?.scrollToEnd({ animated: true })
           }
         )
+      }, 500)
+      
+      // Auto-focus comment input after screen transition and scroll complete
+      // Delay accounts for screen transition (~300ms) + scroll animation (~300ms)
+      setTimeout(() => {
+        commentInputRef.current?.focus()
       }, 800)
     }
   }, [scrollToComments, entry])
@@ -827,7 +835,11 @@ export default function EntryDetail() {
       // Upload media if present
       if (commentMediaUri) {
         const storageKey = `comment-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-        mediaUrl = await uploadMedia(entry.group_id, storageKey, commentMediaUri, commentMediaType!)
+        // Allow 1GB for comment videos (vs 100MB default for entries)
+        const uploadOptions = commentMediaType === "video" 
+          ? { maxVideoSize: 1024 * 1024 * 1024 } // 1GB for comment videos
+          : undefined
+        mediaUrl = await uploadMedia(entry.group_id, storageKey, commentMediaUri, commentMediaType!, uploadOptions)
         mediaType = commentMediaType!
       }
 
@@ -2317,6 +2329,7 @@ export default function EntryDetail() {
           <View style={styles.fixedCommentInput}>
           <Avatar uri={currentUserAvatar} name={currentUserName} size={32} />
           <TextInput
+            ref={commentInputRef}
             value={commentText}
             onChangeText={setCommentText}
             placeholder="Add a comment..."

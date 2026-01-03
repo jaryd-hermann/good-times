@@ -286,13 +286,12 @@ export default function Home() {
   const router = useRouter()
   const params = useLocalSearchParams()
   const focusGroupId = params.focusGroupId as string | undefined
-  const dateParam = params.date as string | undefined
   const queryClient = useQueryClient()
   const pathname = usePathname()
   const previousPathnameRef = useRef<string | null>(null)
   const { colors, isDark } = useTheme()
   const { user: authUser } = useAuth() // Get user from AuthProvider (works even with invalid session)
-  const [selectedDate, setSelectedDate] = useState(dateParam || getTodayDate())
+  const [selectedDate, setSelectedDate] = useState(getTodayDate())
   const [currentGroupId, setCurrentGroupId] = useState<string>()
   const [userId, setUserId] = useState<string>()
   const [userAvatarUrl, setUserAvatarUrl] = useState<string | undefined>()
@@ -323,10 +322,10 @@ export default function Home() {
   const loadingRotation = useRef(new Animated.Value(0)).current
   const loadingAnimationRef = useRef<Animated.CompositeAnimation | null>(null)
   
-  // Filtering and view mode state (like history.tsx)
+  // Filtering and view mode state - default to "Weeks" for History screen
   type ViewMode = "Days" | "Weeks" | "Months" | "Years"
   type PeriodMode = Exclude<ViewMode, "Days">
-  const [viewMode, setViewMode] = useState<ViewMode>("Days")
+  const [viewMode, setViewMode] = useState<ViewMode>("Weeks")
   const [showFilter, setShowFilter] = useState(false)
   const [showFilterModal, setShowFilterModal] = useState(false)
   const filterButtonRef = useRef<View>(null)
@@ -431,24 +430,6 @@ export default function Home() {
   useEffect(() => {
     loadUser()
   }, [authUser]) // Re-run when authUser changes (e.g., after session refresh)
-
-  // Handle date param from navigation (e.g., after posting entry)
-  useEffect(() => {
-    if (dateParam) {
-      setSelectedDate(dateParam)
-      // Ensure date is in loadedDateRanges so queries can fetch data
-      setLoadedDateRanges((prev) => {
-        if (!prev.includes(dateParam)) {
-          return [...prev, dateParam].sort((a, b) => b.localeCompare(a))
-        }
-        return prev
-      })
-      // Scroll to date after a brief delay
-      setTimeout(() => {
-        scrollToDate(dateParam)
-      }, 300)
-    }
-  }, [dateParam])
 
   // Reload user profile when screen comes into focus (e.g., returning from settings)
   // But don't reset group - only update if focusGroupId param is provided
@@ -1037,8 +1018,6 @@ export default function Home() {
   // Start with today + 6 days back (7 days total)
   useEffect(() => {
     if (viewMode === "Days" && currentGroupId && todayDate) {
-      // Initialize with 7 days going backwards from today (matches weekDates logic)
-      // This ensures loadedDateRanges includes all dates shown in day navigation
       const initialDates = generateDateRange(todayDate, 7)
       setLoadedDateRanges(initialDates)
       setHasMoreEntries(true) // Assume there are more entries until we check
@@ -1047,19 +1026,6 @@ export default function Home() {
       setLoadedDateRanges([])
     }
   }, [currentGroupId, todayDate, viewMode, generateDateRange])
-  
-  // CRITICAL: Ensure selectedDate is always in loadedDateRanges when it changes
-  // This ensures queries can fetch data for the selected date even if it's not in initial weekDates
-  useEffect(() => {
-    if (viewMode === "Days" && selectedDate) {
-      setLoadedDateRanges((prev) => {
-        if (!prev.includes(selectedDate)) {
-          return [...prev, selectedDate].sort((a, b) => b.localeCompare(a))
-        }
-        return prev
-      })
-    }
-  }, [selectedDate, viewMode])
   
   // Query for today's user entry (always fetch, regardless of selectedDate)
   const { data: todayUserEntry } = useQuery({
@@ -1234,9 +1200,9 @@ export default function Home() {
   const weekDates = useMemo(() => {
     const dates: { date: string; day: string; dayNum: number }[] = []
     if (!currentGroup) {
-      // Fallback: return 7 days starting from today-6 to today
+      // Fallback: return 4 days starting from today
       const today = new Date(`${todayDate}T00:00:00`)
-      for (let i = 6; i >= 0; i--) {
+      for (let i = 3; i >= 0; i--) {
         const d = new Date(today)
         d.setDate(today.getDate() - i)
         dates.push({
@@ -1255,11 +1221,10 @@ export default function Home() {
     const startDateForTimeline =
       groupAgeDays === 0 ? todayDate : createdDateLocal
 
-    if (groupAgeDays < 7) {
-      // For new groups, timeline starts at startDateForTimeline and shows up to 7 days
+    if (groupAgeDays < 4) {
+      // For very new groups, timeline starts at startDateForTimeline and shows 3 following days (4 total)
       let cursor = new Date(`${startDateForTimeline}T00:00:00`)
-      const daysToShow = Math.min(7, groupAgeDays + 1) // Show up to 7 days, or group age + 1
-      for (let i = 0; i < daysToShow; i++) {
+      for (let i = 0; i < 4; i++) {
         const d = new Date(cursor)
         dates.push({
           date: formatDateAsLocalISO(d),
@@ -1269,9 +1234,9 @@ export default function Home() {
         cursor.setDate(cursor.getDate() + 1)
       }
     } else {
-      // After 7 days, show rolling window: today-6 .. today (7 days total, most recent on right)
+      // After 4 days, show rolling window: today-3 .. today (4 days total)
       const today = new Date(`${todayDate}T00:00:00`)
-      for (let i = 6; i >= 0; i--) {
+      for (let i = 3; i >= 0; i--) {
         const d = new Date(today)
         d.setDate(today.getDate() - i)
         dates.push({
@@ -1308,14 +1273,8 @@ export default function Home() {
   // Fetch entries for selected date (for backward compatibility)
   const { data: entries = [], isLoading: isLoadingEntries, isFetching: isFetchingEntries } = useQuery({
     queryKey: ["entries", currentGroupId, selectedDate],
-    queryFn: async () => {
-      if (!currentGroupId) return []
-      console.log("[home] Fetching entries for selectedDate:", selectedDate, "groupId:", currentGroupId)
-      const result = await getEntriesForDate(currentGroupId, selectedDate)
-      console.log("[home] Entries fetched:", result?.length || 0, "entries")
-      return result
-    },
-    enabled: !!currentGroupId && !!selectedDate, // Always enabled when group and date are available
+    queryFn: () => (currentGroupId ? getEntriesForDate(currentGroupId, selectedDate) : []),
+    enabled: !!currentGroupId, // Always enabled when group is available
     staleTime: 0, // Always refetch to ensure data matches database
     gcTime: 2 * 60 * 1000, // Keep cache for 2 minutes for smooth date navigation
     refetchOnMount: true, // Always refetch on mount to ensure fresh data
@@ -1323,70 +1282,31 @@ export default function Home() {
     // Never show placeholder data from different group/date
     placeholderData: undefined,
   })
-  
-  // Debug: Log when selectedDate changes
-  useEffect(() => {
-    console.log("[home] selectedDate changed to:", selectedDate, "currentGroupId:", currentGroupId, "entries count:", entries.length)
-  }, [selectedDate, currentGroupId, entries.length])
 
-  // Fetch ALL entries for the group - ONLY for Weeks/Months/Years view (deferred for Days view)
-  // Days view uses paginated loading instead for better performance
+  // Fetch ALL entries for the group - History screen always loads all entries
   const { data: allEntries = [], isLoading: allEntriesLoading } = useQuery({
-    queryKey: ["allEntries", currentGroupId],
+    queryKey: ["allEntriesHistory", currentGroupId],
     queryFn: async (): Promise<any[]> => {
       if (!currentGroupId) return []
-      const { data, error } = await supabase
-        .from("entries")
-        .select("*, user:users(*), prompt:prompts(*)")
-        .eq("group_id", currentGroupId)
-        .order("date", { ascending: false })
-        .order("created_at", { ascending: false })
-        .limit(100) // Limit to prevent performance issues
-      if (error) {
-        console.error("[home] allEntries query error:", error)
-        return []
-      }
+      // Use getAllEntriesForGroup function for History screen
+      const { getAllEntriesForGroup } = await import("../../lib/db")
+      const entries = await getAllEntriesForGroup(currentGroupId)
       // CRITICAL: Double-check all entries belong to the correct group (safety filter)
-      const filteredData = (data || []).filter((entry: any) => entry.group_id === currentGroupId)
-      if (filteredData.length !== (data?.length || 0)) {
-        console.warn(`[home] Found ${(data?.length || 0) - filteredData.length} entries with wrong group_id - filtered out`)
+      const filteredData = entries.filter((entry: any) => entry.group_id === currentGroupId)
+      if (filteredData.length !== entries.length) {
+        console.warn(`[history] Found ${entries.length - filteredData.length} entries with wrong group_id - filtered out`)
       }
       return filteredData
     },
-    enabled: !!currentGroupId && viewMode !== "Days", // Only load for Weeks/Months/Years view
+    enabled: !!currentGroupId, // Always load for History screen
     staleTime: 0, // Always fetch fresh data when group changes
     gcTime: 1000 * 60 * 60 * 24, // Keep in cache for 24 hours
   })
 
-  // Fetch paginated entries for Days view (only loads entries for dates in loadedDateRanges)
-  const { data: paginatedEntries = [], isLoading: isLoadingPaginatedEntries } = useQuery({
-    queryKey: ["paginatedEntries", currentGroupId, loadedDateRanges.join(",")],
-    queryFn: async (): Promise<any[]> => {
-      if (!currentGroupId || loadedDateRanges.length === 0) return []
-      
-      // Fetch entries for all loaded dates in parallel
-      const entriesPromises = loadedDateRanges.map((date) => 
-        getEntriesForDate(currentGroupId, date)
-      )
-      const entriesArrays = await Promise.all(entriesPromises)
-      
-      // Flatten and combine all entries
-      const allEntries = entriesArrays.flat()
-      
-      // Sort by date (descending) then created_at (descending)
-      return allEntries.sort((a, b) => {
-        if (a.date !== b.date) {
-          return b.date.localeCompare(a.date)
-        }
-        const aCreated = a.created_at ? new Date(a.created_at).getTime() : 0
-        const bCreated = b.created_at ? new Date(b.created_at).getTime() : 0
-        return bCreated - aCreated
-      })
-    },
-    enabled: !!currentGroupId && viewMode === "Days" && loadedDateRanges.length > 0,
-    staleTime: 2 * 60 * 1000, // Cache for 2 minutes
-    gcTime: 5 * 60 * 1000, // Keep in cache for 5 minutes
-  })
+  // History screen always uses allEntries (no pagination needed)
+  // Keep paginatedEntries for compatibility but it's not used
+  const paginatedEntries: any[] = []
+  const isLoadingPaginatedEntries = false
 
   // Fetch all birthday cards for the user (for filtering) - must be before allDates
   const { data: myBirthdayCards = [] } = useQuery({
@@ -1442,27 +1362,15 @@ export default function Home() {
   }, [todayDate, currentGroup?.created_at])
 
   // Get all unique dates - use paginated data for Days view, allEntries for other views
-  // CRITICAL: Always include selectedDate for Days view to ensure data loads when clicking previous days
   const allDates = useMemo(() => {
     const dates = new Set<string>()
     
-    if (viewMode === "Days") {
-      // For Days view, use loaded date ranges (paginated)
-      loadedDateRanges.forEach((date) => {
-        dates.add(date)
-      })
-      // CRITICAL: Always include selectedDate to ensure queries run when clicking previous days
-      if (selectedDate) {
-        dates.add(selectedDate)
+    // History screen always uses allEntries (no pagination)
+    allEntries.forEach((entry) => {
+      if (entry.date) {
+        dates.add(entry.date)
       }
-    } else {
-      // For Weeks/Months/Years view, use allEntries
-      allEntries.forEach((entry) => {
-        if (entry.date) {
-          dates.add(entry.date)
-        }
-      })
-    }
+    })
     
     // Also include dates from birthday cards
     myBirthdayCards.forEach((card) => {
@@ -1471,24 +1379,13 @@ export default function Home() {
       }
     })
     
-    // CRITICAL: Also include dates from the date range (for prompts even if no entries)
-    // But only for Days view - limit to loaded ranges
-    if (viewMode === "Days") {
-      loadedDateRanges.forEach((date) => {
-        dates.add(date)
-      })
-      // CRITICAL: Always include selectedDate for prompts
-      if (selectedDate) {
-        dates.add(selectedDate)
-      }
-    } else {
-      dateRangeForPrompts.forEach((date) => {
-        dates.add(date)
-      })
-    }
+    // Include dates from the date range (for prompts even if no entries)
+    dateRangeForPrompts.forEach((date) => {
+      dates.add(date)
+    })
     
     return Array.from(dates)
-  }, [viewMode, loadedDateRanges, allEntries, myBirthdayCards, currentGroupId, dateRangeForPrompts, selectedDate])
+  }, [allEntries, myBirthdayCards, currentGroupId, dateRangeForPrompts])
 
   // Fetch user entries for all dates to check if user has answered
   const { data: userEntriesByDate = {} } = useQuery({
@@ -1695,10 +1592,9 @@ export default function Home() {
   })
 
   // Filter entries by active period if set
-  // Use entries for selected date in Days view, allEntries for other views
+  // History screen always uses allEntries (no pagination)
   const entriesWithinPeriod = useMemo(() => {
-    // For Days view, use entries for selectedDate (already fetched via entries query)
-    const entriesToUse = viewMode === "Days" ? entries : allEntries
+    const entriesToUse = allEntries
     
     if (!activePeriod) {
       return entriesToUse
@@ -1884,15 +1780,6 @@ export default function Home() {
     setSelectedDate(date)
     setActivePeriod(null) // Clear filters
     setViewMode("Days") // Return to Days view
-    
-    // CRITICAL: Ensure selectedDate is in loadedDateRanges so queries can fetch data
-    setLoadedDateRanges((prev) => {
-      if (!prev.includes(date)) {
-        return [...prev, date].sort((a, b) => b.localeCompare(a))
-      }
-      return prev
-    })
-    
     // Scroll to date after a brief delay to ensure feed is rendered
     setTimeout(() => {
       scrollToDate(date)
@@ -1901,6 +1788,17 @@ export default function Home() {
 
   // Function to render period grid (like history.tsx)
   function renderPeriodGrid(periods: PeriodSummary[], mode: PeriodMode) {
+    // Show skeleton cards while loading
+    if (allEntriesLoading) {
+      return (
+        <View style={styles.periodGrid}>
+          {[1, 2, 3, 4].map((i) => (
+            <EntryCardSkeleton key={i} />
+          ))}
+        </View>
+      )
+    }
+    
     if (periods.length === 0) {
       return (
         <View style={{ padding: spacing.xl, alignItems: "center" }}>
@@ -3246,7 +3144,7 @@ export default function Home() {
             entryId: notification.entryId,
             entryIds: JSON.stringify(entryIdList),
             index: entryIndex >= 0 ? String(entryIndex) : undefined,
-            returnTo: "/(main)/home",
+            returnTo: "/(main)/history",
           },
         })
       }
@@ -3500,8 +3398,8 @@ export default function Home() {
 
   // Calculate if prompt card should be shown at top
   // Always check today's question, regardless of selectedDate
-  // Only show prompt card at top if viewing today's date
-  const showPromptCardAtTop = viewMode === "Days" && selectedDate === todayDate && !todayUserEntry && !(isTodayQuestionAboutMe && todayEntries.length > 0) && todayPromptMatchesFilters
+  // History screen doesn't show prompt card
+  const showPromptCardAtTop = false
 
   // Get today's entries excluding current user (to see who has answered)
   const todayEntriesExcludingUser = useMemo(() => {
@@ -3546,28 +3444,22 @@ export default function Home() {
   }, [todayDailyPrompt?.prompt?.category, todayEntries[0]?.prompt?.category])
 
   // Calculate full header height including all elements
+  // Calculate header height for simplified History header
+  // Header structure:
+  // - insets.top + spacing.md (paddingTop from View inline style)
+  // - spacing.sm (paddingTop from styles.header)
+  // - 32px (title fontSize)
+  // - spacing.md (title marginBottom)
+  // - spacing.lg (header paddingBottom)
+  // Note: Filter pills are in headerRight, aligned with title, so they don't add height
   const headerHeight = useMemo(() => {
-    const baseHeight = insets.top + spacing.xl + spacing.md + 36 + spacing.md + 32 + spacing.md + 48 + spacing.md + spacing.sm + 48 + spacing.xs
-    // Add prompt card height and spacing when visible
-    const promptCardHeight = showPromptCardAtTop ? 240 + spacing.md : 0
-    // Add divider height and spacing (includes divider bottom margin)
-    const dividerHeight = 1 + spacing.lg + spacing.sm // divider + top margin + bottom margin
-    return baseHeight + promptCardHeight + dividerHeight
-  }, [insets.top, showPromptCardAtTop])
+    return insets.top + spacing.md + spacing.sm + 32 + spacing.md + spacing.lg
+  }, [insets.top])
 
-  // CRITICAL: Calculate padding - content starts a fixed distance below header
-  // Padding accounts for structural header height + minimal fixed gap
-  // Subtract visual spacing components to reduce gap (another 50% reduction)
+  // Calculate padding - content starts a fixed distance below header
+  // Simple calculation for History screen (no divider)
   const contentPaddingValue = useMemo(() => {
-    // Subtract divider's bottom margin (visual spacing, not structural)
-    const dividerBottomMargin = spacing.sm // 8px
-    // Subtract additional visual spacing for 50% reduction (increased from 16px to 32px)
-    const additionalVisualSpacing = spacing.xl // 32px additional reduction (50% more than before)
-    // Minimal fixed gap between header and content
-    const fixedGap = 4 // Reduced fixed gap (from 8px to 4px)
-    // Padding = headerHeight - visual spacing + minimal fixed gap
-    // This creates reduced spacing while ensuring content never gets cropped
-    return headerHeight - dividerBottomMargin - additionalVisualSpacing + fixedGap
+    return headerHeight
   }, [headerHeight])
 
   // CRITICAL: Initialize padding synchronously on mount and whenever headerHeight changes
@@ -3781,21 +3673,58 @@ export default function Home() {
     header: {
       paddingTop: spacing.sm,
       paddingHorizontal: spacing.md,
-      paddingBottom: 0, // Remove bottom padding to minimize gap
-      borderBottomWidth: 0, // Remove underline div below dates
-      backgroundColor: theme2Colors.beige,
-      overflow: "visible", // Allow dropdown to overflow header bounds
-    },
-    headerTop: {
+      paddingBottom: spacing.lg, // More padding at bottom
       flexDirection: "row",
       justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: spacing.md,
+      alignItems: "flex-start",
+      borderBottomWidth: 0, // Remove border
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      backgroundColor: theme2Colors.beige,
+      zIndex: 10,
+      overflow: "visible", // Allow dropdown to overflow header bounds
+    },
+    headerLeft: {
+      flex: 1,
     },
     headerRight: {
+      justifyContent: "flex-end",
+      alignItems: "center", // Center align vertically with title
+    },
+    title: {
+      fontFamily: "PMGothicLudington-Text115",
+      fontSize: 32,
+      color: theme2Colors.text,
+      marginTop: spacing.sm, // More padding above title
+      marginBottom: spacing.md, // More padding below title
+    },
+    filterButtonsRow: {
       flexDirection: "row",
       alignItems: "center",
-      gap: spacing.sm,
+      gap: spacing.xs,
+      justifyContent: "flex-end", // Align to right
+    },
+    filterPillButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: spacing.xs,
+      paddingHorizontal: spacing.md,
+      borderRadius: 20, // Rounded pill shape
+      backgroundColor: theme2Colors.cream,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
+      marginLeft: spacing.xs,
+      minHeight: 36, // Ensure consistent height for both pills
+      height: 36, // Fixed height to match
+    },
+    filterPillText: {
+      ...typography.bodyMedium,
+      fontSize: 14,
+      color: theme2Colors.text,
+      marginRight: spacing.xs / 2,
     },
     avatarButton: {
       marginLeft: spacing.sm,
@@ -4581,16 +4510,13 @@ export default function Home() {
       color: theme2Colors.textSecondary,
     },
     revealAnswersContainer: {
-      marginTop: spacing.md,
-      marginBottom: spacing.md,
-      paddingHorizontal: spacing.lg, // Match EntryCard and promptCardToday margins
+      marginTop: spacing.xs,
     },
     revealAnswersText: {
       fontFamily: "Roboto-Regular",
       fontSize: 14,
       color: theme2Colors.textSecondary, // Changed to secondary text color (no pink/hyperlink)
       lineHeight: 20,
-      textAlign: "center", // Center align the text
     },
     // REMOVED: revealAnswersLink style - no longer using pink/hyperlink
     daySection: {
@@ -4946,275 +4872,74 @@ export default function Home() {
         </View>
       </Modal>
       
+      {/* Header - positioned absolutely like explore-decks.tsx */}
+      <Animated.View
+        style={[
+          styles.header,
+          { paddingTop: insets.top + spacing.md },
+          {
+            transform: [{ translateY: headerTranslateY }],
+          },
+        ]}
+      >
+        <View style={styles.headerLeft}>
+          <Text style={styles.title}>History</Text>
+        </View>
+        <View style={styles.headerRight}>
+          {/* Filter buttons row - side by side, center-aligned with title */}
+          <View style={[styles.filterButtonsRow, { marginTop: spacing.sm }]}>
+            {/* Days dropdown - rounded pill */}
+            <View 
+              style={styles.filterButtonWrapper}
+              ref={filterButtonRef}
+              onLayout={() => {
+                filterButtonRef.current?.measureInWindow((x, y, width, height) => {
+                  setFilterButtonLayout({ x, y, width, height })
+                })
+              }}
+            >
+              <TouchableOpacity 
+                style={styles.filterPillButton} 
+                onPress={() => {
+                  // Re-measure button position when pressed to ensure accurate positioning
+                  filterButtonRef.current?.measureInWindow((x, y, width, height) => {
+                    setFilterButtonLayout({ x, y, width, height })
+                    setShowFilter((prev) => !prev)
+                  })
+                }}
+              >
+                <Text style={styles.filterPillText}>{viewMode}</Text>
+                <Text style={styles.filterChevron}>▼</Text>
+              </TouchableOpacity>
+            </View>
+            
+            {/* Filter button - rounded pill */}
+            <TouchableOpacity style={styles.filterPillButton} onPress={() => setShowFilterModal(true)}>
+              <FontAwesome name="sliders" size={16} color={theme2Colors.text} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Animated.View>
+      
       {/* Content */}
       <Animated.ScrollView
         ref={scrollViewRef}
         style={styles.content}
-        contentContainerStyle={styles.contentContainer}
+        contentContainerStyle={[
+          styles.contentContainer,
+          {
+            paddingTop: contentPaddingTop,
+          },
+        ]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme2Colors.text} />}
         onScroll={handleScroll}
         scrollEventThrottle={16}
+        onContentSizeChange={handleContentSizeChange}
+        showsVerticalScrollIndicator={false}
       >
-        {/* Header - now inside ScrollView so it scrolls naturally */}
-        <View
-          style={[
-            styles.header,
-            { 
-              paddingTop: insets.top + spacing.md,
-            },
-          ]}
-        >
-        <View style={styles.headerTop}>
-          <TouchableOpacity style={styles.groupSelector} onPress={() => setGroupPickerVisible(true)}>
-            <Text style={styles.groupName}>{currentGroup?.name || "Loading..."}</Text>
-            <Text style={styles.chevron}>▼</Text>
-          </TouchableOpacity>
-          <View style={styles.headerRight}>
-            <NotificationBell
-              hasNotifications={hasNotifications}
-              onPress={handleNotificationBellPress}
-              size={25}
-            />
-            <TouchableOpacity onPress={() => router.push("/(main)/settings")} style={styles.avatarButton}>
-              <Avatar uri={userAvatarUrl} name={userName} size={36} borderColor={theme2Colors.green} />
-            </TouchableOpacity>
-          </View>
-        </View>
 
-        {/* Member avatars with + button */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.membersScroll}>
-          {members.map((member, index) => {
-            // Cycle through theme colors: pink, yellow, green, blue
-            const avatarColors = [theme2Colors.onboardingPink, theme2Colors.yellow, theme2Colors.green, theme2Colors.blue]
-            const borderColor = avatarColors[index % avatarColors.length]
-            // Create slight rotation angles for overlapping effect
-            const rotationAngles = [-8, 5, -3, 7, -5, 4, -6]
-            const rotation = rotationAngles[index % rotationAngles.length]
-            return (
-            <TouchableOpacity
-              key={member.id}
-                style={[styles.memberAvatar, { transform: [{ rotate: `${rotation}deg` }] }]}
-              onPress={() => {
-                setSelectedMember({
-                  id: member.user_id,
-                  name: member.user.name || "User",
-                  avatar_url: member.user.avatar_url,
-                })
-                setUserProfileModalVisible(true)
-              }}
-            >
-                <Avatar uri={member.user.avatar_url} name={member.user.name || "User"} size={42} borderColor={borderColor} square={true} />
-            </TouchableOpacity>
-            )
-          })}
-          <TouchableOpacity style={styles.addMemberButton} onPress={handleShareInvite}>
-            <View style={styles.addMemberCircle}>
-              <Text style={styles.addMemberText}>+</Text>
-            </View>
-          </TouchableOpacity>
-        </ScrollView>
-
-        {/* Day navigation with fixed period/filter buttons */}
-        <View style={styles.dayScrollerContainer}>
-          <View style={styles.dayScrollerContent}>
-            {weekDates.map((day) => {
-              const hasEntry = userEntryDates.has(day.date)
-              const isSelected = day.date === selectedDate
-              const isFutureDay = day.date > todayDate
-              return (
-                <TouchableOpacity
-                  key={day.date}
-                  style={[
-                    styles.dayButton,
-                    isSelected && styles.dayButtonSelected,
-                    !isSelected && isFutureDay && styles.dayButtonFuture,
-                  ]}
-                  onPress={() => handleDayPress(day.date)}
-                >
-                  <Text
-                    style={[
-                      styles.dayText,
-                      isSelected && styles.dayTextSelected,
-                      !isSelected && isFutureDay && styles.dayTextFuture,
-                    ]}
-                  >
-                    {day.day}
-                  </Text>
-                  {/* Show check mark if user has answered, dot if not */}
-                  {!isFutureDay && (
-                    <View style={styles.dayIndicator}>
-                      {hasEntry ? (
-                        <FontAwesome name="check" size={12} color={isSelected ? (isDark ? "#000000" : theme2Colors.blue) : (isDark ? theme2Colors.text : "#E8E0D5")} />
-                      ) : (
-                        <View style={[styles.dayDot, isSelected && styles.dayDotSelected]} />
-                      )}
-                    </View>
-                  )}
-                </TouchableOpacity>
-              )
-            })}
-          </View>
-        </View>
-        
-        {/* Divider line below day navigation */}
-        <View style={styles.dayNavigationDivider} />
-      </View>
-
-      {/* Banners - show above daily question card (today only) */}
-      {selectedDate === todayDate && (
-        <>
-          {/* Custom Question Banner (today only, not for future days) */}
-          {shouldShowCustomQuestionBanner && !isFuture && (
-            <CustomQuestionBanner
-              groupId={currentGroupId!}
-              date={selectedDate}
-              onPress={handleCustomQuestionPress}
-              reduceSpacing={
-                // Reduce spacing if any birthday banners will be shown
-                // CRITICAL: Only count cards that have entries
-                (myBirthdayCard && myBirthdayCard.group_id === currentGroupId && myBirthdayCard.birthday_date === selectedDate && cardEntries.length > 0) ||
-                (upcomingBirthdayCards.filter((card) => card.group_id === currentGroupId).length > 0) ||
-                myCardEntries.length > 0
-              }
-            />
-          )}
-          
-          {/* Birthday Card Banners (only for non-future days) */}
-          {/* 1. Your Card Banner (highest priority - if it's user's birthday) */}
-          {/* CRITICAL: Only show banner if card exists AND has entries */}
-          {myBirthdayCard && 
-           myBirthdayCard.group_id === currentGroupId &&
-           myBirthdayCard.birthday_date === selectedDate && 
-           !isFuture &&
-           cardEntries.length > 0 && (
-            <BirthdayCardYourCardBanner
-              groupId={currentGroupId!}
-              cardId={myBirthdayCard.id}
-              birthdayDate={myBirthdayCard.birthday_date}
-              contributorAvatars={cardEntries.map((e) => ({
-                user_id: e.contributor_user_id,
-                avatar_url: e.contributor?.avatar_url,
-                name: e.contributor?.name,
-              }))}
-              onPress={() => {
-                router.push({
-                  pathname: "/(main)/birthday-card-details",
-                  params: {
-                    cardId: myBirthdayCard.id,
-                    groupId: currentGroupId!,
-                    returnTo: `/(main)/home?groupId=${currentGroupId}&date=${selectedDate}`,
-                  },
-                })
-              }}
-            />
-          )}
-
-          {/* 2. Upcoming Birthday Banners (stacked vertically, non-future days only) */}
-          {!isFuture && upcomingBirthdayCards
-            .filter((card) => card.group_id === currentGroupId)
-            .map((card) => {
-            const birthdayUser = (card as any).birthday_user
-            return (
-              <BirthdayCardUpcomingBanner
-                key={card.id}
-                groupId={currentGroupId!}
-                cardId={card.id}
-                birthdayUserId={card.birthday_user_id}
-                birthdayUserName={birthdayUser?.name || "Someone"}
-                birthdayUserAvatar={birthdayUser?.avatar_url}
-                birthdayDate={card.birthday_date}
-                onPress={() => {
-                  router.push({
-                    pathname: "/(main)/modals/birthday-card-composer",
-                    params: {
-                      cardId: card.id,
-                      groupId: currentGroupId!,
-                      birthdayUserId: card.birthday_user_id,
-                      birthdayUserName: birthdayUser?.name || "Someone",
-                      returnTo: `/(main)/home?groupId=${currentGroupId}&date=${selectedDate}`,
-                    },
-                  })
-                }}
-              />
-            )
-          })}
-
-          {/* 3. Edit Banners (for entries written on selectedDate, non-future days only) */}
-          {!isFuture && myCardEntries.map((entry) => {
-            const card = (entry as any).card
-            const birthdayUser = card?.birthday_user
-            return (
-              <BirthdayCardEditBanner
-                key={entry.id}
-                groupId={currentGroupId!}
-                cardId={card?.id || ""}
-                entryId={entry.id}
-                birthdayUserId={card?.birthday_user_id || ""}
-                birthdayUserName={birthdayUser?.name || "Someone"}
-                birthdayUserAvatar={birthdayUser?.avatar_url}
-                birthdayDate={card?.birthday_date || ""}
-                onPress={() => {
-                  router.push({
-                    pathname: "/(main)/modals/birthday-card-composer",
-                    params: {
-                      cardId: card?.id || "",
-                      groupId: currentGroupId!,
-                      birthdayUserId: card?.birthday_user_id || "",
-                      birthdayUserName: birthdayUser?.name || "Someone",
-                      entryId: entry.id,
-                      returnTo: `/(main)/home?groupId=${currentGroupId}&date=${selectedDate}`,
-                    },
-                  })
-                }}
-              />
-            )
-          })}
-
-          {/* Pending Vote Banner (today only, not for future days) */}
-          {pendingVotes.length > 0 && isToday && !isFuture && (
-            <View style={styles.voteBannerWrapper}>
-              <TouchableOpacity
-                style={styles.voteBanner}
-                onPress={() => {
-                  if (pendingVotes.length === 1) {
-                    router.push(`/(main)/deck-vote?deckId=${pendingVotes[0].deck_id}&groupId=${currentGroupId}`)
-                  } else {
-                    router.push(`/(main)/explore-decks?groupId=${currentGroupId}`)
-                  }
-                }}
-                activeOpacity={0.8}
-              >
-                <View style={styles.voteBannerContent}>
-                  {/* Deck image on the left */}
-                  <View style={styles.voteBannerIconContainer}>
-                    <Image
-                      source={getDeckImageSource(pendingVotes[0].deck?.name, pendingVotes[0].deck?.icon_url)}
-                      style={styles.voteBannerIcon}
-                      resizeMode="cover"
-                    />
-                  </View>
-                  {/* Text content */}
-                  <View style={styles.voteBannerTextContainer}>
-                    <Text style={styles.voteBannerSubtext}>
-                      {pendingVotes[0].requested_by_user?.name || "Someone"} wants to add a deck
-                    </Text>
-                    <Text style={styles.voteBannerText}>
-                      {pendingVotes.length === 1
-                        ? "Vote on it"
-                        : "Multiple decks being voted on"}
-                    </Text>
-                  </View>
-                </View>
-                {/* Chevron on the right */}
-                <FontAwesome name="chevron-right" size={16} color={theme2Colors.text} style={styles.voteBannerChevron} />
-              </TouchableOpacity>
-            </View>
-          )}
-        </>
-      )}
-
-      {/* Daily prompt card - moved below header section */}
-      {showPromptCardAtTop && (
+      {/* Daily prompt card - removed for History screen */}
+      {false && (
         <View style={{ 
           marginBottom: spacing.md,
           marginTop: spacing.lg, // Add spacing after divider
@@ -5433,15 +5158,6 @@ export default function Home() {
         </View>
       )}
 
-      {/* Helper text between Daily Question card and entries when there are hidden prompts */}
-      {showPromptCardAtTop && todayEntries.length > 0 && (
-        <View style={styles.revealAnswersContainer}>
-          <Text style={styles.revealAnswersText}>
-            Answer today's question to reveal what they said
-          </Text>
-        </View>
-      )}
-
       {/* Period dropdown modal - rendered outside ScrollView to avoid clipping */}
       <Modal
         visible={showFilter}
@@ -5604,7 +5320,154 @@ export default function Home() {
           </View>
         )}
         
-        {/* Banners moved above daily question card - see above */}
+        {/* Custom Question Banner (today only, not for future days) */}
+        {shouldShowCustomQuestionBanner && !isFuture && (
+          <CustomQuestionBanner
+            groupId={currentGroupId!}
+            date={selectedDate}
+            onPress={handleCustomQuestionPress}
+            reduceSpacing={
+              // Reduce spacing if any birthday banners will be shown
+              // CRITICAL: Only count cards that have entries
+              (myBirthdayCard && myBirthdayCard.group_id === currentGroupId && myBirthdayCard.birthday_date === selectedDate && cardEntries.length > 0) ||
+              (upcomingBirthdayCards.filter((card) => card.group_id === currentGroupId).length > 0) ||
+              myCardEntries.length > 0
+            }
+          />
+        )}
+        
+        {/* Birthday Card Banners (only for non-future days) */}
+        {/* 1. Your Card Banner (highest priority - if it's user's birthday) */}
+        {/* CRITICAL: Only show banner if card exists AND has entries */}
+        {myBirthdayCard && 
+         myBirthdayCard.group_id === currentGroupId &&
+         myBirthdayCard.birthday_date === selectedDate && 
+         !isFuture &&
+         cardEntries.length > 0 && (
+          <BirthdayCardYourCardBanner
+            groupId={currentGroupId!}
+            cardId={myBirthdayCard.id}
+            birthdayDate={myBirthdayCard.birthday_date}
+            contributorAvatars={cardEntries.map((e) => ({
+              user_id: e.contributor_user_id,
+              avatar_url: e.contributor?.avatar_url,
+              name: e.contributor?.name,
+            }))}
+            onPress={() => {
+              router.push({
+                pathname: "/(main)/birthday-card-details",
+                params: {
+                  cardId: myBirthdayCard.id,
+                  groupId: currentGroupId!,
+                  returnTo: `/(main)/history?groupId=${currentGroupId}&date=${selectedDate}`,
+                },
+              })
+            }}
+          />
+        )}
+
+        {/* 2. Upcoming Birthday Banners (stacked vertically, non-future days only) */}
+        {!isFuture && upcomingBirthdayCards
+          .filter((card) => card.group_id === currentGroupId)
+          .map((card) => {
+          const birthdayUser = (card as any).birthday_user
+          return (
+            <BirthdayCardUpcomingBanner
+              key={card.id}
+              groupId={currentGroupId!}
+              cardId={card.id}
+              birthdayUserId={card.birthday_user_id}
+              birthdayUserName={birthdayUser?.name || "Someone"}
+              birthdayUserAvatar={birthdayUser?.avatar_url}
+              birthdayDate={card.birthday_date}
+              onPress={() => {
+                router.push({
+                  pathname: "/(main)/modals/birthday-card-composer",
+                  params: {
+                    cardId: card.id,
+                    groupId: currentGroupId!,
+                    birthdayUserId: card.birthday_user_id,
+                    birthdayUserName: birthdayUser?.name || "Someone",
+                    returnTo: `/(main)/history?groupId=${currentGroupId}&date=${selectedDate}`,
+                  },
+                })
+              }}
+            />
+          )
+        })}
+
+        {/* 3. Edit Banners (for entries written on selectedDate, non-future days only) */}
+        {!isFuture && myCardEntries.map((entry) => {
+          const card = (entry as any).card
+          const birthdayUser = card?.birthday_user
+          return (
+            <BirthdayCardEditBanner
+              key={entry.id}
+              groupId={currentGroupId!}
+              cardId={card?.id || ""}
+              entryId={entry.id}
+              birthdayUserId={card?.birthday_user_id || ""}
+              birthdayUserName={birthdayUser?.name || "Someone"}
+              birthdayUserAvatar={birthdayUser?.avatar_url}
+              birthdayDate={card?.birthday_date || ""}
+              onPress={() => {
+                router.push({
+                  pathname: "/(main)/modals/birthday-card-composer",
+                  params: {
+                    cardId: card?.id || "",
+                    groupId: currentGroupId!,
+                    birthdayUserId: card?.birthday_user_id || "",
+                    birthdayUserName: birthdayUser?.name || "Someone",
+                    entryId: entry.id,
+                    returnTo: `/(main)/history?groupId=${currentGroupId}&date=${selectedDate}`,
+                  },
+                })
+              }}
+            />
+          )
+        })}
+
+        {/* Pending Vote Banner (today only, not for future days) */}
+        {pendingVotes.length > 0 && isToday && !isFuture && (
+          <View style={styles.voteBannerWrapper}>
+            <TouchableOpacity
+              style={styles.voteBanner}
+              onPress={() => {
+                if (pendingVotes.length === 1) {
+                  router.push(`/(main)/deck-vote?deckId=${pendingVotes[0].deck_id}&groupId=${currentGroupId}`)
+                } else {
+                  router.push(`/(main)/explore-decks?groupId=${currentGroupId}`)
+                }
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={styles.voteBannerContent}>
+                {/* Deck image on the left */}
+                <View style={styles.voteBannerIconContainer}>
+                  <Image
+                    source={getDeckImageSource(pendingVotes[0].deck?.name, pendingVotes[0].deck?.icon_url)}
+                    style={styles.voteBannerIcon}
+                    resizeMode="cover"
+                  />
+                </View>
+                {/* Text content */}
+                <View style={styles.voteBannerTextContainer}>
+                  <Text style={styles.voteBannerSubtext}>
+                    {pendingVotes[0].requested_by_user?.name || "Someone"} wants to add a deck
+                  </Text>
+                  <Text style={styles.voteBannerText}>
+                    {pendingVotes.length === 1
+                      ? "Vote on it"
+                      : "Multiple decks being voted on"}
+                  </Text>
+                </View>
+              </View>
+              {/* Chevron on the right */}
+              <FontAwesome name="chevron-right" size={16} color={theme2Colors.text} style={styles.voteBannerChevron} />
+            </TouchableOpacity>
+          </View>
+        )}
+        {/* Notice removed - now shown in prompt card at top */}
         {/* Future day empty state */}
         {!userEntry && isFuture && (
           <View style={styles.promptCardWrapper}>
@@ -5654,8 +5517,6 @@ export default function Home() {
           <>
           {/* Date-based feed with headers */}
           {(() => {
-            // CRITICAL: Always return something, even if empty
-            try {
             // Combine all dates: dates with entries + dates with prompts (user hasn't answered)
             // CRITICAL: Filter out dates before group creation
             const groupCreatedDate = currentGroup?.created_at 
@@ -5672,206 +5533,115 @@ export default function Home() {
               ? Array.from(allDatesToShow).filter((date) => date >= groupCreatedDate)
               : Array.from(allDatesToShow)
             
-            // Only show selected date (no infinite scroll - just current day's content)
-            const dateToShow = selectedDate
+            // Sort dates descending (most recent first)
+            const sortedDates = filteredDatesToShow.sort((a, b) => {
+              return new Date(b).getTime() - new Date(a).getTime()
+            })
             
-            // Debug logging
-            console.log("[home] Rendering for dateToShow:", dateToShow, "selectedDate:", selectedDate, "currentGroupId:", currentGroupId, "entries.length:", entries.length)
+            // Use entriesWithBirthdayCards (which includes birthday cards mixed with regular entries)
+            // Also merge entriesForDatesWithoutUserEntry for dates where user hasn't answered
+            // This ensures entries are visible with fuzzy overlay even when user hasn't answered
+            // CRITICAL: Filter out dates before group creation
+            const entriesByDateFiltered: Record<string, any[]> = {}
             
-            // Skip if date is before group creation
-            if (groupCreatedDate && dateToShow < groupCreatedDate) {
-              console.log("[home] Date before group creation, skipping:", dateToShow, "groupCreatedDate:", groupCreatedDate)
-              return (
-                <View style={styles.daySection}>
-                  <View style={styles.dateHeaderContainerPreviousDay}>
-                    <Text style={styles.dateHeaderDay}>Date before group creation</Text>
-                  </View>
-                </View>
-              )
-            }
+            Object.keys(entriesByDate).forEach((date) => {
+              // Skip dates before group creation
+              if (groupCreatedDate && date < groupCreatedDate) {
+                return
+              }
+              entriesByDateFiltered[date] = entriesByDate[date]
+            })
             
-            // Ensure we always render something, even if loading
-            if (!currentGroupId || !dateToShow) {
-              console.log("[home] Missing currentGroupId or dateToShow, showing loading")
-              return (
-                <View style={styles.daySection}>
-                  <View style={{ padding: spacing.xl, alignItems: "center" }}>
-                    <ActivityIndicator size="small" color={theme2Colors.text} />
-                    <Text style={{ ...typography.body, color: theme2Colors.textSecondary, marginTop: spacing.md }}>
-                      Loading...
-                    </Text>
-                  </View>
-                </View>
-              )
-            }
-            
-            // CRITICAL: For Days view, we only show selectedDate's content
-            // Use entries query directly (already fetched for selectedDate) and merge with birthday cards
-            // This ensures fast loading - we only fetch one day's data at a time
-            
-            // Render only selected date
-            // CRITICAL FIX: Simplify structure - directly render instead of nested IIFE
-            const date = dateToShow
-            
-            // Debug: Log when rendering starts - THIS MUST LOG
-            console.log("[home] ===== RENDERING DATE =====")
-            console.log("[home] Starting render for date:", date, "selectedDate:", selectedDate, "entries.length:", entries.length)
-            
-            // CRITICAL: Double-check date is not before group creation (safety check)
-            if (groupCreatedDate && date < groupCreatedDate) {
-                console.log("[home] Date before group creation, skipping:", date)
-                return (
-                  <View style={styles.daySection}>
-                    <View style={styles.dateHeaderContainerPreviousDay}>
-                      <Text style={styles.dateHeaderDay}>Date before group creation</Text>
-                    </View>
-                  </View>
-                )
-            }
-            
-            // Get date comparison first - CRITICAL: must be before using isDateToday
-            const isDateToday = date === todayDate
-            
-            // CRITICAL FIX: Start with entries from entries query FIRST (before loading check)
-            // This ensures entries are available even if queries are still fetching
-            const dateEntries: any[] = []
-            
-            // Add entries from entries query IMMEDIATELY (already filtered for selectedDate)
-            // CRITICAL: For selectedDate, entries query already returns entries for that date
-            // So we should add ALL entries from the query without filtering by date again
-            if (entries && entries.length > 0) {
-              console.log("[home] Adding entries from entries query:", entries.length, "for date:", date, "selectedDate:", selectedDate)
-              entries.forEach((entry: any) => {
-                // CRITICAL FIX: For selectedDate, entries query already filters by date
-                // So add ALL entries without date check - they're already filtered
-                if (date === selectedDate) {
-                  // Add all entries from query (already filtered for selectedDate)
-                  if (!dateEntries.find((e: any) => e.id === entry.id)) {
-                    console.log("[home] Adding entry for selectedDate:", entry.id, "date:", entry.date)
-                    dateEntries.push(entry)
-                  }
-                } else {
-                  // For other dates (shouldn't happen in Days view, but safety check)
-                  if (entry.date === date && !dateEntries.find((e: any) => e.id === entry.id)) {
-                    dateEntries.push(entry)
-                  }
+            Object.keys(entriesForDatesWithoutUserEntry).forEach((date) => {
+              // Skip dates before group creation
+              if (groupCreatedDate && date < groupCreatedDate) {
+                return
+              }
+              if (!entriesByDateFiltered[date]) {
+                entriesByDateFiltered[date] = []
+              }
+              // Merge entries, avoiding duplicates
+              const existingIds = new Set(entriesByDateFiltered[date].map((e: any) => e.id))
+              entriesForDatesWithoutUserEntry[date].forEach((entry: any) => {
+                if (!existingIds.has(entry.id)) {
+                  entriesByDateFiltered[date].push(entry)
                 }
               })
-              console.log("[home] After adding entries query, dateEntries.length:", dateEntries.length)
-            } else {
-              console.log("[home] NO ENTRIES in query! entries:", entries, "entries.length:", entries?.length)
-            }
+            })
             
-            // CRITICAL: For today, also use todayEntries (already fetched) to ensure we have all entries
-            if (isDateToday && todayEntries && todayEntries.length > 0) {
-              console.log("[home] Adding todayEntries:", todayEntries.length, "for date:", date, "isDateToday:", isDateToday)
-              todayEntries.forEach((entry: any) => {
-                // todayEntries are already filtered for todayDate, so add all
-                if (!dateEntries.find((e: any) => e.id === entry.id)) {
-                  console.log("[home] Adding todayEntry:", entry.id, "date:", entry.date)
-                  dateEntries.push(entry)
-                }
-              })
-              console.log("[home] After adding todayEntries, dateEntries.length:", dateEntries.length)
-            }
-            
-            // Check if queries are loading for selectedDate - do this AFTER we've collected entries
-            // Only show loading for the selected date
-            const isLoading = (date === selectedDate) && (isLoadingEntries || isLoadingPrompt || isFetchingEntries || isFetchingPrompt || !currentGroupId)
-            
-            console.log("[home] isLoading check:", isLoading, "isLoadingEntries:", isLoadingEntries, "isFetchingEntries:", isFetchingEntries, "currentGroupId:", !!currentGroupId, "dateEntries.length:", dateEntries.length)
-              
-              // Add entries from entriesByDate (includes birthday cards from filteredEntries)
-              if (entriesByDate[date]) {
-                console.log("[home] Adding entries from entriesByDate:", entriesByDate[date].length, "for date:", date)
-                const existingIds = new Set(dateEntries.map((e: any) => e.id))
-                entriesByDate[date].forEach((entry: any) => {
-                  if (!existingIds.has(entry.id)) {
-                    dateEntries.push(entry)
-                  }
-                })
+            return sortedDates.map((date) => {
+              // CRITICAL: Double-check date is not before group creation (safety check)
+              if (groupCreatedDate && date < groupCreatedDate) {
+                return null // Skip rendering dates before group creation
               }
               
-              // Add entriesForDatesWithoutUserEntry (for dates where user hasn't answered)
-              if (entriesForDatesWithoutUserEntry[date]) {
-                console.log("[home] Adding entries from entriesForDatesWithoutUserEntry:", entriesForDatesWithoutUserEntry[date].length, "for date:", date)
-                const existingIds = new Set(dateEntries.map((e: any) => e.id))
-                entriesForDatesWithoutUserEntry[date].forEach((entry: any) => {
-                  if (!existingIds.has(entry.id)) {
-                    dateEntries.push(entry)
-                  }
-                })
-              }
+              const dateEntries = entriesByDateFiltered[date] || []
+              const hasUserEntry = !!userEntriesByDate[date]
+              const promptForDate = promptsForDatesWithoutEntry[date]
+              const isDateToday = date === todayDate
               
-            // Get user entry for this date - use userEntry query directly for selectedDate, fallback to userEntriesByDate
-            // CRITICAL: Use userEntry query (for selectedDate) to ensure we have data when clicking previous days
-            const hasUserEntry = (date === selectedDate && !!userEntry) || !!userEntriesByDate[date]
-            
-            // Get prompt for this date - use dailyPrompt query (for selectedDate) or promptsForDatesWithoutEntry
-            // Normalize prompt structure - both should have prompt and prompt_id
-            // CRITICAL: dailyPrompt is always fetched for selectedDate, so use it when date matches selectedDate
-            const promptForDate = (date === selectedDate && dailyPrompt) || promptsForDatesWithoutEntry[date]
-            
-            // Debug logging - ALWAYS log for selectedDate
-            if (date === selectedDate) {
-              console.log("[home] ===== RENDERING SELECTED DATE =====")
-              console.log("[home] date:", date, "selectedDate:", selectedDate, "isDateToday:", isDateToday)
-              console.log("[home] promptForDate:", !!promptForDate)
-              console.log("[home] dateEntries.length:", dateEntries.length)
-              console.log("[home] todayEntries.length:", todayEntries?.length || 0)
-              console.log("[home] entries.length:", entries.length)
-              console.log("[home] entriesByDate[date] length:", entriesByDate[date]?.length || 0)
-              console.log("[home] entriesForDatesWithoutUserEntry[date] length:", entriesForDatesWithoutUserEntry[date]?.length || 0)
-              console.log("[home] hasUserEntry:", hasUserEntry)
-              console.log("[home] isLoadingEntries:", isLoadingEntries, "isFetchingEntries:", isFetchingEntries)
-              console.log("[home] dateEntries details:", dateEntries.map((e: any) => ({ id: e.id, date: e.date, user_id: e.user_id, is_birthday_card: e.is_birthday_card })))
-              console.log("[home] ===== END RENDERING SELECTED DATE =====")
-            }
-            
-            // Show all entries (they will have fuzzy overlay if user hasn't answered)
-            // Birthday cards always show without fuzzy overlay
-            const visibleEntries = dateEntries
-            
-            console.log("[home] Final visibleEntries.length:", visibleEntries.length, "for date:", date)
-            
-            // CRITICAL FIX: Show loading state ONLY on initial load (isLoading, not isFetching) AND no entries yet
-            // isFetching is for background refetches - don't show skeleton for those
-            // Also check if we have cached data from the query - if entries.length > 0, show them even if isLoading
-            const isQueryLoading = (date === selectedDate) && 
-                                   (isLoadingEntries || isLoadingPrompt) && // Only isLoading, not isFetching
-                                   visibleEntries.length === 0 &&
-                                   entries.length === 0 && // No cached data from query
-                                   currentGroupId // Only show loading if we have a group
-            
-            console.log("[home] isQueryLoading:", isQueryLoading, "visibleEntries.length:", visibleEntries.length, "isLoadingEntries:", isLoadingEntries, "isFetchingEntries:", isFetchingEntries, "currentGroupId:", !!currentGroupId)
-            
-            if (isQueryLoading) {
+              // Show all entries (they will have fuzzy overlay if user hasn't answered)
+              // Birthday cards always show without fuzzy overlay
+              const visibleEntries = dateEntries
+              
               return (
-                <View key={date} style={styles.daySection}>
-                  {/* Show entry card skeleton while loading */}
-                  <EntryCardSkeleton />
-                </View>
-              )
-            }
-            
-            return (
                 <View 
                   key={date} 
                   style={styles.daySection}
                 >
-                  {/* For today with no entries, attach ref to a marker at the top */}
-                  {isDateToday && visibleEntries.length === 0 && (
-                    <View
+                  {/* Show "Today's answers" header for today if there are entries */}
+                  {isDateToday && visibleEntries.length > 0 && (
+                    <View 
+                      style={styles.dateHeaderContainer}
                       ref={(ref) => {
                         if (ref) {
                           dateRefs.current[date] = ref
                         }
                       }}
-                      style={{ height: 0, width: 0 }}
-                    />
+                    >
+                      <View style={styles.dateHeader}>
+                        <Text style={styles.dateHeaderDay}>Today's answers</Text>
+                      </View>
+                      {/* Show helper text if user hasn't answered yet */}
+                      {!hasUserEntry && (
+                        <View style={styles.revealAnswersContainer}>
+                          <Text style={styles.revealAnswersText}>
+                            Answer today's question to reveal what they said
+                          </Text>
+                        </View>
+                      )}
+                    </View>
                   )}
-                  {/* For past days, attach ref to a marker at the top */}
+                  {/* Show date header for past days */}
                   {!isDateToday && (
+                    <View 
+                      style={styles.dateHeaderContainerPreviousDay}
+                      ref={(ref) => {
+                        if (ref) {
+                          dateRefs.current[date] = ref
+                        }
+                      }}
+                    >
+                      <View style={styles.dateHeader}>
+                        <Text style={styles.dateHeaderDay}>{format(parseISO(date), "EEEE")}</Text>
+                        <Text style={styles.dateHeaderDate}>
+                          , {(() => {
+                            const dateObj = parseISO(date)
+                            const currentYear = new Date().getFullYear()
+                            const dateYear = dateObj.getFullYear()
+                            // Only show year if it's not the current year
+                            if (dateYear !== currentYear) {
+                              return format(dateObj, "d MMMM yyyy")
+                            } else {
+                              return format(dateObj, "d MMMM")
+                            }
+                          })()}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+                  {/* For today with no entries, attach ref to a marker at the top */}
+                  {isDateToday && visibleEntries.length === 0 && (
                     <View
                       ref={(ref) => {
                         if (ref) {
@@ -5884,8 +5654,8 @@ export default function Home() {
                   
                   {/* Removed "Answer to see what they said" - users can now view entries without answering */}
                   
-                  {/* Show prompt card for previous days if user hasn't answered */}
-                  {!hasUserEntry && promptForDate && promptForDate.prompt && !isDateToday && (() => {
+                  {/* Show prompt card if user hasn't answered (only show for today at top, or in feed for past dates) */}
+                  {!hasUserEntry && promptForDate && !isDateToday && (() => {
                     // Check if this prompt is a Remembering category question
                     const isRememberingCategory = promptForDate.prompt?.category === "Remembering"
                     
@@ -5904,7 +5674,7 @@ export default function Home() {
                                   params: {
                                     promptId: promptForDate.prompt_id,
                                     date: date,
-                                    returnTo: "/(main)/home",
+                                    returnTo: "/(main)/history",
                                     groupId: currentGroupId,
                                   },
                                 })
@@ -5940,7 +5710,7 @@ export default function Home() {
                                       params: {
                                         promptId: promptForDate.prompt_id,
                                         date: date,
-                                        returnTo: "/(main)/home",
+                                        returnTo: "/(main)/history",
                                         groupId: currentGroupId,
                                       },
                                     })
@@ -5985,7 +5755,7 @@ export default function Home() {
                                   params: {
                                     cardId: entry.birthday_card_id,
                                     groupId: currentGroupId!,
-                                    returnTo: "/(main)/home",
+                                    returnTo: "/(main)/history",
                                   },
                                 })
                               }
@@ -6015,7 +5785,7 @@ export default function Home() {
                                       params: {
                                         cardId: entry.birthday_card_id,
                                         groupId: currentGroupId!,
-                                        returnTo: "/(main)/home",
+                                        returnTo: "/(main)/history",
                                       },
                                     })
                                   }}
@@ -6063,7 +5833,7 @@ export default function Home() {
                         entry={entry}
                         entryIds={entryIdList}
                         index={entryIndex}
-                        returnTo="/(main)/home"
+                        returnTo="/(main)/history"
                         showFuzzyOverlay={shouldShowFuzzy}
                         onEntryPress={(entryDate) => {
                           // Store entry date for scroll restoration when returning
@@ -6077,31 +5847,13 @@ export default function Home() {
                       />
                     )
                   })}
-                  
-                  {/* CRITICAL: Show empty state if no entries and no prompt */}
-                  {visibleEntries.length === 0 && !promptForDate && !isQueryLoading && (
-                    <View style={{ padding: spacing.xl, alignItems: "center" }}>
-                      <Text style={{ ...typography.body, color: theme2Colors.textSecondary }}>
-                        {isDateToday ? "No entries yet" : "No entries for this day"}
-                      </Text>
-                    </View>
-                  )}
           </View>
-            )
-            } catch (error) {
-              console.error("[home] Error rendering Days view:", error)
-              return (
-                <View style={styles.daySection}>
-                  <View style={{ padding: spacing.xl, alignItems: "center" }}>
-                    <Text style={{ ...typography.body, color: theme2Colors.textSecondary }}>
-                      Error loading content
-                    </Text>
-                  </View>
-                </View>
               )
-            }
+            })
           })()}
           
+          {/* Loading indicator - removed for History screen (no pagination) */}
+          {/* End of feed indicator - removed for History screen (no pagination) */}
           </>
         ) : viewMode === "Weeks" ? (
           renderPeriodGrid(weekSummaries, "Weeks")

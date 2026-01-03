@@ -42,7 +42,11 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   const [activeAudioId, setActiveAudioId] = useState<string | null>(null)
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null)
   const [activeCommentVideoId, setActiveCommentVideoId] = useState<string | null>(null)
-  const [commentVideoMuted, setCommentVideoMuted] = useState<Record<string, boolean>>({})
+  const [commentVideoMuted, setCommentVideoMuted] = useState<Record<string, boolean>>({}) // Default to unmuted (false)
+  const [commentVideoProgress, setCommentVideoProgress] = useState<Record<string, number>>({})
+  const [commentVideoDurations, setCommentVideoDurations] = useState<Record<string, number>>({})
+  const [commentVideoPlaying, setCommentVideoPlaying] = useState<Record<string, boolean>>({})
+  const [commentVideoLoading, setCommentVideoLoading] = useState<Record<string, boolean>>({})
   const [audioProgress, setAudioProgress] = useState<Record<string, number>>({})
   const [audioDurations, setAudioDurations] = useState<Record<string, number>>({})
   const [audioLoading, setAudioLoading] = useState<Record<string, boolean>>({})
@@ -566,9 +570,14 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                   }
   }
 
-  async function handleToggleCommentVideo(commentId: string, videoUri: string) {
+  async function handleCommentVideoPlayPause(commentId: string, videoUri: string) {
+    const videoId = `comment-${commentId}`
+    const video = commentVideoRefs.current[videoId]
+    
+    if (!video) return
+    
     try {
-      const videoId = `comment-${commentId}`
+      setCommentVideoLoading((prev) => ({ ...prev, [commentId]: true }))
       
       // Stop any other playing comment video
       if (activeCommentVideoId && activeCommentVideoId !== videoId) {
@@ -581,28 +590,127 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
             // ignore
           }
         }
+        const prevCommentId = activeCommentVideoId.replace("comment-", "")
+        setCommentVideoPlaying((prev) => ({ ...prev, [prevCommentId]: false }))
         setActiveCommentVideoId(null)
-      }
-      
-      let video = commentVideoRefs.current[videoId]
-      if (!video) {
-        // Video ref will be set when component mounts
-        return
       }
       
       const status = await video.getStatusAsync()
-      if (status.isLoaded && status.isPlaying) {
-        await video.pauseAsync()
-        setActiveCommentVideoId(null)
-      } else {
-        if (status.isLoaded && status.positionMillis && status.durationMillis && status.positionMillis >= status.durationMillis) {
-          await video.setPositionAsync(0)
+      const isCurrentlyPlaying = commentVideoPlaying[commentId] || false
+      
+      if (status.isLoaded) {
+        if (isCurrentlyPlaying) {
+          await video.pauseAsync()
+          setCommentVideoPlaying((prev) => ({ ...prev, [commentId]: false }))
+          setActiveCommentVideoId(null)
+        } else {
+          // Ensure video is unmuted when playing (default to unmuted)
+          const isMuted = commentVideoMuted[commentId] ?? false
+          if (isMuted) {
+            await Audio.setAudioModeAsync({
+              allowsRecordingIOS: false,
+              playsInSilentModeIOS: true,
+            })
+            await video.setIsMutedAsync(false)
+            setCommentVideoMuted((prev) => ({ ...prev, [commentId]: false }))
+          } else {
+            // Initialize as unmuted if not set
+            await video.setIsMutedAsync(false)
+            setCommentVideoMuted((prev) => ({ ...prev, [commentId]: false }))
+          }
+          await video.playAsync()
+          setCommentVideoPlaying((prev) => ({ ...prev, [commentId]: true }))
+          setActiveCommentVideoId(videoId)
         }
+      } else {
+        // Video not loaded yet, load and play (default to unmuted)
+        await video.loadAsync({ uri: videoUri })
+        // Initialize as unmuted
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+        })
+        await video.setIsMutedAsync(false)
+        setCommentVideoMuted((prev) => ({ ...prev, [commentId]: false }))
         await video.playAsync()
+        setCommentVideoPlaying((prev) => ({ ...prev, [commentId]: true }))
         setActiveCommentVideoId(videoId)
       }
     } catch (error: any) {
       console.error("[EntryCard] Error toggling comment video:", error)
+    } finally {
+      setCommentVideoLoading((prev) => ({ ...prev, [commentId]: false }))
+    }
+  }
+
+  async function handleCommentVideoRestart(commentId: string) {
+    const videoId = `comment-${commentId}`
+    const video = commentVideoRefs.current[videoId]
+    
+    if (!video) return
+    
+    try {
+      setCommentVideoLoading((prev) => ({ ...prev, [commentId]: true }))
+      await video.setPositionAsync(0)
+      // Ensure video is unmuted (default to unmuted)
+      const isMuted = commentVideoMuted[commentId] ?? false
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      })
+      await video.setIsMutedAsync(false)
+      setCommentVideoMuted((prev) => ({ ...prev, [commentId]: false }))
+      await video.playAsync()
+      setCommentVideoPlaying((prev) => ({ ...prev, [commentId]: true }))
+      setCommentVideoProgress((prev) => ({ ...prev, [commentId]: 0 }))
+      setActiveCommentVideoId(videoId)
+    } catch (error: any) {
+      console.error("[EntryCard] Error restarting comment video:", error)
+    } finally {
+      setCommentVideoLoading((prev) => ({ ...prev, [commentId]: false }))
+    }
+  }
+
+  async function handleCommentVideoToggleMute(commentId: string) {
+    const videoId = `comment-${commentId}`
+    const video = commentVideoRefs.current[videoId]
+    
+    if (!video) return
+    
+    const newMutedState = !(commentVideoMuted[commentId] ?? false)
+    
+    try {
+      if (!newMutedState) {
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+        })
+      }
+      await video.setIsMutedAsync(newMutedState)
+      setCommentVideoMuted((prev) => ({ ...prev, [commentId]: newMutedState }))
+    } catch (error: any) {
+      console.error("[EntryCard] Error toggling comment video mute:", error)
+    }
+  }
+
+  async function handleCommentVideoSeek(commentId: string, position: number) {
+    const videoId = `comment-${commentId}`
+    const video = commentVideoRefs.current[videoId]
+    
+    if (!video) return
+    
+    try {
+      const wasPlaying = commentVideoPlaying[commentId] || false
+      if (wasPlaying) {
+        await video.pauseAsync()
+      }
+      await video.setPositionAsync(position)
+      setCommentVideoProgress((prev) => ({ ...prev, [commentId]: position }))
+      if (wasPlaying) {
+        await video.playAsync()
+      }
+    } catch (error: any) {
+      console.error("[EntryCard] Error seeking comment video:", error)
     }
   }
 
@@ -1566,68 +1674,26 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                           </TouchableOpacity>
                         )}
                         {comment.media_type === "video" && comment.media_url && (
-                          <View style={styles.commentMediaThumbnail}>
-                            <TouchableOpacity
-                              onPress={(e) => {
-                                e.stopPropagation()
-                                if (activeCommentVideoId === `comment-${comment.id}`) {
-                                  handleToggleCommentVideo(comment.id, comment.media_url)
-                                }
-                              }}
-                              activeOpacity={1}
-                              style={styles.commentMediaThumbnail}
-                            >
-                              <Video
-                                ref={(ref) => {
-                                  if (ref) {
-                                    commentVideoRefs.current[`comment-${comment.id}`] = ref
-                                  }
-                                }}
-                                source={{ uri: comment.media_url }}
-                                style={styles.commentMediaThumbnail}
-                                resizeMode={ResizeMode.COVER}
-                                isMuted={commentVideoMuted[`comment-${comment.id}`] ?? false}
-                                shouldPlay={activeCommentVideoId === `comment-${comment.id}`}
-                                useNativeControls={false}
-                                onPlaybackStatusUpdate={(status) => {
-                                  if (status.isLoaded && status.didJustFinish) {
-                                    setActiveCommentVideoId(null)
-                                  }
-                                }}
-                              />
-                            </TouchableOpacity>
-                            {activeCommentVideoId !== `comment-${comment.id}` && (
-                              <TouchableOpacity
-                                onPress={(e) => {
-                                  e.stopPropagation()
-                                  handleToggleCommentVideo(comment.id, comment.media_url)
-                                }}
-                                activeOpacity={0.8}
-                                style={styles.commentVideoPlayButton}
-                              >
-                                <FontAwesome name="play-circle" size={24} color="#ffffff" />
-                              </TouchableOpacity>
-                            )}
-                            {activeCommentVideoId === `comment-${comment.id}` && (
-                              <TouchableOpacity
-                                onPress={(e) => {
-                                  e.stopPropagation()
-                                  setCommentVideoMuted((prev) => ({
-                                    ...prev,
-                                    [`comment-${comment.id}`]: !(prev[`comment-${comment.id}`] ?? false),
-                                  }))
-                                }}
-                                activeOpacity={0.8}
-                                style={styles.commentVideoMuteButton}
-                              >
-                                <FontAwesome
-                                  name={commentVideoMuted[`comment-${comment.id}`] ? "volume-off" : "volume-up"}
-                                  size={16}
-                                  color={colors.white}
-                                />
-                              </TouchableOpacity>
-                            )}
-                          </View>
+                          <CommentVideoPlayer
+                            commentId={comment.id}
+                            uri={comment.media_url}
+                            onVideoRef={(ref) => {
+                              if (ref) {
+                                commentVideoRefs.current[`comment-${comment.id}`] = ref
+                              }
+                            }}
+                            isPlaying={commentVideoPlaying[comment.id] || false}
+                            isMuted={commentVideoMuted[comment.id] ?? false}
+                            progress={commentVideoProgress[comment.id] || 0}
+                            duration={commentVideoDurations[comment.id] || 0}
+                            isLoading={commentVideoLoading[comment.id] || false}
+                            onPlayPause={() => handleCommentVideoPlayPause(comment.id, comment.media_url)}
+                            onRestart={() => handleCommentVideoRestart(comment.id)}
+                            onToggleMute={() => handleCommentVideoToggleMute(comment.id)}
+                            onProgressChange={(progress) => setCommentVideoProgress((prev) => ({ ...prev, [comment.id]: progress }))}
+                            onDurationChange={(duration) => setCommentVideoDurations((prev) => ({ ...prev, [comment.id]: duration }))}
+                            onSeek={(position) => handleCommentVideoSeek(comment.id, position)}
+                          />
                         )}
                         {comment.media_type === "audio" && comment.media_url && (
                           <TouchableOpacity
@@ -1784,68 +1850,26 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                             </TouchableOpacity>
                           )}
                           {comment.media_type === "video" && comment.media_url && (
-                            <View style={styles.commentMediaThumbnail}>
-                              <TouchableOpacity
-                                onPress={(e) => {
-                                  e.stopPropagation()
-                                  if (activeCommentVideoId === `comment-${comment.id}`) {
-                                    handleToggleCommentVideo(comment.id, comment.media_url)
-                                  }
-                                }}
-                                activeOpacity={1}
-                                style={styles.commentMediaThumbnail}
-                              >
-                                <Video
-                                  ref={(ref) => {
-                                    if (ref) {
-                                      commentVideoRefs.current[`comment-${comment.id}`] = ref
-                                    }
-                                  }}
-                                  source={{ uri: comment.media_url }}
-                                  style={styles.commentMediaThumbnail}
-                                  resizeMode={ResizeMode.COVER}
-                                  isMuted={commentVideoMuted[`comment-${comment.id}`] ?? false}
-                                  shouldPlay={activeCommentVideoId === `comment-${comment.id}`}
-                                  useNativeControls={false}
-                                  onPlaybackStatusUpdate={(status) => {
-                                    if (status.isLoaded && status.didJustFinish) {
-                                      setActiveCommentVideoId(null)
-                                    }
-                                  }}
-                                />
-                              </TouchableOpacity>
-                              {activeCommentVideoId !== `comment-${comment.id}` && (
-                                <TouchableOpacity
-                                  onPress={(e) => {
-                                    e.stopPropagation()
-                                    handleToggleCommentVideo(comment.id, comment.media_url)
-                                  }}
-                                  activeOpacity={0.8}
-                                  style={styles.commentVideoPlayButton}
-                                >
-                                  <FontAwesome name="play-circle" size={24} color="#ffffff" />
-                                </TouchableOpacity>
-                              )}
-                              {activeCommentVideoId === `comment-${comment.id}` && (
-                                <TouchableOpacity
-                                  onPress={(e) => {
-                                    e.stopPropagation()
-                                    setCommentVideoMuted((prev) => ({
-                                      ...prev,
-                                      [`comment-${comment.id}`]: !(prev[`comment-${comment.id}`] ?? false),
-                                    }))
-                                  }}
-                                  activeOpacity={0.8}
-                                  style={styles.commentVideoMuteButton}
-                                >
-                                  <FontAwesome
-                                    name={commentVideoMuted[`comment-${comment.id}`] ? "volume-off" : "volume-up"}
-                                    size={16}
-                                    color={colors.white}
-                                  />
-                                </TouchableOpacity>
-                              )}
-                            </View>
+                            <CommentVideoPlayer
+                              commentId={comment.id}
+                              uri={comment.media_url}
+                              onVideoRef={(ref) => {
+                                if (ref) {
+                                  commentVideoRefs.current[`comment-${comment.id}`] = ref
+                                }
+                              }}
+                              isPlaying={commentVideoPlaying[comment.id] || false}
+                              isMuted={commentVideoMuted[comment.id] ?? false}
+                              progress={commentVideoProgress[comment.id] || 0}
+                              duration={commentVideoDurations[comment.id] || 0}
+                              isLoading={commentVideoLoading[comment.id] || false}
+                              onPlayPause={() => handleCommentVideoPlayPause(comment.id, comment.media_url)}
+                              onRestart={() => handleCommentVideoRestart(comment.id)}
+                              onToggleMute={() => handleCommentVideoToggleMute(comment.id)}
+                              onProgressChange={(progress) => setCommentVideoProgress((prev) => ({ ...prev, [comment.id]: progress }))}
+                              onDurationChange={(duration) => setCommentVideoDurations((prev) => ({ ...prev, [comment.id]: duration }))}
+                              onSeek={(position) => handleCommentVideoSeek(comment.id, position)}
+                            />
                           )}
                           {comment.media_type === "audio" && (
                             <TouchableOpacity
@@ -1968,12 +1992,38 @@ function VideoPlayer({
   const progressContainerRef = useRef<View>(null)
   const { colors, isDark } = useTheme()
   const [isPlaying, setIsPlaying] = useState(false)
-  const [isMuted, setIsMuted] = useState(true)
+  const [isMuted, setIsMuted] = useState(false) // Unmuted by default
   const [progress, setProgress] = useState(0)
   const [duration, setDuration] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
   const [isSeeking, setIsSeeking] = useState(false)
   
+  // Handle tap/seek on progress bar
+  const handleProgressTap = async (evt: any) => {
+    if (!progressContainerRef.current || !duration || !videoRef.current) return
+    
+    // Extract touch position before async operation to avoid event pooling issues
+    const touchX = evt.nativeEvent.locationX
+    
+    progressContainerRef.current.measure(async (x, y, width) => {
+      const percentage = Math.max(0, Math.min(1, touchX / width))
+      const seekPosition = percentage * duration
+      try {
+        const wasPlaying = isPlaying
+        if (wasPlaying) {
+          await videoRef.current.pauseAsync()
+        }
+        await videoRef.current.setPositionAsync(seekPosition)
+        setProgress(seekPosition)
+        if (wasPlaying) {
+          await videoRef.current.playAsync()
+        }
+      } catch (error) {
+        console.error("[VideoPlayer] Error seeking:", error)
+      }
+    })
+  }
+
   // PanResponder for scrubbing progress bar
   const panResponder = useRef(
     PanResponder.create({
@@ -1981,33 +2031,48 @@ function VideoPlayer({
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
         setIsSeeking(true)
+        // Pause video while seeking
+        if (videoRef.current && isPlaying) {
+          videoRef.current.pauseAsync().catch(() => {})
+        }
       },
       onPanResponderMove: (evt) => {
         if (!progressContainerRef.current || !duration) return
+        // Extract touch position before async operation
+        const touchX = evt.nativeEvent.locationX
         progressContainerRef.current.measure((x, y, width) => {
-          const touchX = evt.nativeEvent.locationX
           const percentage = Math.max(0, Math.min(1, touchX / width))
           const seekPosition = percentage * duration
           setProgress(seekPosition)
         })
       },
       onPanResponderRelease: async (evt) => {
-        if (!progressContainerRef.current || !duration || !videoRef.current) {
+        if (!progressContainerRef.current || !duration) {
           setIsSeeking(false)
           return
         }
+        // Extract touch position before async operation
+        const touchX = evt.nativeEvent.locationX
         progressContainerRef.current.measure(async (x, y, width) => {
-          const touchX = evt.nativeEvent.locationX
           const percentage = Math.max(0, Math.min(1, touchX / width))
           const seekPosition = percentage * duration
           try {
-            await videoRef.current.setPositionAsync(seekPosition)
-            setProgress(seekPosition)
+            if (videoRef.current) {
+              await videoRef.current.setPositionAsync(seekPosition)
+              setProgress(seekPosition)
+              // Resume playing if it was playing before
+              if (isPlaying) {
+                await videoRef.current.playAsync()
+              }
+            }
           } catch (error) {
             console.error("[VideoPlayer] Error seeking:", error)
           }
           setIsSeeking(false)
         })
+      },
+      onPanResponderTerminate: () => {
+        setIsSeeking(false)
       },
     })
   ).current
@@ -2027,13 +2092,9 @@ function VideoPlayer({
     
     setupAudioSession()
     
-    // Autoplay when component mounts
-    const timer = setTimeout(() => {
-      handlePlayPause()
-    }, 500) // Small delay to ensure video is loaded
+    // No autoplay - user must click play button
     
     return () => {
-      clearTimeout(timer)
       if (videoRef.current) {
         videoRef.current.pauseAsync().catch(() => {})
         videoRef.current.unloadAsync().catch(() => {})
@@ -2042,7 +2103,15 @@ function VideoPlayer({
   }, [])
   
   async function handlePlayPause() {
-    if (!videoRef.current) return
+    if (!videoRef.current) {
+      // Video ref not ready yet, wait a bit and try again
+      setTimeout(() => {
+        if (videoRef.current) {
+          handlePlayPause()
+        }
+      }, 100)
+      return
+    }
     
     try {
       setIsLoading(true)
@@ -2053,17 +2122,62 @@ function VideoPlayer({
           await videoRef.current.pauseAsync()
           setIsPlaying(false)
         } else {
+          // Ensure video is unmuted when playing
+          if (isMuted) {
+            await Audio.setAudioModeAsync({
+              allowsRecordingIOS: false,
+              playsInSilentModeIOS: true,
+            })
+            await videoRef.current.setIsMutedAsync(false)
+            setIsMuted(false)
+          }
           await videoRef.current.playAsync()
           setIsPlaying(true)
         }
       } else {
         // Video not loaded yet, load and play
-        await videoRef.current.loadAsync({ uri })
-        await videoRef.current.playAsync()
-        setIsPlaying(true)
+        if (videoRef.current) {
+          await videoRef.current.loadAsync({ uri })
+          // Ensure video is unmuted when playing
+          if (isMuted) {
+            await Audio.setAudioModeAsync({
+              allowsRecordingIOS: false,
+              playsInSilentModeIOS: true,
+            })
+            await videoRef.current.setIsMutedAsync(false)
+            setIsMuted(false)
+          }
+          await videoRef.current.playAsync()
+          setIsPlaying(true)
+        }
       }
     } catch (error) {
       console.error("[VideoPlayer] Error toggling playback:", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  async function handleRestart() {
+    if (!videoRef.current) return
+    
+    try {
+      setIsLoading(true)
+      await videoRef.current.setPositionAsync(0)
+      // Ensure video is unmuted when playing
+      if (isMuted) {
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+        })
+        await videoRef.current.setIsMutedAsync(false)
+        setIsMuted(false)
+      }
+      await videoRef.current.playAsync()
+      setIsPlaying(true)
+      setProgress(0)
+    } catch (error) {
+      console.error("[VideoPlayer] Error restarting:", error)
     } finally {
       setIsLoading(false)
     }
@@ -2164,11 +2278,6 @@ function VideoPlayer({
       alignItems: "center",
     },
     playPauseButton: {
-      position: "absolute",
-      top: "50%",
-      left: "50%",
-      marginTop: -24,
-      marginLeft: -24,
       width: 48,
       height: 48,
       borderRadius: 24,
@@ -2176,19 +2285,40 @@ function VideoPlayer({
       justifyContent: "center",
       alignItems: "center",
     },
+    restartButton: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      backgroundColor: "rgba(0, 0, 0, 0.6)",
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    controlsRow: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.md,
+    },
     progressContainer: {
       position: "absolute",
       bottom: 0,
       left: 0,
       right: 0,
-      height: 20, // Increased height for easier touch target
+      height: 40, // Doubled height for easier touch target and dragging
       backgroundColor: "rgba(0, 0, 0, 0.3)",
       justifyContent: "center",
+      paddingVertical: spacing.xs, // Add padding for better touch area
     },
     progressBarTrack: {
-      height: 4,
+      height: 8, // Doubled height for better visibility and dragging
       width: "100%",
       backgroundColor: "rgba(255, 255, 255, 0.2)",
+      borderRadius: 4,
     },
     progressBar: {
       height: "100%",
@@ -2209,13 +2339,8 @@ function VideoPlayer({
   }), [theme2Colors, containerStyle])
 
   return (
-    <TouchableOpacity 
+    <View 
       style={videoStyles.videoContainer}
-      activeOpacity={1}
-      onPress={(e) => {
-        e.stopPropagation()
-        handlePlayPause()
-      }}
     >
       <Video
         ref={videoRef}
@@ -2234,10 +2359,7 @@ function VideoPlayer({
             if (!dimensions) {
               onLoad({ width: SCREEN_WIDTH, height: SCREEN_WIDTH })
             }
-            // Auto-play after load
-            if (!isPlaying) {
-              videoRef.current?.playAsync().then(() => setIsPlaying(true)).catch(() => {})
-            }
+            // Don't auto-play - user must click play button
           }
         }}
         onPlaybackStatusUpdate={(status) => {
@@ -2257,7 +2379,15 @@ function VideoPlayer({
           }
         }}
       />
-      <View style={videoStyles.controlsOverlay} pointerEvents="box-none">
+      <TouchableOpacity 
+        style={videoStyles.controlsOverlay}
+        activeOpacity={1}
+        onPress={(e) => {
+          e.stopPropagation()
+          handlePlayPause()
+        }}
+        pointerEvents="box-none"
+      >
         {/* Volume control - top right */}
         <TouchableOpacity
           style={videoStyles.volumeButton}
@@ -2273,46 +2403,413 @@ function VideoPlayer({
           />
         </TouchableOpacity>
         
-        {/* Play/Pause button - center */}
+        {/* Play/Pause and Restart buttons - center */}
         {!isPlaying && (
-          <TouchableOpacity
-            style={videoStyles.playPauseButton}
-            onPress={(e) => {
-              e.stopPropagation()
-              handlePlayPause()
-            }}
-          >
-            {isLoading ? (
-              <ActivityIndicator size="small" color={theme2Colors.white} />
-            ) : (
-              <FontAwesome name="play" size={20} color={theme2Colors.white} />
+          <View style={videoStyles.controlsRow} pointerEvents="box-none">
+            {/* Restart button - left of play button (only show if progress > 1s) */}
+            {progress > 1000 && (
+              <TouchableOpacity
+                style={videoStyles.restartButton}
+                onPress={(e) => {
+                  e.stopPropagation()
+                  handleRestart()
+                }}
+              >
+                {isLoading ? (
+                  <ActivityIndicator size="small" color={theme2Colors.white} />
+                ) : (
+                  <FontAwesome name="refresh" size={18} color={theme2Colors.white} />
+                )}
+              </TouchableOpacity>
             )}
-          </TouchableOpacity>
+            
+            {/* Play button */}
+            <TouchableOpacity
+              style={videoStyles.playPauseButton}
+              onPress={(e) => {
+                e.stopPropagation()
+                handlePlayPause()
+              }}
+            >
+              {isLoading ? (
+                <ActivityIndicator size="small" color={theme2Colors.white} />
+              ) : (
+                <FontAwesome name="play" size={20} color={theme2Colors.white} />
+              )}
+            </TouchableOpacity>
+          </View>
         )}
         
         {/* Progress bar - bottom (scrubbable) */}
-        <View 
+        <TouchableOpacity
           ref={progressContainerRef}
           style={videoStyles.progressContainer}
           {...panResponder.panHandlers}
+          onPress={(e) => {
+            e.stopPropagation()
+            handleProgressTap(e)
+          }}
+          activeOpacity={1}
         >
-          <View style={videoStyles.progressBarTrack}>
+          <View 
+            style={videoStyles.progressBarTrack}
+            pointerEvents="none"
+          >
             <View 
               style={[
                 videoStyles.progressBar,
                 { width: duration > 0 ? `${(progress / duration) * 100}%` : "0%" }
               ]} 
+              pointerEvents="none"
             />
           </View>
-        </View>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </View>
+  )
+}
+
+// Component to render comment video player with controls (similar to VideoPlayer)
+function CommentVideoPlayer({
+  commentId,
+  uri,
+  onVideoRef,
+  isPlaying,
+  isMuted,
+  progress,
+  duration,
+  isLoading,
+  onPlayPause,
+  onRestart,
+  onToggleMute,
+  onProgressChange,
+  onDurationChange,
+  onSeek,
+}: {
+  commentId: string
+  uri: string
+  onVideoRef: (ref: Video | null) => void
+  isPlaying: boolean
+  isMuted: boolean
+  progress: number
+  duration: number
+  isLoading: boolean
+  onPlayPause: () => void
+  onRestart: () => void
+  onToggleMute: () => void
+  onProgressChange: (progress: number) => void
+  onDurationChange: (duration: number) => void
+  onSeek: (position: number) => void
+}) {
+  const videoRef = useRef<Video>(null)
+  const progressContainerRef = useRef<View>(null)
+  const { colors, isDark } = useTheme()
+  const [isSeeking, setIsSeeking] = useState(false)
+
+  useEffect(() => {
+    onVideoRef(videoRef.current)
+    return () => {
+      onVideoRef(null)
+    }
+  }, [])
+
+  // Theme 2 color palette
+  const theme2Colors = useMemo(() => {
+    if (isDark) {
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#000000",
+        cream: "#111111",
+        white: "#E8E0D5",
+        text: "#F5F0EA",
+        textSecondary: "#A0A0A0",
+      }
+    } else {
+      return {
+        red: "#B94444",
+        yellow: "#E8A037",
+        green: "#2D6F4A",
+        blue: "#3A5F8C",
+        beige: "#E8E0D5",
+        cream: "#F5F0EA",
+        white: "#FFFFFF",
+        text: "#000000",
+        textSecondary: "#404040",
+      }
+    }
+  }, [isDark])
+
+  // Handle tap/seek on progress bar
+  const handleProgressTap = async (evt: any) => {
+    if (!progressContainerRef.current || !duration || !videoRef.current) return
+    
+    const touchX = evt.nativeEvent.locationX
+    
+    progressContainerRef.current.measure(async (x, y, width) => {
+      const percentage = Math.max(0, Math.min(1, touchX / width))
+      const seekPosition = percentage * duration
+      onSeek(seekPosition)
+    })
+  }
+
+  // PanResponder for scrubbing progress bar
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        setIsSeeking(true)
+        if (videoRef.current && isPlaying) {
+          videoRef.current.pauseAsync().catch(() => {})
+        }
+      },
+      onPanResponderMove: (evt) => {
+        if (!progressContainerRef.current || !duration) return
+        const touchX = evt.nativeEvent.locationX
+        progressContainerRef.current.measure((x, y, width) => {
+          const percentage = Math.max(0, Math.min(1, touchX / width))
+          const seekPosition = percentage * duration
+          onProgressChange(seekPosition)
+        })
+      },
+      onPanResponderRelease: async (evt) => {
+        if (!progressContainerRef.current || !duration) {
+          setIsSeeking(false)
+          return
+        }
+        const touchX = evt.nativeEvent.locationX
+        progressContainerRef.current.measure(async (x, y, width) => {
+          const percentage = Math.max(0, Math.min(1, touchX / width))
+          const seekPosition = percentage * duration
+          try {
+            if (videoRef.current) {
+              await videoRef.current.setPositionAsync(seekPosition)
+              onProgressChange(seekPosition)
+              if (isPlaying) {
+                await videoRef.current.playAsync()
+              }
+            }
+          } catch (error) {
+            console.error("[CommentVideoPlayer] Error seeking:", error)
+          }
+          setIsSeeking(false)
+        })
+      },
+      onPanResponderTerminate: () => {
+        setIsSeeking(false)
+      },
+    })
+  ).current
+
+  const commentVideoStyles = useMemo(() => StyleSheet.create({
+    videoContainer: {
+      width: "100%",
+      aspectRatio: 1,
+      backgroundColor: theme2Colors.beige,
+      justifyContent: "center",
+      alignItems: "center",
+      position: "relative",
+      overflow: "hidden",
+      borderRadius: 12,
+    },
+    video: {
+      width: "100%",
+      height: "100%",
+    },
+    controlsOverlay: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      zIndex: 2,
+    },
+    volumeButton: {
+      position: "absolute",
+      top: spacing.md,
+      right: spacing.md,
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: "rgba(0, 0, 0, 0.6)",
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    playPauseButton: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      backgroundColor: "rgba(0, 0, 0, 0.6)",
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    restartButton: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      backgroundColor: "rgba(0, 0, 0, 0.6)",
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    controlsRow: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.md,
+    },
+    progressContainer: {
+      position: "absolute",
+      bottom: 0,
+      left: 0,
+      right: 0,
+      height: 40,
+      backgroundColor: "rgba(0, 0, 0, 0.3)",
+      justifyContent: "center",
+      paddingVertical: spacing.xs,
+    },
+    progressBarTrack: {
+      height: 8,
+      width: "100%",
+      backgroundColor: "rgba(255, 255, 255, 0.2)",
+      borderRadius: 4,
+    },
+    progressBar: {
+      height: "100%",
+      backgroundColor: theme2Colors.blue,
+    },
+  }), [theme2Colors])
+
+  return (
+    <View style={commentVideoStyles.videoContainer}>
+      <Video
+        ref={(ref) => {
+          videoRef.current = ref
+          onVideoRef(ref)
+        }}
+        source={{ uri }}
+        style={commentVideoStyles.video}
+        resizeMode={ResizeMode.COVER}
+        shouldPlay={isPlaying}
+        isMuted={isMuted}
+        isLooping={true}
+        useNativeControls={false}
+        onLoad={(status) => {
+          if (status.isLoaded && status.durationMillis) {
+            onDurationChange(status.durationMillis)
+          }
+        }}
+        onPlaybackStatusUpdate={(status) => {
+          if (status.isLoaded) {
+            if (status.positionMillis !== undefined) {
+              if (!isSeeking) {
+                onProgressChange(status.positionMillis)
+              }
+            }
+            if (status.durationMillis && !duration) {
+              onDurationChange(status.durationMillis)
+            }
+            if (status.didJustFinish) {
+              videoRef.current?.setPositionAsync(0).then(() => {
+                videoRef.current?.playAsync().catch(() => {})
+              }).catch(() => {})
+            }
+          }
+        }}
+      />
+      <TouchableOpacity 
+        style={commentVideoStyles.controlsOverlay}
+        activeOpacity={1}
+        onPress={(e) => {
+          e.stopPropagation()
+          onPlayPause()
+        }}
+        pointerEvents="box-none"
+      >
+        {/* Volume control - top right */}
+        <TouchableOpacity
+          style={commentVideoStyles.volumeButton}
+          onPress={(e) => {
+            e.stopPropagation()
+            onToggleMute()
+          }}
+        >
+          <FontAwesome 
+            name={isMuted ? "volume-off" : "volume-up"} 
+            size={16} 
+            color={theme2Colors.white} 
+          />
+        </TouchableOpacity>
         
-        {/* Time display - bottom right */}
-        {duration > 0 && (
-          <Text style={videoStyles.progressTime}>
-            {formatTime(progress)} / {formatTime(duration)}
-          </Text>
+        {/* Play/Pause and Restart buttons - center */}
+        {!isPlaying && (
+          <View style={commentVideoStyles.controlsRow} pointerEvents="box-none">
+            {/* Restart button - only show if progress > 1s */}
+            {progress > 1000 && (
+              <TouchableOpacity
+                style={commentVideoStyles.restartButton}
+                onPress={(e) => {
+                  e.stopPropagation()
+                  onRestart()
+                }}
+              >
+                {isLoading ? (
+                  <ActivityIndicator size="small" color={theme2Colors.white} />
+                ) : (
+                  <FontAwesome name="refresh" size={18} color={theme2Colors.white} />
+                )}
+              </TouchableOpacity>
+            )}
+            
+            {/* Play button */}
+            <TouchableOpacity
+              style={commentVideoStyles.playPauseButton}
+              onPress={(e) => {
+                e.stopPropagation()
+                onPlayPause()
+              }}
+            >
+              {isLoading ? (
+                <ActivityIndicator size="small" color={theme2Colors.white} />
+              ) : (
+                <FontAwesome name="play" size={20} color={theme2Colors.white} />
+              )}
+            </TouchableOpacity>
+          </View>
         )}
-      </View>
-    </TouchableOpacity>
+        
+        {/* Progress bar - bottom (scrubbable) */}
+        <TouchableOpacity
+          ref={progressContainerRef}
+          style={commentVideoStyles.progressContainer}
+          {...panResponder.panHandlers}
+          onPress={(e) => {
+            e.stopPropagation()
+            handleProgressTap(e)
+          }}
+          activeOpacity={1}
+        >
+          <View 
+            style={commentVideoStyles.progressBarTrack}
+            pointerEvents="none"
+          >
+            <View 
+              style={[
+                commentVideoStyles.progressBar,
+                { width: duration > 0 ? `${(progress / duration) * 100}%` : "0%" }
+              ]} 
+              pointerEvents="none"
+            />
+          </View>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </View>
   )
 }

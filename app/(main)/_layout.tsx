@@ -43,8 +43,8 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
     })
   }, [tabBarOpacity])
 
-  // TEMPORARILY HIDDEN: explore-decks tab removed from navigation
-  const visibleRoutes = state.routes.filter((route) => route.name === "home" /* || route.name === "explore-decks" */)
+  // Show both home and history tabs
+  const visibleRoutes = state.routes.filter((route) => route.name === "home" || route.name === "history")
 
   // Initialize animated values for each route
   visibleRoutes.forEach((route) => {
@@ -232,8 +232,8 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
 
   return (
     <>
-      {/* TEMPORARILY HIDDEN: Tab navigation bar - hidden since we only have one tab (home) */}
-      {false && (
+      {/* Tab navigation bar */}
+      {(
         <Animated.View 
           style={[styles.tabWrapper, { opacity: tabBarOpacity }]}
           pointerEvents={isTabBarVisible ? "auto" : "box-none"}
@@ -258,7 +258,7 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
             </View>
           {visibleRoutes.map((route) => {
         const isFocused = state.index === state.routes.indexOf(route)
-        const label = route.name === "home" ? "Answer" : "Ask"
+        const label = route.name === "home" ? "Answer" : "History"
         const animatedValue = animatedValuesRef.current[route.key] || new Animated.Value(isFocused ? 1 : 0)
 
         const iconScale = animatedValue.interpolate({
@@ -292,6 +292,12 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
             scrollToTop()
             return
           }
+          
+          // If history tab is clicked while already focused, scroll to top
+          if (route.name === "history" && isFocused) {
+            // TODO: Implement scroll to top for history screen
+            return
+          }
 
           if (!isFocused && !event.defaultPrevented) {
             navigation.navigate(route.name)
@@ -302,6 +308,8 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
         let iconSource
         if (route.name === "home") {
           iconSource = require("../../assets/images/1.png")
+        } else if (route.name === "history") {
+          iconSource = require("../../assets/images/history.png")
         } else {
           iconSource = require("../../assets/images/Ask.png")
         }
@@ -345,21 +353,21 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
               )}
               <Animated.View style={{ transform: [{ scale: iconScale }], position: "relative", zIndex: 2 }}>
                 <Image
-                  source={iconSource}
+                  source={iconSource!}
                   style={{
                     width: route.name === "home" ? 40 : 20, // Larger icon for Answer tab
                     height: route.name === "home" ? 40 : 20, // Larger icon for Answer tab
                     // For Answer tab (home route), show in color when focused, gray when not focused
-                    // For Ask tab, always use tintColor
+                    // For History tab, use tintColor based on focus state
                     tintColor: route.name === "home" 
                       ? (isFocused ? undefined : theme2Colors.textSecondary) // No tint when focused (full color), gray tint when not focused
-                      : (isFocused ? (isDark ? "#000000" : theme2Colors.text) : theme2Colors.textSecondary), // Ask tab: black when focused in dark mode (cream bg), normal text in light mode, gray when not
+                      : (isFocused ? (isDark ? "#000000" : theme2Colors.text) : theme2Colors.textSecondary), // History tab: black when focused in dark mode (cream bg), normal text in light mode, gray when not
                     opacity: route.name === "home" && !isFocused ? 0.6 : 1, // Slight opacity reduction for Answer tab when not focused
                   }}
                   resizeMode="contain"
                 />
               </Animated.View>
-              {/* Only show label for Ask tab, hide for Answer tab */}
+              {/* Only show label for History tab, hide for Answer tab */}
               {route.name !== "home" && (
                 <Text style={[styles.navLabel, isFocused && styles.navLabelActive, { position: "relative", zIndex: 2 }]}>{label}</Text>
               )}
@@ -431,6 +439,7 @@ export default function MainLayout() {
       tabBar={(props) => <FloatingTabBar {...props} />}
     >
       <Tabs.Screen name="home" />
+      <Tabs.Screen name="history" />
       {/* TEMPORARILY HIDDEN: explore-decks tab */}
       <Tabs.Screen
         name="explore-decks"

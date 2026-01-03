@@ -71,7 +71,7 @@ export default function EntryComposer() {
   const params = useLocalSearchParams()
   const { colors, isDark } = useTheme()
   const promptId = params.promptId as string
-  const date = params.date as string
+  const date = (params.date as string) || getTodayDate() // Fallback to today if not provided
   const returnTo = (params.returnTo as string) || undefined
   const groupIdParam = params.groupId as string | undefined
   const entryId = params.entryId as string | undefined
@@ -112,7 +112,6 @@ export default function EntryComposer() {
   const previousMediaCountRef = useRef<number>(0)
   const mediaCarouselYRef = useRef<number | null>(null)
   const inputContainerYRef = useRef<number | null>(null)
-  const [showSuccessModal, setShowSuccessModal] = useState(false)
   const [keyboardHeight, setKeyboardHeight] = useState(0)
   const [uploadingMedia, setUploadingMedia] = useState<Record<string, boolean>>({})
   const currentScrollYRef = useRef<number>(0)
@@ -131,7 +130,6 @@ export default function EntryComposer() {
   const [userProfileModalVisible, setUserProfileModalVisible] = useState(false)
   const cursorPositionRef = useRef<number>(0)
   const [isNavigating, setIsNavigating] = useState(false) // Track when navigating to hide content immediately
-  const [isRefreshingHome, setIsRefreshingHome] = useState(false) // Track when refreshing home data
   
   // CRITICAL: Reasonable file size limits to prevent memory crashes
   // Large files loaded entirely into memory can crash the app
@@ -1161,75 +1159,51 @@ export default function EntryComposer() {
     dragPosition.setValue({ x: 0, y: 0 })
   }
 
-  async function handleNavigateToHome() {
+  async function handleNavigateToHome(entryDate?: string) {
+    const dateToNavigate = entryDate || date
+    
     if (!currentGroupId) {
       // Fallback: just navigate if we don't have group info
-      setShowSuccessModal(false)
       setIsNavigating(true)
-      exitComposer()
+      exitComposer(dateToNavigate)
       return
     }
-
-    setIsRefreshingHome(true)
     
     try {
-      // EXACT SAME REFRESH LOGIC AS handleRefresh IN home.tsx (line 2883)
-      // This ensures the same behavior as pull-to-refresh or app reopening
-      
-      // 1. Clear all queries for current group to ensure fresh data
-      queryClient.removeQueries({ 
-        queryKey: ["dailyPrompt", currentGroupId],
-        exact: false 
-      })
-      queryClient.removeQueries({ 
-        queryKey: ["entries", currentGroupId],
-        exact: false 
-      })
-      queryClient.removeQueries({ 
-        queryKey: ["userEntry", currentGroupId],
-        exact: false 
-      })
-      
-      // 2. Invalidate all queries (with timeout)
-      const invalidatePromise = queryClient.invalidateQueries()
-      const invalidateTimeout = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Invalidate timeout")), 5000)
-      )
-      
-      try {
-        await Promise.race([invalidatePromise, invalidateTimeout])
-      } catch (invalidateError) {
-        console.warn("[entry-composer] Invalidate timed out, continuing...")
+      // Invalidate queries for the specific date to ensure fresh data
+      // This is more efficient than invalidating everything
+      // Safety check: ensure dateToNavigate is a string before calling split
+      if (!dateToNavigate || typeof dateToNavigate !== 'string') {
+        console.error("[entry-composer] Invalid dateToNavigate in handleNavigateToHome:", dateToNavigate)
+        // Fallback to today's date
+        const todayDate = getTodayDate()
+        setIsNavigating(true)
+        exitComposer(todayDate)
+        return
       }
+      const normalizedDate = dateToNavigate.split('T')[0]
       
-      // 3. Refetch all queries (with timeout)
-      const refetchPromise = queryClient.refetchQueries()
-      const refetchTimeout = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Refetch timeout")), 5000)
-      )
+      // Invalidate queries for the specific date
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["entries", currentGroupId, normalizedDate] }),
+        queryClient.invalidateQueries({ queryKey: ["userEntry", currentGroupId, userId, normalizedDate] }),
+        queryClient.invalidateQueries({ queryKey: ["dailyPrompt", currentGroupId, normalizedDate] }),
+        queryClient.invalidateQueries({ queryKey: ["entries", currentGroupId], exact: false }), // Also invalidate all entries for this group
+        queryClient.invalidateQueries({ queryKey: ["userEntry", currentGroupId], exact: false }),
+      ])
       
-      try {
-        await Promise.race([refetchPromise, refetchTimeout])
-      } catch (refetchError) {
-        console.warn("[entry-composer] Refetch timed out, continuing...")
-      }
-      
-      // Now navigate - data is fresh and ready
-      setShowSuccessModal(false)
+      // Now navigate - queries will refetch automatically
       setIsNavigating(true)
-      exitComposer()
+      exitComposer(dateToNavigate)
     } catch (error) {
       console.error("[entry-composer] Error refreshing home data:", error)
       // Still navigate even if refresh fails
-      setShowSuccessModal(false)
       setIsNavigating(true)
-      exitComposer()
-    } finally {
-      setIsRefreshingHome(false)
+      exitComposer(dateToNavigate)
     }
   }
 
-  async function exitComposer() {
+  async function exitComposer(entryDate?: string) {
     // Hide composer content immediately to prevent flash
     setIsNavigating(true)
     
@@ -1239,14 +1213,37 @@ export default function EntryComposer() {
       setActivePrompt(prompt as Prompt)
     }
     
-    // Navigate to home
+    // Navigate to home with the date they answered
+    const dateToNavigate = entryDate || date
+    // Safety check: ensure dateToNavigate is a string before calling split
+    if (!dateToNavigate || typeof dateToNavigate !== 'string') {
+      console.error("[entry-composer] Invalid dateToNavigate:", dateToNavigate)
+      // Fallback to today's date
+      const todayDate = getTodayDate()
+      router.replace(`/(main)/home?date=${todayDate}&groupId=${currentGroupId || ''}`)
+      return
+    }
+    const normalizedDate = dateToNavigate.split('T')[0] // Normalize date format
+    
     if (returnTo && returnTo.includes("home")) {
-      router.replace("/(main)/home")
+      router.replace(`/(main)/home?date=${normalizedDate}&groupId=${currentGroupId || ''}`)
     } else if (returnTo) {
-      router.replace(returnTo)
+      // If returnTo has date param, preserve it, otherwise add it
+      const hasDate = returnTo.includes('date=')
+      const hasGroupId = returnTo.includes('groupId=')
+      let newReturnTo = returnTo
+      
+      if (!hasDate) {
+        newReturnTo += (returnTo.includes('?') ? '&' : '?') + `date=${normalizedDate}`
+      }
+      if (!hasGroupId && currentGroupId) {
+        newReturnTo += (newReturnTo.includes('?') ? '&' : '?') + `groupId=${currentGroupId}`
+      }
+      
+      router.replace(newReturnTo)
     } else {
-      // Always navigate to home
-      router.replace("/(main)/home")
+      // Always navigate to home with date
+      router.replace(`/(main)/home?date=${normalizedDate}&groupId=${currentGroupId || ''}`)
     }
   }
 
@@ -1504,9 +1501,12 @@ export default function EntryComposer() {
         ])
       }
 
-      // Hide uploading modal and show success
+      // Hide uploading modal and navigate directly to home
       setShowUploadingModal(false)
-      setShowSuccessModal(true)
+      
+      // Navigate to home with the date they answered
+      // This will automatically reload that day's content
+      await handleNavigateToHome(date)
     } catch (error: any) {
       // Clear all uploading states on error
       setUploadingMedia({})
@@ -2322,7 +2322,7 @@ export default function EntryComposer() {
         keyboardVerticalOffset={0}
         enabled={true} // Keep enabled - it only activates when keyboard appears (after user taps)
       >
-        {!isNavigating && !showSuccessModal && (
+        {!isNavigating && (
         <ScrollView 
           ref={scrollViewRef}
           style={styles.content} 
@@ -2619,7 +2619,7 @@ export default function EntryComposer() {
       )}
 
       {/* Toolbar - positioned above keyboard */}
-      {!isNavigating && !showSuccessModal && (
+      {!isNavigating && (
       <View style={[styles.toolbar, { bottom: Platform.OS === "android" ? keyboardHeight + spacing.xl + spacing.md : keyboardHeight }]}>
         <View style={styles.toolbarButtons}>
           <View style={styles.toolCluster}>
@@ -2662,7 +2662,7 @@ export default function EntryComposer() {
             </TouchableOpacity>
           </View>
           <View style={styles.toolbarRight}>
-            {text.trim().length > 0 && (
+            {(text.trim().length > 0 || mediaItems.length > 0) && (
               <TouchableOpacity 
                 style={[styles.iconButton, styles.postButtonInline]} 
                 onPress={handlePost}
@@ -2791,37 +2791,6 @@ export default function EntryComposer() {
             </View>
             <TouchableOpacity style={styles.voiceCancel} onPress={() => (!recording ? cleanupVoiceModal() : null)}>
               <Text style={styles.voiceCancelText}>{recording ? "Stop recording to close" : "Close"}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Success Modal */}
-      <Modal
-        visible={showSuccessModal}
-        animationType="fade"
-        transparent={false}
-        onRequestClose={() => {
-          // Prevent closing while refreshing
-          if (!isRefreshingHome) {
-            handleNavigateToHome()
-          }
-        }}
-      >
-        <View style={styles.successBackdrop}>
-          <View style={styles.successContainer}>
-            <Text style={styles.successTitle}>You've answered today's question!</Text>
-            <TouchableOpacity
-              style={[styles.successButton, isRefreshingHome && styles.voiceIconDisabled]}
-              onPress={handleNavigateToHome}
-              disabled={isRefreshingHome}
-              activeOpacity={0.7}
-            >
-              {isRefreshingHome ? (
-                <ActivityIndicator size="small" color={theme2Colors.white} />
-              ) : (
-                <Text style={styles.successButtonText}>See what everyone else said</Text>
-              )}
             </TouchableOpacity>
           </View>
         </View>

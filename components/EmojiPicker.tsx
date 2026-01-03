@@ -1199,20 +1199,29 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [keyboardHeight, setKeyboardHeight] = useState(0)
 
+  // Popular emojis for quick access carousel
+  const POPULAR_EMOJIS = ["❤️", "😂", "🙏", "😍", "🔥", "👍", "😊", "🎉", "💯", "😭", "🤣", "😮", "😢", "😱", "🥰", "😴", "🤔", "😎", "🥳", "🙌"]
+  const searchInputRef = useRef<TextInput>(null)
+
   useEffect(() => {
     if (visible) {
-      // Immediately set to final position to avoid lag
+      // Immediately set to final position to avoid lag - no animation delay
       slideAnim.setValue(1)
+      // Use a very fast spring animation for instant feel
       Animated.spring(slideAnim, {
         toValue: 1,
         useNativeDriver: true,
-        tension: 65,
-        friction: 11,
+        tension: 100, // Increased tension for faster animation
+        friction: 8, // Reduced friction for snappier feel
       }).start()
       // Reset search and category when opened
       setSearchQuery("")
       setSelectedCategory(null)
       scrollViewRef.current?.scrollTo({ x: 0, y: 0, animated: false })
+      // Focus search input immediately to open keyboard faster
+      setTimeout(() => {
+        searchInputRef.current?.focus()
+      }, 50) // Small delay to ensure modal is mounted
     } else {
       slideAnim.setValue(0)
     }
@@ -1352,10 +1361,41 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
             {/* Handle bar */}
             <View style={[styles.handleBar, { backgroundColor: themeColors.gray[700] }]} />
             
+            {/* Popular emoji carousel - show immediately for quick access, positioned above keyboard */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={[
+                styles.popularEmojiCarousel,
+                { marginBottom: keyboardHeight > 0 ? spacing.sm : spacing.md }
+              ]}
+              contentContainerStyle={styles.popularEmojiCarouselContent}
+            >
+              {POPULAR_EMOJIS.map((emoji) => {
+                const isSelected = currentReactions.includes(emoji)
+                return (
+                  <TouchableOpacity
+                    key={emoji}
+                    style={[
+                      styles.popularEmojiButton,
+                      isSelected && styles.popularEmojiButtonSelected,
+                      isSelected && { backgroundColor: isDark ? themeColors.gray[800] : themeColors.gray[200] },
+                      isSelected && { borderColor: themeColors.accent },
+                    ]}
+                    onPress={() => handleSelectEmoji(emoji)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.popularEmoji}>{emoji}</Text>
+                  </TouchableOpacity>
+                )
+              })}
+            </ScrollView>
+
             {/* Search bar */}
             <View style={[styles.searchContainer, { backgroundColor: isDark ? themeColors.gray[800] : themeColors.gray[200] }]}>
               <FontAwesome name="search" size={16} color={isDark ? themeColors.gray[400] : themeColors.gray[600]} style={styles.searchIcon} />
               <TextInput
+                ref={searchInputRef}
                 style={[styles.searchInput, { color: isDark ? themeColors.white : themeColors.gray[900], backgroundColor: isDark ? themeColors.gray[800] : themeColors.gray[200] }]}
                 placeholder="Search emojis..."
                 placeholderTextColor={isDark ? themeColors.gray[400] : themeColors.gray[500]}
@@ -1613,5 +1653,27 @@ const styles = StyleSheet.create({
   },
   noResultsText: {
     fontSize: 16,
+  },
+  popularEmojiCarousel: {
+    maxHeight: 60,
+  },
+  popularEmojiCarouselContent: {
+    paddingHorizontal: spacing.xs,
+    gap: spacing.xs,
+    alignItems: "center",
+  },
+  popularEmojiButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "transparent",
+  },
+  popularEmojiButtonSelected: {
+    borderWidth: 2,
+  },
+  popularEmoji: {
+    fontSize: 28,
   },
 })

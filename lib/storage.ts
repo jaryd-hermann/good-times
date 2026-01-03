@@ -7,6 +7,11 @@ export async function uploadMedia(
   entryId: string,
   fileUri: string,
   fileType: "photo" | "video" | "audio",
+  options?: {
+    maxVideoSize?: number // Optional override for video max size (in bytes)
+    maxPhotoSize?: number // Optional override for photo max size (in bytes)
+    maxAudioSize?: number // Optional override for audio max size (in bytes)
+  }
 ): Promise<string> {
   try {
     // CRITICAL: Validate file exists and check size BEFORE reading into memory
@@ -19,9 +24,9 @@ export async function uploadMedia(
     // Check file size before attempting to read into memory
     // This is critical to prevent crashes with large videos
     if (fileInfo.size !== undefined) {
-      const MAX_VIDEO_SIZE = 100 * 1024 * 1024 // 100MB
-      const MAX_PHOTO_SIZE = 50 * 1024 * 1024 // 50MB
-      const MAX_AUDIO_SIZE = 50 * 1024 * 1024 // 50MB
+      const MAX_VIDEO_SIZE = options?.maxVideoSize ?? (100 * 1024 * 1024) // Default 100MB, can be overridden
+      const MAX_PHOTO_SIZE = options?.maxPhotoSize ?? (50 * 1024 * 1024) // Default 50MB, can be overridden
+      const MAX_AUDIO_SIZE = options?.maxAudioSize ?? (50 * 1024 * 1024) // Default 50MB, can be overridden
       
       const maxSize = fileType === "video" ? MAX_VIDEO_SIZE : fileType === "audio" ? MAX_AUDIO_SIZE : MAX_PHOTO_SIZE
       

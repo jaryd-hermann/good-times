@@ -337,6 +337,7 @@ serve(async (req) => {
       // TEMPORARILY HIDDEN: standardCountSinceDeck removed (no longer using Deck questions)
       // let standardCountSinceDeck = 0
       let standardCountSinceRemembering = 0
+      let lastRememberingDate: string | null = null
 
       if (recentPromptsWithDates) {
         // TEMPORARILY HIDDEN: Deck counting logic removed
@@ -352,9 +353,11 @@ serve(async (req) => {
         // }
 
         // Count Standard questions since last Remembering question
+        // CRITICAL FIX: Track the date of the last Remembering question to prevent back-to-back
         for (const dp of recentPromptsWithDates) {
           const prompt = dp.prompt as any
           if (prompt?.category === "Remembering") {
+            lastRememberingDate = dp.date // Store the date of the last Remembering question
             break // Found last Remembering question, stop counting
           } else if (prompt?.category === "Standard") {
             standardCountSinceRemembering++
@@ -452,19 +455,37 @@ serve(async (req) => {
       //   }
       // }
 
-      // PRIORITY 7: REMEMBERING QUESTION (every 7 Standard questions, max 1 per 7)
-      if (!selectedPrompt && hasMemorials && standardCountSinceRemembering >= 7) {
-        // Get available Remembering prompts
-        const { data: rememberingPrompts } = await supabaseClient
-          .from("prompts")
-          .select("*")
-          .eq("category", "Remembering")
-          .not("id", "in", Array.from(askedPromptIds))
+      // PRIORITY 7: REMEMBERING QUESTION (every 10 Standard questions, minimum 10 days apart)
+      // CRITICAL FIX: Ensure at least 10 Standard questions have been asked since the last Remembering
+      // AND ensure we haven't scheduled a Remembering question in the last 10 days
+      if (!selectedPrompt && hasMemorials && standardCountSinceRemembering >= 10) {
+        // Additional safety check: Ensure the last Remembering question was at least 10 days ago
+        // This prevents back-to-back Remembering prompts even if counting logic has edge cases
+        let canScheduleRemembering = true
+        if (lastRememberingDate) {
+          const lastRememberingDateObj = new Date(lastRememberingDate)
+          const todayDateObj = new Date(today)
+          const daysSinceLastRemembering = Math.floor((todayDateObj.getTime() - lastRememberingDateObj.getTime()) / (1000 * 60 * 60 * 24))
+          
+          // Require at least 10 days between Remembering questions (minimum, never more)
+          if (daysSinceLastRemembering < 10) {
+            canScheduleRemembering = false
+          }
+        }
+        
+        if (canScheduleRemembering) {
+          // Get available Remembering prompts
+          const { data: rememberingPrompts } = await supabaseClient
+            .from("prompts")
+            .select("*")
+            .eq("category", "Remembering")
+            .not("id", "in", Array.from(askedPromptIds))
 
-        if (rememberingPrompts && rememberingPrompts.length > 0) {
-          // Select one (we'll rotate memorial names in getDailyPrompt)
-          selectedPrompt = rememberingPrompts[0]
-          selectionMethod = "remembering"
+          if (rememberingPrompts && rememberingPrompts.length > 0) {
+            // Select one (we'll rotate memorial names in getDailyPrompt)
+            selectedPrompt = rememberingPrompts[0]
+            selectionMethod = "remembering"
+          }
         }
       }
 

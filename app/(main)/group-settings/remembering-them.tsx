@@ -9,7 +9,7 @@ import * as ImagePicker from "expo-image-picker"
 import * as FileSystem from "expo-file-system/legacy"
 import { decode } from "base64-arraybuffer"
 import { supabase } from "../../../lib/supabase"
-import { getMemorials, createMemorial, deleteMemorial, updateMemorial, isGroupAdmin, getQuestionCategoryPreferences, updateQuestionCategoryPreference, clearQuestionCategoryPreference } from "../../../lib/db"
+import { getMemorials, createMemorial, deleteMemorial, updateMemorial, isGroupAdmin } from "../../../lib/db"
 import { uploadMemorialPhoto, isLocalFileUri } from "../../../lib/storage"
 import { spacing, typography } from "../../../lib/theme"
 import { useTheme } from "../../../lib/theme-context"
@@ -30,7 +30,6 @@ export default function RememberingThemSettings() {
   const [newMemorialPhotoUri, setNewMemorialPhotoUri] = useState<string | undefined>(undefined)
   const [saving, setSaving] = useState(false)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
-  const [savingPreference, setSavingPreference] = useState<string | null>(null)
   const [focusedInput, setFocusedInput] = useState(false)
 
   // Theme 2 color palette - dynamic based on dark/light mode
@@ -45,13 +44,6 @@ export default function RememberingThemSettings() {
     text: isDark ? "#F5F0EA" : "#000000", // Cream in dark mode
     textSecondary: isDark ? "#A0A0A0" : "#404040", // Light gray in dark mode
   }), [isDark])
-
-  // Load question category preferences for "Remembering" category
-  const { data: preferences = [] } = useQuery({
-    queryKey: ["questionPreferences", groupId],
-    queryFn: () => getQuestionCategoryPreferences(groupId),
-    enabled: !!groupId,
-  })
 
   const { data: memorials = [], isLoading } = useQuery({
     queryKey: ["memorials", groupId],
@@ -201,47 +193,6 @@ export default function RememberingThemSettings() {
       Alert.alert("Error", error.message || "Failed to update photo")
     } finally {
       setUploadingPhoto(false)
-    }
-  }
-
-  type Preference = "more" | "less" | "none" | null
-
-  function getPreferenceForRemembering(): Preference {
-    // Category name is "Remembering" in the database
-    const pref = preferences.find((p) => p.category === "Remembering")
-    return (pref?.preference as Preference) || null
-  }
-
-  async function handlePreferenceChange(preference: "more" | "less" | "none") {
-    if (!userId || !groupId) return
-
-    const currentPreference = getPreferenceForRemembering()
-    const categoryName = "Remembering" // Category name in database
-    
-    // If clicking the same preference, unselect it (clear the preference)
-    if (currentPreference === preference) {
-      setSavingPreference(categoryName)
-      try {
-        await clearQuestionCategoryPreference(groupId, categoryName, userId)
-        await queryClient.invalidateQueries({ queryKey: ["questionPreferences", groupId] })
-        await queryClient.invalidateQueries({ queryKey: ["dailyPrompt"] })
-      } catch (error: any) {
-        Alert.alert("Error", error.message || "Failed to clear preference")
-      } finally {
-        setSavingPreference(null)
-      }
-      return
-    }
-
-    setSavingPreference(categoryName)
-    try {
-      await updateQuestionCategoryPreference(groupId, categoryName, preference, userId)
-      await queryClient.invalidateQueries({ queryKey: ["questionPreferences", groupId] })
-      await queryClient.invalidateQueries({ queryKey: ["dailyPrompt"] })
-    } catch (error: any) {
-      Alert.alert("Error", error.message || "Failed to update preference")
-    } finally {
-      setSavingPreference(null)
     }
   }
 
@@ -468,51 +419,6 @@ export default function RememberingThemSettings() {
       marginTop: spacing.md,
       alignItems: "flex-start",
     },
-    preferenceSection: {
-      backgroundColor: theme2Colors.cream,
-      borderRadius: 16,
-      padding: spacing.md,
-      gap: spacing.sm,
-      marginBottom: spacing.md,
-      borderWidth: 1,
-      borderColor: theme2Colors.textSecondary,
-    },
-    preferenceTitle: {
-      ...typography.bodyBold,
-      fontSize: 16,
-      color: theme2Colors.text,
-    },
-    preferenceDescription: {
-      ...typography.caption,
-      color: theme2Colors.textSecondary,
-      fontSize: 13,
-      marginBottom: spacing.xs,
-    },
-    preferenceButtons: {
-      flexDirection: "row",
-      gap: spacing.sm,
-    },
-    preferenceButton: {
-      flex: 1,
-      paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.md,
-      borderRadius: 8,
-      backgroundColor: theme2Colors.textSecondary,
-      alignItems: "center",
-    },
-    preferenceButtonActive: {
-      backgroundColor: theme2Colors.blue,
-    },
-    preferenceButtonDisabled: {
-      opacity: 0.5,
-    },
-    preferenceButtonText: {
-      ...typography.bodyMedium,
-      color: theme2Colors.text,
-    },
-    preferenceButtonTextActive: {
-      color: theme2Colors.white,
-    },
   }), [colors, isDark, focusedInput, theme2Colors])
 
   if (!isAdmin) {
@@ -542,71 +448,7 @@ export default function RememberingThemSettings() {
           Manage the people your group is remembering. These names will be used in personalized prompts.
         </Text>
 
-        {/* Remembering Question Category Controls - only show if group has memorials */}
-        {memorials.length > 0 && (
-          <View style={styles.preferenceSection}>
-            <Text style={styles.preferenceTitle}>Remembering Questions</Text>
-            <Text style={styles.preferenceDescription}>
-              Control how often "Remembering" questions appear in your daily prompts.
-            </Text>
-            <View style={styles.preferenceButtons}>
-              <TouchableOpacity
-                style={[
-                  styles.preferenceButton,
-                  getPreferenceForRemembering() === "more" && styles.preferenceButtonActive,
-                  savingPreference && styles.preferenceButtonDisabled,
-                ]}
-                onPress={() => handlePreferenceChange("more")}
-                disabled={!!savingPreference}
-              >
-                <Text
-                  style={[
-                    styles.preferenceButtonText,
-                    getPreferenceForRemembering() === "more" && styles.preferenceButtonTextActive,
-                  ]}
-                >
-                  More
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.preferenceButton,
-                  getPreferenceForRemembering() === "less" && styles.preferenceButtonActive,
-                  savingPreference && styles.preferenceButtonDisabled,
-                ]}
-                onPress={() => handlePreferenceChange("less")}
-                disabled={!!savingPreference}
-              >
-                <Text
-                  style={[
-                    styles.preferenceButtonText,
-                    getPreferenceForRemembering() === "less" && styles.preferenceButtonTextActive,
-                  ]}
-                >
-                  Less
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.preferenceButton,
-                  getPreferenceForRemembering() === "none" && styles.preferenceButtonActive,
-                  savingPreference && styles.preferenceButtonDisabled,
-                ]}
-                onPress={() => handlePreferenceChange("none")}
-                disabled={!!savingPreference}
-              >
-                <Text
-                  style={[
-                    styles.preferenceButtonText,
-                    getPreferenceForRemembering() === "none" && styles.preferenceButtonTextActive,
-                  ]}
-                >
-                  None
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
+        {/* Remembering Question Category Controls - REMOVED per user request */}
 
         {isLoading ? (
           <Text style={styles.loadingText}>Loading...</Text>

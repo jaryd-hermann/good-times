@@ -371,6 +371,7 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
           style={[styles.skipButton, { top: insets.top + spacing.xs, right: spacing.md }]}
           onPress={handleSkip}
           activeOpacity={0.7}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <FontAwesome name="times" size={16} color={theme2Colors.text} />
         </TouchableOpacity>
@@ -481,6 +482,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: SCREEN_WIDTH * 0.01,
     height: SCREEN_HEIGHT * 0.88,
+    zIndex: 1, // Lower than skip button
   },
   imageContainer: {
     width: "100%",
@@ -505,7 +507,7 @@ const styles = StyleSheet.create({
   },
   skipButton: {
     position: "absolute",
-    zIndex: 1000,
+    zIndex: 10000, // Much higher zIndex to ensure it's above everything
     width: 32,
     height: 32,
     borderRadius: 16,
@@ -514,6 +516,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
     borderColor: theme2Colors.text,
+    elevation: 10000, // Android elevation
   },
   progressDotsContainer: {
     position: "absolute",
