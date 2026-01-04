@@ -961,13 +961,16 @@ export default function Home() {
   useEffect(() => {
     if (currentGroupId && userId) {
       const weekDatesForPrefetch = getWeekDates()
-      // Preload prompts for all dates in the week
+      const today = getTodayDate()
+      // Preload prompts only for past/present dates (not future dates)
       weekDatesForPrefetch.forEach((day) => {
-        queryClient.prefetchQuery({
-          queryKey: ["dailyPrompt", currentGroupId, day.date, userId],
-          queryFn: () => getDailyPrompt(currentGroupId, day.date, userId),
-          staleTime: 5 * 60 * 1000, // Cache for 5 minutes
-        })
+        if (day.date <= today) {
+          queryClient.prefetchQuery({
+            queryKey: ["dailyPrompt", currentGroupId, day.date, userId],
+            queryFn: () => getDailyPrompt(currentGroupId, day.date, userId),
+            staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+          })
+        }
       })
     }
   }, [currentGroupId, userId, queryClient])
@@ -975,11 +978,14 @@ export default function Home() {
   // Preload prompt for selected date when it changes to prevent glitching
   useEffect(() => {
     if (currentGroupId && userId && selectedDate) {
-      queryClient.prefetchQuery({
-        queryKey: ["dailyPrompt", currentGroupId, selectedDate, userId],
-        queryFn: () => getDailyPrompt(currentGroupId, selectedDate, userId),
-        staleTime: 5 * 60 * 1000, // Cache for 5 minutes
-      })
+      const today = getTodayDate()
+      if (selectedDate <= today) {
+        queryClient.prefetchQuery({
+          queryKey: ["dailyPrompt", currentGroupId, selectedDate, userId],
+          queryFn: () => getDailyPrompt(currentGroupId, selectedDate, userId),
+          staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+        })
+      }
     }
   }, [selectedDate, currentGroupId, userId, queryClient])
 
@@ -987,18 +993,21 @@ export default function Home() {
   // This ensures prompt loads even if userId was undefined when query first ran
   useEffect(() => {
     if (currentGroupId && selectedDate && userId) {
-      // Invalidate and refetch to ensure prompt loads with userId
-      queryClient.invalidateQueries({
-        queryKey: ["dailyPrompt", currentGroupId, selectedDate],
-        exact: false, // Match all queries for this group/date regardless of userId
-      })
+      const today = getTodayDate()
+      // Only invalidate if selectedDate is not a future date
+      if (selectedDate <= today) {
+        queryClient.invalidateQueries({
+          queryKey: ["dailyPrompt", currentGroupId, selectedDate],
+          exact: false, // Match all queries for this group/date regardless of userId
+        })
+      }
     }
   }, [userId, currentGroupId, selectedDate, queryClient])
 
   const { data: dailyPrompt, isLoading: isLoadingPrompt, isFetching: isFetchingPrompt } = useQuery({
     queryKey: ["dailyPrompt", currentGroupId, selectedDate, userId],
     queryFn: () => (currentGroupId ? getDailyPrompt(currentGroupId, selectedDate, userId) : null),
-    enabled: !!currentGroupId && !!selectedDate, // Always enabled when group and date are available
+    enabled: !!currentGroupId && !!selectedDate && selectedDate <= getTodayDate(), // Don't fetch prompts for future dates
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes to prevent glitching during date navigation
     gcTime: 10 * 60 * 1000, // Keep cache for 10 minutes for smooth date navigation
     refetchOnMount: true, // Always refetch on mount to ensure fresh data (fixes stuck loading state)
@@ -1255,18 +1264,26 @@ export default function Home() {
     const startDateForTimeline =
       groupAgeDays === 0 ? todayDate : createdDateLocal
 
+    // Always show 7 days
+    // For new groups (< 7 days old): show (today - groupAgeDays) to (today - groupAgeDays + 6)
+    //   This means: past days with history, current day (latest day of group), future days with placeholders
+    //   Example: 4-day-old group, today is Sun -> show Thu, Fri, Sat, Sun, Mon, Tue, Wed
+    // After 7 days: show today-6 to today (rolling window with today on far right)
     if (groupAgeDays < 7) {
-      // For new groups, timeline starts at startDateForTimeline and shows up to 7 days
-      let cursor = new Date(`${startDateForTimeline}T00:00:00`)
-      const daysToShow = Math.min(7, groupAgeDays + 1) // Show up to 7 days, or group age + 1
-      for (let i = 0; i < daysToShow; i++) {
-        const d = new Date(cursor)
+      // For new groups, start from (today - groupAgeDays) and show 7 days forward
+      // This ensures current day (latest day of group) is at position groupAgeDays
+      const today = new Date(`${todayDate}T00:00:00`)
+      const startDate = new Date(today)
+      startDate.setDate(today.getDate() - groupAgeDays) // Go back groupAgeDays days
+      
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(startDate)
+        d.setDate(startDate.getDate() + i) // Start from startDate, go forward
         dates.push({
           date: formatDateAsLocalISO(d),
           day: d.toLocaleDateString(undefined, { weekday: "short" }),
           dayNum: d.getDate(),
         })
-        cursor.setDate(cursor.getDate() + 1)
       }
     } else {
       // After 7 days, show rolling window: today-6 .. today (7 days total, most recent on right)
@@ -1536,22 +1553,31 @@ export default function Home() {
       const groupCreatedDate = currentGroup?.created_at 
         ? utcStringToLocalDate(currentGroup.created_at)
         : null
+      const today = getTodayDate()
       
       await Promise.all(
-        datesWithoutUserEntry.map(async (date) => {
-          // CRITICAL: Skip dates before group creation
-          if (groupCreatedDate && date < groupCreatedDate) {
-            return
-          }
-          try {
-            const prompt = await getDailyPrompt(currentGroupId, date, userId)
-            if (prompt) {
-              prompts[date] = prompt
+        datesWithoutUserEntry
+          .filter((date) => {
+            // CRITICAL: Skip dates before group creation
+            if (groupCreatedDate && date < groupCreatedDate) {
+              return false
             }
-          } catch (error) {
-            console.warn(`[home] Failed to fetch prompt for date ${date}:`, error)
-          }
-        })
+            // CRITICAL: Skip future dates (don't fetch prompts for future dates)
+            if (date > today) {
+              return false
+            }
+            return true
+          })
+          .map(async (date) => {
+            try {
+              const prompt = await getDailyPrompt(currentGroupId, date, userId)
+              if (prompt) {
+                prompts[date] = prompt
+              }
+            } catch (error) {
+              console.warn(`[home] Failed to fetch prompt for date ${date}:`, error)
+            }
+          })
       )
       return prompts
     },
@@ -4921,28 +4947,20 @@ export default function Home() {
         animationType="fade"
         statusBarTranslucent={true}
       >
-        <View style={styles.loadingOverlay}>
-          <ImageBackground
-            source={require("../../assets/images/fuzzy.png")}
-            style={styles.loadingOverlayImage}
-            resizeMode="cover"
-          >
-            {/* Semi-transparent overlay on top of fuzzy.png */}
-            <View style={styles.loadingOverlayMask} />
-            {/* Rotating loading spinner on top */}
-            <View style={styles.loadingSpinnerContainer}>
-              <Animated.Image
-                source={require("../../assets/images/1.png")}
-                style={[
-                  styles.loadingSpinner,
-                  {
-                    transform: [{ rotate: loadingSpin }],
-                  },
-                ]}
-                resizeMode="contain"
-              />
-            </View>
-          </ImageBackground>
+        <View style={[styles.loadingOverlay, { backgroundColor: theme2Colors.beige }]}>
+          {/* Rotating loading spinner - just beige background, no fuzzy overlay */}
+          <View style={styles.loadingSpinnerContainer}>
+            <Animated.Image
+              source={require("../../assets/images/1.png")}
+              style={[
+                styles.loadingSpinner,
+                {
+                  transform: [{ rotate: loadingSpin }],
+                },
+              ]}
+              resizeMode="contain"
+            />
+          </View>
         </View>
       </Modal>
       
@@ -5227,6 +5245,22 @@ export default function Home() {
             onPress={() => handleAnswerPrompt(true)}
             activeOpacity={0.95}
           >
+            {/* Texture overlay - placed first so content renders on top */}
+            <View style={styles.promptCardTexture} pointerEvents="none">
+              <Image
+                source={require("../../assets/images/texture.png")}
+                style={{ 
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  width: "100%",
+                  height: "100%",
+                }}
+                resizeMode="stretch"
+              />
+            </View>
             <View style={styles.promptCardContent}>
             {isLoadingGroupData ? (
               // Show loading state during group switch
@@ -5413,22 +5447,6 @@ export default function Home() {
               )
             })()}
           </View>
-            {/* Texture overlay - placed after content so it renders on top */}
-            <View style={styles.promptCardTexture} pointerEvents="none">
-              <Image
-                source={require("../../assets/images/texture.png")}
-                style={{ 
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  width: "100%",
-                  height: "100%",
-                }}
-                resizeMode="stretch"
-              />
-            </View>
           </TouchableOpacity>
         </View>
       )}
@@ -5884,8 +5902,8 @@ export default function Home() {
                   
                   {/* Removed "Answer to see what they said" - users can now view entries without answering */}
                   
-                  {/* Show prompt card for previous days if user hasn't answered */}
-                  {!hasUserEntry && promptForDate && promptForDate.prompt && !isDateToday && (() => {
+                  {/* Show prompt card for previous days if user hasn't answered (not for future dates) */}
+                  {!hasUserEntry && promptForDate && promptForDate.prompt && !isDateToday && !isFuture && (() => {
                     // Check if this prompt is a Remembering category question
                     const isRememberingCategory = promptForDate.prompt?.category === "Remembering"
                     
@@ -6336,7 +6354,10 @@ export default function Home() {
                               })
                             }}
                           >
-                            <Text style={styles.groupActionButtonText}>Edit what you're into</Text>
+                            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
+                              <FontAwesome name="heart" size={14} color="#000000" style={{ marginRight: spacing.sm }} />
+                              <Text style={styles.groupActionButtonText}>Edit what you're into</Text>
+                            </View>
                           </TouchableOpacity>
                           <TouchableOpacity
                             style={styles.groupActionButtonSmall}

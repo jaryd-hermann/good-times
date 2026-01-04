@@ -907,6 +907,11 @@ export default function EntryDetail() {
       setCommentMediaType("video")
     }
     setShowCommentVideoModal(false)
+    // Refocus comment input after modal closes to show toolbar/CTA
+    setTimeout(() => {
+      commentInputRef.current?.focus()
+      setIsCommentInputFocused(true)
+    }, 300) // Small delay to ensure modal is fully closed
   }
 
   async function startCommentVoiceRecording() {

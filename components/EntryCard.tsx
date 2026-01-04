@@ -1427,15 +1427,15 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
 
         {/* Single Photo or Video (full width, respect aspect ratio) */}
         {!hasMultiplePhotoVideo && firstPhotoVideo && (
-          <TouchableOpacity
-            onPress={(e) => {
-              e.stopPropagation()
-              handleEntryPress()
-            }}
-            activeOpacity={0.9}
-            style={styles.mediaWrapper}
-          >
-            {firstPhotoVideo.type === "photo" ? (
+          firstPhotoVideo.type === "photo" ? (
+            <TouchableOpacity
+              onPress={(e) => {
+                e.stopPropagation()
+                handleEntryPress()
+              }}
+              activeOpacity={0.9}
+              style={styles.mediaWrapper}
+            >
               <Image
                 source={{ uri: firstPhotoVideo.url }}
                 style={imageDimensions[firstPhotoVideo.index] ? {
@@ -1456,7 +1456,9 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                   }
                 }}
               />
-            ) : (
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.mediaWrapper}>
               <VideoPlayer 
                 uri={firstPhotoVideo.url} 
                 index={firstPhotoVideo.index}
@@ -1469,8 +1471,8 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                   }))
                 }}
               />
-            )}
-          </TouchableOpacity>
+            </View>
+          )
         )}
 
         {/* Comment Icons, React Button with Reactions, and CTA Button */}
@@ -2349,7 +2351,7 @@ function VideoPlayer({
         resizeMode={ResizeMode.COVER}
         shouldPlay={isPlaying}
         isMuted={isMuted}
-        isLooping={true}
+        isLooping={false}
         useNativeControls={false}
         onLoad={(status) => {
           if (status.isLoaded) {
@@ -2371,21 +2373,19 @@ function VideoPlayer({
               setDuration(status.durationMillis)
             }
             if (status.didJustFinish) {
-              // Loop video
-              videoRef.current?.setPositionAsync(0).then(() => {
-                videoRef.current?.playAsync().catch(() => {})
+              // Video finished - pause and reset to start position
+              videoRef.current?.pauseAsync().then(() => {
+                videoRef.current?.setPositionAsync(0).then(() => {
+                  setProgress(0)
+                  setIsPlaying(false)
+                }).catch(() => {})
               }).catch(() => {})
             }
           }
         }}
       />
-      <TouchableOpacity 
+      <View 
         style={videoStyles.controlsOverlay}
-        activeOpacity={1}
-        onPress={(e) => {
-          e.stopPropagation()
-          handlePlayPause()
-        }}
         pointerEvents="box-none"
       >
         {/* Volume control - top right */}
@@ -2395,6 +2395,7 @@ function VideoPlayer({
             e.stopPropagation()
             handleToggleMute()
           }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <FontAwesome 
             name={isMuted ? "volume-off" : "volume-up"} 
@@ -2414,6 +2415,7 @@ function VideoPlayer({
                   e.stopPropagation()
                   handleRestart()
                 }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
                 {isLoading ? (
                   <ActivityIndicator size="small" color={theme2Colors.white} />
@@ -2430,6 +2432,7 @@ function VideoPlayer({
                 e.stopPropagation()
                 handlePlayPause()
               }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               {isLoading ? (
                 <ActivityIndicator size="small" color={theme2Colors.white} />
@@ -2439,6 +2442,24 @@ function VideoPlayer({
             </TouchableOpacity>
           </View>
         )}
+        
+        {/* Full-screen tap area for play/pause - covers video area, not controls */}
+        <TouchableOpacity
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 40, // Leave space for progress bar at bottom
+          }}
+          activeOpacity={1}
+          onPress={(e) => {
+            e.stopPropagation()
+            // When playing, tap to pause; when paused, tap to play
+            handlePlayPause()
+          }}
+          pointerEvents="auto"
+        />
         
         {/* Progress bar - bottom (scrubbable) */}
         <TouchableOpacity
@@ -2464,7 +2485,7 @@ function VideoPlayer({
             />
           </View>
         </TouchableOpacity>
-      </TouchableOpacity>
+      </View>
     </View>
   )
 }
@@ -2699,7 +2720,7 @@ function CommentVideoPlayer({
         resizeMode={ResizeMode.COVER}
         shouldPlay={isPlaying}
         isMuted={isMuted}
-        isLooping={true}
+        isLooping={false}
         useNativeControls={false}
         onLoad={(status) => {
           if (status.isLoaded && status.durationMillis) {
@@ -2717,20 +2738,19 @@ function CommentVideoPlayer({
               onDurationChange(status.durationMillis)
             }
             if (status.didJustFinish) {
-              videoRef.current?.setPositionAsync(0).then(() => {
-                videoRef.current?.playAsync().catch(() => {})
+              // Video finished - pause and reset to start position
+              videoRef.current?.pauseAsync().then(() => {
+                videoRef.current?.setPositionAsync(0).then(() => {
+                  onProgressChange(0)
+                  onPlayPause() // This will set isPlaying to false
+                }).catch(() => {})
               }).catch(() => {})
             }
           }
         }}
       />
-      <TouchableOpacity 
+      <View 
         style={commentVideoStyles.controlsOverlay}
-        activeOpacity={1}
-        onPress={(e) => {
-          e.stopPropagation()
-          onPlayPause()
-        }}
         pointerEvents="box-none"
       >
         {/* Volume control - top right */}
@@ -2740,6 +2760,7 @@ function CommentVideoPlayer({
             e.stopPropagation()
             onToggleMute()
           }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <FontAwesome 
             name={isMuted ? "volume-off" : "volume-up"} 
@@ -2759,6 +2780,7 @@ function CommentVideoPlayer({
                   e.stopPropagation()
                   onRestart()
                 }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
                 {isLoading ? (
                   <ActivityIndicator size="small" color={theme2Colors.white} />
@@ -2775,6 +2797,7 @@ function CommentVideoPlayer({
                 e.stopPropagation()
                 onPlayPause()
               }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               {isLoading ? (
                 <ActivityIndicator size="small" color={theme2Colors.white} />
@@ -2784,6 +2807,24 @@ function CommentVideoPlayer({
             </TouchableOpacity>
           </View>
         )}
+        
+        {/* Full-screen tap area for play/pause - covers video area, not controls */}
+        <TouchableOpacity
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 40, // Leave space for progress bar at bottom
+          }}
+          activeOpacity={1}
+          onPress={(e) => {
+            e.stopPropagation()
+            // When playing, tap to pause; when paused, tap to play
+            onPlayPause()
+          }}
+          pointerEvents="auto"
+        />
         
         {/* Progress bar - bottom (scrubbable) */}
         <TouchableOpacity
@@ -2795,6 +2836,7 @@ function CommentVideoPlayer({
             handleProgressTap(e)
           }}
           activeOpacity={1}
+          hitSlop={{ top: 10, bottom: 10, left: 0, right: 0 }}
         >
           <View 
             style={commentVideoStyles.progressBarTrack}
@@ -2809,7 +2851,7 @@ function CommentVideoPlayer({
             />
           </View>
         </TouchableOpacity>
-      </TouchableOpacity>
+      </View>
     </View>
   )
 }

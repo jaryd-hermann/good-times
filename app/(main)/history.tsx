@@ -435,6 +435,27 @@ export default function Home() {
   // But don't reset group - only update if focusGroupId param is provided
   useFocusEffect(
     useCallback(() => {
+      // CRITICAL: Sync currentGroupId from AsyncStorage when screen comes into focus
+      // This ensures history.tsx uses the same group as home.tsx when groups switch
+      async function syncGroupFromStorage() {
+        try {
+          const storedGroupId = await AsyncStorage.getItem("current_group_id")
+          if (storedGroupId && storedGroupId !== currentGroupId) {
+            console.log(`[history] 🔄 Syncing group from storage: ${storedGroupId} (was ${currentGroupId})`)
+            setCurrentGroupId(storedGroupId)
+            // Clear cache for old group and new group to force fresh fetch
+            if (currentGroupId) {
+              queryClient.setQueryData(["allEntriesHistory", currentGroupId], [])
+            }
+            queryClient.setQueryData(["allEntriesHistory", storedGroupId], [])
+            queryClient.invalidateQueries({ queryKey: ["allEntriesHistory", storedGroupId], exact: true })
+          }
+        } catch (error) {
+          console.error("[history] Error syncing group from storage:", error)
+        }
+      }
+      syncGroupFromStorage()
+      
       // Check if we should show review modal when screen comes into focus
       checkAndShowReviewModal()
       
@@ -673,6 +694,13 @@ export default function Home() {
 
   useEffect(() => {
     if (focusGroupId && focusGroupId !== currentGroupId && groups.some((group) => group.id === focusGroupId)) {
+      // CRITICAL: Clear allEntriesHistory before switching groups
+      queryClient.setQueryData(["allEntriesHistory", currentGroupId], [])
+      queryClient.setQueryData(["allEntriesHistory", focusGroupId], [])
+      
+      // Set switching state to prevent stale data
+      setIsGroupSwitching(true)
+      
       setCurrentGroupId(focusGroupId)
       // Invalidate queries when switching to focused group
       queryClient.invalidateQueries({ 
@@ -683,8 +711,19 @@ export default function Home() {
         queryKey: ["entries", focusGroupId],
         exact: false 
       })
+      queryClient.invalidateQueries({ 
+        queryKey: ["allEntriesHistory", focusGroupId],
+        exact: false 
+      })
+      
+      // Set switching state to prevent stale data
+      setIsGroupSwitching(true)
+      setTimeout(() => {
+        setIsGroupSwitching(false)
+      }, 200)
     }
   }, [focusGroupId, groups, currentGroupId, queryClient])
+
 
   // Track previous group ID to clear its cache when switching
   const prevGroupIdRef = useRef<string | undefined>(undefined)
@@ -695,8 +734,12 @@ export default function Home() {
     
     // Only do this if group actually changed (not on initial mount or date changes)
     if (prevGroupId && prevGroupId !== currentGroupId) {
-      console.log(`[home] Group changed from ${prevGroupId} to ${currentGroupId}, clearing old group cache`)
+      console.log(`[history] CRITICAL: Group changed from ${prevGroupId} to ${currentGroupId}, clearing old group cache`)
       setIsGroupSwitching(true) // Set loading state immediately
+      
+      // CRITICAL: Immediately clear allEntriesHistory data to prevent showing wrong group's entries
+      queryClient.setQueryData(["allEntriesHistory", prevGroupId], [])
+      queryClient.setQueryData(["allEntriesHistory", currentGroupId], [])
       
       // CRITICAL: Immediately reset birthday card queries to prevent stale data from showing
       // Reset for ALL possible date combinations to ensure no stale data
@@ -738,6 +781,11 @@ export default function Home() {
         queryKey: ["myCardEntries", prevGroupId],
         exact: false 
       })
+      // CRITICAL: Remove allEntriesHistory for previous group to prevent group context bleeding
+      queryClient.removeQueries({ 
+        queryKey: ["allEntriesHistory", prevGroupId],
+        exact: false 
+      })
       
       // Clear cache for new group to ensure fresh data
       if (currentGroupId) {
@@ -765,6 +813,11 @@ export default function Home() {
           queryKey: ["myCardEntries", currentGroupId],
           exact: false 
         })
+        // CRITICAL: Remove allEntriesHistory for new group to ensure fresh fetch
+        queryClient.removeQueries({ 
+          queryKey: ["allEntriesHistory", currentGroupId],
+          exact: false 
+        })
         
         // Invalidate and refetch for new group
         queryClient.invalidateQueries({ 
@@ -787,18 +840,28 @@ export default function Home() {
           queryKey: ["myCardEntries", currentGroupId],
           exact: false 
         })
+        // CRITICAL: Invalidate allEntriesHistory for new group
+        queryClient.invalidateQueries({ 
+          queryKey: ["allEntriesHistory", currentGroupId],
+          exact: false 
+        })
         
         // Force refetch immediately
         queryClient.refetchQueries({ 
           queryKey: ["dailyPrompt", currentGroupId],
           exact: false 
         })
+        // CRITICAL: Force refetch allEntriesHistory immediately
+        queryClient.refetchQueries({ 
+          queryKey: ["allEntriesHistory", currentGroupId],
+          exact: false 
+        })
         
         // Clear switching state once data starts loading
-        // Use a small delay to ensure queries have started
+        // Use a small delay to ensure queries have started and old data is cleared
         setTimeout(() => {
           setIsGroupSwitching(false)
-        }, 150)
+        }, 200)
       }
     }
     
@@ -1284,24 +1347,104 @@ export default function Home() {
   })
 
   // Fetch ALL entries for the group - History screen always loads all entries
-  const { data: allEntries = [], isLoading: allEntriesLoading } = useQuery({
-    queryKey: ["allEntriesHistory", currentGroupId],
+  // CRITICAL: Query key includes currentGroupId, so React Query treats different groups as different queries
+  // CRITICAL: Only create query key if currentGroupId exists - prevents undefined key caching issues
+  const { data: allEntriesRaw = [], isLoading: allEntriesLoading, isFetching: allEntriesFetching } = useQuery({
+    queryKey: currentGroupId ? ["allEntriesHistory", currentGroupId] : ["allEntriesHistory", "DISABLED"],
     queryFn: async (): Promise<any[]> => {
-      if (!currentGroupId) return []
+      // CRITICAL: Double-check currentGroupId is still valid (defense against race conditions)
+      if (!currentGroupId) {
+        console.error(`[history] 🚨 CRITICAL: queryFn called but currentGroupId is undefined!`)
+        return []
+      }
+      console.log(`[history] 🔵 FETCHING entries for group: ${currentGroupId}`)
       // Use getAllEntriesForGroup function for History screen
       const { getAllEntriesForGroup } = await import("../../lib/db")
       const entries = await getAllEntriesForGroup(currentGroupId)
-      // CRITICAL: Double-check all entries belong to the correct group (safety filter)
-      const filteredData = entries.filter((entry: any) => entry.group_id === currentGroupId)
-      if (filteredData.length !== entries.length) {
-        console.warn(`[history] Found ${entries.length - filteredData.length} entries with wrong group_id - filtered out`)
+      console.log(`[history] 🔵 FETCHED ${entries?.length || 0} entries for group ${currentGroupId}`)
+      
+      // CRITICAL: Verify every entry belongs to currentGroupId
+      const wrongGroupEntries = entries.filter((entry: any) => {
+        if (!entry || !entry.group_id) {
+          return true // Missing group_id counts as wrong
+        }
+        return entry.group_id !== currentGroupId
+      })
+      
+      if (wrongGroupEntries.length > 0) {
+        console.error(`[history] 🚨 CRITICAL: Found ${wrongGroupEntries.length} entries from WRONG group!`)
+        console.error(`[history] Expected group: ${currentGroupId}`)
+        console.error(`[history] Wrong entries:`, wrongGroupEntries.map((e: any) => ({ id: e.id, group_id: e.group_id })))
       }
+      
+      // CRITICAL: Double-check all entries belong to the correct group (safety filter)
+      const filteredData = entries.filter((entry: any) => {
+        if (!entry || !entry.group_id) {
+          console.warn(`[history] Entry missing group_id:`, entry)
+          return false
+        }
+        if (entry.group_id !== currentGroupId) {
+          console.error(`[history] 🚨 CRITICAL: Entry ${entry.id} has group_id ${entry.group_id}, but query is for ${currentGroupId}`)
+          return false
+        }
+        return true
+      })
+      
+      if (filteredData.length !== entries.length) {
+        console.error(`[history] 🚨 CRITICAL: Filtered out ${entries.length - filteredData.length} entries from wrong group!`)
+      }
+      
+      console.log(`[history] 🔵 RETURNING ${filteredData.length} entries for group ${currentGroupId}`)
       return filteredData
     },
-    enabled: !!currentGroupId, // Always load for History screen
-    staleTime: 0, // Always fetch fresh data when group changes
-    gcTime: 1000 * 60 * 60 * 24, // Keep in cache for 24 hours
+    enabled: !!currentGroupId, // Only enabled when group is available - matches home.tsx
+    staleTime: 0, // Always fetch fresh data when group changes - matches home.tsx
+    gcTime: 0, // Don't cache - always fetch fresh to prevent group context bleeding
+    refetchOnMount: true, // Always refetch on mount - matches home.tsx
+    refetchOnWindowFocus: true, // Refetch on focus - matches home.tsx
+    placeholderData: undefined, // Never use placeholder data from different group - matches home.tsx
+    // CRITICAL: Ensure query is completely reset when group changes
+    structuralSharing: (oldData, newData) => {
+      // If group changed, don't share structure - force complete re-render
+      return oldData === newData ? oldData : newData
+    },
   })
+
+  // CRITICAL: Safety filter to ensure we NEVER show entries from a different group
+  // This is a defense-in-depth measure to prevent group context bleeding
+  // Match home.tsx approach - filter by group_id to ensure data integrity
+  const allEntries = useMemo(() => {
+    if (!currentGroupId) {
+      console.log(`[history] ⚠️ No currentGroupId, returning empty array`)
+      return []
+    }
+    
+    console.log(`[history] 🔍 Filtering ${allEntriesRaw.length} entries for group ${currentGroupId}`)
+    
+    // CRITICAL: Filter out any entries that don't belong to the current group
+    // This prevents group context bleeding even if cached data is wrong
+    const filtered = allEntriesRaw.filter((entry: any) => {
+      if (!entry || !entry.group_id) {
+        console.warn(`[history] ⚠️ Entry missing group_id:`, entry?.id)
+        return false
+      }
+      if (entry.group_id !== currentGroupId) {
+        console.error(`[history] 🚨 CRITICAL: Entry ${entry.id} has group_id ${entry.group_id}, but current group is ${currentGroupId}`)
+        return false
+      }
+      return true
+    })
+    
+    if (filtered.length !== allEntriesRaw.length) {
+      console.error(`[history] 🚨 CRITICAL: Found ${allEntriesRaw.length - filtered.length} entries from wrong group! Filtered out.`)
+      console.error(`[history] Current group: ${currentGroupId}`)
+      const wrongEntries = allEntriesRaw.filter((e: any) => e.group_id !== currentGroupId)
+      console.error(`[history] Wrong entries:`, wrongEntries.map((e: any) => ({ id: e.id, group_id: e.group_id, date: e.date })))
+    }
+    
+    console.log(`[history] ✅ Returning ${filtered.length} entries for group ${currentGroupId}`)
+    return filtered
+  }, [allEntriesRaw, currentGroupId])
 
   // History screen always uses allEntries (no pagination needed)
   // Keep paginatedEntries for compatibility but it's not used
@@ -1788,8 +1931,14 @@ export default function Home() {
 
   // Function to render period grid (like history.tsx)
   function renderPeriodGrid(periods: PeriodSummary[], mode: PeriodMode) {
-    // Show skeleton cards while loading
-    if (allEntriesLoading) {
+    // Show skeleton cards while loading - never show "No weeks captured" during initial load
+    // Show skeleton if: no groupId yet, query is loading/fetching, or we have no entries yet (waiting for data)
+    const shouldShowSkeleton = !currentGroupId || 
+                               allEntriesLoading || 
+                               allEntriesFetching || 
+                               (currentGroupId && allEntries.length === 0)
+    
+    if (shouldShowSkeleton) {
       return (
         <View style={styles.periodGrid}>
           {[1, 2, 3, 4].map((i) => (
@@ -1799,7 +1948,9 @@ export default function Home() {
       )
     }
     
-    if (periods.length === 0) {
+    // Only show "No weeks captured" if we've definitely finished loading and have no periods
+    // This means: query completed (not loading/fetching), we have a groupId, and periods is empty
+    if (periods.length === 0 && currentGroupId && !allEntriesLoading && !allEntriesFetching) {
       return (
         <View style={{ padding: spacing.xl, alignItems: "center" }}>
           <Text style={{ ...typography.body, color: theme2Colors.textSecondary }}>
@@ -3291,6 +3442,10 @@ export default function Home() {
       // Set loading state immediately to prevent flash
       setIsGroupSwitching(true)
       
+      // CRITICAL: Immediately clear allEntriesHistory data BEFORE switching groups
+      queryClient.setQueryData(["allEntriesHistory", oldGroupId], [])
+      queryClient.setQueryData(["allEntriesHistory", groupId], [])
+      
       // Clear all cached data for the old group BEFORE switching
       if (oldGroupId) {
         queryClient.removeQueries({ 
@@ -3315,6 +3470,11 @@ export default function Home() {
         })
         queryClient.removeQueries({ 
           queryKey: ["myCardEntries", oldGroupId],
+          exact: false 
+        })
+        // CRITICAL: Remove allEntriesHistory for old group
+        queryClient.removeQueries({ 
+          queryKey: ["allEntriesHistory", oldGroupId],
           exact: false 
         })
       }
@@ -3353,10 +3513,20 @@ export default function Home() {
         queryKey: ["myCardEntries", groupId],
         exact: false 
       })
+      // CRITICAL: Remove allEntriesHistory for new group to force fresh fetch
+      queryClient.removeQueries({ 
+        queryKey: ["allEntriesHistory", groupId],
+        exact: false 
+      })
       
       // Force immediate refetch
       queryClient.refetchQueries({ 
         queryKey: ["dailyPrompt", groupId],
+        exact: false 
+      })
+      // CRITICAL: Force immediate refetch of allEntriesHistory
+      queryClient.refetchQueries({ 
+        queryKey: ["allEntriesHistory", groupId],
         exact: false 
       })
       queryClient.invalidateQueries({ 
@@ -3369,6 +3539,11 @@ export default function Home() {
       })
       queryClient.invalidateQueries({ 
         queryKey: ["myCardEntries", groupId],
+        exact: false 
+      })
+      // CRITICAL: Invalidate allEntriesHistory for new group
+      queryClient.invalidateQueries({ 
+        queryKey: ["allEntriesHistory", groupId],
         exact: false 
       })
     }
@@ -3556,6 +3731,8 @@ export default function Home() {
         queryClient.refetchQueries({ queryKey: ["userEntry", currentGroupId, userId, todayDate] })
         queryClient.refetchQueries({ queryKey: ["dailyPrompt", currentGroupId, selectedDate, userId] })
         queryClient.refetchQueries({ queryKey: ["dailyPrompt", currentGroupId, todayDate, userId] })
+        // CRITICAL: Refetch allEntriesHistory for current group only
+        queryClient.refetchQueries({ queryKey: ["allEntriesHistory", currentGroupId], exact: true })
         // Also refetch general entry queries
         queryClient.refetchQueries({ queryKey: ["entries", currentGroupId], exact: false })
         queryClient.refetchQueries({ queryKey: ["userEntry", currentGroupId], exact: false })
@@ -5223,7 +5400,7 @@ export default function Home() {
 
         {/* Period Banner - show when filtering by period */}
         {activePeriod && (
-          <View style={styles.periodBanner}>
+          <View style={[styles.periodBanner, { marginTop: spacing.md }]}>
             <View>
               <Text style={styles.periodBannerTitle}>{activePeriod.title}</Text>
               <Text style={styles.periodBannerSubtitle}>{activePeriod.subtitle}</Text>
@@ -5236,7 +5413,7 @@ export default function Home() {
         
         {/* Filter Banners - show when filtering */}
         {selectedMembers.length > 0 && (
-          <View style={styles.periodBanner}>
+          <View style={[styles.periodBanner, (!activePeriod && selectedMembers.length > 0) && { marginTop: spacing.md }]}>
             <View>
               <Text style={styles.periodBannerTitle}>
                 {selectedMembers.length === 1 

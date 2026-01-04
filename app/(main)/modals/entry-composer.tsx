@@ -71,7 +71,9 @@ export default function EntryComposer() {
   const params = useLocalSearchParams()
   const { colors, isDark } = useTheme()
   const promptId = params.promptId as string
-  const date = (params.date as string) || getTodayDate() // Fallback to today if not provided
+  // Ensure date is always a valid string - handle null, undefined, or empty string
+  const dateParam = params.date as string | null | undefined
+  const date = (dateParam && typeof dateParam === 'string' && dateParam.trim() !== '') ? dateParam : getTodayDate()
   const returnTo = (params.returnTo as string) || undefined
   const groupIdParam = params.groupId as string | undefined
   const entryId = params.entryId as string | undefined
@@ -1160,7 +1162,8 @@ export default function EntryComposer() {
   }
 
   async function handleNavigateToHome(entryDate?: string) {
-    const dateToNavigate = entryDate || date
+    // Ensure we always have a valid date - use multiple fallbacks
+    const dateToNavigate = entryDate || date || getTodayDate()
     
     if (!currentGroupId) {
       // Fallback: just navigate if we don't have group info
@@ -1174,7 +1177,7 @@ export default function EntryComposer() {
       // This is more efficient than invalidating everything
       // Safety check: ensure dateToNavigate is a string before calling split
       if (!dateToNavigate || typeof dateToNavigate !== 'string') {
-        console.error("[entry-composer] Invalid dateToNavigate in handleNavigateToHome:", dateToNavigate)
+        console.error("[entry-composer] Invalid dateToNavigate in handleNavigateToHome:", dateToNavigate, "entryDate:", entryDate, "date:", date)
         // Fallback to today's date
         const todayDate = getTodayDate()
         setIsNavigating(true)
@@ -1214,10 +1217,11 @@ export default function EntryComposer() {
     }
     
     // Navigate to home with the date they answered
-    const dateToNavigate = entryDate || date
+    // Ensure we always have a valid date - use multiple fallbacks
+    const dateToNavigate = entryDate || date || getTodayDate()
     // Safety check: ensure dateToNavigate is a string before calling split
     if (!dateToNavigate || typeof dateToNavigate !== 'string') {
-      console.error("[entry-composer] Invalid dateToNavigate:", dateToNavigate)
+      console.error("[entry-composer] Invalid dateToNavigate:", dateToNavigate, "entryDate:", entryDate, "date:", date)
       // Fallback to today's date
       const todayDate = getTodayDate()
       router.replace(`/(main)/home?date=${todayDate}&groupId=${currentGroupId || ''}`)
