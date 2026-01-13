@@ -126,7 +126,7 @@ export default function AddCustomQuestion() {
   }
 
   const wordCount = countWords(question)
-  const maxWords = 20
+  const maxWords = 30
   const isOverLimit = wordCount > maxWords
 
   async function handleSubmit() {

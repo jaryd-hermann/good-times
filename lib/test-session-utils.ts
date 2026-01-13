@@ -83,14 +83,86 @@ export async function forceSessionExpiry(): Promise<void> {
 }
 
 export async function simulateLongInactivity(minutes: number = 35): Promise<void> {
-  console.log(`[TEST] Simulating ${minutes} minutes of inactivity...`)
+  const startTime = Date.now()
+  console.log(`[TEST] ========================================`)
+  console.log(`[TEST] SIMULATING LONG INACTIVITY`)
+  console.log(`[TEST] ========================================`)
+  console.log(`[TEST] Minutes to simulate: ${minutes}`)
+  console.log(`[TEST] Current time: ${new Date().toISOString()}`)
+  
   try {
+    // Get current state before simulation
+    const beforeState = {
+      lastClose: await AsyncStorage.getItem('last_app_close_time'),
+      lastActive: await AsyncStorage.getItem('last_app_active_time'),
+    }
+    console.log(`[TEST] Before simulation:`)
+    console.log(`[TEST]   - Last close time: ${beforeState.lastClose ? new Date(parseInt(beforeState.lastClose)).toISOString() : 'null'}`)
+    console.log(`[TEST]   - Last active time: ${beforeState.lastActive ? new Date(parseInt(beforeState.lastActive)).toISOString() : 'null'}`)
+    
+    // Calculate the time in the past
     const timeAgo = Date.now() - (minutes * 60 * 1000)
+    const simulatedTime = new Date(timeAgo)
+    
+    console.log(`[TEST] Setting simulated times:`)
+    console.log(`[TEST]   - Simulated time: ${simulatedTime.toISOString()}`)
+    console.log(`[TEST]   - Time difference: ${minutes} minutes (${minutes * 60} seconds)`)
+    console.log(`[TEST]   - Milliseconds ago: ${minutes * 60 * 1000}`)
+    
+    // Set the simulated times
     await AsyncStorage.setItem('last_app_close_time', timeAgo.toString())
     await AsyncStorage.setItem('last_app_active_time', timeAgo.toString())
-    console.log(`[TEST] ✅ Set last close/active time to ${minutes} minutes ago (${new Date(timeAgo).toISOString()}). Restart app to test.`)
+    
+    // Verify the values were set correctly
+    const afterClose = await AsyncStorage.getItem('last_app_close_time')
+    const afterActive = await AsyncStorage.getItem('last_app_active_time')
+    
+    console.log(`[TEST] After simulation:`)
+    console.log(`[TEST]   - Last close time: ${afterClose ? new Date(parseInt(afterClose)).toISOString() : 'null'}`)
+    console.log(`[TEST]   - Last active time: ${afterActive ? new Date(parseInt(afterActive)).toISOString() : 'null'}`)
+    
+    // Verify the simulation worked
+    if (afterClose === timeAgo.toString() && afterActive === timeAgo.toString()) {
+      console.log(`[TEST] ✅ Values verified correctly`)
+    } else {
+      console.error(`[TEST] ⚠️ WARNING: Values may not have been set correctly!`)
+      console.error(`[TEST]   Expected: ${timeAgo.toString()}`)
+      console.error(`[TEST]   Got close: ${afterClose}`)
+      console.error(`[TEST]   Got active: ${afterActive}`)
+    }
+    
+    // Test the wasInactiveTooLong function to see if it detects the inactivity
+    const inactiveTooLong = await wasInactiveTooLong()
+    console.log(`[TEST] Testing wasInactiveTooLong(): ${inactiveTooLong ? '✅ YES (inactive too long)' : '❌ NO (not inactive)'}`)
+    
+    // Calculate what the function should return (threshold is typically 30 minutes)
+    const thresholdMinutes = 30
+    const shouldBeInactive = minutes >= thresholdMinutes
+    if (inactiveTooLong === shouldBeInactive) {
+      console.log(`[TEST] ✅ wasInactiveTooLong() returned expected value (${shouldBeInactive})`)
+    } else {
+      console.error(`[TEST] ⚠️ WARNING: wasInactiveTooLong() returned unexpected value!`)
+      console.error(`[TEST]   Expected: ${shouldBeInactive} (minutes=${minutes} >= threshold=${thresholdMinutes})`)
+      console.error(`[TEST]   Got: ${inactiveTooLong}`)
+    }
+    
+    const elapsed = Date.now() - startTime
+    console.log(`[TEST] ========================================`)
+    console.log(`[TEST] ✅ Simulation complete in ${elapsed}ms`)
+    console.log(`[TEST] ========================================`)
+    console.log(`[TEST] Next steps:`)
+    console.log(`[TEST]   1. Close the app completely`)
+    console.log(`[TEST]   2. Reopen the app`)
+    console.log(`[TEST]   3. Check console logs for boot flow behavior`)
+    console.log(`[TEST]   4. Expected: Boot screen should show, then route to home.tsx`)
+    console.log(`[TEST] ========================================`)
   } catch (error) {
-    console.error('[TEST] ❌ Failed to simulate inactivity:', error)
+    console.error('[TEST] ========================================')
+    console.error('[TEST] ❌ FAILED TO SIMULATE INACTIVITY')
+    console.error('[TEST] ========================================')
+    console.error('[TEST] Error:', error)
+    console.error('[TEST] Stack:', (error as Error).stack)
+    console.error('[TEST] ========================================')
     throw error
   }
 }

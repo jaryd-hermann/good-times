@@ -5497,153 +5497,7 @@ export default function Home() {
           </View>
         )}
         
-        {/* Custom Question Banner (today only, not for future days) */}
-        {shouldShowCustomQuestionBanner && !isFuture && (
-          <CustomQuestionBanner
-            groupId={currentGroupId!}
-            date={selectedDate}
-            onPress={handleCustomQuestionPress}
-            reduceSpacing={
-              // Reduce spacing if any birthday banners will be shown
-              // CRITICAL: Only count cards that have entries
-              (myBirthdayCard && myBirthdayCard.group_id === currentGroupId && myBirthdayCard.birthday_date === selectedDate && cardEntries.length > 0) ||
-              (upcomingBirthdayCards.filter((card) => card.group_id === currentGroupId).length > 0) ||
-              myCardEntries.length > 0
-            }
-          />
-        )}
-        
-        {/* Birthday Card Banners (only for non-future days) */}
-        {/* 1. Your Card Banner (highest priority - if it's user's birthday) */}
-        {/* CRITICAL: Only show banner if card exists AND has entries */}
-        {myBirthdayCard && 
-         myBirthdayCard.group_id === currentGroupId &&
-         myBirthdayCard.birthday_date === selectedDate && 
-         !isFuture &&
-         cardEntries.length > 0 && (
-          <BirthdayCardYourCardBanner
-            groupId={currentGroupId!}
-            cardId={myBirthdayCard.id}
-            birthdayDate={myBirthdayCard.birthday_date}
-            contributorAvatars={cardEntries.map((e) => ({
-              user_id: e.contributor_user_id,
-              avatar_url: e.contributor?.avatar_url,
-              name: e.contributor?.name,
-            }))}
-            onPress={() => {
-              router.push({
-                pathname: "/(main)/birthday-card-details",
-                params: {
-                  cardId: myBirthdayCard.id,
-                  groupId: currentGroupId!,
-                  returnTo: `/(main)/history?groupId=${currentGroupId}&date=${selectedDate}`,
-                },
-              })
-            }}
-          />
-        )}
-
-        {/* 2. Upcoming Birthday Banners (stacked vertically, non-future days only) */}
-        {!isFuture && upcomingBirthdayCards
-          .filter((card) => card.group_id === currentGroupId)
-          .map((card) => {
-          const birthdayUser = (card as any).birthday_user
-          return (
-            <BirthdayCardUpcomingBanner
-              key={card.id}
-              groupId={currentGroupId!}
-              cardId={card.id}
-              birthdayUserId={card.birthday_user_id}
-              birthdayUserName={birthdayUser?.name || "Someone"}
-              birthdayUserAvatar={birthdayUser?.avatar_url}
-              birthdayDate={card.birthday_date}
-              onPress={() => {
-                router.push({
-                  pathname: "/(main)/modals/birthday-card-composer",
-                  params: {
-                    cardId: card.id,
-                    groupId: currentGroupId!,
-                    birthdayUserId: card.birthday_user_id,
-                    birthdayUserName: birthdayUser?.name || "Someone",
-                    returnTo: `/(main)/history?groupId=${currentGroupId}&date=${selectedDate}`,
-                  },
-                })
-              }}
-            />
-          )
-        })}
-
-        {/* 3. Edit Banners (for entries written on selectedDate, non-future days only) */}
-        {!isFuture && myCardEntries.map((entry) => {
-          const card = (entry as any).card
-          const birthdayUser = card?.birthday_user
-          return (
-            <BirthdayCardEditBanner
-              key={entry.id}
-              groupId={currentGroupId!}
-              cardId={card?.id || ""}
-              entryId={entry.id}
-              birthdayUserId={card?.birthday_user_id || ""}
-              birthdayUserName={birthdayUser?.name || "Someone"}
-              birthdayUserAvatar={birthdayUser?.avatar_url}
-              birthdayDate={card?.birthday_date || ""}
-              onPress={() => {
-                router.push({
-                  pathname: "/(main)/modals/birthday-card-composer",
-                  params: {
-                    cardId: card?.id || "",
-                    groupId: currentGroupId!,
-                    birthdayUserId: card?.birthday_user_id || "",
-                    birthdayUserName: birthdayUser?.name || "Someone",
-                    entryId: entry.id,
-                    returnTo: `/(main)/history?groupId=${currentGroupId}&date=${selectedDate}`,
-                  },
-                })
-              }}
-            />
-          )
-        })}
-
-        {/* Pending Vote Banner (today only, not for future days) */}
-        {pendingVotes.length > 0 && isToday && !isFuture && (
-          <View style={styles.voteBannerWrapper}>
-            <TouchableOpacity
-              style={styles.voteBanner}
-              onPress={() => {
-                if (pendingVotes.length === 1) {
-                  router.push(`/(main)/deck-vote?deckId=${pendingVotes[0].deck_id}&groupId=${currentGroupId}`)
-                } else {
-                  router.push(`/(main)/explore-decks?groupId=${currentGroupId}`)
-                }
-              }}
-              activeOpacity={0.8}
-            >
-              <View style={styles.voteBannerContent}>
-                {/* Deck image on the left */}
-                <View style={styles.voteBannerIconContainer}>
-                  <Image
-                    source={getDeckImageSource(pendingVotes[0].deck?.name, pendingVotes[0].deck?.icon_url)}
-                    style={styles.voteBannerIcon}
-                    resizeMode="cover"
-                  />
-                </View>
-                {/* Text content */}
-                <View style={styles.voteBannerTextContainer}>
-                  <Text style={styles.voteBannerSubtext}>
-                    {pendingVotes[0].requested_by_user?.name || "Someone"} wants to add a deck
-                  </Text>
-                  <Text style={styles.voteBannerText}>
-                    {pendingVotes.length === 1
-                      ? "Vote on it"
-                      : "Multiple decks being voted on"}
-                  </Text>
-                </View>
-              </View>
-              {/* Chevron on the right */}
-              <FontAwesome name="chevron-right" size={16} color={theme2Colors.text} style={styles.voteBannerChevron} />
-            </TouchableOpacity>
-          </View>
-        )}
+        {/* All banners removed from history tab */}
         {/* Notice removed - now shown in prompt card at top */}
         {/* Future day empty state */}
         {!userEntry && isFuture && (
@@ -5995,14 +5849,14 @@ export default function Home() {
                     
                     // Regular entry card
                     const entryIdList = visibleEntries.map((item: any) => item.id)
-                    // Show fuzzy overlay only for today if user hasn't answered
-                    // For previous days, never show fuzzy overlay
-                    const shouldShowFuzzy = isDateToday && !hasUserEntry && !entry.is_birthday_card
+                    // Show fuzzy overlay for any date if user hasn't answered that day's question
+                    // Always hide answers until user has answered
+                    const shouldShowFuzzy = !hasUserEntry && !entry.is_birthday_card
                     
-                    // Get prompt ID for today to navigate to entry-composer (use existing todayPromptId or fallback)
-                    const promptIdForNavigation = isDateToday 
-                      ? (todayPromptId || todayDailyPrompt?.prompt_id || promptsForDatesWithoutEntry[date]?.prompt_id)
-                      : null
+                    // Get prompt ID for this date to navigate to entry-composer
+                    // Use promptForDate which is already calculated above for this specific date
+                    const promptIdForNavigation = promptForDate?.prompt_id || 
+                      (isDateToday ? (todayPromptId || todayDailyPrompt?.prompt_id) : null)
                     
                     return (
                       <EntryCard
@@ -6018,8 +5872,9 @@ export default function Home() {
                         }}
                         // REMOVED: onRevealAnswers prop - tapping fuzzy card now navigates to entry-composer
                         // Pass prompt info for navigation when fuzzy overlay is tapped
+                        // Use the date of the entry being shown, not just today
                         fuzzyOverlayPromptId={shouldShowFuzzy ? promptIdForNavigation : undefined}
-                        fuzzyOverlayDate={shouldShowFuzzy ? todayDate : undefined}
+                        fuzzyOverlayDate={shouldShowFuzzy ? date : undefined}
                         fuzzyOverlayGroupId={shouldShowFuzzy ? currentGroupId : undefined}
                       />
                     )

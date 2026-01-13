@@ -12,6 +12,7 @@ import {
   Switch,
   Platform,
   Share,
+  BackHandler,
 } from "react-native"
 import { useRouter } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -310,11 +311,11 @@ export default function SettingsScreen() {
   async function handleSimulateInactivity() {
     Alert.prompt(
       "Simulate Inactivity",
-      "Enter minutes of inactivity to simulate (default: 35):",
+      "Enter minutes of inactivity to simulate (default: 35):\n\nThis will:\n1. Set last active/close times\n2. Close the app\n3. You can then reopen to test boot flow",
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Simulate",
+          text: "Simulate & Close",
           onPress: async (minutesStr) => {
             try {
               const minutes = minutesStr ? parseInt(minutesStr, 10) : 35
@@ -322,9 +323,68 @@ export default function SettingsScreen() {
                 Alert.alert("Error", "Invalid number of minutes")
                 return
               }
+              
+              console.log(`[SETTINGS] Starting inactivity simulation: ${minutes} minutes`)
+              
+              // Simulate the inactivity with comprehensive logging
               await simulateLongInactivity(minutes)
-              Alert.alert("Success", `Simulated ${minutes} minutes of inactivity. Restart app to test.`)
+              
+              console.log(`[SETTINGS] Inactivity simulation complete, verifying...`)
+              
+              // Verify the simulation worked by checking wasInactiveTooLong
+              try {
+                const { wasInactiveTooLong } = await import("../../lib/session-lifecycle")
+                const isInactive = await wasInactiveTooLong()
+                console.log(`[SETTINGS] Verification: wasInactiveTooLong() = ${isInactive}`)
+                
+                if (isInactive) {
+                  console.log(`[SETTINGS] ✅ Verification passed - inactivity detected correctly`)
+                } else {
+                  console.warn(`[SETTINGS] ⚠️ Verification warning - inactivity not detected (may need >= 30 minutes)`)
+                }
+              } catch (error) {
+                console.warn(`[SETTINGS] Failed to verify inactivity:`, error)
+              }
+              
+              console.log(`[SETTINGS] Preparing to close app...`)
+              
+              // Show confirmation before closing
+              Alert.alert(
+                "Simulation Complete ✅",
+                `Simulated ${minutes} minutes of inactivity.\n\n📋 Check console logs for full details.\n\n🔄 The app will now close. Reopen it to test the boot flow.\n\n✅ Expected behavior:\n• Boot screen with spinning loading.png\n• Routes to home.tsx after 2-3 seconds\n• Check console for "[boot] LONG INACTIVITY DETECTED" logs`,
+                [
+                  {
+                    text: Platform.OS === "android" ? "Close App" : "Got It",
+                    style: "destructive",
+                    onPress: () => {
+                      console.log(`[SETTINGS] User confirmed, closing app...`)
+                      // Close the app
+                      if (Platform.OS === "android") {
+                        // Android: Use BackHandler to exit
+                        console.log(`[SETTINGS] Android detected - calling BackHandler.exitApp()`)
+                        BackHandler.exitApp()
+                      } else {
+                        // iOS: Can't programmatically close, but show instructions
+                        console.log(`[SETTINGS] iOS detected - showing manual close instructions`)
+                        Alert.alert(
+                          "Close the App",
+                          "On iOS, please manually close the app:\n\n1. Swipe up from bottom (or double-tap home button)\n2. Swipe up on the Good Times app card\n\nThen reopen to test the boot flow.\n\nCheck console logs for boot flow behavior.",
+                          [{ text: "OK" }]
+                        )
+                      }
+                    },
+                  },
+                  {
+                    text: "Stay Open",
+                    style: "cancel",
+                    onPress: () => {
+                      console.log(`[SETTINGS] User chose to stay open - can manually close later`)
+                    },
+                  },
+                ]
+              )
             } catch (error: any) {
+              console.error(`[SETTINGS] Failed to simulate inactivity:`, error)
               Alert.alert("Error", error.message || "Failed to simulate inactivity")
             }
           },

@@ -8,6 +8,7 @@ import { OnboardingProgress } from "../../components/OnboardingProgress"
 import { usePostHog } from "posthog-react-native"
 import { captureEvent } from "../../lib/posthog"
 import { FontAwesome } from "@expo/vector-icons"
+import { useSafeAreaInsets } from "react-native-safe-area-context"
 
 // Theme 2 color palette matching new design system
 const theme2Colors = {
@@ -28,6 +29,7 @@ const { width, height } = Dimensions.get("window")
 export default function Welcome3() {
   const router = useRouter()
   const posthog = usePostHog()
+  const insets = useSafeAreaInsets()
 
   useEffect(() => {
     try {
@@ -45,7 +47,7 @@ export default function Welcome3() {
     <View style={styles.container}>
       <ScrollView 
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: 120 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
       >
         {/* Top Section - Image */}
@@ -78,9 +80,11 @@ export default function Welcome3() {
               Good Times is the group-based, low-effort, social app for friends & family to meaningfully <Text style={styles.boldText}>connect over one shared question a day</Text>.
             </Text>
           </View>
+        </View>
+      </ScrollView>
 
-          {/* Bottom Container */}
-          <View style={styles.bottomContainer}>
+      {/* Fixed Bottom Navigation Bar */}
+      <View style={[styles.bottomContainer, { paddingBottom: insets.bottom }]}>
             <TouchableOpacity
               style={styles.backButton}
               onPress={() => router.back()}
@@ -104,8 +108,6 @@ export default function Welcome3() {
               </View>
             </TouchableOpacity>
           </View>
-        </View>
-      </ScrollView>
     </View>
   )
 }
@@ -154,7 +156,6 @@ const styles = StyleSheet.create({
   content: {
     padding: spacing.lg,
     paddingTop: spacing.xs,
-    paddingBottom: spacing.xxl * 4,
     backgroundColor: theme2Colors.beige,
   },
   textContainer: {
@@ -189,10 +190,19 @@ const styles = StyleSheet.create({
     fontFamily: "Roboto-Bold",
   },
   bottomContainer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginTop: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.lg,
+    backgroundColor: theme2Colors.beige,
+    borderTopWidth: 1,
+    borderTopColor: "transparent", // Invisible border for consistent spacing
   },
   ctaButton: {
     width: 100,

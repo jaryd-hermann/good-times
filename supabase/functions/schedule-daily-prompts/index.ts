@@ -146,7 +146,7 @@ serve(async (req) => {
         .maybeSingle()
 
       if (customQuestion && customQuestion.prompt_id) {
-        // CRITICAL: Check if this prompt_id was EVER asked before (never repeat custom questions)
+        // CRITICAL FIX: Check if this prompt_id was EVER asked before (never repeat custom questions)
         const { data: everAsked } = await supabaseClient
           .from("daily_prompts")
           .select("id")
@@ -164,13 +164,37 @@ serve(async (req) => {
             .eq("id", customQuestion.id)
           // Fall through to next priority
         } else {
-          // Safe to schedule - this custom question has never been asked
-          await supabaseClient.from("daily_prompts").insert({
+          // CRITICAL FIX: Check if a daily_prompt already exists for TODAY with this prompt_id
+          // This prevents duplicate scheduling if function runs multiple times on same day
+          const { data: alreadyScheduledToday } = await supabaseClient
+            .from("daily_prompts")
+            .select("id")
+            .eq("group_id", group.id)
+            .eq("prompt_id", customQuestion.prompt_id)
+            .eq("date", today)
+            .limit(1)
+            .maybeSingle()
+
+          if (alreadyScheduledToday) {
+            console.log(`[schedule-daily-prompts] Group ${group.id}: Custom question prompt_id ${customQuestion.prompt_id} already scheduled for today, skipping duplicate (race condition protection)`)
+            // Clear date_asked to prevent future attempts
+            await supabaseClient
+              .from("custom_questions")
+              .update({ date_asked: null })
+              .eq("id", customQuestion.id)
+            // Fall through to next priority
+          } else {
+            // Safe to schedule - this custom question has never been asked and not scheduled today
+            const { error: insertError } = await supabaseClient.from("daily_prompts").insert({
             group_id: group.id,
             prompt_id: customQuestion.prompt_id,
             date: today,
           })
 
+            if (insertError) {
+              console.error(`[schedule-daily-prompts] Group ${group.id}: Failed to insert custom question daily_prompt:`, insertError)
+              // Fall through to next priority instead of continuing
+            } else {
           // Mark as asked by clearing date_asked (prevents re-scheduling)
           await supabaseClient
             .from("custom_questions")
@@ -179,6 +203,8 @@ serve(async (req) => {
 
           results.push({ group_id: group.id, status: "custom_question_scheduled" })
           continue // Skip regular prompt scheduling
+            }
+          }
         }
       }
 
@@ -324,43 +350,109 @@ serve(async (req) => {
       }
 
       // Count Standard questions since last Remembering questions
-      // TEMPORARILY HIDDEN: Deck counting logic removed
-      // Get recent prompts with dates to count properly (ordered chronologically)
-      const { data: recentPromptsWithDates } = await supabaseClient
+      // CRITICAL FIX: Find the last Remembering question date, then count ALL Standard questions since then
+      // Logic: Maximum 1 Remembering question between every 10 Standard questions, never more frequent than that
+      
+      // First, find the last Remembering question date
+      const { data: lastRememberingPrompt } = await supabaseClient
         .from("daily_prompts")
-        .select("date, prompt_id, prompt:prompts(category, deck_id)")
+        .select("date, prompt_id, prompt:prompts(category)")
         .eq("group_id", group.id)
         .is("user_id", null)
         .order("date", { ascending: false })
-        .limit(30) // Look back at recent prompts
+        .limit(1)
+        .maybeSingle()
 
-      // TEMPORARILY HIDDEN: standardCountSinceDeck removed (no longer using Deck questions)
-      // let standardCountSinceDeck = 0
-      let standardCountSinceRemembering = 0
       let lastRememberingDate: string | null = null
+      if (lastRememberingPrompt) {
+        const prompt = lastRememberingPrompt.prompt as any
+        if (prompt?.category === "Remembering") {
+          lastRememberingDate = lastRememberingPrompt.date
+        }
+      }
 
-      if (recentPromptsWithDates) {
-        // TEMPORARILY HIDDEN: Deck counting logic removed
-        // // Count Standard questions since last Deck question
-        // for (const dp of recentPromptsWithDates) {
-        //   const prompt = dp.prompt as any
-        //   // Check if it's a Deck question (category is "Deck" OR has deck_id)
-        //   if (prompt?.category === "Deck" || (prompt?.deck_id && prompt.deck_id !== null)) {
-        //     break // Found last Deck question, stop counting
-        //   } else if (prompt?.category === "Standard") {
-        //     standardCountSinceDeck++
-        //   }
-        // }
+      // If not found in most recent prompt, query specifically for Remembering questions
+      if (!lastRememberingDate) {
+        const { data: lastRemembering } = await supabaseClient
+          .from("daily_prompts")
+          .select("date, prompt:prompts(category)")
+          .eq("group_id", group.id)
+          .is("user_id", null)
+          .order("date", { ascending: false })
+          .limit(200) // Look back further to find Remembering questions
 
-        // Count Standard questions since last Remembering question
-        // CRITICAL FIX: Track the date of the last Remembering question to prevent back-to-back
-        for (const dp of recentPromptsWithDates) {
+        if (lastRemembering) {
+          for (const dp of lastRemembering) {
           const prompt = dp.prompt as any
           if (prompt?.category === "Remembering") {
-            lastRememberingDate = dp.date // Store the date of the last Remembering question
-            break // Found last Remembering question, stop counting
-          } else if (prompt?.category === "Standard") {
-            standardCountSinceRemembering++
+              lastRememberingDate = dp.date
+              break
+            }
+          }
+        }
+      }
+
+      // CRITICAL FIX: Count ALL Standard questions since last Remembering question
+      // If lastRememberingDate exists, count from that date forward
+      // If it doesn't exist, count all Standard questions (no Remembering question has been asked yet)
+      // IMPORTANT: Exclude discovery questions from this count (they count toward Standard but shouldn't trigger discovery)
+      let standardCountSinceRemembering = 0
+      
+      if (lastRememberingDate) {
+        // Count Standard questions since the last Remembering question date (excluding discovery)
+        const { data: standardPromptsSinceRemembering } = await supabaseClient
+          .from("daily_prompts")
+          .select("prompt_id, prompt:prompts(category), is_discovery")
+          .eq("group_id", group.id)
+          .is("user_id", null)
+          .gt("date", lastRememberingDate) // All prompts AFTER last Remembering
+          .order("date", { ascending: true })
+
+        if (standardPromptsSinceRemembering) {
+          for (const dp of standardPromptsSinceRemembering) {
+            const prompt = dp.prompt as any
+            // Count Standard questions, but exclude discovery questions from the count
+            if (prompt?.category === "Standard" && !dp.is_discovery) {
+              standardCountSinceRemembering++
+            }
+          }
+        }
+      } else {
+        // No Remembering question found - count all Standard questions ever asked (excluding discovery)
+        const { data: allStandardPrompts } = await supabaseClient
+          .from("daily_prompts")
+          .select("prompt_id, prompt:prompts(category), is_discovery")
+          .eq("group_id", group.id)
+          .is("user_id", null)
+          .order("date", { ascending: true })
+
+        if (allStandardPrompts) {
+          for (const dp of allStandardPrompts) {
+            const prompt = dp.prompt as any
+            // Count Standard questions, but exclude discovery questions from the count
+            if (prompt?.category === "Standard" && !dp.is_discovery) {
+              standardCountSinceRemembering++
+            }
+          }
+        }
+      }
+
+      // Count Standard questions (excluding discovery) for discovery trigger (every 10th)
+      // This is separate from Remembering count - discovery can happen independently
+      const { data: allStandardForDiscovery } = await supabaseClient
+        .from("daily_prompts")
+        .select("prompt_id, prompt:prompts(category), is_discovery")
+        .eq("group_id", group.id)
+        .is("user_id", null)
+        .order("date", { ascending: true })
+
+      let standardCountForDiscovery = 0
+      if (allStandardForDiscovery) {
+        for (const dp of allStandardForDiscovery) {
+          const prompt = dp.prompt as any
+          // Count Standard questions, excluding discovery questions
+          if (prompt?.category === "Standard" && !dp.is_discovery) {
+            standardCountForDiscovery++
           }
         }
       }
@@ -388,6 +480,7 @@ serve(async (req) => {
       let selectedPrompt: any = null
       let selectedDeckId: string | null = null
       let selectionMethod = "standard"
+      let discoveryInterest: string | null = null // Track discovery interest for marking questions
 
       // TEMPORARILY HIDDEN: PRIORITY 6: DECK QUESTION (every 3 Standard questions)
       // if (activeDecks.length > 0 && standardCountSinceDeck >= 3) {
@@ -455,21 +548,51 @@ serve(async (req) => {
       //   }
       // }
 
-      // PRIORITY 7: REMEMBERING QUESTION (every 10 Standard questions, minimum 10 days apart)
-      // CRITICAL FIX: Ensure at least 10 Standard questions have been asked since the last Remembering
-      // AND ensure we haven't scheduled a Remembering question in the last 10 days
+      // PRIORITY 7: REMEMBERING QUESTION
+      // Logic: Maximum 1 Remembering question between every 10 Standard questions, never more frequent than that
+      // Requirements:
+      // 1. At least 10 Standard questions have been asked since the last Remembering question
+      // 2. At least 10 days have passed since the last Remembering question (prevents back-to-back)
       if (!selectedPrompt && hasMemorials && standardCountSinceRemembering >= 10) {
-        // Additional safety check: Ensure the last Remembering question was at least 10 days ago
-        // This prevents back-to-back Remembering prompts even if counting logic has edge cases
         let canScheduleRemembering = true
+        
+        // CRITICAL FIX: Always check date-based restriction to prevent back-to-back scheduling
         if (lastRememberingDate) {
           const lastRememberingDateObj = new Date(lastRememberingDate)
           const todayDateObj = new Date(today)
           const daysSinceLastRemembering = Math.floor((todayDateObj.getTime() - lastRememberingDateObj.getTime()) / (1000 * 60 * 60 * 24))
           
-          // Require at least 10 days between Remembering questions (minimum, never more)
+          // Require at least 10 days between Remembering questions (prevents back-to-back)
           if (daysSinceLastRemembering < 10) {
+            console.log(`[schedule-daily-prompts] Group ${group.id}: Cannot schedule Remembering question - only ${daysSinceLastRemembering} days since last one (minimum 10 days required, ${standardCountSinceRemembering} Standard questions since last Remembering)`)
             canScheduleRemembering = false
+          } else {
+            console.log(`[schedule-daily-prompts] Group ${group.id}: Can schedule Remembering question - ${daysSinceLastRemembering} days since last one, ${standardCountSinceRemembering} Standard questions since last Remembering`)
+          }
+        } else {
+          // No Remembering question found in history - check if there's one in the last 10 days as a safeguard
+          const tenDaysAgo = new Date(today)
+          tenDaysAgo.setDate(tenDaysAgo.getDate() - 10)
+          const tenDaysAgoStr = tenDaysAgo.toISOString().split("T")[0]
+          
+          const { data: recentRemembering } = await supabaseClient
+            .from("daily_prompts")
+            .select("id, date, prompt:prompts(category)")
+            .eq("group_id", group.id)
+            .is("user_id", null)
+            .gte("date", tenDaysAgoStr)
+            .order("date", { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          
+          if (recentRemembering) {
+            const prompt = recentRemembering.prompt as any
+            if (prompt?.category === "Remembering") {
+              console.log(`[schedule-daily-prompts] Group ${group.id}: Cannot schedule Remembering question - found one on ${recentRemembering.date} (within last 10 days, ${standardCountSinceRemembering} Standard questions since last Remembering)`)
+              canScheduleRemembering = false
+            }
+          } else {
+            console.log(`[schedule-daily-prompts] Group ${group.id}: Can schedule Remembering question - no Remembering question in last 10 days, ${standardCountSinceRemembering} Standard questions total`)
           }
         }
         
@@ -485,7 +608,13 @@ serve(async (req) => {
             // Select one (we'll rotate memorial names in getDailyPrompt)
             selectedPrompt = rememberingPrompts[0]
             selectionMethod = "remembering"
+            console.log(`[schedule-daily-prompts] Group ${group.id}: Scheduling Remembering question (${standardCountSinceRemembering} Standard questions since last Remembering)`)
           }
+        }
+      } else if (!selectedPrompt && hasMemorials) {
+        // Log why Remembering question wasn't scheduled (for debugging)
+        if (standardCountSinceRemembering < 10) {
+          console.log(`[schedule-daily-prompts] Group ${group.id}: Cannot schedule Remembering question - only ${standardCountSinceRemembering} Standard questions since last Remembering (need 10)`)
         }
       }
 
@@ -520,78 +649,235 @@ serve(async (req) => {
 
         // Only use interest-based logic if all ice breakers are complete
         if (allIceBreakersAsked) {
-          // Get group interests with weights (user counts)
-          // First get all group interests
-          const { data: groupInterestsData } = await supabaseClient
-            .from("group_interests")
-            .select(`
-              interest_id,
-              interest:interests(name)
-            `)
-            .eq("group_id", group.id)
-
-          // Calculate weights (user counts) for each interest
-          const interestWeights = new Map<string, number>()
-          if (groupInterestsData && groupInterestsData.length > 0) {
-            // Get all group members
-            const { data: groupMembers } = await supabaseClient
-              .from("group_members")
-              .select("user_id")
+          // ========================================================================
+          // DISCOVERY LOGIC: Every 10th Standard question (excluding discovery)
+          // ========================================================================
+          let isDiscoveryQuestion = false
+          
+          // Check if this should be a discovery question (every 10th Standard)
+          if (standardCountForDiscovery > 0 && standardCountForDiscovery % 10 === 0) {
+            // Get group's explicit and inferred interests
+            const { data: groupDataForDiscovery } = await supabaseClient
+              .from("groups")
+              .select("inferred_interests")
+              .eq("id", group.id)
+              .single()
+            
+            const inferredInterests = groupDataForDiscovery?.inferred_interests || []
+            
+            // Get explicit interests
+            const { data: explicitInterestsData } = await supabaseClient
+              .from("group_interests")
+              .select("interest:interests(name)")
               .eq("group_id", group.id)
             
-            const memberIds = (groupMembers || []).map((m: any) => m.user_id)
+            const explicitInterests = (explicitInterestsData || [])
+              .map((gi: any) => gi.interest?.name)
+              .filter((name: string) => name)
             
-            // For each interest, count how many members selected it
-            for (const gi of groupInterestsData) {
-              const interest = gi.interest as any
-              if (interest?.name && gi.interest_id) {
-                // Count users who selected this interest
-                const { data: userInterests } = await supabaseClient
-                  .from("user_interests")
-                  .select("user_id")
-                  .eq("interest_id", gi.interest_id)
-                  .in("user_id", memberIds)
-                
-                const userCount = (userInterests || []).length
-                if (userCount > 0) {
-                  interestWeights.set(interest.name, userCount)
+            const allGroupInterests = [...explicitInterests, ...inferredInterests]
+            
+            // Check if we're already testing a discovery interest
+            const { data: activeDiscovery } = await supabaseClient
+              .from("discovery_attempts")
+              .select("interest_name, question_count")
+              .eq("group_id", group.id)
+              .eq("status", "testing")
+              .order("last_tested_date", { ascending: false })
+              .limit(1)
+              .maybeSingle()
+            
+            if (activeDiscovery && activeDiscovery.question_count < 3) {
+              // Continue testing the active discovery interest
+              discoveryInterest = activeDiscovery.interest_name
+              isDiscoveryQuestion = true
+              
+              // Get questions from this discovery interest
+              const { data: discoveryPrompts } = await supabaseClient
+                .from("prompts")
+                .select("*")
+                .eq("category", "Standard")
+                .contains("interests", [discoveryInterest])
+                .not("id", "in", Array.from(askedPromptIds))
+                .not("id", "in", Array.from(askedCustomQuestionIds))
+              
+              if (discoveryPrompts && discoveryPrompts.length > 0) {
+                const randomIndex = Math.floor(Math.random() * discoveryPrompts.length)
+                selectedPrompt = discoveryPrompts[randomIndex]
+                selectionMethod = `discovery_${discoveryInterest}`
+              } else {
+                // No more questions for this interest - fallback to standard cycle
+                isDiscoveryQuestion = false
+                discoveryInterest = null
+              }
+            } else {
+              // Get related interests (not already in group's interests)
+              // Use the get_related_interests function
+              const { data: relatedInterests } = await supabaseClient
+                .rpc("get_related_interests", {
+                  p_group_id: group.id,
+                  p_limit: 5,
+                })
+              
+              // Try each related interest until we find one with available questions
+              if (relatedInterests && relatedInterests.length > 0) {
+                for (const related of relatedInterests) {
+                  const { data: discoveryPrompts } = await supabaseClient
+                    .from("prompts")
+                    .select("*")
+                    .eq("category", "Standard")
+                    .contains("interests", [related.interest_name])
+                    .not("id", "in", Array.from(askedPromptIds))
+                    .not("id", "in", Array.from(askedCustomQuestionIds))
+                  
+                  if (discoveryPrompts && discoveryPrompts.length > 0) {
+                    discoveryInterest = related.interest_name
+                    isDiscoveryQuestion = true
+                    
+                    // Start or update discovery attempt
+                    const { data: existingAttempt } = await supabaseClient
+                      .from("discovery_attempts")
+                      .select("id")
+                      .eq("group_id", group.id)
+                      .eq("interest_name", discoveryInterest)
+                      .maybeSingle()
+                    
+                    if (existingAttempt) {
+                      // Update existing attempt (shouldn't happen in this branch, but handle it)
+                      await supabaseClient
+                        .from("discovery_attempts")
+                        .update({
+                          last_tested_date: today,
+                        })
+                        .eq("id", existingAttempt.id)
+                    } else {
+                      // Create new attempt
+                      await supabaseClient
+                        .from("discovery_attempts")
+                        .insert({
+                          group_id: group.id,
+                          interest_name: discoveryInterest,
+                          question_count: 0, // Will be incremented when engagement is calculated
+                          last_tested_date: today,
+                          status: "testing",
+                        })
+                    }
+                    break
+                  }
                 }
+              }
+            }
+            
+            // If we found a discovery interest, select a question from it
+            if (isDiscoveryQuestion && discoveryInterest) {
+              const { data: discoveryPrompts } = await supabaseClient
+                .from("prompts")
+                .select("*")
+                .eq("category", "Standard")
+                .contains("interests", [discoveryInterest])
+                .not("id", "in", Array.from(askedPromptIds))
+                .not("id", "in", Array.from(askedCustomQuestionIds))
+              
+              if (discoveryPrompts && discoveryPrompts.length > 0) {
+                const randomIndex = Math.floor(Math.random() * discoveryPrompts.length)
+                selectedPrompt = discoveryPrompts[randomIndex]
+                selectionMethod = `discovery_${discoveryInterest}`
+              } else {
+                // Discovery interest has no questions - fallback to standard cycle
+                isDiscoveryQuestion = false
+                discoveryInterest = null
               }
             }
           }
 
-          // Get group's current cycle state
-          const { data: groupData } = await supabaseClient
-            .from("groups")
-            .select("interest_cycle_position, interest_cycle_interests")
-            .eq("id", group.id)
-            .single()
+          // ========================================================================
+          // STANDARD INTEREST CYCLE LOGIC (if not discovery)
+          // ========================================================================
+          if (!selectedPrompt) {
+            // Get group interests with weights (user counts)
+            // First get all group interests (explicit)
+            const { data: groupInterestsData } = await supabaseClient
+              .from("group_interests")
+              .select(`
+                interest_id,
+                interest:interests(name)
+              `)
+              .eq("group_id", group.id)
 
-          let cyclePosition = groupData?.interest_cycle_position || 0
-          let cycleInterests = groupData?.interest_cycle_interests || []
+            // Calculate weights (user counts) for each interest
+            const interestWeights = new Map<string, number>()
+            if (groupInterestsData && groupInterestsData.length > 0) {
+              // Get all group members
+              const { data: groupMembers } = await supabaseClient
+                .from("group_members")
+                .select("user_id")
+                .eq("group_id", group.id)
+              
+              const memberIds = (groupMembers || []).map((m: any) => m.user_id)
+              
+              // For each interest, count how many members selected it
+              for (const gi of groupInterestsData) {
+                const interest = gi.interest as any
+                if (interest?.name && gi.interest_id) {
+                  // Count users who selected this interest
+                  const { data: userInterests } = await supabaseClient
+                    .from("user_interests")
+                    .select("user_id")
+                    .eq("interest_id", gi.interest_id)
+                    .in("user_id", memberIds)
+                  
+                  const userCount = (userInterests || []).length
+                  if (userCount > 0) {
+                    interestWeights.set(interest.name, userCount)
+                  }
+                }
+              }
+            }
 
-          // If no cycle interests set or interests have changed, rebuild cycle
-          if (cycleInterests.length === 0 || interestWeights.size !== cycleInterests.length) {
-            // Sort interests by weight (descending), then by name for consistency
-            const sortedInterests = Array.from(interestWeights.entries())
-              .sort((a, b) => {
-                if (b[1] !== a[1]) return b[1] - a[1] // Higher weight first
-                return a[0].localeCompare(b[0]) // Alphabetical if same weight
-              })
-              .map(([name]) => name)
-            
-            cycleInterests = sortedInterests
-            cyclePosition = 0
-            
-            // Update group with new cycle
-            await supabaseClient
+            // Get group's inferred interests and add them to the cycle
+            const { data: groupData } = await supabaseClient
               .from("groups")
-              .update({
-                interest_cycle_interests: cycleInterests,
-                interest_cycle_position: 0,
-              })
+              .select("interest_cycle_position, interest_cycle_interests, inferred_interests")
               .eq("id", group.id)
-          }
+              .single()
+
+            const inferredInterests = groupData?.inferred_interests || []
+            
+            // Add inferred interests to weights (with weight = 1, or we could use a different weight)
+            // For now, treat inferred interests as having weight 1 (they're less prominent)
+            for (const inferred of inferredInterests) {
+              if (!interestWeights.has(inferred)) {
+                interestWeights.set(inferred, 1)
+              }
+            }
+
+            let cyclePosition = groupData?.interest_cycle_position || 0
+            let cycleInterests = groupData?.interest_cycle_interests || []
+
+            // If no cycle interests set or interests have changed, rebuild cycle
+            // Compare total count (explicit + inferred) with cycle length
+            const totalInterestCount = interestWeights.size
+            if (cycleInterests.length === 0 || totalInterestCount !== cycleInterests.length) {
+              // Sort interests by weight (descending), then by name for consistency
+              const sortedInterests = Array.from(interestWeights.entries())
+                .sort((a, b) => {
+                  if (b[1] !== a[1]) return b[1] - a[1] // Higher weight first
+                  return a[0].localeCompare(b[0]) // Alphabetical if same weight
+                })
+                .map(([name]) => name)
+              
+              cycleInterests = sortedInterests
+              cyclePosition = 0
+              
+              // Update group with new cycle
+              await supabaseClient
+                .from("groups")
+                .update({
+                  interest_cycle_interests: cycleInterests,
+                  interest_cycle_position: 0,
+                })
+                .eq("id", group.id)
+            }
 
           // Determine which interest to use (or null for break)
           let targetInterest: string | null = null
@@ -781,17 +1067,92 @@ serve(async (req) => {
         }
       }
 
+      // CRITICAL FIX: Final fallback - ensure a prompt is ALWAYS scheduled
+      // Always use Standard questions for fallback - never repeat questions
+      // This prevents blank prompt cards from appearing
       if (!selectedPrompt) {
-        results.push({ group_id: group.id, status: "no_prompts_available" })
+        console.warn(`[schedule-daily-prompts] Group ${group.id}: No prompt available after all logic, using Standard fallback`)
+        
+        // CRITICAL: Always use Standard questions for fallback - never repeat
+        // Get ANY Standard prompt from the database that hasn't been asked recently
+        // First, try to find one that hasn't been asked in the last 30 days
+        const thirtyDaysAgo = new Date(today)
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+        const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split("T")[0]
+        
+        const { data: recentAskedPrompts } = await supabaseClient
+          .from("daily_prompts")
+          .select("prompt_id")
+          .eq("group_id", group.id)
+          .is("user_id", null)
+          .gte("date", thirtyDaysAgoStr)
+        
+        const recentAskedPromptIds = new Set((recentAskedPrompts || []).map((dp: any) => dp.prompt_id))
+        
+        // Try to find a Standard prompt not asked in last 30 days
+        const { data: unusedStandardPrompt } = await supabaseClient
+          .from("prompts")
+          .select("*")
+          .eq("category", "Standard")
+          .not("id", "in", Array.from(recentAskedPromptIds))
+          .limit(1)
+          .maybeSingle()
+        
+        if (unusedStandardPrompt) {
+          selectedPrompt = unusedStandardPrompt
+          selectionMethod = "fallback_standard_unused"
+          console.log(`[schedule-daily-prompts] Group ${group.id}: Using unused Standard prompt as fallback: ${selectedPrompt.id}`)
+        } else {
+          // If all Standard prompts were asked recently, use any Standard prompt (better than no prompt)
+          const { data: anyStandardPrompt } = await supabaseClient
+            .from("prompts")
+            .select("*")
+            .eq("category", "Standard")
+            .limit(1)
+            .maybeSingle()
+          
+          if (anyStandardPrompt) {
+            selectedPrompt = anyStandardPrompt
+            selectionMethod = "fallback_standard_any"
+            console.log(`[schedule-daily-prompts] Group ${group.id}: Using any Standard prompt as fallback: ${selectedPrompt.id}`)
+          } else {
+            // This should never happen, but log error and skip
+            console.error(`[schedule-daily-prompts] Group ${group.id}: CRITICAL - No Standard prompts exist in database!`)
+            results.push({ group_id: group.id, status: "error_no_standard_prompts_in_database" })
         continue
+          }
+        }
       }
 
-      // Schedule the selected prompt
-      await supabaseClient.from("daily_prompts").insert({
+      // CRITICAL FIX: Schedule the selected prompt with error handling
+      // Ensure we always insert a prompt, even if there's a race condition
+      const insertData: any = {
         group_id: group.id,
         prompt_id: selectedPrompt.id,
         date: today,
-      })
+      }
+      
+      // Mark discovery questions
+      if (discoveryInterest) {
+        insertData.is_discovery = true
+        insertData.discovery_interest = discoveryInterest
+      }
+      
+      const { error: insertError } = await supabaseClient.from("daily_prompts").insert(insertData)
+
+      if (insertError) {
+        // Check if error is due to duplicate key (race condition - another instance already scheduled)
+        if (insertError.code === "23505") {
+          console.log(`[schedule-daily-prompts] Group ${group.id}: Prompt already scheduled (race condition), skipping insert`)
+          results.push({ group_id: group.id, status: "already_scheduled_race_condition" })
+        } else {
+          console.error(`[schedule-daily-prompts] Group ${group.id}: Failed to insert prompt:`, insertError)
+          results.push({ group_id: group.id, status: "error_insert_failed", error: insertError.message })
+          // Don't continue - try to insert again or use a different approach
+          // For now, log error but don't block other groups
+        }
+        continue
+      }
 
       results.push({
         group_id: group.id,

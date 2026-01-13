@@ -492,7 +492,73 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
       }
     }
     
-    // If we couldn't create a prompt, return null
+    // CRITICAL FIX: If we couldn't create a prompt, try to get a Standard prompt as fallback
+    // Never use recent prompts as fallback - that would cause repeats
+    // This prevents blank cards from appearing
+    console.log(`[getDailyPrompt] No prompt found for date ${date}, trying to get Standard prompt as fallback...`)
+    
+    // Get a Standard prompt that hasn't been asked recently (last 30 days)
+    const thirtyDaysAgo = new Date(date)
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+    const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split("T")[0]
+    
+    const { data: recentAskedPrompts } = await supabase
+      .from("daily_prompts")
+      .select("prompt_id")
+      .eq("group_id", groupId)
+      .is("user_id", null)
+      .gte("date", thirtyDaysAgoStr)
+    
+    const recentAskedPromptIds = new Set((recentAskedPrompts || []).map((dp: any) => dp.prompt_id))
+    
+    // Try to find a Standard prompt not asked in last 30 days
+    const { data: unusedStandardPrompt } = await supabase
+      .from("prompts")
+      .select("id, question, description, category, is_default, is_custom, custom_question_id, dynamic_variables, birthday_type, deck_id, ice_breaker, ice_breaker_order")
+      .eq("category", "Standard")
+      .not("id", "in", Array.from(recentAskedPromptIds))
+      .limit(1)
+      .maybeSingle()
+    
+    if (unusedStandardPrompt) {
+      // Create a temporary daily_prompt object for the fallback
+      console.log(`[getDailyPrompt] Using unused Standard prompt as fallback: ${unusedStandardPrompt.id}`)
+      console.warn(`[getDailyPrompt] WARNING: No prompt scheduled for ${date}, using Standard fallback. This should be scheduled by schedule-daily-prompts function.`)
+      
+      return {
+        id: `fallback_${date}`,
+        group_id: groupId,
+        prompt_id: unusedStandardPrompt.id,
+        date: date,
+        user_id: null,
+        prompt: unusedStandardPrompt,
+      }
+    }
+    
+    // If all Standard prompts were asked recently, use any Standard prompt (better than no prompt)
+    const { data: anyStandardPrompt } = await supabase
+      .from("prompts")
+      .select("id, question, description, category, is_default, is_custom, custom_question_id, dynamic_variables, birthday_type, deck_id, ice_breaker, ice_breaker_order")
+      .eq("category", "Standard")
+      .limit(1)
+      .maybeSingle()
+    
+    if (anyStandardPrompt) {
+      console.log(`[getDailyPrompt] Using any Standard prompt as fallback: ${anyStandardPrompt.id}`)
+      console.warn(`[getDailyPrompt] WARNING: No prompt scheduled for ${date}, using any Standard prompt as fallback. This should be scheduled by schedule-daily-prompts function.`)
+      
+      return {
+        id: `fallback_${date}`,
+        group_id: groupId,
+        prompt_id: anyStandardPrompt.id,
+        date: date,
+        user_id: null,
+        prompt: anyStandardPrompt,
+      }
+    }
+    
+    // If we still don't have a prompt, return null (UI will show fallback message)
+    console.error(`[getDailyPrompt] CRITICAL: No prompt found for ${date} and no Standard prompts available for group ${groupId}`)
     return null
   }
 
@@ -2489,10 +2555,10 @@ export async function createCustomQuestion(data: {
   isAnonymous: boolean
   dateAssigned: string
 }): Promise<CustomQuestion> {
-  // Validate question length (20 words max)
+  // Validate question length (30 words max)
   const wordCount = data.question.trim().split(/\s+/).length
-  if (wordCount > 20) {
-    throw new Error("Question must be 20 words or less")
+  if (wordCount > 30) {
+    throw new Error("Question must be 30 words or less")
   }
 
   // Get the existing custom_question record (created by edge function)

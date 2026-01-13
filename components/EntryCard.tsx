@@ -780,10 +780,16 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
       borderRadius: 16,
       overflow: "hidden",
     },
+    fuzzyOverlayBackground: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(0, 0, 0, 0.5)", // Dark semi-transparent background to increase opacity and hide text completely
+      zIndex: 1,
+    },
     fuzzyOverlayImage: {
       width: "100%",
       height: "100%",
       opacity: 1.0, // 100% opacity
+      zIndex: 2, // Above background overlay
     },
   entryHeader: {
     flexDirection: "row",
@@ -1911,6 +1917,8 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
         {/* Fuzzy overlay when user hasn't answered */}
         {showFuzzyOverlay && (
           <View style={styles.fuzzyOverlay} pointerEvents="none">
+            {/* Dark background overlay to increase opacity and hide text completely */}
+            <View style={styles.fuzzyOverlayBackground} />
             <Image
               source={require("../assets/images/fuzzy.png")}
               style={styles.fuzzyOverlayImage}

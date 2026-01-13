@@ -66,13 +66,43 @@ export default function Index() {
   const hasNavigatedRef = useRef(false);
   const bootStartTimeRef = useRef<number>(Date.now()); // Initialize immediately
   const userRef = useRef(user); // Keep ref to latest user for AppState listener
-  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const rotateAnim = useRef(new Animated.Value(0)).current;
 
   // Keep userRef in sync with user
   useEffect(() => {
     userRef.current = user;
   }, [user]);
+  
+  // CRITICAL FIX: When pathname changes to root and force_boot_refresh is set, trigger boot flow
+  // This ensures boot flow runs when ForegroundQueryRefresher navigates to root after long inactivity
+  useEffect(() => {
+    const checkAndTriggerBoot = async () => {
+      const isOnRoot = !pathname || pathname === "/" || pathname === "";
+      if (isOnRoot) {
+        const forceBootRefresh = await AsyncStorage.getItem("force_boot_refresh");
+        const forceBootScreen = await AsyncStorage.getItem("force_boot_screen");
+        if (forceBootRefresh || forceBootScreen === "true") {
+          console.log("[boot] Pathname changed to root with force_boot flag - triggering boot flow", {
+            forceBootRefresh: !!forceBootRefresh,
+            forceBootScreen: forceBootScreen === "true",
+          });
+          // Clear flags
+          if (forceBootRefresh) await AsyncStorage.removeItem("force_boot_refresh");
+          if (forceBootScreen === "true") await AsyncStorage.removeItem("force_boot_screen");
+          // Reset navigation state
+          hasNavigatedRef.current = false;
+          // Ensure boot screen shows
+          setShouldShowBootScreen(true);
+          setBooting(true);
+          bootStartTimeRef.current = Date.now(); // Reset boot start time
+          // Trigger boot flow re-run
+          setForceBootRecheck(prev => prev + 1);
+        }
+      }
+    };
+    checkAndTriggerBoot();
+  }, [pathname]);
   
   // CRITICAL: Check for password reset links on mount - if detected, skip boot screen
   useEffect(() => {
@@ -179,21 +209,37 @@ export default function Index() {
     // This prevents black screen when ForegroundQueryRefresher navigates to root
     AsyncStorage.getItem("force_boot_refresh").then((flag) => {
       if (flag) {
-        console.log("[boot] force_boot_refresh flag detected on mount - showing boot screen immediately");
+        console.log("[boot] force_boot_refresh flag detected on mount - showing boot screen immediately and resetting navigation state");
         setShouldShowBootScreen(true);
         setBooting(true);
+        bootStartTimeRef.current = Date.now(); // Reset boot start time
+        // CRITICAL FIX: Reset hasNavigatedRef when force_boot_refresh is detected
+        // This ensures boot flow runs properly after long inactivity
+        hasNavigatedRef.current = false;
+        // CRITICAL FIX: Force boot flow to re-run by triggering forceBootRecheck
+        setForceBootRecheck(prev => prev + 1);
       }
     }).catch(() => {});
     
     async function initializeBoot() {
       try {
-        // Check if boot screen was forced (from BootRecheckHandler)
+        // Check if boot screen was forced (from BootRecheckHandler or ForegroundQueryRefresher)
         const forceBootScreen = await AsyncStorage.getItem("force_boot_screen");
-        if (forceBootScreen === "true") {
-          console.log("[boot] Boot screen forced from BootRecheckHandler - showing boot screen");
+        const forceBootRefresh = await AsyncStorage.getItem("force_boot_refresh");
+        if (forceBootScreen === "true" || forceBootRefresh) {
+          console.log("[boot] Boot screen forced - showing boot screen and resetting navigation state");
           await AsyncStorage.removeItem("force_boot_screen");
+          if (forceBootRefresh) {
+            await AsyncStorage.removeItem("force_boot_refresh");
+          }
           setShouldShowBootScreen(true);
           setBooting(true);
+          bootStartTimeRef.current = Date.now(); // Reset boot start time
+          // CRITICAL FIX: Reset hasNavigatedRef when boot screen is forced
+          // This ensures boot flow runs properly after long inactivity
+          hasNavigatedRef.current = false;
+          // CRITICAL FIX: Force boot flow to re-run by triggering forceBootRecheck
+          setForceBootRecheck(prev => prev + 1);
         }
         
         // CRITICAL: Check if app was opened from a notification click
@@ -244,25 +290,67 @@ export default function Index() {
         const notificationClicked = await AsyncStorage.getItem("notification_clicked");
         const isFromNotification = notificationClicked === "true";
         
+        // CRITICAL FIX: Check for long inactivity BEFORE recording activity
+        // This ensures we detect inactivity before updating the timestamp
+        // MUST check BEFORE recordAppActive() is called, otherwise timestamp gets updated
+        const inactiveTooLong = await wasInactiveTooLong();
+        
+        console.log("[boot] ========================================");
+        console.log("[boot] AppState changed to 'active'");
+        console.log("[boot] ========================================");
+        console.log("[boot]   - isFromNotification:", isFromNotification);
+        console.log("[boot]   - inactiveTooLong:", inactiveTooLong);
+        console.log("[boot]   - timestamp:", new Date().toISOString());
+        console.log("[boot]   - hasNavigatedRef.current:", hasNavigatedRef.current);
+        console.log("[boot] ========================================");
+        
         if (!isFromNotification) {
           // App icon tap - align with notification flow: boot screen + forced session refresh
-          console.log("[boot] App became active (icon tap) - showing boot screen immediately and refreshing session");
+          // CRITICAL FIX: If inactive too long, always show boot screen and refresh (like cold start)
+          if (inactiveTooLong) {
+            console.log("[boot] ⚠️ LONG INACTIVITY DETECTED - App became active after long inactivity");
+            console.log("[boot]   - Showing boot screen and refreshing (treating like cold start)");
+            console.log("[boot]   - Boot flow will use FAST PATH to navigate to home.tsx");
+            console.log("[boot]   - CRITICAL: Resetting hasNavigatedRef to ensure boot flow runs");
+            // CRITICAL: Reset navigation state to ensure boot flow runs
+            hasNavigatedRef.current = false;
+            // Also trigger forceBootRecheck to ensure boot flow re-runs
+            setForceBootRecheck(prev => prev + 1);
+          } else {
+            console.log("[boot] App became active (icon tap) - showing boot screen immediately and refreshing session");
+          }
           setShouldShowBootScreen(true);
           setBooting(true);
           bootStartTimeRef.current = Date.now(); // Reset boot start time
           
           // CRITICAL: Force session refresh (same as notification flow)
           // This ensures session is fresh when opening from background
-          setSessionRefreshing(true);
-          try {
-            const { ensureValidSession } = await import("../lib/auth");
-            await ensureValidSession();
-            console.log("[boot] Session refreshed after app icon tap");
-          } catch (error) {
-            console.error("[boot] Failed to refresh session:", error);
-            // Don't block - continue with boot flow even if refresh fails
-          } finally {
-            setSessionRefreshing(false);
+          // CRITICAL FIX: Always refresh if inactive too long (ensures fresh session)
+          if (inactiveTooLong) {
+            setSessionRefreshing(true);
+            try {
+              const { ensureValidSession } = await import("../lib/auth");
+              await ensureValidSession();
+              console.log("[boot] ✅ Session refreshed after long inactivity");
+            } catch (error) {
+              console.error("[boot] ❌ Failed to refresh session after long inactivity:", error);
+              // Don't block - continue with boot flow even if refresh fails
+            } finally {
+              setSessionRefreshing(false);
+            }
+          } else {
+            // Short inactivity - still refresh but don't block
+            setSessionRefreshing(true);
+            try {
+              const { ensureValidSession } = await import("../lib/auth");
+              await ensureValidSession();
+              console.log("[boot] Session refreshed after app icon tap");
+            } catch (error) {
+              console.error("[boot] Failed to refresh session:", error);
+              // Don't block - continue with boot flow even if refresh fails
+            } finally {
+              setSessionRefreshing(false);
+            }
           }
         } else {
           // Notification click - already handled in initializeBoot above
@@ -273,8 +361,12 @@ export default function Index() {
           bootStartTimeRef.current = Date.now(); // Reset boot start time
         }
         
-        // Record activity (non-blocking)
-        recordAppActive().catch(() => {});
+        // CRITICAL FIX: Only record activity AFTER we've checked for inactivity
+        // This prevents updating the timestamp before wasInactiveTooLong() is checked in boot flow
+        // Delay recording activity slightly to ensure boot flow checks inactivity first
+        setTimeout(() => {
+          recordAppActive().catch(() => {});
+        }, 100); // Small delay to ensure boot flow checks inactivity first
       } else if (nextAppState === "background" || nextAppState === "inactive") {
         // Record app going to background
         await recordAppActive(); // Update last active time before going inactive
@@ -331,6 +423,7 @@ export default function Index() {
       hasUser: !!user,
       userId: user?.id,
       segmentsLength: segments.length,
+      forceBootRecheck,
       timestamp: new Date().toISOString(),
     });
     
@@ -339,10 +432,18 @@ export default function Index() {
     // 1. We've already navigated AND we're not on root (segments.length > 0) - we're on a different screen
     // 2. OR we've already navigated AND we're on root AND forceBootRecheck wasn't triggered - duplicate run
     // UNLESS: forceBootRecheck was explicitly triggered (which resets hasNavigatedRef)
-    // Note: force_boot_refresh flag is checked inside the async function, not here
+    // Note: force_boot_refresh flag is checked inside the async function to properly await it
     // This prevents race conditions where navigation to root triggers multiple boot flow runs
     const isOnRoot = (segments.length as number) === 0;
     const wasRecheckTriggered = forceBootRecheck > 0;
+    
+    // CRITICAL FIX: If forceBootRecheck was triggered, always reset hasNavigatedRef
+    // This ensures boot flow runs after long inactivity
+    if (wasRecheckTriggered) {
+      console.log("[boot] Boot flow: forceBootRecheck triggered - resetting navigation state");
+      hasNavigatedRef.current = false;
+    }
+    
     const shouldSkip = hasNavigatedRef.current && !wasRecheckTriggered && (
       (!isOnRoot) || // Already navigated and not on root
       (isOnRoot && authLoading === false && !user && !restoringSession) // On root but no user and auth done
@@ -372,9 +473,22 @@ export default function Index() {
         
         // CRITICAL: Always show boot screen immediately when boot flow starts
         // This prevents black screens during the boot process
-        setShouldShowBootScreen(true);
-        setBooting(true);
-        bootStartTimeRef.current = Date.now(); // Reset boot start time
+        // CRITICAL FIX: Check for force_boot_refresh flag and reset navigation state if present
+        const forceBootRefresh = await AsyncStorage.getItem("force_boot_refresh");
+        if (forceBootRefresh) {
+          console.log("[boot] Boot flow: force_boot_refresh flag detected - resetting navigation state and forcing boot flow");
+          await AsyncStorage.removeItem("force_boot_refresh");
+          hasNavigatedRef.current = false; // Reset to allow navigation
+          // CRITICAL FIX: Ensure boot screen is shown and booting state is set
+          setShouldShowBootScreen(true);
+          setBooting(true);
+          bootStartTimeRef.current = Date.now(); // Reset boot start time
+        } else {
+          // Normal boot flow - ensure boot screen is shown
+          setShouldShowBootScreen(true);
+          setBooting(true);
+          bootStartTimeRef.current = Date.now(); // Reset boot start time
+        }
         
         // If testing boot screen, wait for specified duration then navigate
         if (testDuration) {
@@ -410,8 +524,159 @@ export default function Index() {
         }
         
         // Check if this is a background open (not cold start) for optimization
-        const isBackgroundOpen = !(await isColdStart());
-        console.log("[boot] Boot flow: Background open detected:", isBackgroundOpen);
+        // CRITICAL FIX: Also check for long inactivity - treat it like cold start (show boot screen, refresh, route)
+        // CRITICAL: Check inactivity BEFORE recording any activity (to prevent timestamp update)
+        const isColdStartResult = await isColdStart();
+        const inactiveTooLong = await wasInactiveTooLong();
+        
+        console.log("[boot] ========================================");
+        console.log("[boot] BOOT FLOW: Checking inactivity state");
+        console.log("[boot] ========================================");
+        console.log("[boot]   - isColdStart:", isColdStartResult);
+        console.log("[boot]   - inactiveTooLong:", inactiveTooLong);
+        console.log("[boot]   - Current time:", new Date().toISOString());
+        
+        // Log detailed inactivity state
+        try {
+          const { getLastAppCloseTime, getLastAppActiveTime } = await import("../lib/session-lifecycle");
+          const lastClose = await getLastAppCloseTime();
+          const lastActive = await getLastAppActiveTime();
+          const now = Date.now();
+          
+          console.log("[boot]   - Last close time:", lastClose ? new Date(lastClose).toISOString() : "null");
+          console.log("[boot]   - Last active time:", lastActive ? new Date(lastActive).toISOString() : "null");
+          if (lastClose) {
+            const minutesAgo = Math.floor((now - lastClose) / 1000 / 60);
+            console.log("[boot]   - Minutes since close:", minutesAgo);
+          }
+          if (lastActive) {
+            const minutesAgo = Math.floor((now - lastActive) / 1000 / 60);
+            console.log("[boot]   - Minutes since active:", minutesAgo);
+          }
+        } catch (error) {
+          console.warn("[boot] Failed to get inactivity details:", error);
+        }
+        
+        // If inactive too long, treat like cold start (even if app wasn't closed)
+        const isBackgroundOpen = !isColdStartResult && !inactiveTooLong;
+        console.log("[boot]   - isBackgroundOpen:", isBackgroundOpen);
+        console.log("[boot] ========================================");
+        
+        // CRITICAL FAST PATH: For long inactivity, skip all complex checks and navigate to home immediately
+        // This matches "R" reload behavior - fast navigation without waiting for profile/membership checks
+        if (inactiveTooLong) {
+          console.log("[boot] ========================================");
+          console.log("[boot] LONG INACTIVITY DETECTED - FAST PATH");
+          console.log("[boot] ========================================");
+          console.log("[boot] Boot flow: Long inactivity detected - using FAST PATH (skip checks, navigate immediately)");
+          
+          // Log detailed inactivity state for debugging
+          try {
+            const { getLastAppCloseTime, getLastAppActiveTime } = await import("../lib/session-lifecycle");
+            const lastClose = await getLastAppCloseTime();
+            const lastActive = await getLastAppActiveTime();
+            const now = Date.now();
+            
+            console.log("[boot] Inactivity details:");
+            console.log("[boot]   - Current time: " + new Date(now).toISOString());
+            console.log("[boot]   - Last close time: " + (lastClose ? new Date(lastClose).toISOString() : "null"));
+            console.log("[boot]   - Last active time: " + (lastActive ? new Date(lastActive).toISOString() : "null"));
+            if (lastClose) {
+              const minutesAgo = Math.floor((now - lastClose) / 1000 / 60);
+              console.log("[boot]   - Minutes since close: " + minutesAgo);
+            }
+            if (lastActive) {
+              const minutesAgo = Math.floor((now - lastActive) / 1000 / 60);
+              console.log("[boot]   - Minutes since active: " + minutesAgo);
+            }
+          } catch (error) {
+            console.warn("[boot] Failed to get inactivity details:", error);
+          }
+          
+          // Get user from AuthProvider or session (minimal check)
+          let fastPathUser = user;
+          console.log("[boot] Fast path - checking for user:");
+          console.log("[boot]   - From AuthProvider: " + (user ? `✅ ${user.id}` : "❌ null"));
+          
+          if (!fastPathUser) {
+            try {
+              console.log("[boot] Fast path - AuthProvider user not available, checking session...");
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session?.user) {
+                fastPathUser = { id: session.user.id } as any;
+                console.log("[boot] Fast path - ✅ Got user from session: " + session.user.id);
+              } else {
+                console.log("[boot] Fast path - ❌ No user in session either");
+              }
+            } catch (error) {
+              console.warn("[boot] Fast path - ❌ Failed to get session:", error);
+            }
+          }
+          
+          // If we have a user, navigate to home immediately (trust session - user likely has group)
+          if (fastPathUser) {
+            console.log("[boot] Fast path - ✅ User exists, proceeding with navigation");
+            console.log("[boot] Fast path - User ID: " + fastPathUser.id);
+            
+            // Ensure minimum boot screen display time (2-3 seconds for smooth UX)
+            const minBootTime = 2000; // 2 seconds minimum
+            const bootElapsed = Date.now() - bootStartTimeRef.current;
+            const remainingTime = Math.max(0, minBootTime - bootElapsed);
+            
+            console.log("[boot] Fast path - Boot screen timing:");
+            console.log("[boot]   - Boot start time: " + new Date(bootStartTimeRef.current).toISOString());
+            console.log("[boot]   - Current time: " + new Date().toISOString());
+            console.log("[boot]   - Elapsed: " + bootElapsed + "ms");
+            console.log("[boot]   - Minimum boot time: " + minBootTime + "ms");
+            console.log("[boot]   - Remaining wait: " + remainingTime + "ms");
+            
+            if (remainingTime > 0) {
+              console.log("[boot] Fast path - ⏳ Waiting " + remainingTime + "ms for minimum boot screen display");
+              await new Promise(resolve => setTimeout(resolve, remainingTime));
+              console.log("[boot] Fast path - ✅ Minimum boot time elapsed");
+            }
+            
+            // Navigate to home immediately
+            if (!hasNavigatedRef.current) {
+              console.log("[boot] Fast path - 🚀 Navigating to /(main)/home");
+              hasNavigatedRef.current = true;
+              router.replace("/(main)/home");
+              await recordSuccessfulNavigation("/(main)/home");
+              await recordAppActive();
+              
+              console.log("[boot] Fast path - ✅ Navigation initiated");
+              
+              // Hide boot screen after navigation
+              setBootProgress(100);
+              setTimeout(() => {
+                console.log("[boot] Fast path - 🎉 Hiding boot screen");
+                setBooting(false);
+                setShouldShowBootScreen(false);
+                setBootProgress(0);
+              }, 300); // Small delay to ensure navigation completes
+              
+              console.log("[boot] ========================================");
+              console.log("[boot] FAST PATH COMPLETE - Navigation to home.tsx");
+              console.log("[boot] ========================================");
+              return; // Exit early - don't do complex checks
+            } else {
+              console.log("[boot] Fast path - ⚠️ Already navigated, skipping");
+              return;
+            }
+          } else {
+            // No user - navigate to welcome (but this shouldn't happen if session is valid)
+            console.log("[boot] Fast path - ❌ No user found, navigating to welcome");
+            if (!hasNavigatedRef.current) {
+              hasNavigatedRef.current = true;
+              router.replace("/(onboarding)/welcome-1");
+              await recordSuccessfulNavigation("/(onboarding)/welcome-1");
+              setBooting(false);
+              setShouldShowBootScreen(false);
+              setBootProgress(0);
+            }
+            return; // Exit early
+          }
+        }
         
         // CRITICAL: For background opens, skip session restoration wait (trust AuthProvider)
         // Session is already valid from AuthProvider - don't wait
@@ -459,16 +724,16 @@ export default function Index() {
 
         // CRITICAL: For background opens, skip query invalidation entirely (trust cache)
         // This speeds up navigation significantly - queries will refetch naturally when screens mount
-        // For cold starts, invalidate to ensure fresh data
+        // For cold starts OR long inactivity, invalidate to ensure fresh data
         console.log("[boot] Boot flow: Handling React Query cache...");
         if (isBackgroundOpen) {
           // Skip invalidation for background opens - trust cache, queries will refetch on mount
           console.log("[boot] Boot flow: Background open - skipping query invalidation (trusting cache, queries refetch on mount)");
         } else {
-          // Blocking for cold starts to ensure fresh data
+          // Blocking for cold starts OR long inactivity to ensure fresh data
           try {
             await queryClient.invalidateQueries();
-            console.log("[boot] Boot flow: Cold start - React Query cache invalidated - fresh data will load");
+            console.log("[boot] Boot flow: Cold start or long inactivity - React Query cache invalidated - fresh data will load");
           } catch (invalidateError) {
             console.error("[boot] Boot flow: Failed to invalidate queries:", invalidateError);
             // Don't block - continue with boot flow
@@ -866,8 +1131,8 @@ export default function Index() {
         });
         
         // CRITICAL: Set a timeout to ensure we don't get stuck in boot screen
-        // Much faster timeout for background opens (1.5s) vs cold starts (5s)
-        // Background opens should be very fast since we skip most checks
+        // CRITICAL FIX: For long inactivity, use same timeout as cold start (5s) to ensure proper routing
+        // Much faster timeout for background opens (1.5s) vs cold starts/long inactivity (5s)
         const navigationTimeoutMs = isBackgroundOpen ? 1500 : 5000;
         const navigationTimeout = setTimeout(() => {
           if (hasNavigatedRef.current) {
@@ -884,10 +1149,17 @@ export default function Index() {
           // Trust the session - user has session, likely has group
           // This matches cold start behavior
           if (effectiveUser) {
+            console.log("[boot] Navigation timeout - forcing navigation to home");
             hasNavigatedRef.current = true;
             router.replace("/(main)/home");
             recordSuccessfulNavigation("/(main)/home").catch(() => {});
             recordAppActive().catch(() => {});
+            // Hide boot screen after navigation
+            setTimeout(() => {
+              setBooting(false);
+              setShouldShowBootScreen(false);
+              setBootProgress(0);
+            }, 500); // Small delay to ensure navigation completes
           }
         }, navigationTimeoutMs);
         
@@ -948,25 +1220,34 @@ export default function Index() {
         );
       } finally {
         if (!cancelled) {
-          // Complete progress bar
-          setBootProgress(100);
-          
-          // Ensure minimum boot screen display time (1 second) for smooth UX
-          const bootElapsed = Date.now() - bootStartTimeRef.current;
-          const remainingTime = Math.max(0, 1000 - bootElapsed);
-          
-          if (remainingTime > 0) {
-            setTimeout(() => {
-              if (!cancelled) {
-                setBooting(false);
-                setShouldShowBootScreen(false);
-                setBootProgress(0);
-              }
-            }, remainingTime);
+          // CRITICAL FIX: Only hide boot screen if navigation has actually happened
+          // If navigation hasn't happened, keep boot screen visible (will be hidden by navigation timeout or when navigation completes)
+          if (hasNavigatedRef.current) {
+            // Navigation completed - complete progress bar and hide boot screen
+            setBootProgress(100);
+            
+            // Ensure minimum boot screen display time (1 second) for smooth UX
+            const bootElapsed = Date.now() - bootStartTimeRef.current;
+            const remainingTime = Math.max(0, 1000 - bootElapsed);
+            
+            if (remainingTime > 0) {
+              setTimeout(() => {
+                if (!cancelled && hasNavigatedRef.current) {
+                  setBooting(false);
+                  setShouldShowBootScreen(false);
+                  setBootProgress(0);
+                }
+              }, remainingTime);
+            } else {
+              setBooting(false);
+              setShouldShowBootScreen(false);
+              setBootProgress(0);
+            }
           } else {
-            setBooting(false);
-            setShouldShowBootScreen(false);
-            setBootProgress(0);
+            // Navigation hasn't happened yet - keep boot screen visible
+            // The navigation timeout will handle hiding it if it takes too long
+            console.log("[boot] Boot flow completed but navigation hasn't happened yet - keeping boot screen visible");
+            setBootProgress(95); // Show progress but don't hide yet
           }
         }
       }
@@ -985,7 +1266,7 @@ export default function Index() {
   // 4. Session is refreshing
   // 5. No route matched (prevents black screen)
   // 6. Explicitly set to show boot screen
-  // 7. We haven't navigated yet (hasNavigatedRef is false)
+  // 7. We haven't navigated yet (hasNavigatedRef is false) AND we're on root route
   // 8. We're on root route (prevents black screen when navigating to root from background)
   // Default behavior: Show boot screen unless we've explicitly navigated away from root
   // BUT: Don't show if we're handling a password reset link (let deep link handler navigate)
@@ -996,9 +1277,26 @@ export default function Index() {
   // Always show boot screen by default when on root route - only hide if we've explicitly navigated away
   // This prevents black screens when opening from background (component shows boot screen immediately)
   const isOnRootRoute = !pathname || pathname === "/" || pathname === "";
-  // CRITICAL: Show boot screen if on root route OR if explicitly set to show
-  // This ensures boot screen shows immediately when navigating to root from background
-  const shouldShowBooting = !isPasswordResetLink && (isOnRootRoute || booting || authLoading || restoringSession || sessionRefreshing || (!err && hasNoRoute) || shouldShowBootScreen);
+  // CRITICAL FIX: Show boot screen if on root route AND haven't navigated yet
+  // This ensures boot screen stays visible when ForegroundQueryRefresher navigates to root after long inactivity
+  // CRITICAL: Also check for force_boot_refresh flag - if present, always show boot screen
+  const [hasForceBootFlagState, setHasForceBootFlagState] = useState(false);
+  useEffect(() => {
+    AsyncStorage.getItem("force_boot_refresh").then((flag) => {
+      setHasForceBootFlagState(!!flag);
+    }).catch(() => {});
+  }, [pathname, forceBootRecheck]); // Re-check when pathname changes or forceBootRecheck triggers
+  
+  const shouldShowBooting = !isPasswordResetLink && (
+    booting || 
+    authLoading || 
+    restoringSession || 
+    sessionRefreshing || 
+    (!err && hasNoRoute) || 
+    shouldShowBootScreen ||
+    hasForceBootFlagState || // CRITICAL: Show boot screen if force_boot_refresh flag exists
+    (isOnRootRoute && !hasNavigated) // CRITICAL: Show boot screen on root route until navigation completes
+  );
   
   // Ensure minimum boot screen display time (1 second) for smooth UX
   const minBootTime = 1000;

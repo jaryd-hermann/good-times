@@ -132,6 +132,54 @@ export default function EntryComposer() {
   const [userProfileModalVisible, setUserProfileModalVisible] = useState(false)
   const cursorPositionRef = useRef<number>(0)
   const [isNavigating, setIsNavigating] = useState(false) // Track when navigating to hide content immediately
+  const draftSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // Draft saving functionality
+  const getDraftKey = useCallback(() => {
+    if (!promptId || !date || !currentGroupId) return null
+    return `entry_draft_${promptId}_${date}_${currentGroupId}`
+  }, [promptId, date, currentGroupId])
+  
+  // Save draft to AsyncStorage (debounced)
+  const saveDraft = useCallback(async (draftText: string) => {
+    const draftKey = getDraftKey()
+    if (!draftKey) return
+    
+    try {
+      await AsyncStorage.setItem(draftKey, draftText)
+    } catch (error) {
+      console.warn("[entry-composer] Failed to save draft:", error)
+    }
+  }, [getDraftKey])
+  
+  // Load draft from AsyncStorage
+  const loadDraft = useCallback(async () => {
+    if (editMode) return // Don't load draft in edit mode
+    
+    const draftKey = getDraftKey()
+    if (!draftKey) return
+    
+    try {
+      const draftText = await AsyncStorage.getItem(draftKey)
+      if (draftText && draftText.trim().length > 0) {
+        setText(draftText)
+      }
+    } catch (error) {
+      console.warn("[entry-composer] Failed to load draft:", error)
+    }
+  }, [getDraftKey, editMode])
+  
+  // Clear draft from AsyncStorage
+  const clearDraft = useCallback(async () => {
+    const draftKey = getDraftKey()
+    if (!draftKey) return
+    
+    try {
+      await AsyncStorage.removeItem(draftKey)
+    } catch (error) {
+      console.warn("[entry-composer] Failed to clear draft:", error)
+    }
+  }, [getDraftKey])
   
   // CRITICAL: Reasonable file size limits to prevent memory crashes
   // Large files loaded entirely into memory can crash the app
@@ -143,6 +191,64 @@ export default function EntryComposer() {
   useEffect(() => {
     loadUserAndGroup()
   }, [groupIdParam])
+
+  // Load draft when component mounts or when promptId/date/groupId changes
+  useEffect(() => {
+    if (currentGroupId && !editMode && promptId && date) {
+      // Small delay to ensure form reset has completed
+      const timer = setTimeout(() => {
+        loadDraft()
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [currentGroupId, promptId, date, loadDraft, editMode])
+
+  // Save draft when text changes (debounced)
+  useEffect(() => {
+    if (editMode || !currentGroupId) return // Don't save draft in edit mode
+    
+    // Clear existing timeout
+    if (draftSaveTimeoutRef.current) {
+      clearTimeout(draftSaveTimeoutRef.current)
+    }
+    
+    // Save draft after 1 second of no changes
+    draftSaveTimeoutRef.current = setTimeout(() => {
+      if (text.trim().length > 0) {
+        saveDraft(text)
+      } else {
+        // Clear draft if text is empty
+        clearDraft()
+      }
+    }, 1000) as unknown as NodeJS.Timeout
+    
+    return () => {
+      if (draftSaveTimeoutRef.current) {
+        clearTimeout(draftSaveTimeoutRef.current)
+      }
+    }
+  }, [text, saveDraft, clearDraft, editMode, currentGroupId])
+
+  // Handle app state changes (background/foreground)
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextAppState) => {
+      if (nextAppState === "background" || nextAppState === "inactive") {
+        // Save draft immediately when app goes to background
+        if (text.trim().length > 0 && !editMode && currentGroupId) {
+          saveDraft(text)
+        }
+      } else if (nextAppState === "active") {
+        // Reload draft when app comes back to foreground
+        if (!editMode && currentGroupId) {
+          loadDraft()
+        }
+      }
+    })
+    
+    return () => {
+      subscription.remove()
+    }
+  }, [text, saveDraft, loadDraft, editMode, currentGroupId])
 
   // Reset isNavigating when composer opens (promptId or date changes)
   useEffect(() => {
@@ -586,6 +692,7 @@ export default function EntryComposer() {
     // Store original promptId when component mounts or promptId changes
     originalPromptIdRef.current = promptId
     
+    // Clear text first - draft will be loaded by loadDraft effect if it exists
     setText("")
     setMediaItems([])
     setVoiceUri(undefined)
@@ -1210,6 +1317,11 @@ export default function EntryComposer() {
     // Hide composer content immediately to prevent flash
     setIsNavigating(true)
     
+    // Save draft before exiting (if there's text)
+    if (text.trim().length > 0 && !editMode && currentGroupId) {
+      await saveDraft(text)
+    }
+    
     // Reset to original prompt when closing (if user didn't post)
     // This ensures that if user shuffles but doesn't answer, they see original prompt next time
     if (originalPromptIdRef.current && prompt && prompt.id === originalPromptIdRef.current) {
@@ -1507,6 +1619,9 @@ export default function EntryComposer() {
 
       // Hide uploading modal and navigate directly to home
       setShowUploadingModal(false)
+      
+      // Clear draft after successful post
+      await clearDraft()
       
       // Navigate to home with the date they answered
       // This will automatically reload that day's content

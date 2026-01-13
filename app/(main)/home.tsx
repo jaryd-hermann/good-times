@@ -308,6 +308,102 @@ export default function Home() {
   const [onboardingGalleryVisible, setOnboardingGalleryVisible] = useState(false)
   const [showAppReviewModal, setShowAppReviewModal] = useState(false)
   // REMOVED: revealedAnswersForToday state - users can no longer reveal answers before answering
+  
+  // Modal guard system to prevent simultaneous modal presentations
+  const activeModalRef = useRef<string | null>(null)
+  const isScreenReadyRef = useRef(false)
+  const modalQueueRef = useRef<Array<{ type: string; action: () => void }>>([])
+  
+  // Process queued modals
+  const processModalQueue = useCallback(() => {
+    if (!isScreenReadyRef.current || activeModalRef.current || modalQueueRef.current.length === 0) {
+      return
+    }
+    
+    const nextModal = modalQueueRef.current.shift()
+    if (nextModal) {
+      activeModalRef.current = nextModal.type
+      nextModal.action()
+    }
+  }, [])
+  
+  // Helper to safely show a modal (prevents simultaneous presentations)
+  const safeShowModal = useCallback((modalType: string, showAction: () => void) => {
+    // If another modal is active, queue this one
+    if (activeModalRef.current && activeModalRef.current !== modalType) {
+      modalQueueRef.current.push({ type: modalType, action: showAction })
+      return false
+    }
+    
+    // If screen isn't ready yet, queue it
+    if (!isScreenReadyRef.current) {
+      modalQueueRef.current.push({ type: modalType, action: showAction })
+      return false
+    }
+    
+    // Mark this modal as active and show it
+    activeModalRef.current = modalType
+    showAction()
+    return true
+  }, [])
+  
+  // Helper to safely hide a modal and process queue
+  const safeHideModal = useCallback((modalType: string, hideAction: () => void) => {
+    hideAction()
+    // Clear active modal if it matches
+    if (activeModalRef.current === modalType) {
+      activeModalRef.current = null
+      // Process next modal in queue after a short delay
+      setTimeout(() => {
+        processModalQueue()
+      }, 300)
+    }
+  }, [processModalQueue])
+  
+  // Track when screen is ready (after initial render and navigation)
+  useEffect(() => {
+    // Mark screen as ready after a short delay to ensure view hierarchy is established
+    const timer = setTimeout(() => {
+      isScreenReadyRef.current = true
+      // Process any queued modals
+      processModalQueue()
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [processModalQueue])
+  
+  // Wrapped modal setters that use the guard system
+  const setNotificationModalVisibleSafe = useCallback((visible: boolean) => {
+    if (visible) {
+      safeShowModal("notification", () => setNotificationModalVisible(true))
+    } else {
+      safeHideModal("notification", () => setNotificationModalVisible(false))
+    }
+  }, [safeShowModal, safeHideModal])
+  
+  const setUserProfileModalVisibleSafe = useCallback((visible: boolean) => {
+    if (visible) {
+      safeShowModal("userProfile", () => setUserProfileModalVisible(true))
+    } else {
+      safeHideModal("userProfile", () => setUserProfileModalVisible(false))
+    }
+  }, [safeShowModal, safeHideModal])
+  
+  const setOnboardingGalleryVisibleSafe = useCallback((visible: boolean) => {
+    if (visible) {
+      safeShowModal("onboardingGallery", () => setOnboardingGalleryVisible(true))
+    } else {
+      safeHideModal("onboardingGallery", () => setOnboardingGalleryVisible(false))
+    }
+  }, [safeShowModal, safeHideModal])
+  
+  const setShowAppReviewModalSafe = useCallback((visible: boolean) => {
+    if (visible) {
+      safeShowModal("appReview", () => setShowAppReviewModal(true))
+    } else {
+      safeHideModal("appReview", () => setShowAppReviewModal(false))
+    }
+  }, [safeShowModal, safeHideModal])
+  
   const scrollY = useRef(new Animated.Value(0)).current
   const headerTranslateY = useRef(new Animated.Value(0)).current
   // CRITICAL: Initialize with safe minimum padding to prevent content cropping before headerHeight is calculated
@@ -389,15 +485,35 @@ export default function Home() {
   const checkAndShowReviewModal = useCallback(async () => {
     if (!userId || !currentGroupId) return
     
+    // Wait for screen to be ready before showing modal
+    const waitForScreenReady = () => {
+      return new Promise<void>((resolve) => {
+        if (isScreenReadyRef.current) {
+          resolve()
+          return
+        }
+        // Poll every 100ms until screen is ready (max 5 seconds)
+        let attempts = 0
+        const checkInterval = setInterval(() => {
+          attempts++
+          if (isScreenReadyRef.current || attempts >= 50) {
+            clearInterval(checkInterval)
+            resolve()
+          }
+        }, 100)
+      })
+    }
+    
     try {
       // Check if dev tool is requesting to show the modal
       const devShowModal = await AsyncStorage.getItem("dev_show_app_review_modal")
       if (devShowModal === "true") {
         // Clear the flag
         await AsyncStorage.removeItem("dev_show_app_review_modal")
-        // Show modal immediately
+        // Wait for screen readiness, then show modal safely
+        await waitForScreenReady()
         setTimeout(() => {
-          setShowAppReviewModal(true)
+          setShowAppReviewModalSafe(true)
         }, 500)
         return
       }
@@ -417,16 +533,17 @@ export default function Home() {
       if (!countError && count !== null && count >= 5) {
         // Mark as shown so we don't show it again
         await AsyncStorage.setItem(`app_review_modal_shown_${userId}`, "true")
-        // Show modal after a short delay
+        // Wait for screen readiness, then show modal safely
+        await waitForScreenReady()
         setTimeout(() => {
-          setShowAppReviewModal(true)
+          setShowAppReviewModalSafe(true)
         }, 1000) // 1 second delay
       }
     } catch (error) {
       console.warn("[home] Error checking entry count for review modal:", error)
       // Silently fail - don't disrupt user flow
     }
-  }, [userId, currentGroupId])
+  }, [userId, currentGroupId, setShowAppReviewModalSafe])
 
   useEffect(() => {
     loadUser()
@@ -3327,8 +3444,8 @@ export default function Home() {
   }
 
   async function handleNotificationBellPress() {
-    // Show modal immediately for better UX
-    setNotificationModalVisible(true)
+    // Show modal safely using guard system
+    setNotificationModalVisibleSafe(true)
     
     // Do NOT mark notifications as checked when opening modal
     // Notifications should persist until individually actioned
@@ -5018,7 +5135,7 @@ export default function Home() {
                   name: member.user.name || "User",
                   avatar_url: member.user.avatar_url,
                 })
-                setUserProfileModalVisible(true)
+                setUserProfileModalVisibleSafe(true)
               }}
             >
                 <Avatar uri={member.user.avatar_url} name={member.user.name || "User"} size={42} borderColor={borderColor} square={true} />
@@ -5232,7 +5349,17 @@ export default function Home() {
       )}
 
       {/* Daily prompt card - moved below header section */}
-      {showPromptCardAtTop && (
+      {(() => {
+        // Check if there's a valid question before rendering the card
+        const hasValidQuestion = todayPersonalizedPromptQuestion || todayDailyPrompt?.prompt?.question || todayEntries[0]?.prompt?.question
+        const isLoading = isLoadingTodayPrompt || isFetchingTodayPrompt || isLoadingTodayEntries || isFetchingTodayEntries
+        
+        // Only show card if we have a valid question OR we're still loading
+        if (!showPromptCardAtTop || (!hasValidQuestion && !isLoading)) {
+          return null
+        }
+        
+        return (
         <View style={{ 
           marginBottom: spacing.md,
           marginTop: spacing.lg, // Add spacing after divider
@@ -5286,10 +5413,8 @@ export default function Home() {
                 return <PromptSkeleton />
               }
               
-              // If query completed and no valid question found, don't show skeleton
-              // (This means no prompt is scheduled for this date, which is valid)
+              // If query completed and no valid question found, return null
               if (!hasValidQuestion) {
-                // Return empty state instead of skeleton
                 return null
               }
               
@@ -5449,7 +5574,8 @@ export default function Home() {
           </View>
           </TouchableOpacity>
         </View>
-      )}
+        )
+      })()}
 
       {/* Helper text between Daily Question card and entries when there are hidden prompts */}
       {showPromptCardAtTop && todayEntries.length > 0 && (
@@ -5651,7 +5777,7 @@ export default function Home() {
           <View style={styles.appTutorialLinkContainer}>
             <TouchableOpacity 
               style={styles.appTutorialCard}
-              onPress={() => setOnboardingGalleryVisible(true)} 
+              onPress={() => setOnboardingGalleryVisibleSafe(true)} 
               activeOpacity={0.7}
             >
               <Text style={styles.appTutorialLink}>Need a quick app tour?</Text>
@@ -5937,6 +6063,50 @@ export default function Home() {
                               ]}>
                                 {promptForDate.prompt?.question || "Question"}
                               </Text>
+                              {/* Show answerer names text if there are entries but user hasn't answered */}
+                              {(() => {
+                                // Get entries for this date excluding current user
+                                const dateEntriesExcludingUser = dateEntries.filter((e: any) => e.user_id !== userId && !e.is_birthday_card)
+                                
+                                if (dateEntriesExcludingUser.length === 0) {
+                                  return null
+                                }
+                                
+                                // Get unique user names from entries
+                                const nameMap = new Map<string, string>()
+                                for (const entry of dateEntriesExcludingUser) {
+                                  if (entry.user?.name && !nameMap.has(entry.user_id)) {
+                                    nameMap.set(entry.user_id, entry.user.name)
+                                  }
+                                }
+                                const answererNames = Array.from(nameMap.values())
+                                
+                                if (answererNames.length === 0) {
+                                  return null
+                                }
+                                
+                                // Format the text similar to today's card
+                                let answererText: string
+                                if (answererNames.length === 1) {
+                                  answererText = `Answer to see what ${answererNames[0]} said`
+                                } else if (answererNames.length === 2) {
+                                  answererText = `Answer to see what ${answererNames[0]} and ${answererNames[1]} said`
+                                } else {
+                                  const allButLast = answererNames.slice(0, -1).join(", ")
+                                  const last = answererNames[answererNames.length - 1]
+                                  answererText = `Answer to see what ${allButLast}, and ${last} said`
+                                }
+                                
+                                return (
+                                  <Text style={[
+                                    styles.promptDescription,
+                                    isRememberingCategory && styles.promptDescriptionRemembering,
+                                    { marginTop: spacing.xs, marginBottom: spacing.sm }
+                                  ]}>
+                                    {answererText}
+                                  </Text>
+                                )
+                              })()}
                               <Button
                                 title="Answer"
                                 style={{ 
@@ -6066,14 +6236,14 @@ export default function Home() {
                     
                     // Regular entry card
                     const entryIdList = visibleEntries.map((item: any) => item.id)
-                    // Show fuzzy overlay only for today if user hasn't answered
-                    // For previous days, never show fuzzy overlay
-                    const shouldShowFuzzy = isDateToday && !hasUserEntry && !entry.is_birthday_card
+                    // Show fuzzy overlay for any date if user hasn't answered that day's question
+                    // Always hide answers until user has answered
+                    const shouldShowFuzzy = !hasUserEntry && !entry.is_birthday_card
                     
-                    // Get prompt ID for today to navigate to entry-composer (use existing todayPromptId or fallback)
-                    const promptIdForNavigation = isDateToday 
-                      ? (todayPromptId || todayDailyPrompt?.prompt_id || promptsForDatesWithoutEntry[date]?.prompt_id)
-                      : null
+                    // Get prompt ID for this date to navigate to entry-composer
+                    // Use promptForDate which is already calculated above for this specific date
+                    const promptIdForNavigation = promptForDate?.prompt_id || 
+                      (isDateToday ? (todayPromptId || todayDailyPrompt?.prompt_id) : null)
                     
                     return (
                       <EntryCard
@@ -6089,8 +6259,9 @@ export default function Home() {
                         }}
                         // REMOVED: onRevealAnswers prop - tapping fuzzy card now navigates to entry-composer
                         // Pass prompt info for navigation when fuzzy overlay is tapped
+                        // Use the date of the entry being shown, not just today
                         fuzzyOverlayPromptId={shouldShowFuzzy ? promptIdForNavigation : undefined}
-                        fuzzyOverlayDate={shouldShowFuzzy ? todayDate : undefined}
+                        fuzzyOverlayDate={shouldShowFuzzy ? date : undefined}
                         fuzzyOverlayGroupId={shouldShowFuzzy ? currentGroupId : undefined}
                       />
                     )
@@ -6405,7 +6576,7 @@ export default function Home() {
       <NotificationModal
         visible={notificationModalVisible}
         notifications={notifications}
-        onClose={() => setNotificationModalVisible(false)}
+        onClose={() => setNotificationModalVisibleSafe(false)}
         onNotificationPress={handleNotificationPress}
         onClearAll={handleClearAllNotifications}
       />
@@ -6418,14 +6589,14 @@ export default function Home() {
         userAvatarUrl={selectedMember?.avatar_url}
         groupId={currentGroupId}
         onClose={() => {
-          setUserProfileModalVisible(false)
+          setUserProfileModalVisibleSafe(false)
           setSelectedMember(null)
         }}
         onViewHistory={(userId) => {
           // Filter on Home screen instead of History
           setSelectedMembers([userId])
           setShowFilterModal(false)
-          setUserProfileModalVisible(false)
+          setUserProfileModalVisibleSafe(false)
           setSelectedMember(null)
           // Scroll to top to show filtered results
           scrollViewRef.current?.scrollTo({ y: 0, animated: true })
@@ -6435,7 +6606,7 @@ export default function Home() {
       {/* App Review Modal */}
       <AppReviewModal
         visible={showAppReviewModal}
-        onClose={() => setShowAppReviewModal(false)}
+        onClose={() => setShowAppReviewModalSafe(false)}
         onRate={async () => {
           // Track that user clicked rate
           safeCapture(posthog, "app_review_modal_rate_clicked", {
@@ -6457,7 +6628,7 @@ export default function Home() {
           { id: "6", source: require("../../assets/images/onboarding-5-ask-them.png") },
           { id: "8", source: require("../../assets/images/onboarding-7-set-your-vibe.png") },
         ]}
-        onComplete={() => setOnboardingGalleryVisible(false)}
+        onComplete={() => setOnboardingGalleryVisibleSafe(false)}
         returnRoute="/(main)/home"
       />
     </View>
