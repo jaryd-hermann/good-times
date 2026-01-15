@@ -28,6 +28,14 @@ export function getDayOfWeek(date: string): string {
   return format(parseISO(date), "EEE")
 }
 
+// Check if a date string (YYYY-MM-DD) is a Sunday in local timezone
+export function isSunday(dateString: string): boolean {
+  // Parse date as local date (not UTC) to check day of week in user's timezone
+  const [year, month, day] = dateString.split("-").map(Number)
+  const date = new Date(year, month - 1, day) // month is 0-indexed
+  return date.getDay() === 0 // 0 = Sunday
+}
+
 export function getWeekDates(): { date: string; day: string; dayNum: number }[] {
   const today = new Date()
   const dates = []

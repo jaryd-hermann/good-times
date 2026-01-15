@@ -2853,7 +2853,8 @@ export default function Home() {
         
         // Handle member_name variable - ONLY use prompt_name_usage, NO fallback
         // CRITICAL: Must use the exact name from prompt_name_usage that getDailyPrompt set
-        if (question.match(/\{.*member_name.*\}/i) && dailyPrompt?.prompt_id && selectedDate) {
+        // Skip for Journal category prompts (they don't use member_name)
+        if (question.match(/\{.*member_name.*\}/i) && dailyPrompt?.prompt_id && selectedDate && dailyPrompt?.prompt?.category !== "Journal") {
           const normalizedDate = selectedDate.split('T')[0]
           const usageKey = `${dailyPrompt.prompt_id}-${normalizedDate}`
           const memberNameUsed = memberUsageMap.get(usageKey)
@@ -2866,10 +2867,10 @@ export default function Home() {
               console.warn(`[home] replaceDynamicVariables failed to replace member_name. Question: ${question}, Member: ${memberNameUsed}`)
             }
           } else {
-            // NO FALLBACK - if prompt_name_usage doesn't exist, that's a bug
-            // Log error but don't replace the variable
-            console.error(`[home] CRITICAL: No prompt_name_usage found for member_name. promptId: ${dailyPrompt.prompt_id}, date: ${selectedDate}, groupId: ${currentGroupId}`)
-            // Leave {member_name} as-is - this indicates a bug that needs to be fixed
+            // If prompt_name_usage doesn't exist, this might be a fallback prompt
+            // Log warning instead of error to avoid noise
+            console.warn(`[home] No prompt_name_usage found for member_name (may be fallback prompt). promptId: ${dailyPrompt.prompt_id}, date: ${selectedDate}, groupId: ${currentGroupId}`)
+            // Leave {member_name} as-is - will be filtered out by final check
           }
         }
         
@@ -2948,7 +2949,7 @@ export default function Home() {
       }
       return (data || []) as Array<{ prompt_id: string; date_used: string; name_used: string; created_at: string }>
     },
-    enabled: !!currentGroupId && !!todayPromptId && !!todayDailyPrompt?.prompt?.question?.match(/\{.*member_name.*\}/i),
+    enabled: !!currentGroupId && !!todayPromptId && !!todayDailyPrompt?.prompt?.question?.match(/\{.*member_name.*\}/i) && todayDailyPrompt?.prompt?.category !== "Journal",
     staleTime: 0,
     refetchOnMount: true,
   })
@@ -3052,7 +3053,8 @@ export default function Home() {
         
         // Handle member_name variable - ONLY use prompt_name_usage, NO fallback
         // CRITICAL: Must use the exact name from prompt_name_usage that getDailyPrompt set
-        if (question.match(/\{.*member_name.*\}/i) && todayDailyPrompt?.prompt_id && todayDate) {
+        // Skip for Journal category prompts (they don't use member_name)
+        if (question.match(/\{.*member_name.*\}/i) && todayDailyPrompt?.prompt_id && todayDate && todayDailyPrompt?.prompt?.category !== "Journal") {
           const normalizedDate = todayDate.split('T')[0]
           const usageKey = `${todayDailyPrompt.prompt_id}-${normalizedDate}`
           const memberNameUsed = todayMemberUsageMap.get(usageKey)
@@ -3065,10 +3067,10 @@ export default function Home() {
               console.warn(`[home] replaceDynamicVariables failed to replace member_name. Question: ${question}, Member: ${memberNameUsed}`)
             }
           } else {
-            // NO FALLBACK - if prompt_name_usage doesn't exist, that's a bug
-            // Log error but don't replace the variable
-            console.error(`[home] CRITICAL: No prompt_name_usage found for member_name. promptId: ${todayDailyPrompt.prompt_id}, date: ${todayDate}, groupId: ${currentGroupId}`)
-            // Leave {member_name} as-is - this indicates a bug that needs to be fixed
+            // If prompt_name_usage doesn't exist, this might be a fallback prompt
+            // Log warning instead of error to avoid noise
+            console.warn(`[home] No prompt_name_usage found for member_name (may be fallback prompt). promptId: ${todayDailyPrompt.prompt_id}, date: ${todayDate}, groupId: ${currentGroupId}`)
+            // Leave {member_name} as-is - will be filtered out by final check
           }
         }
         
@@ -5544,6 +5546,23 @@ export default function Home() {
                       return question
                     })()}
                   </Text>
+                  {/* Show description below question text */}
+                  {(() => {
+                    const prompt = todayDailyPrompt?.prompt || todayEntries[0]?.prompt
+                    const description = (prompt as any)?.description
+                    if (description) {
+                      return (
+                        <Text style={[
+                          styles.promptDescription,
+                          isRememberingCategory && styles.promptDescriptionRemembering,
+                          { marginTop: spacing.sm }
+                        ]}>
+                          {description}
+                        </Text>
+                      )
+                    }
+                    return null
+                  })()}
                   {/* Conditional description text */}
                   {todayAnswererNames.length === 0 ? (
                     <Text style={[
@@ -5562,7 +5581,7 @@ export default function Home() {
                   ) : null}
                   {todayPromptId && (
                     <Button
-                      title="Answer"
+                      title={todayDailyPrompt?.prompt?.category === "Journal" ? "Show my week" : "Answer"}
                       onPress={() => handleAnswerPrompt(true)}
                       style={styles.answerButtonToday}
                       textStyle={{ color: theme2Colors.text }}

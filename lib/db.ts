@@ -1,6 +1,7 @@
 import { supabase } from "./supabase"
 import type { User, Group, GroupMember, Prompt, DailyPrompt, Entry, Memorial, Reaction, Comment, CustomQuestion, CustomQuestionRotation, GroupActivityTracking, Collection, Deck, GroupDeckVote, GroupActiveDeck, BirthdayCard, BirthdayCardEntry, FeaturedPrompt, GroupFeaturedQuestion, Interest, GroupInterest, UserInterest, UserStatus } from "./types"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "./prompts"
+import { isSunday, getTodayDate } from "./utils"
 
 // Helper function to select next memorial in rotation (week-based)
 // Ensures: Week 1 = Person A, Week 2 = Person B, etc.
@@ -405,6 +406,53 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
     }
   }
 
+  // ========================================================================
+  // SUNDAY JOURNAL CHECK
+  // ========================================================================
+  // On Sundays (in user's timezone) AND only for today or future dates, return the Journal prompt
+  // This takes priority over regular scheduled prompts but not birthdays
+  // CRITICAL: Only apply to future Sundays, not past ones (to avoid overwriting historical prompts)
+  const todayDate = getTodayDate()
+  if (isSunday(date) && date >= todayDate) {
+    // Get the Journal prompt
+    const { data: journalPrompt, error: journalError } = await supabase
+      .from("prompts")
+      .select("id, question, description, category, is_default, is_custom, custom_question_id, dynamic_variables, birthday_type, deck_id, ice_breaker, ice_breaker_order")
+      .eq("category", "Journal")
+      .limit(1)
+      .maybeSingle()
+
+    if (journalPrompt && !journalError) {
+      // Check if a daily_prompt already exists for this date (might have been scheduled by schedule-daily-prompts)
+      const { data: existingJournalPrompt } = await supabase
+        .from("daily_prompts")
+        .select("id")
+        .eq("group_id", groupId)
+        .eq("date", date)
+        .is("user_id", null)
+        .maybeSingle()
+
+      // If it doesn't exist, create it (for consistency)
+      if (!existingJournalPrompt) {
+        await supabase.from("daily_prompts").insert({
+          group_id: groupId,
+          prompt_id: journalPrompt.id,
+          date: date,
+        })
+      }
+
+      // Return the Journal prompt
+      return {
+        id: existingJournalPrompt?.id || `journal_${date}`,
+        group_id: groupId,
+        prompt_id: journalPrompt.id,
+        date: date,
+        user_id: null,
+        prompt: journalPrompt,
+      }
+    }
+  }
+
   // Check for general prompt (applies to all members)
   const { data: existing, error: existingError } = await supabase
     .from("daily_prompts")
@@ -525,13 +573,78 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
       console.log(`[getDailyPrompt] Using unused Standard prompt as fallback: ${unusedStandardPrompt.id}`)
       console.warn(`[getDailyPrompt] WARNING: No prompt scheduled for ${date}, using Standard fallback. This should be scheduled by schedule-daily-prompts function.`)
       
+      // Personalize fallback prompt if it has member_name variable
+      let personalizedPrompt = { ...unusedStandardPrompt }
+      const hasMemberNameVariable = (unusedStandardPrompt.dynamic_variables && Array.isArray(unusedStandardPrompt.dynamic_variables) && unusedStandardPrompt.dynamic_variables.includes("member_name")) || unusedStandardPrompt.question?.match(/\{.*member_name.*\}/i)
+      
+      if (hasMemberNameVariable && unusedStandardPrompt.category !== "Journal") {
+        // Check if prompt_name_usage already exists
+        const { data: existingUsage } = await supabase
+          .from("prompt_name_usage")
+          .select("name_used")
+          .eq("group_id", groupId)
+          .eq("prompt_id", unusedStandardPrompt.id)
+          .eq("variable_type", "member_name")
+          .eq("date_used", date)
+          .maybeSingle()
+
+        let memberName = existingUsage?.name_used
+
+        if (!memberName) {
+          // Create prompt_name_usage record for fallback prompt
+          const members = await getGroupMembers(groupId)
+          const { data: { user: currentUser } } = await supabase.auth.getUser()
+          const currentUserId = currentUser?.id
+          const otherMembers = members.filter((m) => m.user_id !== currentUserId)
+          
+          if (otherMembers.length > 0) {
+            const { data: recentUsage } = await supabase
+              .from("prompt_name_usage")
+              .select("name_used")
+              .eq("group_id", groupId)
+              .eq("variable_type", "member_name")
+              .neq("date_used", date)
+              .order("date_used", { ascending: false })
+              .limit(otherMembers.length)
+
+            const usedNames = new Set(recentUsage?.map((u) => u.name_used) || [])
+            const unusedMembers = otherMembers.filter((m) => {
+              const memberName = m.user?.name || "Unknown"
+              return !usedNames.has(memberName)
+            })
+            const availableMembers = unusedMembers.length > 0 ? unusedMembers : otherMembers
+            
+            const dayIndex = getDayIndex(date, groupId)
+            const memberIndex = dayIndex % availableMembers.length
+            const selectedMember = availableMembers[memberIndex]
+            memberName = selectedMember.user?.name || "them"
+
+            // Create prompt_name_usage record
+            await supabase.from("prompt_name_usage").insert({
+              group_id: groupId,
+              prompt_id: unusedStandardPrompt.id,
+              variable_type: "member_name",
+              name_used: memberName,
+              date_used: date,
+            })
+          } else {
+            memberName = "them"
+          }
+        }
+
+        // Personalize the question
+        if (memberName) {
+          personalizedPrompt.question = replaceDynamicVariables(unusedStandardPrompt.question, { member_name: memberName })
+        }
+      }
+      
       return {
         id: `fallback_${date}`,
         group_id: groupId,
         prompt_id: unusedStandardPrompt.id,
         date: date,
         user_id: null,
-        prompt: unusedStandardPrompt,
+        prompt: personalizedPrompt,
       }
     }
     
@@ -547,13 +660,78 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
       console.log(`[getDailyPrompt] Using any Standard prompt as fallback: ${anyStandardPrompt.id}`)
       console.warn(`[getDailyPrompt] WARNING: No prompt scheduled for ${date}, using any Standard prompt as fallback. This should be scheduled by schedule-daily-prompts function.`)
       
+      // Personalize fallback prompt if it has member_name variable
+      let personalizedPrompt = { ...anyStandardPrompt }
+      const hasMemberNameVariable = (anyStandardPrompt.dynamic_variables && Array.isArray(anyStandardPrompt.dynamic_variables) && anyStandardPrompt.dynamic_variables.includes("member_name")) || anyStandardPrompt.question?.match(/\{.*member_name.*\}/i)
+      
+      if (hasMemberNameVariable && anyStandardPrompt.category !== "Journal") {
+        // Check if prompt_name_usage already exists
+        const { data: existingUsage } = await supabase
+          .from("prompt_name_usage")
+          .select("name_used")
+          .eq("group_id", groupId)
+          .eq("prompt_id", anyStandardPrompt.id)
+          .eq("variable_type", "member_name")
+          .eq("date_used", date)
+          .maybeSingle()
+
+        let memberName = existingUsage?.name_used
+
+        if (!memberName) {
+          // Create prompt_name_usage record for fallback prompt
+          const members = await getGroupMembers(groupId)
+          const { data: { user: currentUser } } = await supabase.auth.getUser()
+          const currentUserId = currentUser?.id
+          const otherMembers = members.filter((m) => m.user_id !== currentUserId)
+          
+          if (otherMembers.length > 0) {
+            const { data: recentUsage } = await supabase
+              .from("prompt_name_usage")
+              .select("name_used")
+              .eq("group_id", groupId)
+              .eq("variable_type", "member_name")
+              .neq("date_used", date)
+              .order("date_used", { ascending: false })
+              .limit(otherMembers.length)
+
+            const usedNames = new Set(recentUsage?.map((u) => u.name_used) || [])
+            const unusedMembers = otherMembers.filter((m) => {
+              const memberName = m.user?.name || "Unknown"
+              return !usedNames.has(memberName)
+            })
+            const availableMembers = unusedMembers.length > 0 ? unusedMembers : otherMembers
+            
+            const dayIndex = getDayIndex(date, groupId)
+            const memberIndex = dayIndex % availableMembers.length
+            const selectedMember = availableMembers[memberIndex]
+            memberName = selectedMember.user?.name || "them"
+
+            // Create prompt_name_usage record
+            await supabase.from("prompt_name_usage").insert({
+              group_id: groupId,
+              prompt_id: anyStandardPrompt.id,
+              variable_type: "member_name",
+              name_used: memberName,
+              date_used: date,
+            })
+          } else {
+            memberName = "them"
+          }
+        }
+
+        // Personalize the question
+        if (memberName) {
+          personalizedPrompt.question = replaceDynamicVariables(anyStandardPrompt.question, { member_name: memberName })
+        }
+      }
+      
       return {
         id: `fallback_${date}`,
         group_id: groupId,
         prompt_id: anyStandardPrompt.id,
         date: date,
         user_id: null,
-        prompt: anyStandardPrompt,
+        prompt: personalizedPrompt,
       }
     }
     

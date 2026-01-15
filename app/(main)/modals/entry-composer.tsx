@@ -841,6 +841,8 @@ export default function EntryComposer() {
       allowsMultipleSelection: true,
       allowsEditing: false,
       quality: 0.8,
+      base64: false, // Explicitly set to false to avoid base64 encoding issues
+      exif: false, // Disable EXIF to avoid potential issues
     })
 
     if (!result.canceled) {
@@ -871,15 +873,38 @@ export default function EntryComposer() {
       }
       
       if (validAssets.length > 0) {
-        const newItems = validAssets.map((asset) => {
-          const isVideo = asset.type === "video"
-          return {
-            id: createMediaId(),
-            uri: asset.uri,
-            type: (isVideo ? "video" : "photo") as "photo" | "video",
-            thumbnailUri: isVideo ? asset.uri : undefined, // Will generate thumbnail for video
-          }
-        })
+        // Process assets and copy to accessible location if needed (iOS)
+        const newItems = await Promise.all(
+          validAssets.map(async (asset) => {
+            const isVideo = asset.type === "video"
+            let uri = asset.uri
+            
+            // On iOS, copy files to temporary location to ensure they're accessible
+            // This fixes "Cannot load representation of type public.png" errors
+            // that can occur with multiple selection on iOS
+            if (Platform.OS === "ios") {
+              try {
+                const fileExtension = isVideo ? ".mov" : uri.toLowerCase().includes(".png") ? ".png" : ".jpg"
+                const tempUri = `${FileSystem.cacheDirectory}${Date.now()}-${Math.random().toString(36).slice(2)}${fileExtension}`
+                await FileSystem.copyAsync({
+                  from: uri,
+                  to: tempUri,
+                })
+                uri = tempUri
+              } catch (copyError) {
+                console.warn("[entry-composer] Failed to copy iOS image to temp location, using original URI:", copyError)
+                // Continue with original URI - might work for some cases
+              }
+            }
+            
+            return {
+              id: createMediaId(),
+              uri: uri,
+              type: (isVideo ? "video" : "photo") as "photo" | "video",
+              thumbnailUri: isVideo ? uri : undefined, // Will generate thumbnail for video
+            }
+          })
+        )
         setMediaItems((prev) => [...prev, ...newItems])
       }
     }
@@ -1969,6 +1994,18 @@ export default function EntryComposer() {
       paddingRight: spacing.lg,
       alignItems: "center",
     },
+    photoPlaceholder: {
+      width: 120,
+      height: 120,
+      borderRadius: 12,
+      backgroundColor: isDark ? colors.gray[800] : theme2Colors.white,
+      borderWidth: 2,
+      borderColor: isDark ? colors.gray[700] : colors.gray[300],
+      borderStyle: "dashed",
+      justifyContent: "center",
+      alignItems: "center",
+      marginRight: spacing.sm,
+    },
     mediaThumbnailWrapper: {
       width: 120,
       height: 120,
@@ -2464,8 +2501,14 @@ export default function EntryComposer() {
           </TouchableOpacity>
         </View>
 
+        {/* Description for Journal prompts */}
+        {activePrompt?.category === "Journal" && activePrompt?.description && (
+          <Text style={styles.description}>{activePrompt.description}</Text>
+        )}
+
         {/* Media preview carousel - positioned between description and input */}
-        {mediaItems.filter(item => item.type !== "audio").length > 0 && (
+        {/* For Journal prompts, show placeholder slots + uploaded photos */}
+        {(activePrompt?.category === "Journal" || mediaItems.filter(item => item.type !== "audio").length > 0) && (
           <View 
             ref={mediaCarouselRef} 
             style={styles.mediaCarouselContainer}
@@ -2477,29 +2520,70 @@ export default function EntryComposer() {
               style={styles.mediaScrollContainer}
               contentContainerStyle={styles.mediaScrollContent}
             >
-              {mediaItems.filter(item => item.type !== "audio").map((item, index) => {
-                const photoVideoItems = mediaItems.filter(item => item.type !== "audio")
-                const itemIndex = photoVideoItems.findIndex(i => i.id === item.id)
-                
-                return (
-                  <DraggableMediaThumbnail
-                    key={item.id}
-                    item={item}
-                    itemIndex={itemIndex}
-                    totalItems={photoVideoItems.length}
-                    draggedItemId={draggedItemId}
-                    dragOverIndex={dragOverIndex}
-                    dragPosition={dragPosition}
-                    uploadingMedia={uploadingMedia}
-                    onDragStart={handleDragStart}
-                    onDragEnd={handleDragEnd}
-                    onSetDragOverIndex={setDragOverIndex}
-                    onRemoveMedia={handleRemoveMedia}
-                    colors={colors}
-                    styles={styles}
-                  />
-                )
-              })}
+              {activePrompt?.category === "Journal" ? (
+                <>
+                  {/* Show uploaded photos first */}
+                  {mediaItems.filter(item => item.type !== "audio").map((item, index) => {
+                    const photoVideoItems = mediaItems.filter(item => item.type !== "audio")
+                    const itemIndex = photoVideoItems.findIndex(i => i.id === item.id)
+                    
+                    return (
+                      <DraggableMediaThumbnail
+                        key={item.id}
+                        item={item}
+                        itemIndex={itemIndex}
+                        totalItems={photoVideoItems.length}
+                        draggedItemId={draggedItemId}
+                        dragOverIndex={dragOverIndex}
+                        dragPosition={dragPosition}
+                        uploadingMedia={uploadingMedia}
+                        onDragStart={handleDragStart}
+                        onDragEnd={handleDragEnd}
+                        onSetDragOverIndex={setDragOverIndex}
+                        onRemoveMedia={handleRemoveMedia}
+                        colors={colors}
+                        styles={styles}
+                      />
+                    )
+                  })}
+                  {/* Show placeholder slots (up to 6 total, minus uploaded photos) */}
+                  {Array.from({ length: Math.max(0, 6 - mediaItems.filter(item => item.type !== "audio").length) }).map((_, index) => (
+                    <TouchableOpacity
+                      key={`placeholder-${index}`}
+                      style={styles.photoPlaceholder}
+                      onPress={handleGalleryAction}
+                      activeOpacity={0.7}
+                    >
+                      <FontAwesome name="plus" size={24} color={theme2Colors.textSecondary} />
+                    </TouchableOpacity>
+                  ))}
+                </>
+              ) : (
+                /* Regular prompts - show only uploaded photos */
+                mediaItems.filter(item => item.type !== "audio").map((item, index) => {
+                  const photoVideoItems = mediaItems.filter(item => item.type !== "audio")
+                  const itemIndex = photoVideoItems.findIndex(i => i.id === item.id)
+                  
+                  return (
+                    <DraggableMediaThumbnail
+                      key={item.id}
+                      item={item}
+                      itemIndex={itemIndex}
+                      totalItems={photoVideoItems.length}
+                      draggedItemId={draggedItemId}
+                      dragOverIndex={dragOverIndex}
+                      dragPosition={dragPosition}
+                      uploadingMedia={uploadingMedia}
+                      onDragStart={handleDragStart}
+                      onDragEnd={handleDragEnd}
+                      onSetDragOverIndex={setDragOverIndex}
+                      onRemoveMedia={handleRemoveMedia}
+                      colors={colors}
+                      styles={styles}
+                    />
+                  )
+                })
+              )}
             </ScrollView>
           </View>
         )}
@@ -2580,7 +2664,7 @@ export default function EntryComposer() {
                 setShowMentionAutocomplete(false)
               }
             }}
-            placeholder="Tell the group what you think..."
+            placeholder={activePrompt?.category === "Journal" ? "Tell us about your week.." : "Tell us what you think..."}
             placeholderTextColor={theme2Colors.textSecondary}
             multiline
             autoFocus={true}

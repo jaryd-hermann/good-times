@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { View, Text, StyleSheet, Dimensions, TouchableOpacity, Modal, Animated, Image, ScrollView } from "react-native"
 import { useRouter } from "expo-router"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
@@ -79,6 +79,13 @@ export default function Welcome1() {
   }, [posthog])
 
   async function handleLogin() {
+    // If video is playing, pause it and return to photo view
+    if (isVideoPlaying) {
+      setIsVideoPlaying(false)
+      // Send pause message to WebView if it's still mounted
+      // Small delay to ensure state update happens
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
     // Clear any onboarding data to ensure sign-in mode (not sign-up)
     // This ensures users always see the Sign In screen, not Create Account
     // Clear both AsyncStorage and in-memory context state
@@ -91,6 +98,10 @@ export default function Welcome1() {
   }
 
   function handleMainCTA() {
+    // If video is playing, pause it and return to photo view
+    if (isVideoPlaying) {
+      setIsVideoPlaying(false)
+    }
     setShowJoinInfo(false)
     // Reset animations to initial state before showing modal
     slideAnim.setValue(height)
@@ -134,6 +145,14 @@ export default function Welcome1() {
     setIsVideoPlaying(true)
   }
 
+  const handlePauseVideo = () => {
+    console.log("[welcome-1] Pause button pressed")
+    setIsVideoPlaying(false)
+  }
+
+  // Ref to store WebView reference for sending messages
+  const webViewRef = useRef<any>(null)
+
   function closeModal() {
     // Animate overlay and content together, then hide modal
     Animated.parallel([
@@ -168,6 +187,29 @@ export default function Welcome1() {
       overlayOpacity.setValue(0)
     }
   }, [showModal])
+
+  // Pause video when isVideoPlaying becomes false
+  useEffect(() => {
+    if (!isVideoPlaying && webViewRef.current) {
+      // Inject JavaScript to pause video before unmounting
+      try {
+        webViewRef.current.injectJavaScript(`
+          (function() {
+            const video = document.getElementById('videoPlayer');
+            if (video && !video.paused) {
+              video.pause();
+            }
+          })();
+          true; // Required for injectJavaScript
+        `)
+      } catch (error) {
+        // WebView might be unmounting, ignore error
+        if (__DEV__) {
+          console.log("[welcome-1] Could not inject pause script to WebView:", error)
+        }
+      }
+    }
+  }, [isVideoPlaying])
 
   // Phase 4: FaceID should trigger at login screens (welcome-1 is a login screen)
   // Phase 7: Enhanced navigation with success check
@@ -276,90 +318,185 @@ export default function Welcome1() {
             )}
             {/* Video - use WebView as workaround for CORS issues on iOS */}
             {isVideoPlaying && (
-              <WebView
-                source={{
-                  html: `
-                    <!DOCTYPE html>
-                    <html>
-                      <head>
-                        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-                        <style>
-                          * { margin: 0; padding: 0; box-sizing: border-box; }
-                          body, html { 
-                            width: 100%; 
-                            height: 100%; 
-                            overflow: hidden; 
-                            background: #000; 
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                          }
-                          video {
-                            width: 100%;
-                            height: 100%;
-                            object-fit: cover;
-                            outline: none;
-                          }
-                        </style>
-                      </head>
-                      <body>
-                        <video 
-                          id="videoPlayer"
-                          controls 
-                          autoplay 
-                          playsinline
-                          muted
-                          preload="auto"
-                        >
-                          <source src="${VIDEO_URL}" type="video/mp4">
-                          Your browser does not support the video tag.
-                        </video>
-                        <script>
-                          (function() {
-                            const video = document.getElementById('videoPlayer');
-                            if (video) {
-                              // Unmute and play when video can play
-                              video.addEventListener('canplay', function() {
-                                video.muted = false;
-                                video.play().catch(function(error) {
-                                  console.log('Autoplay prevented:', error);
-                                  // If autoplay fails, user can click play button
-                                });
-                              });
-                              
-                              // Handle video end
-                              video.addEventListener('ended', function() {
-                                // Video ended - could send message to React Native if needed
-                              });
-                              
-                              // Try to play immediately
-                              video.play().catch(function(error) {
-                                console.log('Initial play failed:', error);
-                              });
+              <>
+                <WebView
+                  ref={(ref) => {
+                    if (ref) {
+                      webViewRef.current = ref
+                    }
+                  }}
+                  source={{
+                    html: `
+                      <!DOCTYPE html>
+                      <html>
+                        <head>
+                          <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                          <style>
+                            * { margin: 0; padding: 0; box-sizing: border-box; }
+                            body, html { 
+                              width: 100%; 
+                              height: 100%; 
+                              overflow: hidden; 
+                              background: #000; 
+                              display: flex;
+                              align-items: center;
+                              justify-content: center;
+                              position: relative;
                             }
-                          })();
-                        </script>
-                      </body>
-                    </html>
-                  `
-                }}
-                style={styles.video}
-                allowsFullscreen={false}
-                mediaPlaybackRequiresUserAction={false}
-                allowsInlineMediaPlayback={true}
-                onError={(syntheticEvent) => {
-                  const { nativeEvent } = syntheticEvent
-                  console.error("[welcome-1] WebView error:", nativeEvent)
-                  setIsVideoPlaying(false)
-                }}
-                onLoad={() => {
-                  console.log("[welcome-1] WebView video loaded")
-                }}
-                onMessage={(event) => {
-                  // Handle messages from WebView if needed
-                  console.log("[welcome-1] WebView message:", event.nativeEvent.data)
-                }}
-              />
+                            video {
+                              width: 100%;
+                              height: 100%;
+                              object-fit: cover;
+                              outline: none;
+                            }
+                            .controls {
+                              position: absolute;
+                              bottom: 16px;
+                              right: 16px;
+                              z-index: 100;
+                              display: flex;
+                              gap: 8px;
+                            }
+                            .control-button {
+                              width: 60px;
+                              height: 60px;
+                              border-radius: 30px;
+                              background-color: #FFFFFF;
+                              border: 2px solid #000000;
+                              display: flex;
+                              align-items: center;
+                              justify-content: center;
+                              cursor: pointer;
+                              box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+                            }
+                            .control-button:active {
+                              opacity: 0.8;
+                            }
+                            .play-icon, .pause-icon {
+                              width: 24px;
+                              height: 24px;
+                              fill: #000000;
+                            }
+                          </style>
+                        </head>
+                        <body>
+                          <video 
+                            id="videoPlayer"
+                            autoplay 
+                            playsinline
+                            muted
+                            preload="auto"
+                          >
+                            <source src="${VIDEO_URL}" type="video/mp4">
+                            Your browser does not support the video tag.
+                          </video>
+                          <div class="controls">
+                            <div class="control-button" id="playPauseButton">
+                              <svg class="pause-icon" id="pauseIcon" viewBox="0 0 24 24" style="display: none;">
+                                <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
+                              </svg>
+                              <svg class="play-icon" id="playIcon" viewBox="0 0 24 24">
+                                <path d="M8 5v14l11-7z"/>
+                              </svg>
+                            </div>
+                          </div>
+                          <script>
+                            (function() {
+                              const video = document.getElementById('videoPlayer');
+                              const playPauseButton = document.getElementById('playPauseButton');
+                              const playIcon = document.getElementById('playIcon');
+                              const pauseIcon = document.getElementById('pauseIcon');
+                              
+                              if (video && playPauseButton) {
+                                // Update button icon based on video state
+                                function updateButton() {
+                                  if (video.paused) {
+                                    playIcon.style.display = 'block';
+                                    pauseIcon.style.display = 'none';
+                                  } else {
+                                    playIcon.style.display = 'none';
+                                    pauseIcon.style.display = 'block';
+                                  }
+                                }
+                                
+                                // Handle play/pause button click
+                                playPauseButton.addEventListener('click', function() {
+                                  if (video.paused) {
+                                    video.play().catch(function(error) {
+                                      console.log('Play failed:', error);
+                                    });
+                                  } else {
+                                    video.pause();
+                                    // When paused, return to photo view
+                                    if (window.ReactNativeWebView) {
+                                      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'videoPaused' }));
+                                    }
+                                  }
+                                  updateButton();
+                                });
+                                
+                                // Update button when video state changes
+                                video.addEventListener('play', updateButton);
+                                video.addEventListener('pause', updateButton);
+                                
+                                // Unmute and play when video can play
+                                video.addEventListener('canplay', function() {
+                                  video.muted = false;
+                                  video.play().catch(function(error) {
+                                    console.log('Autoplay prevented:', error);
+                                    updateButton();
+                                  });
+                                  updateButton();
+                                });
+                                
+                                // Handle video end - return to photo view
+                                video.addEventListener('ended', function() {
+                                  if (window.ReactNativeWebView) {
+                                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'videoEnded' }));
+                                  }
+                                });
+                                
+                                
+                                // Try to play immediately
+                                video.play().catch(function(error) {
+                                  console.log('Initial play failed:', error);
+                                  updateButton();
+                                });
+                                
+                                // Initial button state
+                                updateButton();
+                              }
+                            })();
+                          </script>
+                        </body>
+                      </html>
+                    `
+                  }}
+                  style={styles.video}
+                  allowsFullscreen={false}
+                  mediaPlaybackRequiresUserAction={false}
+                  allowsInlineMediaPlayback={true}
+                  onError={(syntheticEvent) => {
+                    const { nativeEvent } = syntheticEvent
+                    console.error("[welcome-1] WebView error:", nativeEvent)
+                    setIsVideoPlaying(false)
+                  }}
+                  onLoad={() => {
+                    console.log("[welcome-1] WebView video loaded")
+                  }}
+                  onMessage={(event) => {
+                    // Handle messages from WebView
+                    try {
+                      const message = JSON.parse(event.nativeEvent.data)
+                      if (message.type === 'videoEnded' || message.type === 'videoPaused') {
+                        setIsVideoPlaying(false)
+                      }
+                    } catch (error) {
+                      console.log("[welcome-1] WebView message:", event.nativeEvent.data)
+                    }
+                  }}
+                />
+              </>
             )}
           </View>
         </View>

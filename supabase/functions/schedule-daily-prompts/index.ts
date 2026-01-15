@@ -6,6 +6,12 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 }
 
+// Helper function to check if a date string (YYYY-MM-DD) is a Sunday
+function isSunday(dateString: string): boolean {
+  const date = new Date(dateString + "T00:00:00") // Parse as local date
+  return date.getDay() === 0 // 0 = Sunday
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders })
@@ -134,7 +140,39 @@ serve(async (req) => {
       }
 
       // ========================================================================
-      // PRIORITY 2: CUSTOM QUESTIONS
+      // PRIORITY 2: SUNDAY JOURNAL QUESTION
+      // ========================================================================
+      // On Sundays, schedule the Journal prompt (weekly photo journal)
+      // This takes priority over regular scheduling but not birthdays
+      // CRITICAL: Only schedule for today (future Sundays will be handled when they become today)
+      // This prevents overwriting past Sunday prompts
+      if (isSunday(today)) {
+        // Get the Journal prompt
+        const { data: journalPrompt } = await supabaseClient
+          .from("prompts")
+          .select("id")
+          .eq("category", "Journal")
+          .limit(1)
+          .maybeSingle()
+
+        if (journalPrompt) {
+          // Schedule Journal prompt for today (only)
+          await supabaseClient.from("daily_prompts").insert({
+            group_id: group.id,
+            prompt_id: journalPrompt.id,
+            date: today,
+          })
+
+          results.push({
+            group_id: group.id,
+            status: "journal_scheduled",
+          })
+          continue // Skip all other scheduling - Sunday is Journal day
+        }
+      }
+
+      // ========================================================================
+      // PRIORITY 3: CUSTOM QUESTIONS
       // ========================================================================
       // Check for custom question scheduled for today
       const { data: customQuestion } = await supabaseClient

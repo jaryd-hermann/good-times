@@ -13,6 +13,7 @@ import {
   TouchableOpacity,
   Keyboard,
   Modal,
+  Animated,
 } from "react-native"
 import { FontAwesome } from "@expo/vector-icons"
 import * as Linking from "expo-linking"
@@ -374,8 +375,10 @@ export default function OnboardingAuth() {
   const [confirmPassword, setConfirmPassword] = useState("")
   const [continueLoading, setContinueLoading] = useState(false)
   const [oauthLoading, setOauthLoading] = useState<OAuthProvider | null>(null)
+  const [showOAuthLoadingScreen, setShowOAuthLoadingScreen] = useState(false)
   const oauthProcessingRef = useRef(false) // Prevent duplicate processing
   const oauthTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const oauthRotateAnim = useRef(new Animated.Value(0)).current
   const [persisting, setPersisting] = useState(false)
   const insets = useSafeAreaInsets()
   const posthog = usePostHog()
@@ -391,6 +394,7 @@ export default function OnboardingAuth() {
   const [emailFocused, setEmailFocused] = useState(false)
   const [passwordFocusedInput, setPasswordFocusedInput] = useState(false)
   const [confirmPasswordFocusedInput, setConfirmPasswordFocusedInput] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   // CRITICAL: Check if user already has a valid session - if so, redirect to home
   // This prevents the "Already Signed In" modal loop when user has session but AuthProvider user load timed out
@@ -483,6 +487,25 @@ export default function OnboardingAuth() {
       keyboardWillHide.remove()
     }
   }, [])
+
+  // OAuth loading screen rotation animation
+  useEffect(() => {
+    if (showOAuthLoadingScreen) {
+      // Start rotation animation
+      const rotateAnimation = Animated.loop(
+        Animated.timing(oauthRotateAnim, {
+          toValue: 1,
+          duration: 2000,
+          useNativeDriver: true,
+        })
+      )
+      rotateAnimation.start()
+      return () => {
+        rotateAnimation.stop()
+        oauthRotateAnim.setValue(0)
+      }
+    }
+  }, [showOAuthLoadingScreen])
 
   const persistOnboarding = useCallback(
     async (userId: string, sessionOverride?: any) => {
@@ -1079,7 +1102,7 @@ export default function OnboardingAuth() {
 
           oauthProcessingRef.current = false
           setOauthLoading(null)
-          Alert.alert("Sign-in Failed", userMessage)
+          setErrorMessage(userMessage)
           return
         }
 
@@ -1166,21 +1189,21 @@ export default function OnboardingAuth() {
               console.error("[OAuth] Polling failed:", pollError)
               oauthProcessingRef.current = false
               setOauthLoading(null)
-              Alert.alert("Error", "Failed to complete sign-in. Please try again.")
+              setErrorMessage("Failed to complete sign-in. Please try again.")
             }
             return
           } else {
             console.error("[OAuth] Missing tokens in URL hash")
             oauthProcessingRef.current = false
             setOauthLoading(null)
-            Alert.alert("Error", "Failed to complete sign-in. Missing authentication tokens.")
+            setErrorMessage("Failed to complete sign-in. Missing authentication tokens.")
             return
           }
         } else {
           console.error("[OAuth] No hash fragment in URL")
           oauthProcessingRef.current = false
           setOauthLoading(null)
-          Alert.alert("Error", "Failed to complete sign-in. Invalid redirect URL.")
+          setErrorMessage("Failed to complete sign-in. Invalid redirect URL.")
           return
         }
       }
@@ -1571,7 +1594,9 @@ export default function OnboardingAuth() {
         }
         console.error(`[OAuth] Error getting OAuth URL:`, error)
         setOauthLoading(null)
-        Alert.alert("Error", error.message || `Failed to start ${provider} sign-in. Please try again.`)
+        setShowOAuthLoadingScreen(false)
+        oauthProcessingRef.current = false
+        setErrorMessage(error.message || `Failed to start Google sign-in. Please try again.`)
         return
       }
 
@@ -1582,7 +1607,9 @@ export default function OnboardingAuth() {
         }
         console.error(`[OAuth] No URL returned from Supabase`)
         setOauthLoading(null)
-        Alert.alert("Error", `Failed to get ${provider} sign-in URL. Please try again.`)
+        setShowOAuthLoadingScreen(false)
+        oauthProcessingRef.current = false
+        setErrorMessage(`Failed to get Google sign-in URL. Please try again.`)
         return
       }
 
@@ -1617,6 +1644,10 @@ export default function OnboardingAuth() {
       }
 
       if (result.type === "success" && result.url) {
+        // Show full-screen loading immediately when browser redirects back
+        // This prevents user interaction during OAuth processing
+        setShowOAuthLoadingScreen(true)
+        
         // Parse the URL to extract tokens
         const url = result.url
         console.log(`[OAuth] ✅ Success! Parsing URL (length: ${url.length})`)
@@ -1639,7 +1670,9 @@ export default function OnboardingAuth() {
           }
 
           setOauthLoading(null)
-          Alert.alert("Sign-in Failed", userMessage)
+          setShowOAuthLoadingScreen(false)
+          oauthProcessingRef.current = false
+          setErrorMessage(userMessage)
           return
         }
 
@@ -1907,31 +1940,38 @@ export default function OnboardingAuth() {
               subscription.unsubscribe() // Clean up listener
               oauthProcessingRef.current = false
               setOauthLoading(null)
-              Alert.alert("Error", "Failed to complete sign-in. Please try again.")
+              setShowOAuthLoadingScreen(false)
+              setErrorMessage("Failed to complete sign-in. Please try again.")
               return
             }
           } else {
             console.error(`[OAuth] Missing tokens in hash fragment`)
             setOauthLoading(null)
-            Alert.alert("Error", "Failed to complete sign-in. Missing authentication tokens.")
+            setShowOAuthLoadingScreen(false)
+            oauthProcessingRef.current = false
+            setErrorMessage("Failed to complete sign-in. Missing authentication tokens.")
             return
           }
         } else {
           console.error(`[OAuth] No hash fragment in URL`)
           setOauthLoading(null)
-          Alert.alert("Error", "Failed to complete sign-in. Invalid redirect URL.")
+          setShowOAuthLoadingScreen(false)
+          oauthProcessingRef.current = false
+          setErrorMessage("Failed to complete sign-in. Invalid redirect URL.")
           return
         }
       } else if (result.type === "cancel") {
         console.log(`[OAuth] User cancelled`)
         setOauthLoading(null)
+        setShowOAuthLoadingScreen(false)
         oauthProcessingRef.current = false
         // Don't show alert for user cancellation
       } else {
         console.error(`[OAuth] Unexpected result type:`, result.type)
         setOauthLoading(null)
+        setShowOAuthLoadingScreen(false)
         oauthProcessingRef.current = false
-        Alert.alert("Error", "Sign-in was cancelled or failed. Please try again.")
+        setErrorMessage("Sign-in was cancelled or failed. Please try again.")
       }
     } catch (error: any) {
       if (oauthTimeoutRef.current) {
@@ -1941,25 +1981,26 @@ export default function OnboardingAuth() {
       console.error(`[OAuth] Failed:`, error)
       oauthProcessingRef.current = false
       setOauthLoading(null)
+      setShowOAuthLoadingScreen(false)
 
       // Extract error message safely
-      let errorMessage = `Failed to sign in with ${provider}. Please try again.`
+      let errorMsg = `Failed to sign in with Google. Please try again.`
       if (error && typeof error === 'object') {
         if (error.message) {
-          errorMessage = error.message
+          errorMsg = error.message
         } else if (error.error_description) {
-          errorMessage = error.error_description
+          errorMsg = error.error_description
         } else if (typeof error.toString === 'function') {
           const errorStr = error.toString()
           if (errorStr !== '[object Object]') {
-            errorMessage = errorStr
+            errorMsg = errorStr
           }
         }
       } else if (typeof error === 'string') {
-        errorMessage = error
+        errorMsg = error
       }
 
-      Alert.alert("Error", errorMessage)
+      setErrorMessage(errorMsg)
     }
   }
 
@@ -1971,6 +2012,7 @@ export default function OnboardingAuth() {
       // Clear spinner and reset processing ref immediately
       oauthProcessingRef.current = false
       setOauthLoading(null)
+      // Keep loading screen visible until navigation happens
 
       // Save biometric credentials if enabled
       const biometricEnabled = await getBiometricPreference()
@@ -1988,12 +2030,15 @@ export default function OnboardingAuth() {
       // We check to see if this is a returning user or a new user
       console.log(`[OAuth] Checking if user has completed onboarding (profile exists)...`)
       
+      // Determine if this is a login flow (no onboarding data) vs registration flow (has onboarding data)
+      const isLoginFlow = !data.userName && !data.userBirthday && !data.groupName && !data.groupType
+      
       // Add timeout protection to database query
       const userQueryPromise = (supabase
         .from("users") as any)
-        .select("name, birthday")
+        .select("name, birthday, id")
         .eq("id", session.user.id)
-        .maybeSingle() as Promise<{ data: Pick<User, "name" | "birthday"> | null, error: any }>
+        .maybeSingle() as Promise<{ data: Pick<User, "name" | "birthday"> & { id: string } | null, error: any }>
       
       const userQueryTimeout = new Promise<{ data: null, error: { message: string, timeout: boolean } }>((resolve) => {
         setTimeout(() => {
@@ -2010,19 +2055,47 @@ export default function OnboardingAuth() {
       const queryDuration = Date.now() - queryStartTime
       console.log(`[OAuth] User profile query completed (took ${queryDuration}ms)`)
       
-      // If query fails or times out, assume new user and proceed with onboarding
+      // If query fails or times out, for login flow, try checking by email as fallback
+      // This handles cases where account linking might have created a new user ID
       let userProfile = user
       if (userError) {
         const isTimeout = (userError as any).timeout === true
         console.warn(`[OAuth] User profile query ${isTimeout ? 'timed out' : 'failed'}:`, userError)
         
-        if (isTimeout) {
-          console.log(`[OAuth] Query timed out - assuming new user and proceeding with onboarding`)
+        if (isTimeout && isLoginFlow && session.user.email) {
+          // For login flow, if query times out, try checking by email
+          // Account linking might have created a new user ID, so check by email
+          console.log(`[OAuth] Login flow - profile query timed out, checking by email as fallback...`)
+          try {
+            const { data: userByEmail } = await supabase
+              .from("users")
+              .select("name, birthday, id")
+              .eq("email", session.user.email)
+              .maybeSingle()
+            
+            if (userByEmail) {
+              console.log(`[OAuth] Found user profile by email - account linking may have created new user ID`)
+              console.log(`[OAuth] Email-based user ID: ${userByEmail.id}, OAuth user ID: ${session.user.id}`)
+              // Use the email-based profile
+              userProfile = userByEmail
+            } else {
+              console.log(`[OAuth] No user found by email either - treating as new user`)
+              userProfile = null
+            }
+          } catch (emailCheckError) {
+            console.warn(`[OAuth] Email-based fallback check failed:`, emailCheckError)
+            userProfile = null
+          }
         } else {
-          console.warn(`[OAuth] Query error (non-timeout) - proceeding as new user:`, userError)
+          // For registration flow or if no email, assume new user
+          if (isTimeout) {
+            console.log(`[OAuth] Query timed out - assuming new user and proceeding with onboarding`)
+          } else {
+            console.warn(`[OAuth] Query error (non-timeout) - proceeding as new user:`, userError)
+          }
+          // Set userProfile to null to trigger new user flow
+          userProfile = null
         }
-        // Set userProfile to null to trigger new user flow
-        userProfile = null
       }
       
       console.log(`[OAuth] User profile query result:`, {
@@ -2050,6 +2123,7 @@ export default function OnboardingAuth() {
       } catch (profileError: any) {
         // Profile creation failure is critical - cannot proceed
         console.error("[OAuth] ❌ Critical: Profile creation failed:", profileError)
+        setShowOAuthLoadingScreen(false) // Hide loading screen before showing error
         Alert.alert(
           "Account Setup Error",
           "Failed to create your profile. Please try signing in again or contact support if the problem persists.",
@@ -2093,6 +2167,7 @@ export default function OnboardingAuth() {
         if (joinedGroup) {
           // User just joined a group - go to welcome-post-auth
           console.log(`[OAuth] ✅ User joined group, navigating to welcome-post-auth`)
+          setShowOAuthLoadingScreen(false) // Hide loading screen before navigation
           router.replace("/(onboarding)/welcome-post-auth")
           return
         } else if (data.groupName && data.groupType && data.userName && data.userBirthday) {
@@ -2142,6 +2217,7 @@ export default function OnboardingAuth() {
             })
             
             // Pass the session we already have to avoid another getSession() call
+            setShowOAuthLoadingScreen(false) // Hide loading screen before navigation
             await persistOnboarding(session.user.id, session)
             // persistOnboarding will navigate to invite screen
             console.log(`[OAuth] ✅ persistOnboarding completed successfully`)
@@ -2154,6 +2230,7 @@ export default function OnboardingAuth() {
               stack: persistError?.stack
             })
             // Show error to user
+            setShowOAuthLoadingScreen(false) // Hide loading screen before showing error
             Alert.alert(
               "Error",
               persistError?.message || "Failed to complete sign-up. Please try again."
@@ -2171,6 +2248,7 @@ export default function OnboardingAuth() {
             groupType: !data.groupType
           })
           console.warn(`[OAuth] Navigating back to About screen to complete onboarding`)
+          setShowOAuthLoadingScreen(false) // Hide loading screen before navigation
           router.replace("/(onboarding)/about")
           return
         }
@@ -2178,6 +2256,9 @@ export default function OnboardingAuth() {
 
       // User has profile - this is an EXISTING user
       console.log(`[OAuth] Existing user detected (has profile) - checking group membership...`)
+      
+      // isLoginFlow was already declared above - reuse it
+      console.log(`[OAuth] Flow type: ${isLoginFlow ? 'LOGIN' : 'REGISTRATION'}`)
       
       // Add timeout protection to group membership query
       const membershipQueryPromise = supabase
@@ -2198,69 +2279,147 @@ export default function OnboardingAuth() {
       
       const { data: membership, error: membershipError } = await Promise.race([membershipQueryPromise, membershipQueryTimeout])
       
+      let hasGroup = false
       if (membershipError) {
         const isTimeout = (membershipError as any).timeout === true
         console.warn(`[OAuth] Group membership query ${isTimeout ? 'timed out' : 'failed'}:`, membershipError)
         
-        if (isTimeout) {
-          // If query times out, assume they don't have a group and proceed with onboarding
-          console.log(`[OAuth] Group query timed out - assuming no group, proceeding with onboarding`)
-          const membership = null
+        if (isTimeout && isLoginFlow) {
+          // For login flow, if query times out, try checking by email as fallback
+          // This handles cases where account linking might have created a new user ID
+          console.log(`[OAuth] Login flow - group query timed out, checking by email as fallback...`)
+          if (session.user.email) {
+            try {
+              // Find user by email, then check their group membership
+              const { data: userByEmail } = await supabase
+                .from("users")
+                .select("id")
+                .eq("email", session.user.email)
+                .maybeSingle()
+              
+              if (userByEmail) {
+                // Check group membership with the email-based user ID (might be different from OAuth user ID)
+                const { data: emailMembership } = await supabase
+                  .from("group_members")
+                  .select("group_id")
+                  .eq("user_id", userByEmail.id)
+                  .limit(1)
+                  .maybeSingle()
+                hasGroup = !!emailMembership
+                if (hasGroup) {
+                  console.log(`[OAuth] ✅ Found group membership with email-based user ID: ${userByEmail.id}`)
+                  if (userByEmail.id !== session.user.id) {
+                    console.log(`[OAuth] ⚠️ Account linking created new user ID. OAuth ID: ${session.user.id}, Email-based ID: ${userByEmail.id}`)
+                    // TODO: This is a problem - we have a group under a different user ID
+                    // For now, we'll still route to home, but this indicates account linking didn't work correctly
+                  }
+                } else {
+                  console.log(`[OAuth] No group found with email-based user ID either`)
+                }
+              } else {
+                // No user found by email - retry original query once
+                console.log(`[OAuth] No user found by email, retrying original query...`)
+                const retryResult = await supabase
+                  .from("group_members")
+                  .select("group_id")
+                  .eq("user_id", session.user.id)
+                  .limit(1)
+                  .maybeSingle()
+                hasGroup = !!retryResult.data
+              }
+            } catch (emailCheckError) {
+              console.warn(`[OAuth] Email-based fallback check failed:`, emailCheckError)
+              // Retry original query once as final fallback
+              const retryResult = await supabase
+                .from("group_members")
+                .select("group_id")
+                .eq("user_id", session.user.id)
+                .limit(1)
+                .maybeSingle()
+              hasGroup = !!retryResult.data
+            }
+          } else {
+            // No email available - retry original query once
+            const retryResult = await supabase
+              .from("group_members")
+              .select("group_id")
+              .eq("user_id", session.user.id)
+              .limit(1)
+              .maybeSingle()
+            hasGroup = !!retryResult.data
+          }
         } else {
-          // For other errors, also assume no group
-          console.warn(`[OAuth] Group query error - assuming no group:`, membershipError)
-          const membership = null
+          // For registration flow or non-timeout errors, assume no group
+          console.log(`[OAuth] ${isLoginFlow ? 'Login' : 'Registration'} flow - group query ${isTimeout ? 'timed out' : 'failed'}, assuming no group`)
+          hasGroup = false
         }
+      } else {
+        hasGroup = !!membership
       }
       
       console.log(`[OAuth] Group membership result:`, {
-        hasMembership: !!membership,
-        groupId: (membership as any)?.group_id
+        hasMembership: hasGroup || joinedGroup,
+        groupId: (membership as any)?.group_id,
+        joinedGroup,
+        isLoginFlow
       })
 
-      if (membership || joinedGroup) {
-          // OAuth sign-in should ALWAYS go to home - never show onboarding screens
-          // Onboarding screens are only shown during registration flow (after group creation)
-          // Check if this is a registration flow (user has onboarding data)
-          const isRegistration = !!(data.userName && data.userBirthday)
+      if (hasGroup || joinedGroup) {
+        // User has a group - route based on flow type
+        if (isLoginFlow) {
+          // LOGIN FLOW: Always go to home if user has group
+          console.log(`[OAuth] ✅ Login flow with group, navigating to home`)
+          setShowOAuthLoadingScreen(false) // Hide loading screen before navigation
+          router.replace("/(main)/home")
+          return
+        } else {
+          // REGISTRATION FLOW: Check if user needs onboarding
+          const onboardingKey = getPostAuthOnboardingKey(session.user.id)
+          const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
           
-          console.log(`[OAuth] User has group. isRegistration: ${isRegistration}`)
-
-          if (isRegistration) {
-            // This is registration flow - check if user needs onboarding
-            const onboardingKey = getPostAuthOnboardingKey(session.user.id)
-            const hasCompletedPostAuth = await AsyncStorage.getItem(onboardingKey)
-            
-            console.log(`[OAuth] Registration flow. hasCompletedPostAuth: ${!!hasCompletedPostAuth}`)
-            
-            if (!hasCompletedPostAuth) {
-              // New user in registration flow who hasn't completed onboarding
-              console.log(`[OAuth] Registration flow without completed onboarding, navigating to welcome-post-auth`)
-              router.replace("/(onboarding)/welcome-post-auth")
-            } else {
-              // Registration flow but onboarding already completed
-              console.log(`[OAuth] Registration flow with completed onboarding, navigating to home`)
-              router.replace("/(main)/home")
-            }
+          console.log(`[OAuth] Registration flow. hasCompletedPostAuth: ${!!hasCompletedPostAuth}`)
+          
+          if (!hasCompletedPostAuth) {
+            // New user in registration flow who hasn't completed onboarding
+            console.log(`[OAuth] Registration flow without completed onboarding, navigating to welcome-post-auth`)
+            setShowOAuthLoadingScreen(false) // Hide loading screen before navigation
+            router.replace("/(onboarding)/welcome-post-auth")
           } else {
-            // This is sign-in flow - always go to home, never show onboarding
-            console.log(`[OAuth] Sign-in flow with group, navigating to home`)
+            // Registration flow but onboarding already completed
+            console.log(`[OAuth] Registration flow with completed onboarding, navigating to home`)
+            setShowOAuthLoadingScreen(false) // Hide loading screen before navigation
             router.replace("/(main)/home")
           }
-        } else {
-          // Existing user without group
-          if (joinedGroup) {
-            // Just joined a group - go to welcome-post-auth
-            console.log(`[OAuth] User just joined group, navigating to welcome-post-auth`)
-            router.replace("/(onboarding)/welcome-post-auth")
-          } else if (data.groupName && data.groupType) {
-            console.log(`[OAuth] Has onboarding data, calling persistOnboarding`)
-            await persistOnboarding(session.user.id, session)
-          } else {
-            console.log(`[OAuth] No onboarding data, navigating to create-group/name-type`)
-            router.replace("/(onboarding)/create-group/name-type")
-          }
+          return
         }
+      } else {
+        // Existing user without group
+        if (joinedGroup) {
+          // Just joined a group - go to welcome-post-auth
+          console.log(`[OAuth] User just joined group, navigating to welcome-post-auth`)
+          setShowOAuthLoadingScreen(false) // Hide loading screen before navigation
+          router.replace("/(onboarding)/welcome-post-auth")
+          return
+        } else if (isLoginFlow) {
+          // LOGIN FLOW: User exists but has no group - they need to create one
+          console.log(`[OAuth] Login flow - existing user without group, navigating to create-group/name-type`)
+          setShowOAuthLoadingScreen(false) // Hide loading screen before navigation
+          router.replace("/(onboarding)/create-group/name-type")
+          return
+        } else if (data.groupName && data.groupType) {
+          // REGISTRATION FLOW: Has onboarding data, create group
+          console.log(`[OAuth] Registration flow - has onboarding data, calling persistOnboarding`)
+          setShowOAuthLoadingScreen(false) // Hide loading screen before navigation
+          await persistOnboarding(session.user.id, session)
+          return
+        } else {
+          // REGISTRATION FLOW: Missing onboarding data - shouldn't happen, but handle gracefully
+          console.log(`[OAuth] Registration flow - no onboarding data, navigating to create-group/name-type`)
+          setShowOAuthLoadingScreen(false) // Hide loading screen before navigation
+          router.replace("/(onboarding)/create-group/name-type")
+          return
+        }
+      }
       
       console.log(`[OAuth] handleOAuthSuccess completed successfully`)
     } catch (error: any) {
@@ -2275,6 +2434,7 @@ export default function OnboardingAuth() {
       })
       oauthProcessingRef.current = false
       setOauthLoading(null)
+      setShowOAuthLoadingScreen(false)
       
       const errorMessage = error?.message || error?.error_description || "Failed to complete sign-in. Please try again."
       console.error("[OAuth] Showing error alert:", errorMessage)
@@ -2282,8 +2442,33 @@ export default function OnboardingAuth() {
     }
   }
 
+  // OAuth loading screen rotation interpolation
+  const oauthSpin = oauthRotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  })
+
   return (
     <View style={styles.background}>
+      {/* OAuth Loading Screen - Full screen overlay during OAuth processing */}
+      {showOAuthLoadingScreen && (
+        <View style={styles.oauthLoadingContainer}>
+          <Animated.View
+            style={[
+              styles.oauthLoadingIconContainer,
+              {
+                transform: [{ rotate: oauthSpin }],
+              },
+            ]}
+          >
+            <Image
+              source={require("../../assets/images/loading.png")}
+              style={styles.oauthLoadingIcon}
+              resizeMode="contain"
+            />
+          </Animated.View>
+        </View>
+      )}
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "padding"}
         style={styles.flex}
@@ -2296,6 +2481,18 @@ export default function OnboardingAuth() {
           showsVerticalScrollIndicator={false}
           keyboardDismissMode="on-drag"
         >
+          {/* Error Message Toast */}
+          {errorMessage && (
+            <View style={styles.errorToast}>
+              <Text style={styles.errorToastText}>{errorMessage}</Text>
+              <TouchableOpacity
+                onPress={() => setErrorMessage(null)}
+                style={styles.errorToastClose}
+              >
+                <FontAwesome name="times" size={14} color={theme2Colors.white} />
+              </TouchableOpacity>
+            </View>
+          )}
           <View
             style={[
               styles.container,
@@ -2481,41 +2678,55 @@ export default function OnboardingAuth() {
                 )}
               </View>
 
-              <TouchableOpacity
-                onPress={handleContinue}
-                disabled={continueLoading || persisting}
-                style={styles.primaryButton}
-              >
-                {continueLoading || persisting ? (
-                  <Text style={styles.primaryButtonText}>Loading...</Text>
-                ) : (
-                  <Text style={styles.primaryButtonText}>Continue →</Text>
-                )}
-              </TouchableOpacity>
+              {/* Only show Continue button if all fields are filled */}
+              {(email.trim().length > 0 && password.length > 0 && (isRegistrationFlow ? confirmPassword.length > 0 : true)) && (
+                <TouchableOpacity
+                  onPress={handleContinue}
+                  disabled={continueLoading || persisting}
+                  style={styles.primaryButton}
+                >
+                  {continueLoading || persisting ? (
+                    <Text style={styles.primaryButtonText}>Loading...</Text>
+                  ) : (
+                    <Text style={styles.primaryButtonText}>Continue →</Text>
+                  )}
+                </TouchableOpacity>
+              )}
 
-              {/* OAuth buttons temporarily disabled - commented out until OAuth is fixed */}
-              {/* <View style={styles.divider}>
+              {/* Divider */}
+              <View style={styles.divider}>
                 <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>or continue with</Text>
+                <Text style={styles.dividerText}>or</Text>
                 <View style={styles.dividerLine} />
               </View>
 
-              <View style={styles.socialRow}>
-                <Button
-                  title="Google"
-                  onPress={() => handleOAuthSignIn("google")}
-                  loading={oauthLoading === "google" || persisting}
-                  variant="ghost"
-                  style={styles.socialButton}
-                />
-                <Button
-                  title="Apple"
-                  onPress={() => handleOAuthSignIn("apple")}
-                  loading={oauthLoading === "apple" || persisting}
-                  variant="ghost"
-                  style={styles.socialButton}
-                />
-              </View> */}
+              {/* Google Sign-In Button */}
+              <TouchableOpacity
+                onPress={() => {
+                  setErrorMessage(null) // Clear any previous errors
+                  handleOAuthSignIn("google")
+                }}
+                disabled={oauthLoading === "google" || persisting || continueLoading}
+                style={[
+                  styles.googleButton,
+                  (oauthLoading === "google" || persisting || continueLoading) && styles.googleButtonDisabled
+                ]}
+                activeOpacity={0.8}
+              >
+                {oauthLoading === "google" ? (
+                  <Text style={styles.googleButtonText}>Loading...</Text>
+                ) : (
+                  <>
+                    {/* Google Logo */}
+                    <Image
+                      source={require("../../assets/images/google.jpg")}
+                      style={styles.googleLogo}
+                      resizeMode="contain"
+                    />
+                    <Text style={styles.googleButtonText}>Continue with Google</Text>
+                  </>
+                )}
+              </TouchableOpacity>
             </View>
           </View>
         </ScrollView>
@@ -2857,6 +3068,98 @@ const styles = StyleSheet.create({
     fontFamily: "Roboto-Bold",
     fontSize: 18,
     color: theme2Colors.white,
+  },
+  errorToast: {
+    backgroundColor: theme2Colors.red,
+    borderRadius: 12,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderColor: theme2Colors.text,
+  },
+  errorToastText: {
+    fontFamily: "Roboto-Regular",
+    fontSize: 14,
+    color: theme2Colors.white,
+    flex: 1,
+    marginRight: spacing.sm,
+  },
+  errorToastClose: {
+    padding: spacing.xs,
+  },
+  divider: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: spacing.md,
+    gap: spacing.sm,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: theme2Colors.textSecondary,
+    opacity: 0.3,
+  },
+  dividerText: {
+    fontFamily: "Roboto-Regular",
+    fontSize: 14,
+    color: theme2Colors.textSecondary,
+    paddingHorizontal: spacing.sm,
+  },
+  googleButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme2Colors.white,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: theme2Colors.text,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    minHeight: 56,
+    gap: spacing.sm,
+  },
+  googleButtonDisabled: {
+    opacity: 0.6,
+  },
+  googleButtonText: {
+    fontFamily: "Roboto-Bold",
+    fontSize: 18,
+    color: theme2Colors.text,
+  },
+  googleLogo: {
+    width: 20,
+    height: 20,
+  },
+  oauthLoadingContainer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: theme2Colors.beige,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 9999,
+  },
+  oauthLoadingIconContainer: {
+    width: 120,
+    height: 120,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  oauthLoadingIcon: {
+    width: 120,
+    height: 120,
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
   },
 })
 

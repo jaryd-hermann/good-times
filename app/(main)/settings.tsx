@@ -27,6 +27,7 @@ import { Avatar } from "../../components/Avatar"
 import { FontAwesome } from "@expo/vector-icons"
 import { usePostHog } from "posthog-react-native"
 import { captureEvent } from "../../lib/posthog"
+import { getTodayDate } from "../../lib/utils"
 import {
   isBiometricAvailable,
   getBiometricType,
@@ -996,6 +997,107 @@ export default function SettingsScreen() {
                   await AsyncStorage.setItem("dev_show_app_review_modal", "true")
                   // Navigate to home
                   router.push("/(main)/home")
+                }}
+                variant="secondary"
+              />
+            </View>
+
+            {/* Sunday Journal Dev Tool */}
+            <View style={[styles.profileCard, { marginTop: spacing.md }]}>
+              <View style={styles.profileCardContent}>
+                <View style={styles.profileCardIcon}>
+                  <FontAwesome name="camera" size={20} color={theme2Colors.white} />
+                </View>
+                <View style={styles.profileCardText}>
+                  <Text style={styles.profileCardTitle}>Sunday Journal</Text>
+                  <Text style={styles.profileCardSubtitle}>Test the weekly photo journal prompt</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.actions}>
+              <Button
+                title="Open Sunday Journal Composer"
+                onPress={async () => {
+                  try {
+                    if (!primaryGroupId) {
+                      Alert.alert("Error", "No group found. Please join a group first.")
+                      return
+                    }
+
+                    // Get the Journal prompt
+                    const { data: journalPrompt, error: promptError } = await supabase
+                      .from("prompts")
+                      .select("id")
+                      .eq("category", "Journal")
+                      .limit(1)
+                      .maybeSingle()
+
+                    if (promptError || !journalPrompt) {
+                      Alert.alert("Error", "Journal prompt not found. Please run the migration first.")
+                      return
+                    }
+
+                    const todayDate = getTodayDate()
+
+                    // Check if daily_prompt already exists for today
+                    const { data: existingPrompt } = await supabase
+                      .from("daily_prompts")
+                      .select("id")
+                      .eq("group_id", primaryGroupId)
+                      .eq("date", todayDate)
+                      .is("user_id", null)
+                      .maybeSingle()
+
+                    // Create or update daily_prompt for today with Journal prompt
+                    if (existingPrompt) {
+                      // Update existing prompt
+                      const { error: updateError } = await supabase
+                        .from("daily_prompts")
+                        .update({ prompt_id: journalPrompt.id })
+                        .eq("id", existingPrompt.id)
+
+                      if (updateError) {
+                        console.error("[settings] Failed to update daily_prompt:", updateError)
+                        Alert.alert("Error", "Failed to update Journal prompt. Please try again.")
+                        return
+                      }
+                    } else {
+                      // Create new prompt
+                      const { error: insertError } = await supabase
+                        .from("daily_prompts")
+                        .insert({
+                          group_id: primaryGroupId,
+                          prompt_id: journalPrompt.id,
+                          date: todayDate,
+                          user_id: null, // General prompt
+                        })
+
+                      if (insertError) {
+                        console.error("[settings] Failed to create daily_prompt:", insertError)
+                        Alert.alert("Error", "Failed to schedule Journal prompt. Please try again.")
+                        return
+                      }
+                    }
+
+                    // Invalidate queries to refresh home screen
+                    queryClient.invalidateQueries({ queryKey: ["dailyPrompt", primaryGroupId], exact: false })
+                    queryClient.invalidateQueries({ queryKey: ["entries", primaryGroupId], exact: false })
+
+                    // Navigate to entry composer
+                    router.push({
+                      pathname: "/(main)/modals/entry-composer",
+                      params: {
+                        promptId: journalPrompt.id,
+                        date: todayDate,
+                        groupId: primaryGroupId,
+                        returnTo: "/(main)/home",
+                      },
+                    })
+                  } catch (error: any) {
+                    console.error("[settings] Error opening Sunday Journal composer:", error)
+                    Alert.alert("Error", error.message || "Failed to open Sunday Journal composer")
+                  }
                 }}
                 variant="secondary"
               />

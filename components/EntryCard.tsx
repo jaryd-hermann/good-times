@@ -350,8 +350,16 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   })
 
   // Personalize prompt question if it has placeholders
+  // For Journal prompts, show "X's weekly photo journal" instead of the question
   const personalizedQuestion = useMemo(() => {
     if (!entry.prompt?.question) return entry.prompt?.question
+    
+    // For Journal category, show "X's weekly photo journal"
+    if (entry.prompt.category === "Journal") {
+      const userName = entry.user?.name || "Their"
+      return `${userName}'s weekly photo journal`
+    }
+    
     let question = entry.prompt.question
     const variables: Record<string, string> = {}
     
@@ -495,7 +503,60 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
 
   const toggleEmojiReactionMutation = useMutation({
     mutationFn: (emoji: string) => toggleEmojiReaction(entry.id, userId!, emoji),
-    onSuccess: () => {
+    onMutate: async (emoji: string) => {
+      // Cancel any outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: ["reactions", entry.id] })
+
+      // Snapshot the previous value
+      const previousReactions = queryClient.getQueryData<any[]>(["reactions", entry.id]) || []
+
+      // Optimistically update the cache
+      const existingReactionIndex = previousReactions.findIndex(
+        (r) => r.user_id === userId && r.type === emoji
+      )
+      const otherReactionIndex = previousReactions.findIndex(
+        (r) => r.user_id === userId && r.type !== emoji
+      )
+
+      let optimisticReactions: any[]
+
+      if (existingReactionIndex >= 0) {
+        // User already has this emoji - remove it
+        optimisticReactions = previousReactions.filter((_, i) => i !== existingReactionIndex)
+      } else if (otherReactionIndex >= 0) {
+        // User has a different reaction - replace it
+        optimisticReactions = previousReactions.map((reaction, i) =>
+          i === otherReactionIndex
+            ? { ...reaction, type: emoji }
+            : reaction
+        )
+      } else {
+        // User has no reaction - add new one (we'll use a temporary ID)
+        optimisticReactions = [
+          ...previousReactions,
+          {
+            id: `temp-${Date.now()}`,
+            entry_id: entry.id,
+            user_id: userId,
+            type: emoji,
+            user: null, // Will be populated on refetch
+          },
+        ]
+      }
+
+      queryClient.setQueryData(["reactions", entry.id], optimisticReactions)
+
+      // Return context with previous reactions for rollback
+      return { previousReactions }
+    },
+    onError: (err, emoji, context) => {
+      // Rollback on error
+      if (context?.previousReactions) {
+        queryClient.setQueryData(["reactions", entry.id], context.previousReactions)
+      }
+    },
+    onSettled: () => {
+      // Always refetch after error or success to ensure consistency
       queryClient.invalidateQueries({ queryKey: ["reactions", entry.id] })
     },
   })
@@ -855,6 +916,20 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     shadowOpacity: 0.2,
     shadowRadius: 3,
     elevation: 3, // Android shadow
+  },
+  statusBubbleTailBorder: {
+    position: "absolute",
+    bottom: -9,
+    left: 20,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 9,
+    borderRightWidth: 9,
+    borderTopWidth: 9,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: theme2Colors.textSecondary, // Match bubble border color
+    zIndex: -1,
   },
   statusBubbleTail: {
     position: "absolute",
@@ -1357,6 +1432,8 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                 <Text style={styles.statusBubbleText}>
                   {userStatus?.status_text || (isCurrentUser && isToday ? "Today, I am..." : "")}
                 </Text>
+                {/* Speech bubble tail border */}
+                <View style={styles.statusBubbleTailBorder} />
                 <View style={styles.statusBubbleTail} />
               </TouchableOpacity>
             )}

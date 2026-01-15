@@ -41,7 +41,7 @@ import {
   getMyBirthdayCards,
   hasReceivedBirthdayCards,
 } from "../../lib/db"
-import { getTodayDate, getWeekDates, getPreviousDay, utcStringToLocalDate, formatDateAsLocalISO } from "../../lib/utils"
+import { getTodayDate, getWeekDates, getPreviousDay, utcStringToLocalDate, formatDateAsLocalISO, isSunday } from "../../lib/utils"
 import { format, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns"
 import { typography, spacing } from "../../lib/theme"
 import { useTheme } from "../../lib/theme-context"
@@ -335,6 +335,7 @@ export default function Home() {
   const [selectedMembers, setSelectedMembers] = useState<string[]>([])
   const [selectedMemorials, setSelectedMemorials] = useState<string[]>([])
   const [selectedDecks, setSelectedDecks] = useState<string[]>([])
+  const [showWeeklyPhotoJournal, setShowWeeklyPhotoJournal] = useState(false)
   
   // Paginated loading state for Days view (infinite scroll)
   const [loadedDateRanges, setLoadedDateRanges] = useState<string[]>([]) // Array of dates that have been loaded
@@ -2339,6 +2340,25 @@ export default function Home() {
       const isCustom = entry.prompt?.is_custom === true
       const category = isCustom ? "Custom" : (entry.prompt?.category ?? "")
 
+      // Weekly Photo Journal filter - only show Journal entries on Sundays
+      // This filter takes priority - when active, ONLY show Journal category entries on Sundays
+      // This ensures we only show entries from when the Journal question was actually asked
+      // (not prior Sundays that had Standard questions)
+      if (showWeeklyPhotoJournal) {
+        // CRITICAL: This is an exclusive filter - when active, ONLY show matching entries
+        // Must have a prompt with Journal category AND must be a Sunday
+        // Check each condition explicitly to ensure proper filtering
+        const hasPrompt = !!entry.prompt
+        const isJournalCategory = category === "Journal"
+        const isSundayDate = isSunday(entry.date)
+        
+        // Only include entries that meet ALL criteria
+        if (!hasPrompt || !isJournalCategory || !isSundayDate) {
+          return false // Exclude this entry - doesn't match Weekly Photo Journal filter
+        }
+        // Entry passed the Journal + Sunday check - continue to other filters below
+      }
+
       if (selectedCategories.length > 0 && (!category || !selectedCategories.includes(category))) {
         return false
       }
@@ -2392,16 +2412,16 @@ export default function Home() {
       }
       return true
     })
-  }, [entriesWithinPeriod, selectedCategories, selectedMembers, selectedMemorials, selectedDecks, memorials, memorialUsageMap, currentGroupId])
+  }, [entriesWithinPeriod, selectedCategories, selectedMembers, selectedMemorials, selectedDecks, showWeeklyPhotoJournal, memorials, memorialUsageMap, currentGroupId])
 
   // Check if any filters are active (excluding birthday cards filter)
   const hasActiveFilters = useMemo(() => {
-    return selectedCategories.length > 0 || 
+    return showWeeklyPhotoJournal || selectedCategories.length > 0 || 
            selectedMembers.length > 0 || 
            selectedMemorials.length > 0 || 
            selectedDecks.length > 0 ||
            activePeriod !== null
-  }, [selectedCategories, selectedMembers, selectedMemorials, selectedDecks, activePeriod])
+  }, [showWeeklyPhotoJournal, selectedCategories, selectedMembers, selectedMemorials, selectedDecks, activePeriod])
 
   // Mix birthday cards with regular entries (like history.tsx)
   // When showBirthdayCards filter is active, show ONLY birthday cards
@@ -2519,12 +2539,21 @@ export default function Home() {
   // Check if today's prompt matches the active filters
   const promptMatchesFilters = useMemo(() => {
     // If no filters are active, show the prompt
-    if (selectedCategories.length === 0 && selectedMembers.length === 0 && selectedMemorials.length === 0 && selectedDecks.length === 0) {
+    if (!showWeeklyPhotoJournal && selectedCategories.length === 0 && selectedMembers.length === 0 && selectedMemorials.length === 0 && selectedDecks.length === 0) {
       return true
     }
 
     const prompt = dailyPrompt?.prompt
     if (!prompt) return false
+
+    // Weekly Photo Journal filter
+    if (showWeeklyPhotoJournal) {
+      const isCustom = prompt.is_custom === true
+      const category = isCustom ? "Custom" : (prompt.category ?? "")
+      if (category !== "Journal" || !isSunday(selectedDate)) {
+        return false
+      }
+    }
 
     // Check category filter
     if (selectedCategories.length > 0) {
@@ -2577,17 +2606,26 @@ export default function Home() {
     }
 
     return true
-  }, [dailyPrompt?.prompt, dailyPrompt?.prompt_id, selectedDate, selectedCategories, selectedMembers, selectedMemorials, selectedDecks, memorials, memorialUsageMap, currentGroupId])
+  }, [dailyPrompt?.prompt, dailyPrompt?.prompt_id, selectedDate, showWeeklyPhotoJournal, selectedCategories, selectedMembers, selectedMemorials, selectedDecks, memorials, memorialUsageMap, currentGroupId])
 
   // Check if today's prompt matches the active filters (for showing prompt card at top)
   const todayPromptMatchesFilters = useMemo(() => {
     // If no filters are active, show the prompt
-    if (selectedCategories.length === 0 && selectedMembers.length === 0 && selectedMemorials.length === 0 && selectedDecks.length === 0) {
+    if (!showWeeklyPhotoJournal && selectedCategories.length === 0 && selectedMembers.length === 0 && selectedMemorials.length === 0 && selectedDecks.length === 0) {
       return true
     }
 
     const prompt = todayDailyPrompt?.prompt
     if (!prompt) return false
+
+    // Weekly Photo Journal filter
+    if (showWeeklyPhotoJournal) {
+      const isCustom = prompt.is_custom === true
+      const category = isCustom ? "Custom" : (prompt.category ?? "")
+      if (category !== "Journal" || !isSunday(todayDate)) {
+        return false
+      }
+    }
 
     // Check category filter
     if (selectedCategories.length > 0) {
@@ -2640,7 +2678,7 @@ export default function Home() {
     }
 
     return true
-  }, [todayDailyPrompt?.prompt, todayDailyPrompt?.prompt_id, todayDate, selectedCategories, selectedMembers, selectedMemorials, selectedDecks, memorials, memorialUsageMap, currentGroupId])
+  }, [todayDailyPrompt?.prompt, todayDailyPrompt?.prompt_id, todayDate, showWeeklyPhotoJournal, selectedCategories, selectedMembers, selectedMemorials, selectedDecks, memorials, memorialUsageMap, currentGroupId])
 
   // Check if today's question is about the current user (member_name matches userName)
   // CRITICAL: Only check for member_name prompts, not memorial_name
@@ -2759,7 +2797,8 @@ export default function Home() {
         
         // Handle member_name variable - ONLY use prompt_name_usage, NO fallback
         // CRITICAL: Must use the exact name from prompt_name_usage that getDailyPrompt set
-        if (question.match(/\{.*member_name.*\}/i) && dailyPrompt?.prompt_id && selectedDate) {
+        // Skip for Journal category prompts (they don't use member_name)
+        if (question.match(/\{.*member_name.*\}/i) && dailyPrompt?.prompt_id && selectedDate && dailyPrompt?.prompt?.category !== "Journal") {
           const normalizedDate = selectedDate.split('T')[0]
           const usageKey = `${dailyPrompt.prompt_id}-${normalizedDate}`
           const memberNameUsed = memberUsageMap.get(usageKey)
@@ -2772,10 +2811,10 @@ export default function Home() {
               console.warn(`[home] replaceDynamicVariables failed to replace member_name. Question: ${question}, Member: ${memberNameUsed}`)
             }
           } else {
-            // NO FALLBACK - if prompt_name_usage doesn't exist, that's a bug
-            // Log error but don't replace the variable
-            console.error(`[home] CRITICAL: No prompt_name_usage found for member_name. promptId: ${dailyPrompt.prompt_id}, date: ${selectedDate}, groupId: ${currentGroupId}`)
-            // Leave {member_name} as-is - this indicates a bug that needs to be fixed
+            // If prompt_name_usage doesn't exist, this might be a fallback prompt
+            // Log warning instead of error to avoid noise
+            console.warn(`[home] No prompt_name_usage found for member_name (may be fallback prompt). promptId: ${dailyPrompt.prompt_id}, date: ${selectedDate}, groupId: ${currentGroupId}`)
+            // Leave {member_name} as-is - will be filtered out by final check
           }
         }
         
@@ -2854,7 +2893,7 @@ export default function Home() {
       }
       return (data || []) as Array<{ prompt_id: string; date_used: string; name_used: string; created_at: string }>
     },
-    enabled: !!currentGroupId && !!todayPromptId && !!todayDailyPrompt?.prompt?.question?.match(/\{.*member_name.*\}/i),
+    enabled: !!currentGroupId && !!todayPromptId && !!todayDailyPrompt?.prompt?.question?.match(/\{.*member_name.*\}/i) && todayDailyPrompt?.prompt?.category !== "Journal",
     staleTime: 0,
     refetchOnMount: true,
   })
@@ -2958,7 +2997,8 @@ export default function Home() {
         
         // Handle member_name variable - ONLY use prompt_name_usage, NO fallback
         // CRITICAL: Must use the exact name from prompt_name_usage that getDailyPrompt set
-        if (question.match(/\{.*member_name.*\}/i) && todayDailyPrompt?.prompt_id && todayDate) {
+        // Skip for Journal category prompts (they don't use member_name)
+        if (question.match(/\{.*member_name.*\}/i) && todayDailyPrompt?.prompt_id && todayDate && todayDailyPrompt?.prompt?.category !== "Journal") {
           const normalizedDate = todayDate.split('T')[0]
           const usageKey = `${todayDailyPrompt.prompt_id}-${normalizedDate}`
           const memberNameUsed = todayMemberUsageMap.get(usageKey)
@@ -2971,10 +3011,10 @@ export default function Home() {
               console.warn(`[home] replaceDynamicVariables failed to replace member_name. Question: ${question}, Member: ${memberNameUsed}`)
             }
           } else {
-            // NO FALLBACK - if prompt_name_usage doesn't exist, that's a bug
-            // Log error but don't replace the variable
-            console.error(`[home] CRITICAL: No prompt_name_usage found for member_name. promptId: ${todayDailyPrompt.prompt_id}, date: ${todayDate}, groupId: ${currentGroupId}`)
-            // Leave {member_name} as-is - this indicates a bug that needs to be fixed
+            // If prompt_name_usage doesn't exist, this might be a fallback prompt
+            // Log warning instead of error to avoid noise
+            console.warn(`[home] No prompt_name_usage found for member_name (may be fallback prompt). promptId: ${todayDailyPrompt.prompt_id}, date: ${todayDate}, groupId: ${currentGroupId}`)
+            // Leave {member_name} as-is - will be filtered out by final check
           }
         }
         
@@ -5448,6 +5488,20 @@ export default function Home() {
           </View>
         )}
         
+        {showWeeklyPhotoJournal && (
+          <View style={[
+            styles.periodBanner,
+            (!activePeriod && selectedMembers.length === 0 && selectedMemorials.length === 0) && { marginTop: spacing.md }
+          ]}>
+            <View style={styles.periodBannerContent}>
+              <Text style={styles.periodBannerTitle}>Weekly Photo Journal</Text>
+              <Text style={styles.periodBannerSubtitle}>Showing Sunday journal entries</Text>
+            </View>
+            <TouchableOpacity onPress={() => setShowWeeklyPhotoJournal(false)} style={styles.periodBannerAction}>
+              <FontAwesome name="times" size={14} color={theme2Colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+        )}
         {selectedCategories.length > 0 && (
           <View style={styles.periodBanner}>
             <View>
@@ -5968,52 +6022,14 @@ export default function Home() {
               </>
             )}
 
-            <Text style={[styles.modalSection, styles.modalSectionSpacing]}>Question Categories</Text>
-            <View style={styles.selectionGrid}>
-              {categories.map((category, index) => {
-                const isSelected = selectedCategories.includes(category)
-                return (
-                      <TouchableOpacity
-                    key={`category-${category}-${index}`}
-                    style={[styles.selectionCard, isSelected && styles.selectionCardActive]}
-                    onPress={() =>
-                      setSelectedCategories((prev) =>
-                        prev.includes(category) ? prev.filter((c) => c !== category) : [...prev, category],
-                      )
-                    }
-                  >
-                    <Text style={styles.selectionLabel}>{category}</Text>
-                      </TouchableOpacity>
-                )
-              })}
-            </View>
-
-            {/* Decks filter - only show if group has active decks */}
-            {availableDecks.length > 0 && (
-              <>
-                <Text style={[styles.modalSection, styles.modalSectionSpacing]}>Answers by decks you added</Text>
-                <View style={styles.selectionGrid}>
-                  {availableDecks.map((deck: any, index) => {
-                    const isSelected = selectedDecks.includes(deck.deck_id)
-                    return (
-                      <TouchableOpacity
-                        key={`deck-${deck.deck_id}-${index}`}
-                        style={[styles.selectionCard, isSelected && styles.selectionCardActive]}
-                        onPress={() =>
-                          setSelectedDecks((prev) =>
-                            prev.includes(deck.deck_id)
-                              ? prev.filter((id) => id !== deck.deck_id)
-                              : [...prev, deck.deck_id],
-                          )
-                        }
-                      >
-                        <Text style={styles.selectionLabel}>{deck.deck?.name || "Unknown Deck"}</Text>
-                      </TouchableOpacity>
-                    )
-                  })}
-                      </View>
-              </>
-            )}
+            {/* Weekly Photo Journal filter */}
+            <Text style={[styles.modalSection, styles.modalSectionSpacing]}>Browse everyone's weekly review</Text>
+            <TouchableOpacity
+              style={[styles.memorialRow, showWeeklyPhotoJournal && styles.memorialRowActive]}
+              onPress={() => setShowWeeklyPhotoJournal((prev) => !prev)}
+            >
+              <Text style={[styles.memorialName, { textAlign: "center", width: "100%" }]}>Weekly Photo Journal</Text>
+            </TouchableOpacity>
 
             {/* Birthday Cards filter - only show if user has received cards */}
             {hasReceivedCards && (

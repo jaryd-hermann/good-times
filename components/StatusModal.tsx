@@ -211,7 +211,7 @@ export function StatusModal({
       textAlignVertical: "top",
       paddingVertical: 0, // Remove default padding to ensure equal spacing
       paddingTop: 0,
-      paddingBottom: 0,
+      paddingBottom: spacing.md, // Add bottom padding to match parent's vertical padding when text wraps
     },
     placeholder: {
       ...typography.body,
