@@ -184,7 +184,7 @@ export default function EntryComposer() {
   // CRITICAL: Reasonable file size limits to prevent memory crashes
   // Large files loaded entirely into memory can crash the app
   // Videos are most problematic, so stricter limit
-  const MAX_VIDEO_SIZE = 100 * 1024 * 1024 // 100MB for videos
+  const MAX_VIDEO_SIZE = 1024 * 1024 * 1024 // 1GB for videos
   const MAX_PHOTO_SIZE = 50 * 1024 * 1024 // 50MB for photos
   const MAX_AUDIO_SIZE = 50 * 1024 * 1024 // 50MB for audio
 

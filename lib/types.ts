@@ -295,3 +295,14 @@ export interface UserInterest {
   interest?: Interest
   user?: User
 }
+
+export interface UserStatus {
+  id: string
+  user_id: string
+  group_id: string
+  status_text: string
+  date: string
+  created_at: string
+  updated_at: string
+  user?: User
+}

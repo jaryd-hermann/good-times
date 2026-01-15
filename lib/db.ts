@@ -1,5 +1,5 @@
 import { supabase } from "./supabase"
-import type { User, Group, GroupMember, Prompt, DailyPrompt, Entry, Memorial, Reaction, Comment, CustomQuestion, CustomQuestionRotation, GroupActivityTracking, Collection, Deck, GroupDeckVote, GroupActiveDeck, BirthdayCard, BirthdayCardEntry, FeaturedPrompt, GroupFeaturedQuestion, Interest, GroupInterest, UserInterest } from "./types"
+import type { User, Group, GroupMember, Prompt, DailyPrompt, Entry, Memorial, Reaction, Comment, CustomQuestion, CustomQuestionRotation, GroupActivityTracking, Collection, Deck, GroupDeckVote, GroupActiveDeck, BirthdayCard, BirthdayCardEntry, FeaturedPrompt, GroupFeaturedQuestion, Interest, GroupInterest, UserInterest, UserStatus } from "./types"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "./prompts"
 
 // Helper function to select next memorial in rotation (week-based)
@@ -4106,5 +4106,113 @@ export async function toggleUserInterest(groupId: string, userId: string, intere
       
       if (groupError) throw groupError
     }
+  }
+}
+
+// Status functions
+export async function getUserStatus(
+  userId: string,
+  groupId: string,
+  date: string
+): Promise<UserStatus | null> {
+  const { data: status, error } = await supabase
+    .from("user_statuses")
+    .select("*, user:users(id, name, avatar_url)")
+    .eq("user_id", userId)
+    .eq("group_id", groupId)
+    .eq("date", date)
+    .maybeSingle()
+
+  if (error) {
+    console.error("[db] Error fetching user status:", error)
+    throw error
+  }
+
+  return status || null
+}
+
+export async function getStatusesForDate(
+  groupId: string,
+  date: string
+): Promise<UserStatus[]> {
+  const { data: statuses, error } = await supabase
+    .from("user_statuses")
+    .select("*, user:users(id, name, avatar_url)")
+    .eq("group_id", groupId)
+    .eq("date", date)
+    .order("created_at", { ascending: true })
+
+  if (error) {
+    console.error("[db] Error fetching statuses for date:", error)
+    throw error
+  }
+
+  return statuses || []
+}
+
+export async function createOrUpdateUserStatus(
+  userId: string,
+  groupId: string,
+  date: string,
+  statusText: string
+): Promise<UserStatus> {
+  // Check if status already exists
+  const existing = await getUserStatus(userId, groupId, date)
+
+  if (existing) {
+    // Update existing status
+    const { data: status, error } = await supabase
+      .from("user_statuses")
+      .update({
+        status_text: statusText,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existing.id)
+      .select("*, user:users(id, name, avatar_url)")
+      .single()
+
+    if (error) {
+      console.error("[db] Error updating user status:", error)
+      throw error
+    }
+
+    return status
+  } else {
+    // Create new status
+    const { data: status, error } = await supabase
+      .from("user_statuses")
+      .insert({
+        user_id: userId,
+        group_id: groupId,
+        date: date,
+        status_text: statusText,
+      })
+      .select("*, user:users(id, name, avatar_url)")
+      .single()
+
+    if (error) {
+      console.error("[db] Error creating user status:", error)
+      throw error
+    }
+
+    return status
+  }
+}
+
+export async function deleteUserStatus(
+  userId: string,
+  groupId: string,
+  date: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("user_statuses")
+    .delete()
+    .eq("user_id", userId)
+    .eq("group_id", groupId)
+    .eq("date", date)
+
+  if (error) {
+    console.error("[db] Error deleting user status:", error)
+    throw error
   }
 }

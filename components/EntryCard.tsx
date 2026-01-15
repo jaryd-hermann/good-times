@@ -10,13 +10,15 @@ import { useTheme } from "../lib/theme-context"
 import { Avatar } from "./Avatar"
 import { FontAwesome } from "@expo/vector-icons"
 import { supabase } from "../lib/supabase"
-import { getComments, getMemorials, getReactions, toggleReaction, toggleEmojiReaction, getGroupMembers, getAllCommentReactionsForEntry, toggleCommentEmojiReaction } from "../lib/db"
+import { getComments, getMemorials, getReactions, toggleReaction, toggleEmojiReaction, getGroupMembers, getAllCommentReactionsForEntry, toggleCommentEmojiReaction, getUserStatus, createOrUpdateUserStatus } from "../lib/db"
 import { EmojiPicker } from "./EmojiPicker"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "../lib/prompts"
 import { MentionableText } from "./MentionableText"
 import { UserProfileModal } from "./UserProfileModal"
 import { PhotoLightbox } from "./PhotoLightbox"
+import { StatusModal } from "./StatusModal"
+import { getTodayDate } from "../lib/utils"
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 
@@ -64,6 +66,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   const [commentLightboxIndex, setCommentLightboxIndex] = useState(0)
   const [commentLightboxPhotos, setCommentLightboxPhotos] = useState<string[]>([])
   const [commentEmojiPickerCommentId, setCommentEmojiPickerCommentId] = useState<string | null>(null)
+  const [statusModalVisible, setStatusModalVisible] = useState(false)
 
   useEffect(() => {
     async function loadUser() {
@@ -427,6 +430,32 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     queryKey: ["commentReactions", entry.id],
     queryFn: () => getAllCommentReactionsForEntry(entry.id),
     enabled: !!entry.id,
+  })
+
+  // Fetch status for this entry's user and date
+  const { data: userStatus } = useQuery({
+    queryKey: ["userStatus", entry.user_id, entry.group_id, entry.date],
+    queryFn: () => getUserStatus(entry.user_id, entry.group_id, entry.date),
+    enabled: !!entry.user_id && !!entry.group_id && !!entry.date,
+  })
+
+  // Check if this is the logged-in user's entry
+  const isCurrentUser = userId === entry.user_id
+  const isToday = entry.date === getTodayDate()
+  const canEditStatus = isCurrentUser && isToday
+
+  // Mutation for posting/updating status
+  const statusMutation = useMutation({
+    mutationFn: async (statusText: string) => {
+      if (!userId || !entry.group_id || !entry.date) {
+        throw new Error("Missing required fields")
+      }
+      return createOrUpdateUserStatus(userId, entry.group_id, entry.date, statusText)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["userStatus", entry.user_id, entry.group_id, entry.date] })
+      setStatusModalVisible(false)
+    },
   })
 
   const hasLiked = reactions.some((r) => r.user_id === userId)
@@ -801,9 +830,55 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     opacity: 0.5,
   },
   entryAuthor: {
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: spacing.xs,
+    flex: 1, // Take available space but allow shrinking if needed
+    minWidth: 0, // Allow flex item to shrink below content size
+  },
+  statusBubble: {
+    backgroundColor: isDark ? "#505050" : "#D0D0D0", // Lighter gray in light mode, keep dark mode same
+    borderRadius: 16,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.xs,
+    maxWidth: SCREEN_WIDTH - (spacing.md * 2) - (spacing.lg * 2) - 40, // Max width: screen width minus padding and chevron space
+    alignSelf: "flex-start", // Allow bubble to shrink to content width
+    borderWidth: 1,
+    borderColor: theme2Colors.textSecondary,
+    position: "relative",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3, // Android shadow
+  },
+  statusBubbleTail: {
+    position: "absolute",
+    bottom: -8,
+    left: 20,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 8,
+    borderRightWidth: 8,
+    borderTopWidth: 8,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: isDark ? "#505050" : "#D0D0D0", // Match bubble background
+  },
+  statusBubbleText: {
+    ...typography.body,
+    fontSize: 13,
+    color: theme2Colors.text,
+    lineHeight: 18,
+  },
+  entryAuthorRow: {
     flexDirection: "row",
     alignItems: "center",
-      gap: spacing.sm,
+    gap: spacing.sm,
     flexShrink: 1,
   },
   userName: {
@@ -1264,26 +1339,49 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
         {/* Header */}
         <View style={styles.entryHeader}>
           <View style={styles.entryAuthor}>
-            <Avatar uri={entry.user?.avatar_url} name={entry.user?.name || "User"} size={36} borderColor={theme2Colors.text} />
-            <Text style={styles.userName}>{entry.user?.name}</Text>
-            {entry.embedded_media && entry.embedded_media.length > 0 && (() => {
-              // Get the first platform to determine icon (or use first if multiple)
-              const firstPlatform = entry.embedded_media[0]?.platform
-              let iconName = "music" // fallback
-              if (firstPlatform === "spotify") {
-                iconName = "spotify"
-              } else if (firstPlatform === "apple_music") {
-                iconName = "apple"
-              } else if (firstPlatform === "soundcloud") {
-                iconName = "soundcloud"
-              }
-              return (
-                <View style={styles.songTag}>
-                  <FontAwesome name={iconName as any} size={12} color={theme2Colors.textSecondary} />
-                  <Text style={styles.songTagText}>Added a song</Text>
-                </View>
-              )
-            })()}
+            {/* Status Speech Bubble */}
+            {/* Show for logged-in user on today (always, with placeholder), or if status exists (any user, any day) */}
+            {((isCurrentUser && isToday) || userStatus) && (
+              <TouchableOpacity
+                style={styles.statusBubble}
+                onPress={() => {
+                  // Only allow opening modal if it's the current user and (it's today OR status exists for viewing)
+                  // But prevent editing on previous days
+                  if (isCurrentUser && (canEditStatus || userStatus)) {
+                    setStatusModalVisible(true)
+                  }
+                }}
+                activeOpacity={0.7}
+                disabled={!isCurrentUser}
+              >
+                <Text style={styles.statusBubbleText}>
+                  {userStatus?.status_text || (isCurrentUser && isToday ? "Today, I am..." : "")}
+                </Text>
+                <View style={styles.statusBubbleTail} />
+              </TouchableOpacity>
+            )}
+            <View style={styles.entryAuthorRow}>
+              <Avatar uri={entry.user?.avatar_url} name={entry.user?.name || "User"} size={36} borderColor={theme2Colors.text} />
+              <Text style={styles.userName}>{entry.user?.name}</Text>
+              {entry.embedded_media && entry.embedded_media.length > 0 && (() => {
+                // Get the first platform to determine icon (or use first if multiple)
+                const firstPlatform = entry.embedded_media[0]?.platform
+                let iconName = "music" // fallback
+                if (firstPlatform === "spotify") {
+                  iconName = "spotify"
+                } else if (firstPlatform === "apple_music") {
+                  iconName = "apple"
+                } else if (firstPlatform === "soundcloud") {
+                  iconName = "soundcloud"
+                }
+                return (
+                  <View style={styles.songTag}>
+                    <FontAwesome name={iconName as any} size={12} color={theme2Colors.textSecondary} />
+                    <Text style={styles.songTagText}>Added a song</Text>
+                  </View>
+                )
+              })()}
+            </View>
           </View>
           <FontAwesome name="chevron-right" size={14} color={theme2Colors.textSecondary} style={styles.arrowIcon} />
         </View>
@@ -1978,6 +2076,23 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
         initialIndex={commentLightboxIndex}
         onClose={() => setCommentLightboxVisible(false)}
       />
+
+      {/* Status Modal - only show for current user */}
+      {isCurrentUser && (
+        <StatusModal
+          visible={statusModalVisible}
+          userId={entry.user_id}
+          userName={entry.user?.name || "User"}
+          userAvatarUrl={entry.user?.avatar_url}
+          groupId={entry.group_id}
+          date={entry.date}
+          existingStatus={userStatus?.status_text || null}
+          onClose={() => setStatusModalVisible(false)}
+          onPost={async (statusText: string) => {
+            await statusMutation.mutateAsync(statusText)
+          }}
+        />
+      )}
     </View>
   )
 }

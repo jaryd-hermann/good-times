@@ -10,6 +10,10 @@ import { useTheme } from "../lib/theme-context"
 import { supabase } from "../lib/supabase"
 import { FontAwesome } from "@expo/vector-icons"
 import Svg, { Path, Circle, Polygon } from "react-native-svg"
+import { format, parseISO } from "date-fns"
+import { useQuery } from "@tanstack/react-query"
+import { getUserStatus } from "../lib/db"
+import { getTodayDate } from "../lib/utils"
 
 // Conditionally import BlurView - fallback if native module not available
 // Note: expo-blur requires native rebuild. Fallback will be used until rebuild.
@@ -50,9 +54,18 @@ export function UserProfileModal({
   const { colors, isDark } = useTheme()
   const insets = useSafeAreaInsets()
   const [entryCount, setEntryCount] = useState<number | null>(null)
+  const [userBirthday, setUserBirthday] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const slideAnim = useRef(new Animated.Value(0)).current
   const fadeAnim = useRef(new Animated.Value(0)).current
+  const todayDate = getTodayDate()
+
+  // Fetch user's status for today
+  const { data: userStatus } = useQuery({
+    queryKey: ["userStatus", userId, groupId, todayDate],
+    queryFn: () => (userId && groupId ? getUserStatus(userId, groupId, todayDate) : null),
+    enabled: !!userId && !!groupId && visible,
+  })
 
   // Theme 2 color palette - dynamic based on dark/light mode
   const theme2Colors = {
@@ -85,15 +98,17 @@ export function UserProfileModal({
         friction: 11,
       }).start()
       
-      // Fetch entry count
+      // Fetch entry count and user birthday
       if (userId && groupId) {
         fetchEntryCount()
+        fetchUserBirthday()
       }
     } else {
       // Reset animations
       slideAnim.setValue(0)
       fadeAnim.setValue(0)
       setEntryCount(null)
+      setUserBirthday(null)
     }
   }, [visible, userId, groupId])
 
@@ -119,6 +134,54 @@ export function UserProfileModal({
       setEntryCount(0)
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function fetchUserBirthday() {
+    if (!userId) return
+    
+    try {
+      const { data, error } = await supabase
+        .from("users")
+        .select("birthday")
+        .eq("id", userId)
+        .single()
+      
+      if (error) {
+        console.error("[UserProfileModal] Error fetching user birthday:", error)
+        setUserBirthday(null)
+      } else {
+        setUserBirthday(data?.birthday || null)
+      }
+    } catch (error) {
+      console.error("[UserProfileModal] Error fetching user birthday:", error)
+      setUserBirthday(null)
+    }
+  }
+
+  // Format birthday as "1st February" (ordinal format)
+  const formatBirthday = (birthday: string | null): string | null => {
+    if (!birthday) return null
+    
+    try {
+      const date = parseISO(birthday)
+      const day = date.getDate()
+      const month = format(date, "MMMM")
+      
+      // Get ordinal suffix
+      const getOrdinalSuffix = (n: number): string => {
+        const j = n % 10
+        const k = n % 100
+        if (j === 1 && k !== 11) return "st"
+        if (j === 2 && k !== 12) return "nd"
+        if (j === 3 && k !== 13) return "rd"
+        return "th"
+      }
+      
+      return `${day}${getOrdinalSuffix(day)} ${month}`
+    } catch (error) {
+      console.error("[UserProfileModal] Error formatting birthday:", error)
+      return null
     }
   }
 
@@ -252,7 +315,63 @@ export function UserProfileModal({
       ...typography.body,
       fontSize: 16,
       color: theme2Colors.textSecondary,
+      marginBottom: spacing.sm,
+      textAlign: "center",
+    },
+    birthdayContainer: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
       marginBottom: spacing.xl,
+    },
+    birthdayText: {
+      ...typography.body,
+      fontSize: 14,
+      color: theme2Colors.textSecondary,
+      textAlign: "center",
+    },
+    birthdayIcon: {
+      marginRight: spacing.xs,
+    },
+    statusBubble: {
+      backgroundColor: isDark ? "#505050" : "#D0D0D0", // Match EntryCard style
+      borderRadius: 16,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      marginBottom: spacing.md,
+      maxWidth: "95%", // 50% wider than previous (was 90%, now 95%)
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
+      position: "relative",
+      shadowColor: "#000",
+      shadowOffset: {
+        width: 0,
+        height: 2,
+      },
+      shadowOpacity: 0.2,
+      shadowRadius: 3,
+      elevation: 3, // Android shadow
+      alignSelf: "center",
+    },
+    statusBubbleTail: {
+      position: "absolute",
+      bottom: -8,
+      left: "50%",
+      marginLeft: -8, // Center the tail
+      width: 0,
+      height: 0,
+      borderLeftWidth: 8,
+      borderRightWidth: 8,
+      borderTopWidth: 8,
+      borderLeftColor: "transparent",
+      borderRightColor: "transparent",
+      borderTopColor: isDark ? "#505050" : "#D0D0D0", // Match bubble background
+    },
+    statusBubbleText: {
+      ...typography.body,
+      fontSize: 13,
+      color: theme2Colors.text,
+      lineHeight: 18,
       textAlign: "center",
     },
     ctaButton: {
@@ -354,6 +473,16 @@ export function UserProfileModal({
                 </Svg>
               </View>
 
+            {/* Status Speech Bubble */}
+            {userStatus?.status_text && (
+              <View style={styles.statusBubble}>
+                <Text style={styles.statusBubbleText}>
+                  {userStatus.status_text}
+                </Text>
+                <View style={styles.statusBubbleTail} />
+              </View>
+            )}
+
             {/* Avatar */}
             <View style={styles.avatarContainer}>
                 <View style={styles.avatar}>
@@ -385,6 +514,16 @@ export function UserProfileModal({
               <Text style={styles.entryCount}>
                 {userName} has answered {entryCount ?? 0} {entryCount === 1 ? "question" : "questions"}
               </Text>
+            )}
+
+            {/* Birthday */}
+            {userBirthday && formatBirthday(userBirthday) && (
+              <View style={styles.birthdayContainer}>
+                <FontAwesome name="birthday-cake" size={14} color={theme2Colors.textSecondary} style={styles.birthdayIcon} />
+                <Text style={styles.birthdayText}>
+                  {formatBirthday(userBirthday)}
+                </Text>
+              </View>
             )}
 
             {/* CTA Button */}

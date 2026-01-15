@@ -80,14 +80,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let maxTimeout: ReturnType<typeof setTimeout> | null = null
 
     // CRITICAL: Maximum timeout to prevent infinite loading state
-    // If we haven't initialized within 10 seconds, force loading to false
+    // If we haven't initialized within 5 seconds, force loading to false
+    // Reduced from 10s to fail faster and prevent blank screens
     maxTimeout = setTimeout(() => {
       if (!sessionInitialized) {
-        console.warn("[AuthProvider] Maximum timeout reached - forcing loading to false")
+        console.warn("[AuthProvider] Maximum timeout (5s) reached - forcing loading to false to prevent blank screen")
         setLoading(false)
         sessionInitialized = true
       }
-    }, 10000) // 10 second maximum
+    }, 5000) // 5 second maximum - fail fast
 
     // Listen for auth changes - this fires immediately with current session
     // This is the PRIMARY way to get session state (non-blocking, event-driven)
@@ -278,15 +279,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const getSessionPromise = supabase.auth.getSession()
           const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error("getSession timeout")), 5000)
+            setTimeout(() => reject(new Error("getSession timeout")), 3000) // Reduced to 3s
           )
           
           const result: any = await Promise.race([getSessionPromise, timeoutPromise])
-          const { data: { session } } = result
+          const { data: { session } } = result || { data: { session: null } }
           
           if (session?.user) {
+            console.log("[AuthProvider] Session found in fallback, loading user")
             await loadUser(session.user.id)
           } else {
+            console.log("[AuthProvider] No session found in fallback - setting loading to false")
             setLoading(false)
           }
           sessionInitialized = true
@@ -294,8 +297,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             clearTimeout(maxTimeout)
             maxTimeout = null
           }
-        } catch (error) {
-          console.error("[AuthProvider] Fallback getSession failed:", error)
+        } catch (error: any) {
+          // CRITICAL: Handle timeout gracefully - don't treat as fatal error
+          if (error?.message?.includes('timeout')) {
+            console.warn("[AuthProvider] getSession timeout - Supabase may be unreachable, continuing without session")
+          } else {
+            console.error("[AuthProvider] Fallback getSession failed:", error)
+          }
+          // Always set loading to false so app can continue
           setLoading(false)
           sessionInitialized = true
           if (maxTimeout) {
@@ -409,15 +418,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       console.log('[AuthProvider] Loading user:', userId)
       
-      // Ensure user has timezone set (for existing users who don't have it)
-      try {
-        const { ensureUserTimezone } = await import("../lib/db")
-        await ensureUserTimezone(userId)
-      } catch (timezoneError) {
-        // Don't fail user load if timezone update fails
-        console.warn("[AuthProvider] Failed to ensure user timezone:", timezoneError)
-      }
-      
       // CRITICAL: Check if app is active before loading user
       // If app is backgrounded, skip user load (will load when app comes to foreground)
       const currentAppState = AppState.currentState
@@ -425,30 +425,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       if (!isAppActive) {
         console.log('[AuthProvider] App is not active - skipping user load (will load on foreground)')
+        setLoading(false) // CRITICAL: Always set loading to false
         return // Skip user load if app is backgrounded
       }
       
-      // Add timeout to prevent hanging (5 seconds for faster failure, was 10s)
-      // Reduced timeout since we're checking app state first
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('User load timeout after 5 seconds')), 5000)
+      // Ensure user has timezone set (for existing users who don't have it)
+      // Add timeout to prevent hanging - run in parallel, don't block
+      Promise.race([
+        (async () => {
+          try {
+            const { ensureUserTimezone } = await import("../lib/db")
+            await ensureUserTimezone(userId)
+          } catch (timezoneError: any) {
+            if (!timezoneError?.message?.includes('timeout')) {
+              console.warn("[AuthProvider] Failed to ensure user timezone:", timezoneError)
+            }
+          }
+        })(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
+      ]).catch(() => {
+        // Timeout or error - ignore, non-critical
+        console.warn("[AuthProvider] Timezone check timed out - continuing without it")
       })
       
+      // Add timeout to prevent hanging (3 seconds for faster failure)
+      // Reduced timeout to fail faster and prevent blank screens
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('User load timeout after 3 seconds')), 3000)
+      })
+      
+      console.log('[AuthProvider] Starting user query...')
       const userPromise = supabase.from("users").select("*").eq("id", userId).maybeSingle()
       
       let result: any
       try {
+        console.log('[AuthProvider] Racing user query with timeout...')
         result = await Promise.race([userPromise, timeoutPromise])
+        console.log('[AuthProvider] User query completed')
       } catch (timeoutError: any) {
         // CRITICAL: Handle timeout gracefully - don't throw, just log warning
         // This prevents errors when app is sitting open and network is slow
         if (timeoutError?.message?.includes('timeout')) {
-          console.warn('[AuthProvider] User load timeout - this is non-critical, user will be loaded on next foreground')
-          // Don't set user or throw error - just return gracefully
-          // User will be loaded on next foreground or when network recovers
+          console.warn('[AuthProvider] User load timeout after 3 seconds - setting loading to false and continuing')
+          // Set loading to false so app can continue
+          setLoading(false)
+          // Don't set user - will be loaded on next foreground or when network recovers
           return
         }
         // Re-throw non-timeout errors
+        console.error('[AuthProvider] Non-timeout error during user load:', timeoutError)
+        setLoading(false) // Ensure loading is set to false even on error
         throw timeoutError
       }
       
@@ -456,6 +482,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       if (error) {
         console.error('[AuthProvider] Error loading user:', error)
+        // Even on error, set loading to false so app can continue
+        setLoading(false)
+        return
       }
       
       console.log('[AuthProvider] User data loaded:', data ? 'success' : 'null', error ? `error: ${error.message}` : '')
@@ -466,6 +495,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // CRITICAL: Set loading to false immediately after user data is set
       // Don't wait for PostHog identification - it can happen in background
       setLoading(false)
+      console.log('[AuthProvider] User load complete, loading set to false')
       
       // Identify user in PostHog after successful load (non-blocking, fire-and-forget)
       // Even if data is null, we can still identify the user with just the userId

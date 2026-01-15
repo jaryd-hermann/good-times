@@ -6,6 +6,8 @@ import { useRouter } from "expo-router"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { colors, typography, spacing } from "../../lib/theme"
 import { Button } from "../../components/Button"
+import { WebView } from "react-native-webview"
+import { FontAwesome } from "@expo/vector-icons"
 
 // Theme 2 color palette matching new design system
 const theme2Colors = {
@@ -45,8 +47,12 @@ export default function Welcome1() {
   const [showModal, setShowModal] = useState(false)
   const [showJoinInfo, setShowJoinInfo] = useState(false)
   const [onboardingGalleryVisible, setOnboardingGalleryVisible] = useState(false)
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false)
   const slideAnim = useState(new Animated.Value(height))[0]
   const overlayOpacity = useState(new Animated.Value(0))[0]
+
+  // Video URL - hosted on Supabase storage (H.264 encoded)
+  const VIDEO_URL = "https://ytnnsykbgohiscfgomfe.supabase.co/storage/v1/object/public/onboarding-videos/intro.mp4"
 
   // Track onboarding_started event
   useEffect(() => {
@@ -121,6 +127,11 @@ export default function Welcome1() {
 
   function handleGotIt() {
     closeModal()
+  }
+
+  const handlePlayVideo = () => {
+    console.log("[welcome-1] Play button pressed")
+    setIsVideoPlaying(true)
   }
 
   function closeModal() {
@@ -232,23 +243,124 @@ export default function Welcome1() {
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={false}
       >
-        {/* Top Section - Image */}
+        {/* Top Section - Image/Video */}
         <View style={styles.imageContainer}>
           <View style={styles.imageWrapper}>
-            <Image
-              source={require("../../assets/images/welcome-home.png")}
-              style={styles.image}
-              resizeMode="cover"
-            />
-            {/* Texture overlay */}
-            <View style={styles.imageTexture} pointerEvents="none">
-              <Image
-                source={require("../../assets/images/texture.png")}
-                style={styles.textureImage}
-                resizeMode="cover"
+            {/* Image - shown when video is not playing */}
+            {!isVideoPlaying && (
+              <>
+                <Image
+                  source={require("../../assets/images/welcome-home.png")}
+                  style={styles.image}
+                  resizeMode="cover"
+                />
+                {/* Texture overlay */}
+                <View style={styles.imageTexture} pointerEvents="none">
+                  <Image
+                    source={require("../../assets/images/texture.png")}
+                    style={styles.textureImage}
+                    resizeMode="cover"
+                  />
+                </View>
+                {/* Play Button Overlay */}
+                <TouchableOpacity
+                  style={styles.playButton}
+                  onPress={handlePlayVideo}
+                  activeOpacity={0.8}
+                >
+                  <FontAwesome name="play" size={24} color={theme2Colors.text} />
+                </TouchableOpacity>
+              </>
+            )}
+            {/* Video - use WebView as workaround for CORS issues on iOS */}
+            {isVideoPlaying && (
+              <WebView
+                source={{
+                  html: `
+                    <!DOCTYPE html>
+                    <html>
+                      <head>
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                        <style>
+                          * { margin: 0; padding: 0; box-sizing: border-box; }
+                          body, html { 
+                            width: 100%; 
+                            height: 100%; 
+                            overflow: hidden; 
+                            background: #000; 
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                          }
+                          video {
+                            width: 100%;
+                            height: 100%;
+                            object-fit: cover;
+                            outline: none;
+                          }
+                        </style>
+                      </head>
+                      <body>
+                        <video 
+                          id="videoPlayer"
+                          controls 
+                          autoplay 
+                          playsinline
+                          muted
+                          preload="auto"
+                        >
+                          <source src="${VIDEO_URL}" type="video/mp4">
+                          Your browser does not support the video tag.
+                        </video>
+                        <script>
+                          (function() {
+                            const video = document.getElementById('videoPlayer');
+                            if (video) {
+                              // Unmute and play when video can play
+                              video.addEventListener('canplay', function() {
+                                video.muted = false;
+                                video.play().catch(function(error) {
+                                  console.log('Autoplay prevented:', error);
+                                  // If autoplay fails, user can click play button
+                                });
+                              });
+                              
+                              // Handle video end
+                              video.addEventListener('ended', function() {
+                                // Video ended - could send message to React Native if needed
+                              });
+                              
+                              // Try to play immediately
+                              video.play().catch(function(error) {
+                                console.log('Initial play failed:', error);
+                              });
+                            }
+                          })();
+                        </script>
+                      </body>
+                    </html>
+                  `
+                }}
+                style={styles.video}
+                allowsFullscreen={false}
+                mediaPlaybackRequiresUserAction={false}
+                allowsInlineMediaPlayback={true}
+                onError={(syntheticEvent) => {
+                  const { nativeEvent } = syntheticEvent
+                  console.error("[welcome-1] WebView error:", nativeEvent)
+                  setIsVideoPlaying(false)
+                }}
+                onLoad={() => {
+                  console.log("[welcome-1] WebView video loaded")
+                }}
+                onMessage={(event) => {
+                  // Handle messages from WebView if needed
+                  console.log("[welcome-1] WebView message:", event.nativeEvent.data)
+                }}
               />
-            </View>
+            )}
           </View>
         </View>
 
@@ -263,7 +375,12 @@ export default function Welcome1() {
 
           {/* Tagline */}
           <Text style={styles.subtitle}>
-            Answer one question a day with your favorite people
+            Answer one question a day with friends
+          </Text>
+
+          {/* Sub-tagline */}
+          <Text style={styles.subTagline}>
+            No Ads. No AI. No Strangers.
           </Text>
 
           {/* Show me first link */}
@@ -439,6 +556,38 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  video: {
+    width: "100%",
+    height: "100%",
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 10,
+  },
+  playButton: {
+    position: "absolute",
+    bottom: spacing.md,
+    right: spacing.md,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: theme2Colors.white,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 5,
+    zIndex: 2,
+    borderWidth: 2,
+    borderColor: theme2Colors.text,
+  },
   content: {
     padding: spacing.lg,
     paddingTop: spacing.xs,
@@ -463,6 +612,13 @@ const styles = StyleSheet.create({
     fontSize: 22,
     lineHeight: 30,
     color: theme2Colors.text,
+    marginBottom: spacing.sm,
+  },
+  subTagline: {
+    fontFamily: "PMGothicLudington-Text115",
+    fontSize: 18,
+    lineHeight: 26,
+    color: "#808080", // Lighter gray
     marginBottom: spacing.md,
   },
   showMeFirstButton: {

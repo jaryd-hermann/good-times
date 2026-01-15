@@ -63,11 +63,39 @@ export default function Index() {
   const [forceBootRecheck, setForceBootRecheck] = useState<number>(0); // Trigger to force boot flow re-evaluation
   const [isPasswordResetLink, setIsPasswordResetLink] = useState(false); // Track if we're handling password reset
   const [bootProgress, setBootProgress] = useState(0); // Progress bar (0-100)
+  const [hasForceBootFlagState, setHasForceBootFlagState] = useState(false); // Track if boot flags are set
   const hasNavigatedRef = useRef(false);
   const bootStartTimeRef = useRef<number>(Date.now()); // Initialize immediately
   const userRef = useRef(user); // Keep ref to latest user for AppState listener
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const rotateAnim = useRef(new Animated.Value(0)).current;
+  
+  // CRITICAL: Check for boot flags IMMEDIATELY on mount (before first render completes)
+  // This ensures boot screen shows before home renders when coming from background
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const forceBootRefresh = await AsyncStorage.getItem("force_boot_refresh");
+      const forceBootScreen = await AsyncStorage.getItem("force_boot_screen");
+      if (!cancelled && (forceBootRefresh || forceBootScreen === "true")) {
+        console.log("[boot] Boot flags detected on mount - showing boot screen immediately", {
+          forceBootRefresh: !!forceBootRefresh,
+          forceBootScreen: forceBootScreen === "true",
+        });
+        setHasForceBootFlagState(true);
+        setShouldShowBootScreen(true);
+        setBooting(true);
+        bootStartTimeRef.current = Date.now();
+        hasNavigatedRef.current = false;
+        // Clear flags
+        if (forceBootRefresh) await AsyncStorage.removeItem("force_boot_refresh");
+        if (forceBootScreen === "true") await AsyncStorage.removeItem("force_boot_screen");
+        // Trigger boot flow re-run
+        setForceBootRecheck(prev => prev + 1);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []); // Run once on mount
 
   // Keep userRef in sync with user
   useEffect(() => {
@@ -103,6 +131,7 @@ export default function Index() {
     };
     checkAndTriggerBoot();
   }, [pathname]);
+
   
   // CRITICAL: Check for password reset links on mount - if detected, skip boot screen
   useEffect(() => {
@@ -285,6 +314,32 @@ export default function Index() {
     // Show boot screen synchronously before any async operations
     const subscription = AppState.addEventListener("change", async (nextAppState) => {
       if (nextAppState === "active") {
+        // CRITICAL: Check for boot flags FIRST when app becomes active
+        // This handles the case where ForegroundQueryRefresher set flags but app was already on root
+        const forceBootRefresh = await AsyncStorage.getItem("force_boot_refresh");
+        const forceBootScreen = await AsyncStorage.getItem("force_boot_screen");
+        
+        if (forceBootRefresh || forceBootScreen === "true") {
+          console.log("[boot] App became active with force_boot flag - triggering boot flow immediately", {
+            forceBootRefresh: !!forceBootRefresh,
+            forceBootScreen: forceBootScreen === "true",
+            pathname,
+          });
+          // CRITICAL: Set boot screen state IMMEDIATELY (synchronously) before any async operations
+          // This ensures boot screen shows before home renders
+          setHasForceBootFlagState(true);
+          setShouldShowBootScreen(true);
+          setBooting(true);
+          bootStartTimeRef.current = Date.now(); // Reset boot start time
+          hasNavigatedRef.current = false;
+          // Clear flags
+          if (forceBootRefresh) await AsyncStorage.removeItem("force_boot_refresh");
+          if (forceBootScreen === "true") await AsyncStorage.removeItem("force_boot_screen");
+          // Trigger boot flow re-run
+          setForceBootRecheck(prev => prev + 1);
+          // Continue with rest of AppState logic below
+        }
+        
         // CRITICAL: Check if this is from notification (handled separately above) or app icon tap
         // Only do forced refresh for app icon taps (notifications handled in initializeBoot)
         const notificationClicked = await AsyncStorage.getItem("notification_clicked");
@@ -1279,8 +1334,8 @@ export default function Index() {
   const isOnRootRoute = !pathname || pathname === "/" || pathname === "";
   // CRITICAL FIX: Show boot screen if on root route AND haven't navigated yet
   // This ensures boot screen stays visible when ForegroundQueryRefresher navigates to root after long inactivity
-  // CRITICAL: Also check for force_boot_refresh flag - if present, always show boot screen
-  const [hasForceBootFlagState, setHasForceBootFlagState] = useState(false);
+  // CRITICAL: Re-check boot flags when pathname changes or forceBootRecheck triggers
+  // (Initial check happens in mount useEffect above)
   useEffect(() => {
     AsyncStorage.getItem("force_boot_refresh").then((flag) => {
       setHasForceBootFlagState(!!flag);

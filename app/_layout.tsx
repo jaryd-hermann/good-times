@@ -161,6 +161,11 @@ function ForegroundQueryRefresher() {
           queryClient.clear()
           console.log("[_layout] ForegroundQueryRefresher: React Query cache cleared")
           
+          // CRITICAL: Trigger boot screen overlay IMMEDIATELY (synchronously) before any async operations
+          // This ensures boot screen shows before home renders
+          bootScreenTriggerRef.current = true
+          console.log("[_layout] ForegroundQueryRefresher: Triggered boot screen overlay immediately")
+          
           // CRITICAL: Navigate to root immediately to show boot screen
           // This prevents black screen when opening from background
           // Set flags for boot flow
@@ -226,6 +231,187 @@ function ForegroundQueryRefresher() {
   }, [authLoading, user])
   
   return null
+}
+
+// Shared state for boot screen overlay - allows ForegroundQueryRefresher to trigger it immediately
+const bootScreenTriggerRef = { current: false }
+
+// CRITICAL: Boot screen overlay that blocks all rendering when boot flags are detected
+// This ensures boot screen shows IMMEDIATELY when app comes from background, before home renders
+function BootScreenOverlay() {
+  const pathname = usePathname()
+  const rotateAnim = useRef(new Animated.Value(0)).current
+  
+  // CRITICAL: Initialize state from trigger ref to show overlay immediately on first render
+  // This ensures overlay shows before home renders
+  const [showBootScreen, setShowBootScreen] = useState(() => {
+    if (bootScreenTriggerRef.current) {
+      console.log("[_layout] BootScreenOverlay: Trigger ref detected on mount - initializing overlay visible")
+      bootScreenTriggerRef.current = false // Reset
+      return true
+    }
+    return false
+  })
+  
+  // CRITICAL: Start rotation animation IMMEDIATELY on mount (before any async checks)
+  // This ensures spinner is always spinning when overlay is visible
+  useEffect(() => {
+    // Start rotation animation immediately - don't wait for showBootScreen
+    const rotateAnimation = Animated.loop(
+      Animated.timing(rotateAnim, {
+        toValue: 1,
+        duration: 3000,
+        useNativeDriver: true,
+      })
+    )
+    rotateAnimation.start()
+    return () => rotateAnimation.stop()
+  }, [rotateAnim]) // Remove showBootScreen dependency - always animate
+  
+  // CRITICAL: Check trigger ref in useEffect (runs on mount and when pathname changes)
+  // This ensures overlay shows immediately when trigger is set
+  useEffect(() => {
+    if (bootScreenTriggerRef.current) {
+      console.log("[_layout] BootScreenOverlay: Trigger ref detected - showing overlay immediately")
+      setShowBootScreen(true)
+      bootScreenTriggerRef.current = false // Reset
+    }
+  }, [pathname]) // Run on mount and when pathname changes (when navigating to root)
+  
+  // CRITICAL: Show overlay IMMEDIATELY when app becomes active on root route
+  // This ensures boot screen shows before home renders
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", async (nextAppState) => {
+      if (nextAppState === "active") {
+        // CRITICAL: Check trigger ref FIRST (synchronous, immediate)
+        if (bootScreenTriggerRef.current) {
+          console.log("[_layout] BootScreenOverlay: Trigger ref detected in AppState listener - showing overlay immediately")
+          setShowBootScreen(true)
+          bootScreenTriggerRef.current = false // Reset
+        }
+        
+        // CRITICAL: Check pathname synchronously (from closure)
+        const currentPathname = pathname
+        const isOnRoot = !currentPathname || currentPathname === "/" || currentPathname === ""
+        
+        if (isOnRoot) {
+          // Show overlay IMMEDIATELY (synchronously) before checking flags
+          console.log("[_layout] BootScreenOverlay: App became active on root - showing overlay immediately", {
+            pathname: currentPathname,
+          })
+          setShowBootScreen(true)
+          
+          // Then check for boot flags (async, but overlay is already showing)
+          const forceBootRefresh = await AsyncStorage.getItem("force_boot_refresh")
+          const forceBootScreen = await AsyncStorage.getItem("force_boot_screen")
+          if (forceBootRefresh || forceBootScreen === "true") {
+            console.log("[_layout] BootScreenOverlay: Boot flags confirmed - keeping overlay visible")
+            // Clear flags
+            if (forceBootRefresh) await AsyncStorage.removeItem("force_boot_refresh")
+            if (forceBootScreen === "true") await AsyncStorage.removeItem("force_boot_screen")
+          } else {
+            // No flags - hide overlay after short delay (boot flow will handle navigation)
+            // But only if we're still on root (might have navigated already)
+            setTimeout(() => {
+              const stillOnRoot = !pathname || pathname === "/" || pathname === ""
+              if (stillOnRoot) {
+                console.log("[_layout] BootScreenOverlay: No boot flags, hiding overlay")
+                setShowBootScreen(false)
+              }
+            }, 500)
+          }
+        }
+      }
+    })
+    return () => subscription.remove()
+  }, [pathname])
+  
+  // CRITICAL: Check for boot flags on mount - show overlay immediately if flags exist
+  // This ensures overlay shows before any async operations complete
+  useEffect(() => {
+    let cancelled = false
+    // Show overlay immediately if trigger ref is set (synchronous check)
+    if (bootScreenTriggerRef.current) {
+      console.log("[_layout] BootScreenOverlay: Trigger ref detected on mount - showing overlay immediately")
+      setShowBootScreen(true)
+      bootScreenTriggerRef.current = false
+    }
+    
+    // Then check AsyncStorage flags (async, but overlay is already showing if trigger was set)
+    ;(async () => {
+      const forceBootRefresh = await AsyncStorage.getItem("force_boot_refresh")
+      const forceBootScreen = await AsyncStorage.getItem("force_boot_screen")
+      if (!cancelled && (forceBootRefresh || forceBootScreen === "true")) {
+        console.log("[_layout] BootScreenOverlay: Boot flags detected on mount - showing overlay")
+        setShowBootScreen(true)
+        // Clear flags
+        if (forceBootRefresh) await AsyncStorage.removeItem("force_boot_refresh")
+        if (forceBootScreen === "true") await AsyncStorage.removeItem("force_boot_screen")
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+  
+  // CRITICAL: Check when pathname changes to root - show overlay immediately if trigger is set
+  useEffect(() => {
+    if (pathname === "/" || pathname === "") {
+      // Check trigger ref synchronously first (immediate)
+      if (bootScreenTriggerRef.current) {
+        console.log("[_layout] BootScreenOverlay: On root with trigger ref - showing overlay immediately")
+        setShowBootScreen(true)
+        bootScreenTriggerRef.current = false
+      }
+      
+      // Then check AsyncStorage flags (async)
+      AsyncStorage.getItem("force_boot_refresh").then((flag) => {
+        if (flag) {
+          console.log("[_layout] BootScreenOverlay: On root with boot flag - showing overlay")
+          setShowBootScreen(true)
+        }
+      }).catch(() => {})
+    }
+  }, [pathname])
+  
+  // Hide overlay after boot completes (when pathname changes away from root)
+  useEffect(() => {
+    if (showBootScreen && pathname && pathname !== "/" && pathname !== "") {
+      // Small delay to ensure smooth transition
+      const timer = setTimeout(() => {
+        console.log("[_layout] BootScreenOverlay: Navigation complete, hiding overlay")
+        setShowBootScreen(false)
+      }, 300)
+      return () => clearTimeout(timer)
+    }
+  }, [showBootScreen, pathname])
+  
+  if (!showBootScreen) return null
+  
+  const spin = rotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  })
+  
+  return (
+    <View style={{
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: "#E8E0D5", // beige
+      zIndex: 99999,
+      justifyContent: "center",
+      alignItems: "center",
+    }}>
+      <Animated.View style={{ transform: [{ rotate: spin }] }}>
+        <Image
+          source={require("../assets/images/loading.png")}
+          style={{ width: 120, height: 120 }}
+          resizeMode="contain"
+        />
+      </Animated.View>
+    </View>
+  )
 }
 
 // Refreshing overlay component - shows when session is being refreshed
@@ -952,6 +1138,7 @@ export default function RootLayout() {
           <AuthProvider>
             <BootRecheckHandler />
             <RefreshingOverlay />
+            <BootScreenOverlay />
             <ThemeProvider>
             <QueryClientProvider client={queryClient}>
                 <ForegroundQueryRefresher />
