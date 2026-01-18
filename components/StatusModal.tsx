@@ -158,11 +158,11 @@ export function StatusModal({
     speechBubble: {
       backgroundColor: isDark ? "#505050" : "#D0D0D0", // Lighter gray in light mode, keep dark mode same
       borderRadius: 24,
-      paddingVertical: spacing.md, // Equal vertical padding
+      paddingTop: spacing.md, // Equal top padding
+      paddingBottom: spacing.md, // Equal bottom padding
       paddingHorizontal: spacing.md,
       marginBottom: spacing.lg,
-      minHeight: 60, // Smaller, 2 rows max
-      maxHeight: 60, // Limit to 2 rows
+      minHeight: 60, // Minimum height for single line
       borderWidth: 2,
       borderColor: theme2Colors.text,
       position: "relative",
@@ -206,12 +206,11 @@ export function StatusModal({
       ...typography.body,
       fontSize: 16,
       color: theme2Colors.text,
-      minHeight: 40,
-      maxHeight: 40, // 2 rows max
       textAlignVertical: "top",
-      paddingVertical: 0, // Remove default padding to ensure equal spacing
+      paddingVertical: 0, // Remove default padding - parent handles spacing
       paddingTop: 0,
-      paddingBottom: spacing.md, // Add bottom padding to match parent's vertical padding when text wraps
+      paddingBottom: 0,
+      margin: 0,
     },
     placeholder: {
       ...typography.body,
@@ -304,6 +303,7 @@ export function StatusModal({
                   multiline
                   maxLength={200} // Rough max for 20 words
                   editable={!isPosting}
+                  textAlignVertical="top"
                 />
                 {/* Word Count */}
                 <Text style={styles.wordCount}>

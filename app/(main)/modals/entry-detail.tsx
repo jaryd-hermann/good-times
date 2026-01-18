@@ -9,7 +9,7 @@ import { getEntryById, getReactions, getComments, toggleReaction, createComment,
 import { typography, spacing } from "../../../lib/theme"
 import { useTheme } from "../../../lib/theme-context"
 import { Avatar } from "../../../components/Avatar"
-import { formatTime, getTodayDate } from "../../../lib/utils"
+import { formatTime, getTodayDate, isSunday } from "../../../lib/utils"
 import { Video, Audio, ResizeMode } from "expo-av"
 import { getCurrentUser } from "../../../lib/db"
 import { FontAwesome } from "@expo/vector-icons"
@@ -450,9 +450,57 @@ export default function EntryDetail() {
     }
   }, [memorials, memorialNameUsage, memorialUsageMap])
 
+  // Query to get week number for Journal entries
+  const { data: journalWeekNumber = 1 } = useQuery({
+    queryKey: ["journalWeekNumberForEntry", entry?.group_id, entry?.date],
+    queryFn: async () => {
+      if (!entry?.group_id || !entry?.date || entry?.prompt?.category !== "Journal") return 1
+
+      // Get Journal prompt ID
+      const { data: journalPrompt } = await supabase
+        .from("prompts")
+        .select("id")
+        .eq("category", "Journal")
+        .limit(1)
+        .maybeSingle()
+
+      if (!journalPrompt) return 1
+
+      // Count how many VALID Sunday Journal prompts have been asked for this group up to and including this entry's date
+      // Only count prompts that were asked on Sundays (valid Journal prompts)
+      const { data: journalPrompts, error } = await supabase
+        .from("daily_prompts")
+        .select("id, date")
+        .eq("group_id", entry.group_id)
+        .eq("prompt_id", journalPrompt.id)
+        .lte("date", entry.date)
+        .order("date", { ascending: true })
+
+      if (error) {
+        console.error("[entry-detail] Error counting Journal prompts:", error)
+        return 1
+      }
+
+      // Filter to only count valid Sunday Journal prompts (exclude invalid ones scheduled on non-Sunday dates)
+      const validSundayPrompts = (journalPrompts || []).filter((dp: any) => {
+        return isSunday(dp.date)
+      })
+
+      // Week number is the count of valid Sunday Journal prompts up to this date
+      return validSundayPrompts.length || 1
+    },
+    enabled: !!entry?.group_id && !!entry?.date && entry?.prompt?.category === "Journal",
+  })
+
   // Personalize prompt question with variables
   const personalizedQuestion = useMemo(() => {
     if (!entry?.prompt?.question) return entry?.prompt?.question
+    
+    // For Journal category, show "X's week N photo journal"
+    if (entry.prompt.category === "Journal") {
+      const userName = entry.user?.name || "Their"
+      return `${userName}'s week ${journalWeekNumber} photo journal`
+    }
     
     let question = entry.prompt.question
     const variables: Record<string, string> = {}
@@ -512,7 +560,7 @@ export default function EntryDetail() {
     }
     
     return question
-  }, [entry?.prompt?.question, entry?.group_id, entry?.prompt_id, entry?.date, memorials, members, getMemorialForPrompt, memorialUsageMap, memorialNameUsage, memberUsageMap, memberNameUsage])
+  }, [entry?.prompt?.question, entry?.prompt?.category, entry?.user?.name, entry?.group_id, entry?.prompt_id, entry?.date, journalWeekNumber, memorials, members, getMemorialForPrompt, memorialUsageMap, memorialNameUsage, memberUsageMap, memberNameUsage])
 
   const commentsSectionRef = useRef<View>(null)
 

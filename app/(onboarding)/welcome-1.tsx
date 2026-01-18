@@ -643,7 +643,9 @@ export default function Welcome1() {
           { id: "4", source: require("../../assets/images/onboarding-3-their-answer.png") },
           { id: "5", source: require("../../assets/images/onboarding-4-your-group.png") },
           { id: "6", source: require("../../assets/images/onboarding-5-ask-them.png") },
-          { id: "8", source: require("../../assets/images/onboarding-7-set-your-vibe.png") },
+          { id: "7", source: require("../../assets/images/onboarding-status.png") },
+          { id: "8", source: require("../../assets/images/onboarding-journal.png") },
+          { id: "9", source: require("../../assets/images/onboarding-7-set-your-vibe.png") },
         ]}
         onComplete={() => setOnboardingGalleryVisible(false)}
         returnRoute="/(onboarding)/welcome-1"

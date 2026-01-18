@@ -30,7 +30,7 @@ import type { Prompt } from "../../../lib/types"
 import { uploadMedia } from "../../../lib/storage"
 import { typography, spacing } from "../../../lib/theme"
 import { useTheme } from "../../../lib/theme-context"
-import { getTodayDate } from "../../../lib/utils"
+import { getTodayDate, isSunday } from "../../../lib/utils"
 import { Button } from "../../../components/Button"
 import { FontAwesome } from "@expo/vector-icons"
 import { parseEmbedUrl, extractEmbedUrls, type ParsedEmbed } from "../../../lib/embed-parser"
@@ -104,9 +104,6 @@ export default function EntryComposer() {
   const [showSongModal, setShowSongModal] = useState(false)
   const [songUrlInput, setSongUrlInput] = useState("")
   const [showVideoModal, setShowVideoModal] = useState(false)
-  const [showVideoTooltip, setShowVideoTooltip] = useState(false)
-  const videoButtonRef = useRef<View>(null)
-  const [videoButtonLayout, setVideoButtonLayout] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
   const textInputRef = useRef<TextInput>(null)
   const scrollViewRef = useRef<ScrollView>(null)
   const inputContainerRef = useRef<View>(null)
@@ -119,6 +116,7 @@ export default function EntryComposer() {
   const currentScrollYRef = useRef<number>(0)
   const [showUploadingModal, setShowUploadingModal] = useState(false)
   const [showFileSizeModal, setShowFileSizeModal] = useState(false)
+  const [showJournalPhotoModal, setShowJournalPhotoModal] = useState(false)
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const dragPosition = useRef(new Animated.ValueXY()).current
@@ -261,28 +259,6 @@ export default function EntryComposer() {
       setIsNavigating(false)
     }, [])
   )
-
-  // Check if video tooltip should be shown
-  useEffect(() => {
-    async function checkVideoTooltip() {
-      if (!userId) return
-      const hasSeenTooltip = await AsyncStorage.getItem(`video_tooltip_seen_${userId}`)
-      if (!hasSeenTooltip) {
-        // Small delay to ensure layout is ready
-        setTimeout(() => {
-          setShowVideoTooltip(true)
-        }, 500)
-      }
-    }
-    checkVideoTooltip()
-  }, [userId])
-
-  // Dismiss tooltip
-  async function dismissVideoTooltip() {
-    if (!userId) return
-    setShowVideoTooltip(false)
-    await AsyncStorage.setItem(`video_tooltip_seen_${userId}`, "true")
-  }
 
   // Listen to keyboard events to adjust toolbar position
   useEffect(() => {
@@ -466,6 +442,59 @@ export default function EntryComposer() {
     })
     return map
   }, [memberNameUsage])
+
+  // Query to count Journal prompts for this group (to determine week number)
+  // CRITICAL: Only count valid Sunday Journal prompts asked BEFORE today
+  // This ensures Week 1 is the first time, Week 2 is the second time, etc.
+  const { data: journalWeekNumber = 1 } = useQuery({
+    queryKey: ["journalWeekNumber", currentGroupId, date],
+    queryFn: async () => {
+      if (!currentGroupId) return 1
+      
+      // Get Journal prompt ID
+      const { data: journalPrompt } = await supabase
+        .from("prompts")
+        .select("id")
+        .eq("category", "Journal")
+        .limit(1)
+        .maybeSingle()
+      
+      if (!journalPrompt) return 1
+      
+      const todayDate = getTodayDate()
+      
+      // Count how many VALID Sunday Journal prompts have been asked for this group BEFORE today
+      // Only count prompts that:
+      // 1. Are for this group
+      // 2. Are Journal prompts
+      // 3. Were asked on a Sunday (valid Journal prompts)
+      // 4. Have a date BEFORE today (already asked)
+      const { data: journalPrompts, error } = await supabase
+        .from("daily_prompts")
+        .select("date")
+        .eq("group_id", currentGroupId)
+        .eq("prompt_id", journalPrompt.id)
+        .lt("date", todayDate) // Only count prompts BEFORE today
+        .order("date", { ascending: true })
+      
+      if (error) {
+        console.error("[entry-composer] Error counting Journal prompts:", error)
+        return 1
+      }
+      
+      // Filter to only count valid Sunday Journal prompts (exclude invalid ones scheduled on non-Sunday dates)
+      const validSundayPrompts = (journalPrompts || []).filter((dp: any) => {
+        return isSunday(dp.date)
+      })
+      
+      // Week number = count of previous valid Sunday Journal prompts + 1 for today
+      // Week 1 = first time (0 previous + 1)
+      // Week 2 = second time (1 previous + 1)
+      // etc.
+      return validSundayPrompts.length + 1
+    },
+    enabled: !!currentGroupId && activePrompt?.category === "Journal",
+  })
 
   // Create a map of prompt_id + date -> memorial name used
   const memorialUsageMap = useMemo(() => {
@@ -1399,6 +1428,15 @@ export default function EntryComposer() {
       return
     }
 
+    // For Journal prompts, check if user has less than 3 photos
+    if (activePrompt?.category === "Journal" && !editMode) {
+      const photoCount = mediaItems.filter(item => item.type === "photo").length
+      if (photoCount < 3) {
+        setShowJournalPhotoModal(true)
+        return
+      }
+    }
+
     // Show confirmation dialog for edits
     if (editMode && entryId) {
       Alert.alert(
@@ -1782,14 +1820,20 @@ export default function EntryComposer() {
   }
 
   // Auto-focus text input on mount so users can start typing immediately
+  // Skip auto-focus for Journal prompts to emphasize media adding first
   useEffect(() => {
+    // Don't auto-focus for Journal prompts
+    if (activePrompt?.category === "Journal") {
+      return
+    }
+    
     // Small delay to ensure component is fully mounted and layout is ready
     const focusTimer = setTimeout(() => {
       textInputRef.current?.focus()
     }, 300) as unknown as NodeJS.Timeout
     
     return () => clearTimeout(focusTimer)
-  }, [])
+  }, [activePrompt?.category])
 
   // Handle input layout to capture position
   const handleInputLayout = useCallback((event: any) => {
@@ -1965,8 +2009,11 @@ export default function EntryComposer() {
       color: theme2Colors.text,
       fontFamily: "PMGothicLudington-Text115",
       flex: 1,
-      flexShrink: 1,
-      marginRight: spacing.md,
+    },
+    weekNumberText: {
+      color: "#D97393", // Pink color
+      fontFamily: "PMGothicLudington-Text115",
+      fontSize: 24,
     },
     description: {
       ...typography.body,
@@ -2005,6 +2052,34 @@ export default function EntryComposer() {
       justifyContent: "center",
       alignItems: "center",
       marginRight: spacing.sm,
+      position: "relative",
+    },
+    photoPlaceholderLabel: {
+      ...typography.body,
+      fontSize: 14,
+      color: theme2Colors.textSecondary,
+      textAlign: "center",
+      position: "absolute",
+      bottom: spacing.xs,
+    },
+    journalBanner: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: "transparent",
+      borderWidth: 2,
+      borderColor: theme2Colors.blue,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      borderRadius: 8,
+      marginTop: spacing.md,
+      marginBottom: spacing.md,
+      gap: spacing.sm,
+    },
+    journalBannerText: {
+      ...typography.body,
+      fontSize: 14,
+      color: theme2Colors.blue,
+      fontWeight: "500",
     },
     mediaThumbnailWrapper: {
       width: 120,
@@ -2419,54 +2494,46 @@ export default function EntryComposer() {
       color: theme2Colors.textSecondary,
       textAlign: "center",
       marginTop: spacing.md,
+      lineHeight: 22,
     },
-    tooltipContainer: {
-      position: "absolute",
-      zIndex: 10000,
-      elevation: 10000,
+    journalModalButtons: {
+      width: "100%",
+      gap: spacing.md,
+      marginTop: spacing.lg,
     },
-    tooltipBubble: {
-      backgroundColor: theme2Colors.cream,
-      borderRadius: 12,
-      padding: spacing.md,
-      borderWidth: 1,
-      borderColor: theme2Colors.blue,
-      maxWidth: 200,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.25,
-      shadowRadius: 3.84,
-      elevation: 5,
+    journalModalPrimaryButton: {
+      width: "100%",
+      backgroundColor: "#D97393", // Pink CTA
+      borderRadius: 25,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 56,
     },
-    tooltipText: {
-      ...typography.body,
-      fontSize: 14,
-      color: theme2Colors.text,
+    journalModalPrimaryButtonText: {
+      ...typography.bodyBold,
+      fontSize: 18,
+      color: theme2Colors.white,
       textAlign: "center",
     },
-    tooltipPointer: {
-      width: 0,
-      height: 0,
-      borderLeftWidth: 8,
-      borderRightWidth: 8,
-      borderTopWidth: 8,
-      borderLeftColor: "transparent",
-      borderRightColor: "transparent",
-      borderTopColor: theme2Colors.blue,
-      alignSelf: "center",
-      marginTop: -1,
+    journalModalSecondaryButton: {
+      width: "100%",
+      backgroundColor: theme2Colors.white,
+      borderRadius: 25,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 56,
+      borderWidth: 2,
+      borderColor: theme2Colors.textSecondary,
     },
-    tooltipPointerInner: {
-      width: 0,
-      height: 0,
-      borderLeftWidth: 7,
-      borderRightWidth: 7,
-      borderTopWidth: 7,
-      borderLeftColor: "transparent",
-      borderRightColor: "transparent",
-      borderTopColor: theme2Colors.cream,
-      alignSelf: "center",
-      marginTop: -8,
+    journalModalSecondaryButtonText: {
+      ...typography.bodyBold,
+      fontSize: 18,
+      color: theme2Colors.text,
+      textAlign: "center",
     },
   }), [colors, isDark, theme2Colors])
 
@@ -2495,7 +2562,13 @@ export default function EntryComposer() {
         >
         {/* Header with question and close button */}
         <View style={styles.header}>
-          <Text style={styles.question}>{personalizedQuestion || activePrompt?.question}</Text>
+          {activePrompt?.category === "Journal" ? (
+            <Text style={styles.question}>
+              Add to your weekly{"\n"}photo journal - <Text style={styles.weekNumberText}>Week {journalWeekNumber}</Text>
+            </Text>
+          ) : (
+            <Text style={styles.question}>{personalizedQuestion || activePrompt?.question}</Text>
+          )}
           <TouchableOpacity style={styles.headerCloseButton} onPress={exitComposer}>
             <FontAwesome name="times" size={18} color={theme2Colors.text} />
           </TouchableOpacity>
@@ -2504,6 +2577,14 @@ export default function EntryComposer() {
         {/* Description for Journal prompts */}
         {activePrompt?.category === "Journal" && activePrompt?.description && (
           <Text style={styles.description}>{activePrompt.description}</Text>
+        )}
+
+        {/* Blue banner for Journal prompts */}
+        {activePrompt?.category === "Journal" && (
+          <View style={styles.journalBanner}>
+            <FontAwesome name="photo" size={16} color={theme2Colors.blue} />
+            <Text style={styles.journalBannerText}>Try add 5 photos, or ideally 1 per day.</Text>
+          </View>
         )}
 
         {/* Media preview carousel - positioned between description and input */}
@@ -2546,17 +2627,26 @@ export default function EntryComposer() {
                       />
                     )
                   })}
-                  {/* Show placeholder slots (up to 6 total, minus uploaded photos) */}
-                  {Array.from({ length: Math.max(0, 6 - mediaItems.filter(item => item.type !== "audio").length) }).map((_, index) => (
-                    <TouchableOpacity
-                      key={`placeholder-${index}`}
-                      style={styles.photoPlaceholder}
-                      onPress={handleGalleryAction}
-                      activeOpacity={0.7}
-                    >
-                      <FontAwesome name="plus" size={24} color={theme2Colors.textSecondary} />
-                    </TouchableOpacity>
-                  ))}
+                  {/* Show placeholder slots (up to 7 total, minus uploaded photos) */}
+                  {Array.from({ length: Math.max(0, 7 - mediaItems.filter(item => item.type !== "audio").length) }).map((_, index) => {
+                    // Calculate day labels: Mon, Tue, Wed, Thu, Fri, Sat, Sun
+                    const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+                    const dayLabel = dayLabels[index]
+                    const uploadedCount = mediaItems.filter(item => item.type !== "audio").length
+                    const placeholderIndex = uploadedCount + index
+                    
+                    return (
+                      <TouchableOpacity
+                        key={`placeholder-${index}`}
+                        style={styles.photoPlaceholder}
+                        onPress={handleGalleryAction}
+                        activeOpacity={0.7}
+                      >
+                        <FontAwesome name="plus" size={24} color={theme2Colors.textSecondary} />
+                        <Text style={styles.photoPlaceholderLabel}>e.g {dayLabel}</Text>
+                      </TouchableOpacity>
+                    )
+                  })}
                 </>
               ) : (
                 /* Regular prompts - show only uploaded photos */
@@ -2667,7 +2757,7 @@ export default function EntryComposer() {
             placeholder={activePrompt?.category === "Journal" ? "Tell us about your week.." : "Tell us what you think..."}
             placeholderTextColor={theme2Colors.textSecondary}
             multiline
-            autoFocus={true}
+            autoFocus={activePrompt?.category !== "Journal"}
             showSoftInputOnFocus={true}
             keyboardType="default"
             returnKeyType="default"
@@ -2794,33 +2884,6 @@ export default function EntryComposer() {
         onAddVideo={handleAddVideo}
       />
 
-      {/* Video Tooltip */}
-      {showVideoTooltip && videoButtonLayout && (
-        <View
-          style={[
-            styles.tooltipContainer,
-            {
-              bottom: Platform.OS === "android" 
-                ? keyboardHeight + spacing.xl + spacing.md + 60 + 10
-                : keyboardHeight + 60 + 10,
-              left: videoButtonLayout.x + (videoButtonLayout.width / 2) - 100,
-            },
-          ]}
-        >
-          <View style={styles.tooltipBubble}>
-            <Text style={styles.tooltipText}>You can now record a video answer</Text>
-            <TouchableOpacity
-              style={{ marginTop: spacing.xs, alignItems: "center" }}
-              onPress={dismissVideoTooltip}
-            >
-              <Text style={[styles.tooltipText, { fontSize: 12, color: theme2Colors.blue }]}>Got it</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.tooltipPointer} />
-          <View style={styles.tooltipPointerInner} />
-        </View>
-      )}
-
       {/* Toolbar - positioned above keyboard */}
       {!isNavigating && (
       <View style={[styles.toolbar, { bottom: Platform.OS === "android" ? keyboardHeight + spacing.xl + spacing.md : keyboardHeight }]}>
@@ -2832,20 +2895,11 @@ export default function EntryComposer() {
             <TouchableOpacity style={styles.iconButton} onPress={openCamera}>
               <FontAwesome name="camera" size={18} color={theme2Colors.text} />
             </TouchableOpacity>
-            <View
-              ref={videoButtonRef}
-              onLayout={(event) => {
-                const { x, y, width, height } = event.nativeEvent.layout
-                setVideoButtonLayout({ x, y, width, height })
-              }}
-            >
-              <TouchableOpacity style={styles.videoIconButton} onPress={() => {
-                dismissVideoTooltip()
-                setShowVideoModal(true)
-              }}>
-                <FontAwesome name="video-camera" size={18} color={theme2Colors.text} />
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity style={styles.videoIconButton} onPress={() => {
+              setShowVideoModal(true)
+            }}>
+              <FontAwesome name="video-camera" size={18} color={theme2Colors.text} />
+            </TouchableOpacity>
             <TouchableOpacity style={styles.iconButton} onPress={startRecording}>
               <FontAwesome name="microphone" size={18} color={theme2Colors.text} />
             </TouchableOpacity>
@@ -3045,6 +3099,192 @@ export default function EntryComposer() {
           </View>
         </View>
       </Modal>
+
+      {/* Journal Photo Validation Modal */}
+      <Modal
+        visible={showJournalPhotoModal}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setShowJournalPhotoModal(false)}
+      >
+        <View style={styles.successBackdrop}>
+          <Animated.View style={styles.successBackdropOverlay1} />
+          <Animated.View style={styles.successBackdropOverlay2} />
+          <TouchableOpacity
+            style={StyleSheet.absoluteFillObject}
+            activeOpacity={1}
+            onPress={() => setShowJournalPhotoModal(false)}
+          />
+          <View style={styles.successContainer}>
+            <Text style={styles.successTitle}>Add more photos?</Text>
+            <Text style={styles.uploadingSubtitle}>
+              For your weekly photo journal, try adding more pics to show your group what's your week was like. {"\n\n"}Don't worry if it seems "mundane" or "boring", the idea is an honest photo dump of what's going on in your life.{"\n\n"}Little moments matter and are fun to see.
+            </Text>
+            {/* Inspiration tags carousel */}
+            <InspirationTagsCarousel theme2Colors={theme2Colors} spacing={spacing} typography={typography} />
+            <View style={styles.journalModalButtons}>
+              <TouchableOpacity
+                style={styles.journalModalPrimaryButton}
+                onPress={async () => {
+                  setShowJournalPhotoModal(false)
+                  // Small delay to ensure modal closes before opening gallery
+                  setTimeout(() => {
+                    handleGalleryAction()
+                  }, 300)
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.journalModalPrimaryButtonText}>Add more pics</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.journalModalSecondaryButton}
+                onPress={() => {
+                  setShowJournalPhotoModal(false)
+                  performPost()
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.journalModalSecondaryButtonText}>Post anyway</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  )
+}
+
+// Inspiration Tags Carousel Component for Journal modal
+function InspirationTagsCarousel({ theme2Colors, spacing, typography }: { theme2Colors: any; spacing: any; typography: any }) {
+  const tags = [
+    "Caught up with a friend?",
+    "Did something nice for yourself?",
+    "Something unfortunate happen?",
+    "See something cool?",
+    "Eat something tasty?",
+    "Take a nice fit pic?",
+    "Make something you're proud of?",
+    "Take a nice selfie?",
+    "Enjoy a view?",
+  ]
+
+  // Create 3 rows, distributing tags evenly
+  const row1 = tags.slice(0, 3)
+  const row2 = tags.slice(3, 6)
+  const row3 = tags.slice(6, 9)
+
+  // Animation values for each row (moving in opposite directions)
+  const anim1 = useRef(new Animated.Value(0)).current
+  const anim2 = useRef(new Animated.Value(0)).current
+  const anim3 = useRef(new Animated.Value(0)).current
+
+  useEffect(() => {
+    // Row 1: moves left (negative direction)
+    const animation1 = Animated.loop(
+      Animated.timing(anim1, {
+        toValue: 1,
+        duration: 20000, // 20 seconds for slow movement
+        useNativeDriver: true,
+      })
+    )
+
+    // Row 2: moves right (positive direction)
+    const animation2 = Animated.loop(
+      Animated.timing(anim2, {
+        toValue: 1,
+        duration: 25000, // Slightly different speed
+        useNativeDriver: true,
+      })
+    )
+
+    // Row 3: moves left (negative direction)
+    const animation3 = Animated.loop(
+      Animated.timing(anim3, {
+        toValue: 1,
+        duration: 22000, // Different speed
+        useNativeDriver: true,
+      })
+    )
+
+    animation1.start()
+    animation2.start()
+    animation3.start()
+
+    return () => {
+      animation1.stop()
+      animation2.stop()
+      animation3.stop()
+    }
+  }, [])
+
+  // Calculate tag width for seamless looping (approximate)
+  const tagWidth = 150 // Approximate width per tag
+
+  // Interpolate animation values to translateX
+  const translateX1 = anim1.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -(tagWidth * row1.length)], // Move left
+  })
+
+  const translateX2 = anim2.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, tagWidth * row2.length], // Move right
+  })
+
+  const translateX3 = anim3.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -(tagWidth * row3.length)], // Move left
+  })
+
+  const tagStyles = StyleSheet.create({
+    container: {
+      marginTop: spacing.lg,
+      marginBottom: spacing.md,
+      overflow: "hidden",
+      height: 120, // Fixed height for 3 rows
+    },
+    row: {
+      flexDirection: "row",
+      marginBottom: spacing.sm,
+      overflow: "hidden",
+    },
+    tagContainer: {
+      flexDirection: "row",
+    },
+    tag: {
+      backgroundColor: theme2Colors.white,
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
+      borderRadius: 16,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
+      marginRight: spacing.sm,
+    },
+    tagText: {
+      ...typography.body,
+      fontSize: 12,
+      color: theme2Colors.text,
+    },
+  })
+
+  const renderRow = (rowTags: string[], translateX: Animated.AnimatedInterpolation<number>) => (
+    <View style={tagStyles.row}>
+      <Animated.View style={[tagStyles.tagContainer, { transform: [{ translateX }] }]}>
+        {/* Render tags multiple times for seamless loop */}
+        {[...rowTags, ...rowTags, ...rowTags].map((tag, index) => (
+          <View key={`${tag}-${index}`} style={tagStyles.tag}>
+            <Text style={tagStyles.tagText}>{tag}</Text>
+          </View>
+        ))}
+      </Animated.View>
+    </View>
+  )
+
+  return (
+    <View style={tagStyles.container}>
+      {renderRow(row1, translateX1)}
+      {renderRow(row2, translateX2)}
+      {renderRow(row3, translateX3)}
     </View>
   )
 }

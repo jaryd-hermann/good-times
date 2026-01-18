@@ -18,7 +18,7 @@ import { MentionableText } from "./MentionableText"
 import { UserProfileModal } from "./UserProfileModal"
 import { PhotoLightbox } from "./PhotoLightbox"
 import { StatusModal } from "./StatusModal"
-import { getTodayDate } from "../lib/utils"
+import { getTodayDate, isSunday } from "../lib/utils"
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window")
 
@@ -349,15 +349,57 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     enabled: !!entry.group_id && !!entry.prompt?.question?.match(/\{.*member_name.*\}/i),
   })
 
+  // Query to get week number for Journal entries
+  const { data: journalWeekNumber = 1 } = useQuery({
+    queryKey: ["journalWeekNumberForEntry", entry.group_id, entry.date],
+    queryFn: async () => {
+      if (!entry.group_id || !entry.date || entry.prompt?.category !== "Journal") return 1
+
+      // Get Journal prompt ID
+      const { data: journalPrompt } = await supabase
+        .from("prompts")
+        .select("id")
+        .eq("category", "Journal")
+        .limit(1)
+        .maybeSingle()
+
+      if (!journalPrompt) return 1
+
+      // Count how many VALID Sunday Journal prompts have been asked for this group up to and including this entry's date
+      // Only count prompts that were asked on Sundays (valid Journal prompts)
+      const { data: journalPrompts, error } = await supabase
+        .from("daily_prompts")
+        .select("id, date")
+        .eq("group_id", entry.group_id)
+        .eq("prompt_id", journalPrompt.id)
+        .lte("date", entry.date)
+        .order("date", { ascending: true })
+
+      if (error) {
+        console.error("[EntryCard] Error counting Journal prompts:", error)
+        return 1
+      }
+
+      // Filter to only count valid Sunday Journal prompts (exclude invalid ones scheduled on non-Sunday dates)
+      const validSundayPrompts = (journalPrompts || []).filter((dp: any) => {
+        return isSunday(dp.date)
+      })
+
+      // Week number is the count of valid Sunday Journal prompts up to this date
+      return validSundayPrompts.length || 1
+    },
+    enabled: !!entry.group_id && !!entry.date && entry.prompt?.category === "Journal",
+  })
+
   // Personalize prompt question if it has placeholders
-  // For Journal prompts, show "X's weekly photo journal" instead of the question
+  // For Journal prompts, show "X's week N photo journal" instead of the question
   const personalizedQuestion = useMemo(() => {
     if (!entry.prompt?.question) return entry.prompt?.question
     
-    // For Journal category, show "X's weekly photo journal"
+    // For Journal category, show "X's week N photo journal"
     if (entry.prompt.category === "Journal") {
       const userName = entry.user?.name || "Their"
-      return `${userName}'s weekly photo journal`
+      return `${userName}'s week ${journalWeekNumber} photo journal`
     }
     
     let question = entry.prompt.question
@@ -2199,6 +2241,8 @@ function VideoPlayer({
   const [duration, setDuration] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
   const [isSeeking, setIsSeeking] = useState(false)
+  const [hasError, setHasError] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   
   // Handle tap/seek on progress bar
   const handleProgressTap = async (evt: any) => {
@@ -2353,8 +2397,13 @@ function VideoPlayer({
           setIsPlaying(true)
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("[VideoPlayer] Error toggling playback:", error)
+      // Handle AVFoundation errors (e.g., -11800 = corrupted/inaccessible video)
+      setHasError(true)
+      setErrorMessage("Unable to play video. The file may be corrupted or unavailable.")
+      setIsPlaying(false)
+      setIsLoading(false)
     } finally {
       setIsLoading(false)
     }
@@ -2365,6 +2414,8 @@ function VideoPlayer({
     
     try {
       setIsLoading(true)
+      setHasError(false) // Clear any previous errors when retrying
+      setErrorMessage(null)
       await videoRef.current.setPositionAsync(0)
       // Ensure video is unmuted when playing
       if (isMuted) {
@@ -2378,8 +2429,12 @@ function VideoPlayer({
       await videoRef.current.playAsync()
       setIsPlaying(true)
       setProgress(0)
-    } catch (error) {
+    } catch (error: any) {
       console.error("[VideoPlayer] Error restarting:", error)
+      setHasError(true)
+      setErrorMessage("Unable to play video. The file may be corrupted or unavailable.")
+      setIsPlaying(false)
+      setIsLoading(false)
     } finally {
       setIsLoading(false)
     }
@@ -2538,6 +2593,27 @@ function VideoPlayer({
       paddingVertical: 2,
       borderRadius: 4,
     },
+    errorOverlay: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: "rgba(0, 0, 0, 0.7)",
+      justifyContent: "center",
+      alignItems: "center",
+      zIndex: 10,
+      padding: spacing.lg,
+    },
+    errorText: {
+      ...typography.body,
+      color: theme2Colors.white,
+      textAlign: "center",
+      marginBottom: spacing.sm,
+    },
+    errorIcon: {
+      marginBottom: spacing.md,
+    },
   }), [theme2Colors, containerStyle])
 
   return (
@@ -2566,6 +2642,11 @@ function VideoPlayer({
         }}
         onPlaybackStatusUpdate={(status) => {
           if (status.isLoaded) {
+            // Clear error state if video loads successfully
+            if (hasError) {
+              setHasError(false)
+              setErrorMessage(null)
+            }
             if (status.positionMillis !== undefined) {
               setProgress(status.positionMillis)
             }
@@ -2581,31 +2662,63 @@ function VideoPlayer({
                 }).catch(() => {})
               }).catch(() => {})
             }
+          } else if ((status as any).error) {
+            // Handle playback errors from status
+            const error = (status as any).error
+            console.error("[VideoPlayer] Playback error:", error)
+            setHasError(true)
+            setErrorMessage("Unable to play video. The file may be corrupted or unavailable.")
+            setIsPlaying(false)
+            setIsLoading(false)
           }
         }}
+        onError={(error) => {
+          console.error("[VideoPlayer] Video error:", error)
+          setHasError(true)
+          setErrorMessage("Unable to load video. The file may be corrupted or unavailable.")
+          setIsPlaying(false)
+          setIsLoading(false)
+        }}
       />
+      {/* Error overlay - show when video fails to load/play */}
+      {hasError && (
+        <View style={videoStyles.errorOverlay}>
+          <FontAwesome 
+            name="exclamation-triangle" 
+            size={32} 
+            color={theme2Colors.white}
+            style={videoStyles.errorIcon}
+          />
+          <Text style={videoStyles.errorText}>
+            {errorMessage || "Unable to play video"}
+          </Text>
+        </View>
+      )}
+      
       <View 
         style={videoStyles.controlsOverlay}
         pointerEvents="box-none"
       >
         {/* Volume control - top right */}
-        <TouchableOpacity
-          style={videoStyles.volumeButton}
-          onPress={(e) => {
-            e.stopPropagation()
-            handleToggleMute()
-          }}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <FontAwesome 
-            name={isMuted ? "volume-off" : "volume-up"} 
-            size={16} 
-            color={theme2Colors.white} 
-          />
-        </TouchableOpacity>
+        {!hasError && (
+          <TouchableOpacity
+            style={videoStyles.volumeButton}
+            onPress={(e) => {
+              e.stopPropagation()
+              handleToggleMute()
+            }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <FontAwesome 
+              name={isMuted ? "volume-off" : "volume-up"} 
+              size={16} 
+              color={theme2Colors.white} 
+            />
+          </TouchableOpacity>
+        )}
         
         {/* Play/Pause and Restart buttons - center */}
-        {!isPlaying && (
+        {!isPlaying && !hasError && (
           <View style={videoStyles.controlsRow} pointerEvents="box-none">
             {/* Restart button - left of play button (only show if progress > 1s) */}
             {progress > 1000 && (
@@ -2643,48 +2756,55 @@ function VideoPlayer({
           </View>
         )}
         
-        {/* Full-screen tap area for play/pause - covers video area, not controls */}
-        <TouchableOpacity
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 40, // Leave space for progress bar at bottom
-          }}
-          activeOpacity={1}
-          onPress={(e) => {
-            e.stopPropagation()
-            // When playing, tap to pause; when paused, tap to play
-            handlePlayPause()
-          }}
-          pointerEvents="auto"
-        />
+        {/* Full-screen tap area for play/pause - covers video area, not controls - hide when error */}
+        {!hasError && (
+          <TouchableOpacity
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 40, // Leave space for progress bar at bottom
+            }}
+            activeOpacity={1}
+            onPress={(e) => {
+              e.stopPropagation()
+              // When playing, tap to pause; when paused, tap to play
+              handlePlayPause()
+            }}
+            pointerEvents="auto"
+          />
+        )}
         
-        {/* Progress bar - bottom (scrubbable) */}
-        <TouchableOpacity
-          ref={progressContainerRef}
-          style={videoStyles.progressContainer}
-          {...panResponder.panHandlers}
-          onPress={(e) => {
-            e.stopPropagation()
-            handleProgressTap(e)
-          }}
-          activeOpacity={1}
-        >
-          <View 
-            style={videoStyles.progressBarTrack}
-            pointerEvents="none"
+        {/* Progress bar - bottom (scrubbable) - hide when error */}
+        {!hasError && (
+          <TouchableOpacity
+            ref={progressContainerRef}
+            style={videoStyles.progressContainer}
+            {...panResponder.panHandlers}
+            onPress={(e) => {
+              e.stopPropagation()
+              handleProgressTap(e)
+            }}
+            activeOpacity={1}
           >
             <View 
-              style={[
-                videoStyles.progressBar,
-                { width: duration > 0 ? `${(progress / duration) * 100}%` : "0%" }
-              ]} 
+              style={videoStyles.progressBarTrack}
               pointerEvents="none"
-            />
-          </View>
-        </TouchableOpacity>
+            >
+              <View 
+                style={[
+                  videoStyles.progressBar,
+                  { width: duration > 0 ? `${(progress / duration) * 100}%` : "0%" }
+                ]} 
+                pointerEvents="none"
+              />
+            </View>
+            <Text style={videoStyles.progressTime}>
+              {formatTime(progress)} / {formatTime(duration)}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   )
@@ -2726,6 +2846,8 @@ function CommentVideoPlayer({
   const progressContainerRef = useRef<View>(null)
   const { colors, isDark } = useTheme()
   const [isSeeking, setIsSeeking] = useState(false)
+  const [hasError, setHasError] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   useEffect(() => {
     onVideoRef(videoRef.current)
@@ -2906,6 +3028,27 @@ function CommentVideoPlayer({
       height: "100%",
       backgroundColor: theme2Colors.blue,
     },
+    errorOverlay: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: "rgba(0, 0, 0, 0.8)",
+      justifyContent: "center",
+      alignItems: "center",
+      zIndex: 10,
+    },
+    errorText: {
+      ...typography.body,
+      color: theme2Colors.white,
+      textAlign: "center",
+      marginTop: spacing.md,
+      paddingHorizontal: spacing.lg,
+    },
+    errorIcon: {
+      marginBottom: spacing.xs,
+    },
   }), [theme2Colors])
 
   return (
@@ -2924,11 +3067,21 @@ function CommentVideoPlayer({
         useNativeControls={false}
         onLoad={(status) => {
           if (status.isLoaded && status.durationMillis) {
+            // Clear error state if video loads successfully
+            if (hasError) {
+              setHasError(false)
+              setErrorMessage(null)
+            }
             onDurationChange(status.durationMillis)
           }
         }}
         onPlaybackStatusUpdate={(status) => {
           if (status.isLoaded) {
+            // Clear error state if video loads successfully
+            if (hasError) {
+              setHasError(false)
+              setErrorMessage(null)
+            }
             if (status.positionMillis !== undefined) {
               if (!isSeeking) {
                 onProgressChange(status.positionMillis)
@@ -2946,7 +3099,20 @@ function CommentVideoPlayer({
                 }).catch(() => {})
               }).catch(() => {})
             }
+          } else if ((status as any).error) {
+            // Handle playback errors from status
+            const error = (status as any).error
+            console.error("[CommentVideoPlayer] Playback error:", error)
+            setHasError(true)
+            setErrorMessage("Unable to play video. The file may be corrupted or unavailable.")
+            onPlayPause() // This will set isPlaying to false
           }
+        }}
+        onError={(error) => {
+          console.error("[CommentVideoPlayer] Video error:", error)
+          setHasError(true)
+          setErrorMessage("Unable to load video. The file may be corrupted or unavailable.")
+          onPlayPause() // This will set isPlaying to false
         }}
       />
       <View 

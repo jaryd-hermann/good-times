@@ -459,12 +459,13 @@ export default function JoinGroup() {
         screenshots={[
           { id: "1", source: require("../../assets/images/onboarding-1-one-question.png") },
           { id: "2", source: require("../../assets/images/onboarding-2-your-answer.png") },
-          { id: "3", source: require("../../assets/images/onboarding-3-their-answer.png") },
-          { id: "4", source: require("../../assets/images/onboarding-4-your-group.png") },
-          { id: "5", source: require("../../assets/images/onboarding-5-ask-them.png") },
-          { id: "6", source: require("../../assets/images/onboarding-6-themed-decks.png") },
-          { id: "7", source: require("../../assets/images/onboarding-7-set-your-vibe.png") },
-          { id: "8", source: require("../../assets/images/onboarding-8-remember.png") },
+          { id: "3", source: require("../../assets/images/onboarding-video.png") },
+          { id: "4", source: require("../../assets/images/onboarding-3-their-answer.png") },
+          { id: "5", source: require("../../assets/images/onboarding-4-your-group.png") },
+          { id: "6", source: require("../../assets/images/onboarding-5-ask-them.png") },
+          { id: "7", source: require("../../assets/images/onboarding-status.png") },
+          { id: "8", source: require("../../assets/images/onboarding-journal.png") },
+          { id: "9", source: require("../../assets/images/onboarding-7-set-your-vibe.png") },
         ]}
         onComplete={() => setOnboardingGalleryVisible(false)}
         returnRoute={`/join/${groupId}`}

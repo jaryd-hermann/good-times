@@ -62,23 +62,6 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
   const pan = useRef(new Animated.ValueXY()).current
   const scale = useRef(new Animated.Value(1)).current
   const opacity = useRef(new Animated.Value(1)).current
-  
-  // Animated values for progress dots - create array of animated values
-  const dotAnimationsRef = useRef<Animated.Value[]>([])
-  
-  // Initialize dot animations when screenshots are available
-  useEffect(() => {
-    if (screenshots.length > 0) {
-      // Only initialize if not already initialized or if length changed
-      if (dotAnimationsRef.current.length !== screenshots.length) {
-        dotAnimationsRef.current = screenshots.map((_, index) => 
-          new Animated.Value(index === 0 ? 1 : 0)
-        )
-      }
-    }
-  }, [screenshots.length])
-  
-  const dotAnimations = dotAnimationsRef.current
 
   // Track if user has swiped through all screenshots (no auto-close)
   useEffect(() => {
@@ -98,12 +81,8 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
       pan.setValue({ x: 0, y: 0 })
       scale.setValue(1)
       opacity.setValue(1)
-      // Reset dot animations
-      dotAnimationsRef.current.forEach((dot, index) => {
-        dot.setValue(index === 0 ? 1 : 0)
-      })
     }
-  }, [visible, pan, scale, opacity, screenshots.length])
+  }, [visible, pan, scale, opacity])
   
   // Keep ref in sync with state
   useEffect(() => {
@@ -147,18 +126,6 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
     }
   }, [visible, currentIndex, screenshots.length, posthog])
   
-  // Update progress dots when currentIndex changes
-  useEffect(() => {
-    if (screenshots.length > 0 && dotAnimationsRef.current.length > 0) {
-      dotAnimationsRef.current.forEach((dot, index) => {
-        Animated.timing(dot, {
-          toValue: index === currentIndex ? 1 : 0,
-          duration: 300,
-          useNativeDriver: true,
-        }).start()
-      })
-    }
-  }, [currentIndex, screenshots.length])
 
   const handleSkip = useCallback(async () => {
     // Determine route: prioritize logged-in state, then use returnRoute as fallback
@@ -366,56 +333,22 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
       statusBarTranslucent
     >
       <View style={[styles.container, { backgroundColor: theme2Colors.beige }]}>
-        {/* Skip button - top right */}
-        <TouchableOpacity
-          style={[styles.skipButton, { top: insets.top + spacing.xs, right: spacing.md }]}
-          onPress={handleSkip}
-          activeOpacity={0.7}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <FontAwesome name="times" size={16} color={theme2Colors.text} />
-        </TouchableOpacity>
-
-        {/* Progress dots - centered at top, aligned with Skip this */}
-        {screenshots.length > 0 && dotAnimationsRef.current.length > 0 && (
-          <View style={[styles.progressDotsContainer, { top: insets.top + spacing.md }]}>
-            <View style={styles.progressDotsRow}>
-              {screenshots.map((_, index) => {
-                const dot = dotAnimationsRef.current[index]
-                if (!dot) return null
-                
-                const dotScale = dot.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0.6, 1],
-                })
-                const dotOpacity = dot.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0.4, 1],
-                })
-                
-                return (
-                  <Animated.View
-                    key={index}
-                    style={[
-                      styles.progressDot,
-                      {
-                        transform: [{ scale: dotScale }],
-                        opacity: dotOpacity,
-                        backgroundColor: index === currentIndex ? theme2Colors.text : theme2Colors.white,
-                      },
-                    ]}
-                  />
-                )
-              })}
-            </View>
-            {/* Tap or swipe instruction text - only show on first screenshot */}
-            {currentIndex === 0 && (
-              <Text style={[styles.instructionText, { color: theme2Colors.textSecondary }]}>
-                tap or swipe to continue
-              </Text>
-            )}
+        {/* Skip button and counter - top right */}
+        <View style={[styles.topBar, { top: insets.top + spacing.xs, right: spacing.md }]}>
+          <View style={styles.counterPill}>
+            <Text style={styles.counterText}>
+              {currentIndex + 1}/{screenshots.length}
+            </Text>
           </View>
-        )}
+          <TouchableOpacity
+            style={styles.skipButton}
+            onPress={handleSkip}
+            activeOpacity={0.7}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <FontAwesome name="times" size={16} color={theme2Colors.text} />
+          </TouchableOpacity>
+        </View>
 
         {/* Deck structure */}
         <View style={styles.deckContainer}>
@@ -450,7 +383,7 @@ export function OnboardingGallery({ visible, screenshots, onComplete, returnRout
                 key={`image-${currentIndex}`} // Force React to remount Image when index changes
                 source={screenshots[currentIndex]?.source}
                 style={styles.image}
-                resizeMode="contain"
+                resizeMode="cover"
                 fadeDuration={0}
               />
             </Animated.View>
@@ -471,30 +404,32 @@ const styles = StyleSheet.create({
   deckContainer: {
     flex: 1,
     width: "100%",
-    justifyContent: "flex-end",
+    justifyContent: "center",
     alignItems: "center",
-    paddingTop: 60, // Space for top progress dots
-    paddingBottom: 0, // No padding at bottom
+    paddingTop: 0,
+    paddingBottom: 0,
   },
   tapArea: {
     position: "absolute",
-    width: SCREEN_WIDTH * 0.98,
+    width: "100%",
+    top: 0,
     bottom: 0,
-    left: SCREEN_WIDTH * 0.01,
-    height: SCREEN_HEIGHT * 0.88,
+    left: 0,
+    right: 0,
+    height: "100%",
     zIndex: 1, // Lower than skip button
   },
   imageContainer: {
     width: "100%",
     height: "100%",
-    justifyContent: "flex-end",
+    justifyContent: "center",
     alignItems: "center",
-    borderRadius: 12,
+    borderRadius: 0,
     overflow: "hidden",
   },
   image: {
-    width: "100%",
-    height: SCREEN_HEIGHT * 0.88, // Slightly larger (was 0.85)
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT,
   },
   currentImage: {
     zIndex: 10,
@@ -505,9 +440,29 @@ const styles = StyleSheet.create({
   backgroundImage: {
     zIndex: 1,
   },
-  skipButton: {
+  topBar: {
     position: "absolute",
     zIndex: 10000, // Much higher zIndex to ensure it's above everything
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    elevation: 10000, // Android elevation
+  },
+  counterPill: {
+    backgroundColor: theme2Colors.white,
+    borderRadius: 12,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderWidth: 1,
+    borderColor: theme2Colors.text,
+  },
+  counterText: {
+    ...typography.body,
+    fontSize: 12,
+    color: theme2Colors.text,
+    fontFamily: "Roboto-Regular",
+  },
+  skipButton: {
     width: 32,
     height: 32,
     borderRadius: 16,
@@ -516,31 +471,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
     borderColor: theme2Colors.text,
-    elevation: 10000, // Android elevation
-  },
-  progressDotsContainer: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    alignItems: "center",
-    zIndex: 1000,
-  },
-  progressDotsRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: spacing.sm,
-  },
-  progressDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  instructionText: {
-    ...typography.body,
-    fontSize: 12,
-    marginTop: spacing.sm,
-    textAlign: "center",
   },
 })
 

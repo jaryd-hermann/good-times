@@ -1219,9 +1219,13 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
       setSelectedCategory(null)
       scrollViewRef.current?.scrollTo({ x: 0, y: 0, animated: false })
       // Focus search input immediately to open keyboard faster
-      setTimeout(() => {
-        searchInputRef.current?.focus()
-      }, 50) // Small delay to ensure modal is mounted
+      // Use requestAnimationFrame for immediate execution after render completes
+      // Double RAF ensures modal is fully mounted and ready
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          searchInputRef.current?.focus()
+        })
+      })
     } else {
       slideAnim.setValue(0)
     }

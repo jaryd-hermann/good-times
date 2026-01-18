@@ -41,7 +41,7 @@ import {
   getMyBirthdayCards,
   hasReceivedBirthdayCards,
 } from "../../lib/db"
-import { getTodayDate, getWeekDates, getPreviousDay, utcStringToLocalDate, formatDateAsLocalISO } from "../../lib/utils"
+import { getTodayDate, getWeekDates, getPreviousDay, utcStringToLocalDate, formatDateAsLocalISO, isSunday } from "../../lib/utils"
 import { format, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns"
 import { typography, spacing } from "../../lib/theme"
 import { useTheme } from "../../lib/theme-context"
@@ -280,6 +280,57 @@ function buildPeriodSummaries(entries: any[], mode: PeriodMode): PeriodSummary[]
       image: group.image,
     }
   })
+}
+
+// Component to render Journal week header with week number
+function JournalWeekHeader({ groupId, date, styles }: { groupId?: string; date: string; styles: any }) {
+  const { data: weekNum = 1 } = useQuery({
+    queryKey: ["journalWeekNumber", groupId, date],
+    queryFn: async () => {
+      if (!groupId || !date) return 1
+
+      // Get Journal prompt ID
+      const { data: journalPrompt } = await supabase
+        .from("prompts")
+        .select("id")
+        .eq("category", "Journal")
+        .limit(1)
+        .maybeSingle()
+
+      if (!journalPrompt) return 1
+
+      // Count how many VALID Sunday Journal prompts have been asked for this group up to and including this date
+      // Only count prompts that were asked on Sundays (valid Journal prompts)
+      const { data: journalPrompts, error } = await supabase
+        .from("daily_prompts")
+        .select("id, date")
+        .eq("group_id", groupId)
+        .eq("prompt_id", journalPrompt.id)
+        .lte("date", date)
+        .order("date", { ascending: true })
+
+      if (error) {
+        console.error("[home] Error counting Journal prompts:", error)
+        return 1
+      }
+
+      // Filter to only count valid Sunday Journal prompts (exclude invalid ones scheduled on non-Sunday dates)
+      const validSundayPrompts = (journalPrompts || []).filter((dp: any) => {
+        return isSunday(dp.date)
+      })
+
+      return validSundayPrompts.length || 1
+    },
+    enabled: !!groupId && !!date && isSunday(date),
+  })
+
+  return (
+    <View style={styles.journalHeaderContainer}>
+      <View style={styles.journalHeader}>
+        <Text style={styles.journalHeaderText}>Weekly Photo Dump - Week {weekNum}</Text>
+      </View>
+    </View>
+  )
 }
 
 export default function Home() {
@@ -1140,6 +1191,48 @@ export default function Home() {
     queryKey: ["userEntry", currentGroupId, userId, selectedDate],
     queryFn: () => (currentGroupId && userId ? getUserEntryForDate(currentGroupId, userId, selectedDate) : null),
     enabled: !!currentGroupId && !!userId,
+  })
+
+  // Query to get week number for Journal prompts on selected date
+  const { data: journalWeekNumber = 1 } = useQuery({
+    queryKey: ["journalWeekNumber", currentGroupId, selectedDate],
+    queryFn: async () => {
+      if (!currentGroupId || !selectedDate) return 1
+
+      // Get Journal prompt ID
+      const { data: journalPrompt } = await supabase
+        .from("prompts")
+        .select("id")
+        .eq("category", "Journal")
+        .limit(1)
+        .maybeSingle()
+
+      if (!journalPrompt) return 1
+
+      // Count how many VALID Sunday Journal prompts have been asked for this group up to and including selectedDate
+      // Only count prompts that were asked on Sundays (valid Journal prompts)
+      const { data: journalPrompts, error } = await supabase
+        .from("daily_prompts")
+        .select("id, date")
+        .eq("group_id", currentGroupId)
+        .eq("prompt_id", journalPrompt.id)
+        .lte("date", selectedDate)
+        .order("date", { ascending: true })
+
+      if (error) {
+        console.error("[home] Error counting Journal prompts:", error)
+        return 1
+      }
+
+      // Filter to only count valid Sunday Journal prompts (exclude invalid ones scheduled on non-Sunday dates)
+      const validSundayPrompts = (journalPrompts || []).filter((dp: any) => {
+        return isSunday(dp.date)
+      })
+
+      // Week number is the count of valid Sunday Journal prompts up to this date
+      return validSundayPrompts.length || 1
+    },
+    enabled: !!currentGroupId && !!selectedDate && isSunday(selectedDate),
   })
 
   // Get today's date - call directly to ensure fresh value
@@ -3968,7 +4061,7 @@ export default function Home() {
       paddingRight: spacing.sm, // Add right padding for last item
     },
     memberAvatar: {
-      marginRight: -4, // Slight overlap
+      marginRight: spacing.xs, // Spacing between avatars
     },
     addMemberButton: {
       marginRight: spacing.sm,
@@ -4725,6 +4818,25 @@ export default function Home() {
       fontSize: 22,
       color: theme2Colors.textSecondary,
     },
+    journalHeaderContainer: {
+      marginBottom: spacing.xl,
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.md,
+    },
+    journalHeader: {
+      ...typography.h2,
+      fontSize: 22,
+      flexDirection: "row",
+      alignItems: "center",
+      marginBottom: spacing.xs,
+    },
+    journalHeaderText: {
+      fontFamily: "Roboto-Regular",
+      fontSize: 22,
+      lineHeight: 32,
+      color: theme2Colors.text,
+      fontWeight: "600",
+    },
     revealAnswersContainer: {
       marginTop: spacing.md,
       marginBottom: spacing.md,
@@ -5121,16 +5233,13 @@ export default function Home() {
         {/* Member avatars with + button */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.membersScroll}>
           {members.map((member, index) => {
-            // Cycle through theme colors: pink, yellow, green, blue
+            // Cycle through theme colors: pink, yellow, green, blue (only in dark mode)
             const avatarColors = [theme2Colors.onboardingPink, theme2Colors.yellow, theme2Colors.green, theme2Colors.blue]
-            const borderColor = avatarColors[index % avatarColors.length]
-            // Create slight rotation angles for overlapping effect
-            const rotationAngles = [-8, 5, -3, 7, -5, 4, -6]
-            const rotation = rotationAngles[index % rotationAngles.length]
+            const borderColor = isDark ? avatarColors[index % avatarColors.length] : undefined
             return (
             <TouchableOpacity
               key={member.id}
-                style={[styles.memberAvatar, { transform: [{ rotate: `${rotation}deg` }] }]}
+              style={styles.memberAvatar}
               onPress={() => {
                 setSelectedMember({
                   id: member.user_id,
@@ -5140,7 +5249,7 @@ export default function Home() {
                 setUserProfileModalVisibleSafe(true)
               }}
             >
-                <Avatar uri={member.user.avatar_url} name={member.user.name || "User"} size={42} borderColor={borderColor} square={true} />
+                <Avatar uri={member.user.avatar_url} name={member.user.name || "User"} size={36} borderColor={borderColor} square={false} />
             </TouchableOpacity>
             )
           })}
@@ -6176,6 +6285,11 @@ export default function Home() {
                       </View>
                     )
                   })()}
+                  
+                  {/* Weekly Photo Dump header for Journal prompts on Sundays */}
+                  {promptForDate?.prompt?.category === "Journal" && isSunday(date) && visibleEntries.length > 0 && (
+                    <JournalWeekHeader groupId={currentGroupId} date={date} styles={styles} />
+                  )}
                   
                   {/* Show entries for this date (filtered to show birthday cards always, regular entries only if user answered) */}
                   {visibleEntries.length > 0 && visibleEntries.map((entry: any, entryIndex: number) => {

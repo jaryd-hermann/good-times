@@ -406,13 +406,183 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
     }
   }
 
+  // Check for general prompt (applies to all members) - CHECK THIS FIRST
+  // CRITICAL: We must check existing prompts BEFORE the Journal check to prevent overriding
+  // prompts that already exist and may have entries
+  // CRITICAL FIX: Check for MULTIPLE prompts and handle duplicates
+  // Order by created_at to ensure consistency, prefer non-Journal prompts if today is not Sunday
+  const todayDate = getTodayDate()
+  const isTodaySunday = isSunday(date)
+  
+  const { data: allPrompts, error: existingError } = await supabase
+    .from("daily_prompts")
+    .select("*, prompt:prompts(*)")
+    .eq("group_id", groupId)
+    .eq("date", date)
+    .is("user_id", null)
+    .order("created_at", { ascending: true }) // Order by creation time for consistency
+  
+  // Handle multiple prompts - this is a bug that needs fixing
+  let existing: any = null
+  if (allPrompts && allPrompts.length > 0) {
+    if (allPrompts.length > 1) {
+      // Multiple prompts detected - this is a bug!
+      console.warn(`[getDailyPrompt] Found ${allPrompts.length} general prompts for group ${groupId} on date ${date}. This should not happen.`)
+      
+      // Check which prompts have entries
+      const promptsWithEntries: any[] = []
+      const promptsWithoutEntries: any[] = []
+      
+      for (const prompt of allPrompts) {
+        const { data: entries } = await supabase
+          .from("entries")
+          .select("id")
+          .eq("group_id", groupId)
+          .eq("date", date)
+          .limit(1)
+        
+        if (entries && entries.length > 0) {
+          promptsWithEntries.push(prompt)
+        } else {
+          promptsWithoutEntries.push(prompt)
+        }
+      }
+      
+      // Prefer prompt with entries
+      if (promptsWithEntries.length > 0) {
+        existing = promptsWithEntries[0] // Use first one with entries
+        // Delete other prompts with entries (duplicates)
+        for (let i = 1; i < promptsWithEntries.length; i++) {
+          await supabase.from("daily_prompts").delete().eq("id", promptsWithEntries[i].id)
+        }
+        // Delete all prompts without entries (they're invalid)
+        for (const prompt of promptsWithoutEntries) {
+          await supabase.from("daily_prompts").delete().eq("id", prompt.id)
+        }
+      } else {
+        // No entries - prefer non-Journal prompt if today is not Sunday
+        if (!isTodaySunday) {
+          const nonJournalPrompt = promptsWithoutEntries.find((p: any) => p.prompt?.category !== "Journal")
+          if (nonJournalPrompt) {
+            existing = nonJournalPrompt
+            // Delete Journal prompts (invalid for non-Sunday)
+            for (const prompt of promptsWithoutEntries) {
+              if (prompt.prompt?.category === "Journal") {
+                await supabase.from("daily_prompts").delete().eq("id", prompt.id)
+              } else if (prompt.id !== nonJournalPrompt.id) {
+                // Delete other non-Journal duplicates
+                await supabase.from("daily_prompts").delete().eq("id", prompt.id)
+              }
+            }
+          } else {
+            // All are Journal prompts on non-Sunday - use first one but log warning
+            existing = promptsWithoutEntries[0]
+            // Delete duplicates
+            for (let i = 1; i < promptsWithoutEntries.length; i++) {
+              await supabase.from("daily_prompts").delete().eq("id", promptsWithoutEntries[i].id)
+            }
+          }
+        } else {
+          // Today is Sunday - prefer Journal prompt
+          const journalPrompt = promptsWithoutEntries.find((p: any) => p.prompt?.category === "Journal")
+          if (journalPrompt) {
+            existing = journalPrompt
+            // Delete non-Journal prompts (should be Journal on Sunday)
+            for (const prompt of promptsWithoutEntries) {
+              if (prompt.prompt?.category !== "Journal") {
+                await supabase.from("daily_prompts").delete().eq("id", prompt.id)
+              } else if (prompt.id !== journalPrompt.id) {
+                // Delete duplicate Journal prompts
+                await supabase.from("daily_prompts").delete().eq("id", prompt.id)
+              }
+            }
+          } else {
+            // No Journal prompt on Sunday - use first one
+            existing = promptsWithoutEntries[0]
+            // Delete duplicates
+            for (let i = 1; i < promptsWithoutEntries.length; i++) {
+              await supabase.from("daily_prompts").delete().eq("id", promptsWithoutEntries[i].id)
+            }
+          }
+        }
+      }
+    } else {
+      // Single prompt - use it
+      existing = allPrompts[0]
+    }
+  }
+
+  // If daily_prompts record exists but prompt join failed, fetch prompt directly
+  if (existing && !existing.prompt && (existing as any).prompt_id) {
+    const promptId = (existing as any).prompt_id
+    const { data: directPrompt, error: directPromptError } = await supabase
+      .from("prompts")
+      .select("*")
+      .eq("id", promptId)
+      .maybeSingle()
+    
+    if (directPrompt && !directPromptError) {
+      // Return existing daily_prompts with directly fetched prompt
+      return {
+        ...existing,
+        prompt: directPrompt,
+      }
+    }
+  }
+
+  // CRITICAL: If a prompt exists, we MUST return it to ensure all members see the same prompt
+  // This preserves consistency across all group members
+  if (existing && existing.prompt) {
+    const prompt = existing.prompt as any
+    const promptId = (existing as any).prompt_id
+    
+    // CRITICAL FIX: Check if there are entries for THIS SPECIFIC PROMPT (not just any entries for the date/group)
+    // This ensures we correctly identify if this prompt was answered or not
+    // If another prompt was answered, this one should be deleted (if invalid)
+    const { data: entriesForThisPrompt } = await supabase
+      .from("entries")
+      .select("id")
+      .eq("group_id", groupId)
+      .eq("date", date)
+      .eq("prompt_id", promptId) // Check entries for THIS specific prompt
+      .limit(1)
+    
+    const hasEntriesForThisPrompt = entriesForThisPrompt && entriesForThisPrompt.length > 0
+    
+    // CRITICAL FIX: Validate Journal prompts - they should ONLY appear on Sundays
+    // If it's not Sunday and this prompt has no entries, delete it immediately
+    // This ensures all members see the correct prompt
+    if (prompt.category === "Journal" && !isSunday(date)) {
+      if (!hasEntriesForThisPrompt) {
+        // No entries exist for this Journal prompt - delete invalid Journal prompt
+        console.warn(`[getDailyPrompt] Found invalid Journal prompt for non-Sunday date ${date} with no entries. Deleting invalid prompt (prompt_id: ${promptId}).`)
+        await supabase
+          .from("daily_prompts")
+          .delete()
+          .eq("id", existing.id)
+        // Treat as if no prompt exists - fall through to regular prompt logic below
+        existing = null
+      } else {
+        // Entries exist for this Journal prompt - keep it to preserve user data, but log warning
+        console.warn(`[getDailyPrompt] Found invalid Journal prompt for non-Sunday date ${date} with entries. Keeping prompt to preserve user data, but this is incorrect.`)
+        return existing
+      }
+    } else {
+      // Valid prompt (not Journal, or Journal on Sunday) - return it
+      // Note: We don't check for entries here because valid prompts should be returned regardless
+      return existing
+    }
+  }
+
   // ========================================================================
   // SUNDAY JOURNAL CHECK
   // ========================================================================
   // On Sundays (in user's timezone) AND only for today or future dates, return the Journal prompt
-  // This takes priority over regular scheduled prompts but not birthdays
-  // CRITICAL: Only apply to future Sundays, not past ones (to avoid overwriting historical prompts)
-  const todayDate = getTodayDate()
+  // CRITICAL: This now runs AFTER checking existing prompts, so it only applies when:
+  // 1. No existing prompt exists, OR
+  // 2. Existing prompt was invalid (e.g., Journal on non-Sunday) and was deleted above
+  // This ensures we don't override existing valid prompts
+  // Note: todayDate is already declared above
   if (isSunday(date) && date >= todayDate) {
     // Get the Journal prompt
     const { data: journalPrompt, error: journalError } = await supabase
@@ -424,6 +594,7 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
 
     if (journalPrompt && !journalError) {
       // Check if a daily_prompt already exists for this date (might have been scheduled by schedule-daily-prompts)
+      // CRITICAL: Re-check after potential deletion above
       const { data: existingJournalPrompt } = await supabase
         .from("daily_prompts")
         .select("id")
@@ -434,14 +605,57 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
 
       // If it doesn't exist, create it (for consistency)
       if (!existingJournalPrompt) {
-        await supabase.from("daily_prompts").insert({
-          group_id: groupId,
-          prompt_id: journalPrompt.id,
-          date: date,
-        })
+        const { data: newJournalPrompt, error: insertError } = await supabase
+          .from("daily_prompts")
+          .insert({
+            group_id: groupId,
+            prompt_id: journalPrompt.id,
+            date: date,
+          })
+          .select("id")
+          .single()
+
+        if (newJournalPrompt && !insertError) {
+          // Return the newly created Journal prompt
+          return {
+            id: newJournalPrompt.id,
+            group_id: groupId,
+            prompt_id: journalPrompt.id,
+            date: date,
+            user_id: null,
+            prompt: journalPrompt,
+          }
+        } else if (insertError && insertError.code === "23505") {
+          // Duplicate key - another request created it, fetch it
+          const { data: fetchedJournalPrompt } = await supabase
+            .from("daily_prompts")
+            .select("*, prompt:prompts(*)")
+            .eq("group_id", groupId)
+            .eq("date", date)
+            .is("user_id", null)
+            .maybeSingle()
+          
+          if (fetchedJournalPrompt && fetchedJournalPrompt.prompt) {
+            return fetchedJournalPrompt
+          }
+        }
+      } else {
+        // Journal prompt already exists - fetch and return it
+        const { data: fetchedJournalPrompt } = await supabase
+          .from("daily_prompts")
+          .select("*, prompt:prompts(*)")
+          .eq("group_id", groupId)
+          .eq("date", date)
+          .is("user_id", null)
+          .maybeSingle()
+        
+        if (fetchedJournalPrompt && fetchedJournalPrompt.prompt) {
+          return fetchedJournalPrompt
+        }
       }
 
-      // Return the Journal prompt
+      // Fallback: Return Journal prompt structure even if daily_prompts insert failed
+      // This should rarely happen, but ensures users see the Journal prompt
       return {
         id: existingJournalPrompt?.id || `journal_${date}`,
         group_id: groupId,
@@ -453,16 +667,7 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
     }
   }
 
-  // Check for general prompt (applies to all members)
-  const { data: existing, error: existingError } = await supabase
-    .from("daily_prompts")
-    .select("*, prompt:prompts(*)")
-    .eq("group_id", groupId)
-    .eq("date", date)
-    .is("user_id", null)
-    .maybeSingle()
-
-  // If no prompt exists, check if this is a new group and create an ice breaker
+  // If no prompt exists (or Journal prompt was filtered out), check if this is a new group and create an ice breaker
   if (!existing || existingError || !existing.prompt) {
     // Check if group was created recently (within last 24 hours) or has no prompts at all
     const { data: group } = await supabase
@@ -540,203 +745,10 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
       }
     }
     
-    // CRITICAL FIX: If we couldn't create a prompt, try to get a Standard prompt as fallback
-    // Never use recent prompts as fallback - that would cause repeats
-    // This prevents blank cards from appearing
-    console.log(`[getDailyPrompt] No prompt found for date ${date}, trying to get Standard prompt as fallback...`)
-    
-    // Get a Standard prompt that hasn't been asked recently (last 30 days)
-    const thirtyDaysAgo = new Date(date)
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-    const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split("T")[0]
-    
-    const { data: recentAskedPrompts } = await supabase
-      .from("daily_prompts")
-      .select("prompt_id")
-      .eq("group_id", groupId)
-      .is("user_id", null)
-      .gte("date", thirtyDaysAgoStr)
-    
-    const recentAskedPromptIds = new Set((recentAskedPrompts || []).map((dp: any) => dp.prompt_id))
-    
-    // Try to find a Standard prompt not asked in last 30 days
-    const { data: unusedStandardPrompt } = await supabase
-      .from("prompts")
-      .select("id, question, description, category, is_default, is_custom, custom_question_id, dynamic_variables, birthday_type, deck_id, ice_breaker, ice_breaker_order")
-      .eq("category", "Standard")
-      .not("id", "in", Array.from(recentAskedPromptIds))
-      .limit(1)
-      .maybeSingle()
-    
-    if (unusedStandardPrompt) {
-      // Create a temporary daily_prompt object for the fallback
-      console.log(`[getDailyPrompt] Using unused Standard prompt as fallback: ${unusedStandardPrompt.id}`)
-      console.warn(`[getDailyPrompt] WARNING: No prompt scheduled for ${date}, using Standard fallback. This should be scheduled by schedule-daily-prompts function.`)
-      
-      // Personalize fallback prompt if it has member_name variable
-      let personalizedPrompt = { ...unusedStandardPrompt }
-      const hasMemberNameVariable = (unusedStandardPrompt.dynamic_variables && Array.isArray(unusedStandardPrompt.dynamic_variables) && unusedStandardPrompt.dynamic_variables.includes("member_name")) || unusedStandardPrompt.question?.match(/\{.*member_name.*\}/i)
-      
-      if (hasMemberNameVariable && unusedStandardPrompt.category !== "Journal") {
-        // Check if prompt_name_usage already exists
-        const { data: existingUsage } = await supabase
-          .from("prompt_name_usage")
-          .select("name_used")
-          .eq("group_id", groupId)
-          .eq("prompt_id", unusedStandardPrompt.id)
-          .eq("variable_type", "member_name")
-          .eq("date_used", date)
-          .maybeSingle()
-
-        let memberName = existingUsage?.name_used
-
-        if (!memberName) {
-          // Create prompt_name_usage record for fallback prompt
-          const members = await getGroupMembers(groupId)
-          const { data: { user: currentUser } } = await supabase.auth.getUser()
-          const currentUserId = currentUser?.id
-          const otherMembers = members.filter((m) => m.user_id !== currentUserId)
-          
-          if (otherMembers.length > 0) {
-            const { data: recentUsage } = await supabase
-              .from("prompt_name_usage")
-              .select("name_used")
-              .eq("group_id", groupId)
-              .eq("variable_type", "member_name")
-              .neq("date_used", date)
-              .order("date_used", { ascending: false })
-              .limit(otherMembers.length)
-
-            const usedNames = new Set(recentUsage?.map((u) => u.name_used) || [])
-            const unusedMembers = otherMembers.filter((m) => {
-              const memberName = m.user?.name || "Unknown"
-              return !usedNames.has(memberName)
-            })
-            const availableMembers = unusedMembers.length > 0 ? unusedMembers : otherMembers
-            
-            const dayIndex = getDayIndex(date, groupId)
-            const memberIndex = dayIndex % availableMembers.length
-            const selectedMember = availableMembers[memberIndex]
-            memberName = selectedMember.user?.name || "them"
-
-            // Create prompt_name_usage record
-            await supabase.from("prompt_name_usage").insert({
-              group_id: groupId,
-              prompt_id: unusedStandardPrompt.id,
-              variable_type: "member_name",
-              name_used: memberName,
-              date_used: date,
-            })
-          } else {
-            memberName = "them"
-          }
-        }
-
-        // Personalize the question
-        if (memberName) {
-          personalizedPrompt.question = replaceDynamicVariables(unusedStandardPrompt.question, { member_name: memberName })
-        }
-      }
-      
-      return {
-        id: `fallback_${date}`,
-        group_id: groupId,
-        prompt_id: unusedStandardPrompt.id,
-        date: date,
-        user_id: null,
-        prompt: personalizedPrompt,
-      }
-    }
-    
-    // If all Standard prompts were asked recently, use any Standard prompt (better than no prompt)
-    const { data: anyStandardPrompt } = await supabase
-      .from("prompts")
-      .select("id, question, description, category, is_default, is_custom, custom_question_id, dynamic_variables, birthday_type, deck_id, ice_breaker, ice_breaker_order")
-      .eq("category", "Standard")
-      .limit(1)
-      .maybeSingle()
-    
-    if (anyStandardPrompt) {
-      console.log(`[getDailyPrompt] Using any Standard prompt as fallback: ${anyStandardPrompt.id}`)
-      console.warn(`[getDailyPrompt] WARNING: No prompt scheduled for ${date}, using any Standard prompt as fallback. This should be scheduled by schedule-daily-prompts function.`)
-      
-      // Personalize fallback prompt if it has member_name variable
-      let personalizedPrompt = { ...anyStandardPrompt }
-      const hasMemberNameVariable = (anyStandardPrompt.dynamic_variables && Array.isArray(anyStandardPrompt.dynamic_variables) && anyStandardPrompt.dynamic_variables.includes("member_name")) || anyStandardPrompt.question?.match(/\{.*member_name.*\}/i)
-      
-      if (hasMemberNameVariable && anyStandardPrompt.category !== "Journal") {
-        // Check if prompt_name_usage already exists
-        const { data: existingUsage } = await supabase
-          .from("prompt_name_usage")
-          .select("name_used")
-          .eq("group_id", groupId)
-          .eq("prompt_id", anyStandardPrompt.id)
-          .eq("variable_type", "member_name")
-          .eq("date_used", date)
-          .maybeSingle()
-
-        let memberName = existingUsage?.name_used
-
-        if (!memberName) {
-          // Create prompt_name_usage record for fallback prompt
-          const members = await getGroupMembers(groupId)
-          const { data: { user: currentUser } } = await supabase.auth.getUser()
-          const currentUserId = currentUser?.id
-          const otherMembers = members.filter((m) => m.user_id !== currentUserId)
-          
-          if (otherMembers.length > 0) {
-            const { data: recentUsage } = await supabase
-              .from("prompt_name_usage")
-              .select("name_used")
-              .eq("group_id", groupId)
-              .eq("variable_type", "member_name")
-              .neq("date_used", date)
-              .order("date_used", { ascending: false })
-              .limit(otherMembers.length)
-
-            const usedNames = new Set(recentUsage?.map((u) => u.name_used) || [])
-            const unusedMembers = otherMembers.filter((m) => {
-              const memberName = m.user?.name || "Unknown"
-              return !usedNames.has(memberName)
-            })
-            const availableMembers = unusedMembers.length > 0 ? unusedMembers : otherMembers
-            
-            const dayIndex = getDayIndex(date, groupId)
-            const memberIndex = dayIndex % availableMembers.length
-            const selectedMember = availableMembers[memberIndex]
-            memberName = selectedMember.user?.name || "them"
-
-            // Create prompt_name_usage record
-            await supabase.from("prompt_name_usage").insert({
-              group_id: groupId,
-              prompt_id: anyStandardPrompt.id,
-              variable_type: "member_name",
-              name_used: memberName,
-              date_used: date,
-            })
-          } else {
-            memberName = "them"
-          }
-        }
-
-        // Personalize the question
-        if (memberName) {
-          personalizedPrompt.question = replaceDynamicVariables(anyStandardPrompt.question, { member_name: memberName })
-        }
-      }
-      
-      return {
-        id: `fallback_${date}`,
-        group_id: groupId,
-        prompt_id: anyStandardPrompt.id,
-        date: date,
-        user_id: null,
-        prompt: personalizedPrompt,
-      }
-    }
-    
-    // If we still don't have a prompt, return null (UI will show fallback message)
-    console.error(`[getDailyPrompt] CRITICAL: No prompt found for ${date} and no Standard prompts available for group ${groupId}`)
+    // CRITICAL: If no prompt exists for this date, return null
+    // Prompts should be scheduled by schedule-daily-prompts function, not created on-the-fly
+    // Creating prompts on-the-fly causes questions to change when navigating between dates
+    console.warn(`[getDailyPrompt] No prompt scheduled for date ${date}, group ${groupId}. This should be scheduled by schedule-daily-prompts function.`)
     return null
   }
 
@@ -1063,13 +1075,18 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
               const usedNames = new Set(recentUsage?.map((u) => u.name_used) || [])
               
               // Find unused members first (filter by name, excluding current user)
-              const unusedMembers = otherMembers.filter((m) => {
+              // CRITICAL: Sort members by user_id to ensure deterministic ordering (prevents race conditions)
+              const sortedOtherMembers = [...otherMembers].sort((a, b) => 
+                (a.user_id || "").localeCompare(b.user_id || "")
+              )
+              
+              const unusedMembers = sortedOtherMembers.filter((m) => {
                 const memberName = m.user?.name || "Unknown"
                 return !usedNames.has(memberName)
               })
               
               // If all have been used, reset and start fresh (still excluding current user)
-              const availableMembers = unusedMembers.length > 0 ? unusedMembers : otherMembers
+              const availableMembers = unusedMembers.length > 0 ? unusedMembers : sortedOtherMembers
               
               // Select next member using SAME deterministic logic as new prompts
               const dayIndex = getDayIndex(date, groupId)
@@ -1216,6 +1233,11 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
           const otherMembers = members.filter((m) => m.user_id !== currentUserId)
           
           if (otherMembers.length > 0) {
+            // CRITICAL: Sort members by user_id to ensure deterministic ordering (prevents race conditions)
+            const sortedOtherMembers = [...otherMembers].sort((a, b) => 
+              (a.user_id || "").localeCompare(b.user_id || "")
+            )
+            
             const { data: recentUsage } = await supabase
               .from("prompt_name_usage")
               .select("name_used")
@@ -1223,16 +1245,16 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
               .eq("variable_type", "member_name")
               .neq("date_used", date)
               .order("date_used", { ascending: false })
-              .limit(otherMembers.length)
+              .limit(sortedOtherMembers.length)
 
             const usedNames = new Set(recentUsage?.map((u) => u.name_used) || [])
             
-            const unusedMembers = otherMembers.filter((m) => {
+            const unusedMembers = sortedOtherMembers.filter((m) => {
               const memberName = m.user?.name || "Unknown"
               return !usedNames.has(memberName)
             })
             
-            const availableMembers = unusedMembers.length > 0 ? unusedMembers : otherMembers
+            const availableMembers = unusedMembers.length > 0 ? unusedMembers : sortedOtherMembers
             
             const dayIndex = getDayIndex(date, groupId)
             const memberIndex = dayIndex % availableMembers.length
@@ -1689,6 +1711,11 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
             const otherMembers = members.filter((m) => m.user_id !== currentUserId)
             
             if (otherMembers.length > 0) {
+              // CRITICAL: Sort members by user_id to ensure deterministic ordering (prevents race conditions)
+              const sortedOtherMembers = [...otherMembers].sort((a, b) => 
+                (a.user_id || "").localeCompare(b.user_id || "")
+              )
+              
               // Get recently used member names across ALL member_name prompts (excluding this date)
               // This ensures fair rotation across all prompts, not just this specific one
               const { data: recentUsage } = await supabase
@@ -1698,18 +1725,18 @@ export async function getDailyPrompt(groupId: string, date: string, userId?: str
                 .eq("variable_type", "member_name")
                 .neq("date_used", date) // Exclude this date to avoid conflicts
                 .order("date_used", { ascending: false })
-                .limit(otherMembers.length)
+                .limit(sortedOtherMembers.length)
 
               const usedNames = new Set(recentUsage?.map((u) => u.name_used) || [])
               
               // Find unused members first (filter by name, excluding current user)
-              const unusedMembers = otherMembers.filter((m) => {
+              const unusedMembers = sortedOtherMembers.filter((m) => {
                 const memberName = m.user?.name || "Unknown"
                 return !usedNames.has(memberName)
               })
               
               // If all have been used, reset and start fresh (still excluding current user)
-              const availableMembers = unusedMembers.length > 0 ? unusedMembers : otherMembers
+              const availableMembers = unusedMembers.length > 0 ? unusedMembers : sortedOtherMembers
               
               // Select next member (cycle through)
             const dayIndex = getDayIndex(date, groupId)
