@@ -333,6 +333,139 @@ function JournalWeekHeader({ groupId, date, styles }: { groupId?: string; date: 
   )
 }
 
+// Journal Inspiration Gallery Component with Header
+function JournalInspirationGalleryWithHeader({ theme2Colors, spacing, typography }: { theme2Colors: any; spacing: any; typography: any }) {
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const scrollViewRef = useRef<ScrollView>(null)
+  const { width: SCREEN_WIDTH } = Dimensions.get("window")
+  
+  const inspirations = [
+    { text: "Caught up with a friend?", image: require("../../assets/images/1a.png") },
+    { text: "Did something nice for yourself?", image: require("../../assets/images/2.png") },
+    { text: "See something cool?", image: require("../../assets/images/4.png") },
+    { text: "Eat something tasty?", image: require("../../assets/images/5.png") },
+    { text: "Take a nice fit pic?", image: require("../../assets/images/6.png") },
+    { text: "Make something you're proud of?", image: require("../../assets/images/7.png") },
+    { text: "Take a nice selfie?", image: require("../../assets/images/8.png") },
+    { text: "Enjoy a view?", image: require("../../assets/images/9.png") },
+  ]
+
+  const totalCount = inspirations.length
+  const imageWidth = SCREEN_WIDTH - (spacing.lg * 2)
+
+  const handleScroll = (event: any) => {
+    const scrollPosition = event.nativeEvent.contentOffset.x
+    const index = Math.max(0, Math.min(inspirations.length - 1, Math.round(scrollPosition / imageWidth)))
+    if (index !== currentIndex) {
+      setCurrentIndex(index)
+    }
+  }
+
+  const handleImagePress = (index: number) => {
+    scrollViewRef.current?.scrollTo({
+      x: index * imageWidth,
+      animated: true,
+    })
+    setCurrentIndex(index)
+  }
+
+  const headerStyles = StyleSheet.create({
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginTop: spacing.md,
+      marginBottom: spacing.md,
+    },
+    heading: {
+      ...typography.h3,
+      fontSize: 18,
+      fontFamily: "Roboto-Bold",
+      fontWeight: "700",
+      color: theme2Colors.text,
+    },
+    countTag: {
+      backgroundColor: "#FFFFFF",
+      borderWidth: 1,
+      borderColor: "#000000",
+      borderRadius: 16,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
+    },
+    countText: {
+      ...typography.body,
+      fontSize: 12,
+      color: "#000000",
+      fontWeight: "600",
+    },
+  })
+
+  const galleryStyles = StyleSheet.create({
+    container: {
+      marginBottom: spacing.xs,
+    },
+    scrollView: {
+      marginBottom: spacing.xs,
+    },
+    imageContainer: {
+      width: imageWidth,
+      alignItems: "center",
+    },
+    image: {
+      width: imageWidth,
+      height: imageWidth * 0.75, // 4:3 aspect ratio
+      borderRadius: 12,
+    },
+    text: {
+      ...typography.bodyBold,
+      fontSize: 16,
+      color: theme2Colors.text,
+      marginTop: spacing.md,
+      textAlign: "center",
+      paddingHorizontal: spacing.md,
+    },
+  })
+
+  return (
+    <>
+      <View style={headerStyles.header}>
+        <Text style={headerStyles.heading}>Inspirations</Text>
+        <View style={headerStyles.countTag}>
+          <Text style={headerStyles.countText}>{currentIndex + 1}/{totalCount}</Text>
+        </View>
+      </View>
+      <View style={galleryStyles.container}>
+        <ScrollView
+          ref={scrollViewRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          style={galleryStyles.scrollView}
+          contentContainerStyle={{ paddingRight: spacing.lg }}
+        >
+          {inspirations.map((inspiration, index) => (
+            <TouchableOpacity
+              key={index}
+              style={galleryStyles.imageContainer}
+              onPress={() => handleImagePress(index)}
+              activeOpacity={0.9}
+            >
+              <Image
+                source={inspiration.image}
+                style={galleryStyles.image}
+                resizeMode="cover"
+              />
+              <Text style={galleryStyles.text}>{inspiration.text}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    </>
+  )
+}
+
 export default function Home() {
   const router = useRouter()
   const params = useLocalSearchParams()
@@ -358,7 +491,9 @@ export default function Home() {
   const [selectedMember, setSelectedMember] = useState<{ id: string; name: string; avatar_url?: string } | null>(null)
   const [onboardingGalleryVisible, setOnboardingGalleryVisible] = useState(false)
   const [showAppReviewModal, setShowAppReviewModal] = useState(false)
-  // REMOVED: revealedAnswersForToday state - users can no longer reveal answers before answering
+  const [showJournalExplainerModal, setShowJournalExplainerModal] = useState(false)
+  const [hasSeenJournalExplainer, setHasSeenJournalExplainer] = useState<boolean | null>(null)
+  // REMOVED: revealedAnswersForAnswers state - users can no longer reveal answers before answering
   
   // Modal guard system to prevent simultaneous modal presentations
   const activeModalRef = useRef<string | null>(null)
@@ -1116,6 +1251,15 @@ export default function Home() {
     enabled: !!userId,
   })
 
+  // Check if user has seen journal explainer (stored in AsyncStorage)
+  useEffect(() => {
+    AsyncStorage.getItem("hasSeenJournalExplainer").then((value) => {
+      setHasSeenJournalExplainer(value === "true")
+    }).catch(() => {
+      setHasSeenJournalExplainer(false)
+    })
+  }, [])
+
   const { data: members = [], isLoading: isLoadingMembers } = useQuery({
     queryKey: ["members", currentGroupId],
     queryFn: () => (currentGroupId ? getGroupMembers(currentGroupId) : []),
@@ -1237,6 +1381,48 @@ export default function Home() {
 
   // Get today's date - call directly to ensure fresh value
   const todayDate = getTodayDate()
+
+  // Query to get week number for Journal prompts on today's date (for question card)
+  const { data: todayJournalWeekNumber = 1 } = useQuery({
+    queryKey: ["journalWeekNumber", currentGroupId, todayDate],
+    queryFn: async () => {
+      if (!currentGroupId || !todayDate) return 1
+
+      // Get Journal prompt ID
+      const { data: journalPrompt } = await supabase
+        .from("prompts")
+        .select("id")
+        .eq("category", "Journal")
+        .limit(1)
+        .maybeSingle()
+
+      if (!journalPrompt) return 1
+
+      // Count how many VALID Sunday Journal prompts have been asked for this group up to and including todayDate
+      // Only count prompts that were asked on Sundays (valid Journal prompts)
+      const { data: journalPrompts, error } = await supabase
+        .from("daily_prompts")
+        .select("id, date")
+        .eq("group_id", currentGroupId)
+        .eq("prompt_id", journalPrompt.id)
+        .lte("date", todayDate)
+        .order("date", { ascending: true })
+
+      if (error) {
+        console.error("[home] Error counting Journal prompts:", error)
+        return 1
+      }
+
+      // Filter to only count valid Sunday Journal prompts (exclude invalid ones scheduled on non-Sunday dates)
+      const validSundayPrompts = (journalPrompts || []).filter((dp: any) => {
+        return isSunday(dp.date)
+      })
+
+      // Week number is the count of valid Sunday Journal prompts up to this date
+      return validSundayPrompts.length || 1
+    },
+    enabled: !!currentGroupId && !!todayDate && isSunday(todayDate),
+  })
   
   // REMOVED: Load revealed answers state - users can no longer reveal answers before answering
   
@@ -4270,6 +4456,57 @@ export default function Home() {
     promptDescriptionRemembering: {
       color: theme2Colors.white, // White text for Remembering category
     },
+    journalExplainerModalContainer: {
+      flex: 1,
+      backgroundColor: theme2Colors.beige,
+    },
+    journalExplainerModalHeader: {
+      flexDirection: "row",
+      justifyContent: "flex-end",
+      paddingTop: spacing.xl + spacing.md,
+      paddingRight: spacing.lg,
+      paddingBottom: spacing.md,
+    },
+    journalExplainerModalCloseButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: theme2Colors.cream,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
+    },
+    journalExplainerModalContent: {
+      flex: 1,
+    },
+    journalExplainerModalContentContainer: {
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.xl,
+    },
+    journalExplainerModalTitle: {
+      ...typography.h1,
+      fontSize: 32,
+      fontFamily: "PMGothicLudington-Text115",
+      color: theme2Colors.text,
+      marginBottom: spacing.md,
+    },
+    journalExplainerModalSubtext: {
+      ...typography.body,
+      fontSize: 16,
+      lineHeight: 24,
+      color: theme2Colors.text,
+      marginBottom: spacing.sm,
+    },
+    journalExplainerModalCTA: {
+      marginTop: spacing.lg,
+      width: "100%",
+      backgroundColor: "#D97393", // Pink CTA
+      borderRadius: 25,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      minHeight: 56,
+    },
   customQuestionBanner: {
     marginBottom: spacing.md,
     paddingBottom: spacing.md,
@@ -5672,25 +5909,27 @@ export default function Home() {
                     }
                     return null
                   })()}
-                  {/* Conditional description text */}
-                  {todayAnswererNames.length === 0 ? (
-                    <Text style={[
-                      styles.promptDescription,
-                      isRememberingCategory && styles.promptDescriptionRemembering
-                    ]}>
-                      Be the first to answer today's question and spark the conversation
-                    </Text>
-                  ) : answererNamesText ? (
-                    <Text style={[
-                      styles.promptDescription,
-                      isRememberingCategory && styles.promptDescriptionRemembering
-                    ]}>
-                      {answererNamesText}
-                    </Text>
-                  ) : null}
+                  {/* Conditional description text - hide for Journal prompts */}
+                  {(todayDailyPrompt?.prompt?.category !== "Journal" && todayEntries[0]?.prompt?.category !== "Journal") && (
+                    todayAnswererNames.length === 0 ? (
+                      <Text style={[
+                        styles.promptDescription,
+                        isRememberingCategory && styles.promptDescriptionRemembering
+                      ]}>
+                        Be the first to answer today's question and spark the conversation
+                      </Text>
+                    ) : answererNamesText ? (
+                      <Text style={[
+                        styles.promptDescription,
+                        isRememberingCategory && styles.promptDescriptionRemembering
+                      ]}>
+                        {answererNamesText}
+                      </Text>
+                    ) : null
+                  )}
                   {todayPromptId && (
                     <Button
-                      title={todayDailyPrompt?.prompt?.category === "Journal" ? "Show my week" : "Answer"}
+                      title={todayDailyPrompt?.prompt?.category === "Journal" ? `Add to Week ${todayJournalWeekNumber}` : "Answer"}
                       onPress={() => handleAnswerPrompt(true)}
                       style={styles.answerButtonToday}
                       textStyle={{ color: theme2Colors.text }}
@@ -5711,6 +5950,30 @@ export default function Home() {
           <Text style={styles.revealAnswersText}>
             Answer today's question to reveal what they said
           </Text>
+        </View>
+      )}
+
+      {/* Journal explainer banner - show on Sunday only, below Journal question card */}
+      {showPromptCardAtTop && 
+       todayDailyPrompt?.prompt?.category === "Journal" && 
+       isSunday(todayDate) && 
+       hasSeenJournalExplainer === false && (
+        <View style={styles.appTutorialLinkContainer}>
+          <TouchableOpacity 
+            style={styles.appTutorialCard}
+            onPress={() => setShowJournalExplainerModal(true)} 
+            activeOpacity={0.7}
+          >
+            <Text style={styles.appTutorialLink}>What's the weekly photo journal?</Text>
+            {/* Texture overlay */}
+            <View style={styles.appTutorialCardTexture} pointerEvents="none">
+              <Image
+                source={require("../../assets/images/texture.png")}
+                style={styles.appTutorialCardTextureImage}
+                resizeMode="cover"
+              />
+            </View>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -6764,7 +7027,57 @@ export default function Home() {
         onComplete={() => setOnboardingGalleryVisibleSafe(false)}
         returnRoute="/(main)/home"
       />
+
+      {/* Journal Explainer Modal */}
+      <Modal
+        visible={showJournalExplainerModal}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => {
+          setShowJournalExplainerModal(false)
+          AsyncStorage.setItem("hasSeenJournalExplainer", "true").catch(() => {})
+          setHasSeenJournalExplainer(true)
+        }}
+      >
+        <View style={styles.journalExplainerModalContainer}>
+          <View style={styles.journalExplainerModalHeader}>
+            <TouchableOpacity
+              style={styles.journalExplainerModalCloseButton}
+              onPress={() => {
+                setShowJournalExplainerModal(false)
+                AsyncStorage.setItem("hasSeenJournalExplainer", "true").catch(() => {})
+                setHasSeenJournalExplainer(true)
+              }}
+            >
+              <FontAwesome name="times" size={20} color={theme2Colors.text} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView 
+            style={styles.journalExplainerModalContent}
+            contentContainerStyle={styles.journalExplainerModalContentContainer}
+          >
+            <Text style={styles.journalExplainerModalTitle}>Show your true week</Text>
+            <Text style={styles.journalExplainerModalSubtext}>
+              Weekly, on a Sunday, you get the same question: show and tell your group as much or little as you want about your week.{"\n\n"}
+              Try to add several photos to let people into your real world. And feel free to share what happened, or what you're looking forward to
+            </Text>
+            <JournalInspirationGalleryWithHeader theme2Colors={theme2Colors} spacing={spacing} typography={typography} />
+            <Button
+              title="Add to my week"
+              onPress={() => {
+                setShowJournalExplainerModal(false)
+                AsyncStorage.setItem("hasSeenJournalExplainer", "true").catch(() => {})
+                setHasSeenJournalExplainer(true)
+                handleAnswerPrompt(true)
+              }}
+              style={styles.journalExplainerModalCTA}
+              textStyle={{ color: theme2Colors.white }}
+            />
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   )
 }
+
 

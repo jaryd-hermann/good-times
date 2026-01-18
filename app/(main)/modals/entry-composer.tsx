@@ -66,6 +66,150 @@ function createMediaId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+// Journal Inspiration Gallery Component with Header (reused from home.tsx)
+function JournalInspirationGalleryWithHeader({ theme2Colors, spacing, typography }: { theme2Colors: any; spacing: any; typography: any }) {
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const scrollViewRef = useRef<ScrollView>(null)
+  const { width: SCREEN_WIDTH } = Dimensions.get("window")
+  
+  const inspirations = [
+    { text: "Caught up with a friend?", image: require("../../../assets/images/1a.png") },
+    { text: "Did something nice for yourself?", image: require("../../../assets/images/2.png") },
+    { text: "See something cool?", image: require("../../../assets/images/4.png") },
+    { text: "Eat something tasty?", image: require("../../../assets/images/5.png") },
+    { text: "Take a nice fit pic?", image: require("../../../assets/images/6.png") },
+    { text: "Make something you're proud of?", image: require("../../../assets/images/7.png") },
+    { text: "Take a nice selfie?", image: require("../../../assets/images/8.png") },
+    { text: "Enjoy a view?", image: require("../../../assets/images/9.png") },
+  ]
+
+  const totalCount = inspirations.length
+  // Account for parent container padding (spacing.xl on each side)
+  // Image width should match text content width - same as explainer modal
+  const imageWidth = SCREEN_WIDTH - (spacing.xl * 2)
+
+  const handleScroll = (event: any) => {
+    const scrollPosition = event.nativeEvent.contentOffset.x
+    const index = Math.max(0, Math.min(inspirations.length - 1, Math.round(scrollPosition / imageWidth)))
+    if (index !== currentIndex) {
+      setCurrentIndex(index)
+    }
+  }
+
+  const handleImagePress = (index: number) => {
+    // Move to next image when tapping
+    const nextIndex = (index + 1) % totalCount
+    scrollViewRef.current?.scrollTo({
+      x: nextIndex * imageWidth,
+      animated: true,
+    })
+    setCurrentIndex(nextIndex)
+  }
+
+  const headerStyles = StyleSheet.create({
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginTop: spacing.md,
+      marginBottom: spacing.md,
+    },
+    heading: {
+      ...typography.h3,
+      fontSize: 18,
+      fontFamily: "Roboto-Bold",
+      fontWeight: "700",
+      color: theme2Colors.text,
+    },
+    countTag: {
+      backgroundColor: "#FFFFFF",
+      borderWidth: 1,
+      borderColor: "#000000",
+      borderRadius: 16,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
+    },
+    countText: {
+      ...typography.body,
+      fontSize: 12,
+      color: "#000000",
+      fontWeight: "600",
+    },
+  })
+
+  const galleryStyles = StyleSheet.create({
+    container: {
+      marginBottom: spacing.xs,
+    },
+    scrollView: {
+      marginBottom: spacing.xs,
+    },
+    imageContainer: {
+      width: imageWidth, // Match image width for proper paging
+      alignItems: "center",
+    },
+    imageWrapper: {
+      width: imageWidth,
+      alignItems: "center",
+    },
+    image: {
+      width: imageWidth,
+      height: imageWidth * 0.75, // 4:3 aspect ratio
+      borderRadius: 12,
+    },
+    text: {
+      ...typography.bodyBold,
+      fontSize: 16,
+      color: theme2Colors.text,
+      marginTop: spacing.md,
+      textAlign: "center",
+      paddingHorizontal: spacing.md,
+      width: imageWidth,
+    },
+  })
+
+  return (
+    <>
+      <View style={headerStyles.header}>
+        <Text style={headerStyles.heading}>Inspirations</Text>
+        <View style={headerStyles.countTag}>
+          <Text style={headerStyles.countText}>{currentIndex + 1}/{totalCount}</Text>
+        </View>
+      </View>
+      <View style={galleryStyles.container}>
+        <ScrollView
+          ref={scrollViewRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          style={galleryStyles.scrollView}
+          decelerationRate="fast"
+          contentContainerStyle={{ paddingRight: 0 }}
+        >
+          {inspirations.map((inspiration, index) => (
+            <View key={index} style={galleryStyles.imageContainer}>
+              <TouchableOpacity
+                style={galleryStyles.imageWrapper}
+                onPress={() => handleImagePress(index)}
+                activeOpacity={0.9}
+              >
+                <Image
+                  source={inspiration.image}
+                  style={galleryStyles.image}
+                  resizeMode="cover"
+                />
+                <Text style={galleryStyles.text}>{inspiration.text}</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+        </ScrollView>
+      </View>
+    </>
+  )
+}
+
 export default function EntryComposer() {
   const router = useRouter()
   const params = useLocalSearchParams()
@@ -1822,8 +1966,9 @@ export default function EntryComposer() {
   // Auto-focus text input on mount so users can start typing immediately
   // Skip auto-focus for Journal prompts to emphasize media adding first
   useEffect(() => {
-    // Don't auto-focus for Journal prompts
-    if (activePrompt?.category === "Journal") {
+    // CRITICAL: Don't auto-focus if prompt hasn't loaded yet (wait for it)
+    // OR if it's a Journal prompt (emphasize photo adding first)
+    if (!activePrompt || activePrompt?.category === "Journal") {
       return
     }
     
@@ -2018,7 +2163,7 @@ export default function EntryComposer() {
     description: {
       ...typography.body,
       color: theme2Colors.textSecondary,
-      marginBottom: spacing.xl,
+      marginBottom: spacing.sm,
     },
     input: {
       ...typography.body,
@@ -2029,8 +2174,8 @@ export default function EntryComposer() {
       textAlignVertical: "top",
     },
     mediaCarouselContainer: {
-      marginTop: spacing.md,
-      marginBottom: spacing.md,
+      marginTop: spacing.xs,
+      marginBottom: spacing.xs,
       height: 140,
     },
     mediaScrollContainer: {
@@ -2067,18 +2212,18 @@ export default function EntryComposer() {
       alignItems: "center",
       backgroundColor: "transparent",
       borderWidth: 2,
-      borderColor: theme2Colors.blue,
+      borderColor: theme2Colors.text,
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.sm,
       borderRadius: 8,
-      marginTop: spacing.md,
+      marginTop: spacing.xs,
       marginBottom: spacing.md,
       gap: spacing.sm,
     },
     journalBannerText: {
       ...typography.body,
       fontSize: 14,
-      color: theme2Colors.blue,
+      color: theme2Colors.text,
       fontWeight: "500",
     },
     mediaThumbnailWrapper: {
@@ -2455,10 +2600,7 @@ export default function EntryComposer() {
     successContainer: {
       flex: 1,
       backgroundColor: theme2Colors.beige,
-      justifyContent: "center",
-      alignItems: "center",
       padding: spacing.xl,
-      gap: spacing.xl,
       zIndex: 0,
     },
     successTexture: {
@@ -2471,7 +2613,8 @@ export default function EntryComposer() {
       fontFamily: "PMGothicLudington-Text115",
       fontSize: 24,
       color: theme2Colors.text,
-      textAlign: "center",
+      textAlign: "left",
+      marginBottom: spacing.md,
     },
     successButton: {
       width: "100%",
@@ -2492,17 +2635,18 @@ export default function EntryComposer() {
     uploadingSubtitle: {
       ...typography.body,
       color: theme2Colors.textSecondary,
-      textAlign: "center",
-      marginTop: spacing.md,
+      textAlign: "left",
+      marginBottom: spacing.md,
       lineHeight: 22,
     },
     journalModalButtons: {
       width: "100%",
+      flexDirection: "row",
       gap: spacing.md,
       marginTop: spacing.lg,
     },
     journalModalPrimaryButton: {
-      width: "100%",
+      flex: 1,
       backgroundColor: "#D97393", // Pink CTA
       borderRadius: 25,
       paddingVertical: spacing.md,
@@ -2518,8 +2662,8 @@ export default function EntryComposer() {
       textAlign: "center",
     },
     journalModalSecondaryButton: {
-      width: "100%",
-      backgroundColor: theme2Colors.white,
+      flex: 1,
+      backgroundColor: "#FFFFFF", // White background
       borderRadius: 25,
       paddingVertical: spacing.md,
       paddingHorizontal: spacing.xl,
@@ -2532,8 +2676,24 @@ export default function EntryComposer() {
     journalModalSecondaryButtonText: {
       ...typography.bodyBold,
       fontSize: 18,
-      color: theme2Colors.text,
+      color: "#000000", // Black text
       textAlign: "center",
+    },
+    journalModalTitleRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: spacing.md,
+    },
+    journalModalCloseButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: theme2Colors.cream,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
     },
   }), [colors, isDark, theme2Colors])
 
@@ -2577,14 +2737,6 @@ export default function EntryComposer() {
         {/* Description for Journal prompts */}
         {activePrompt?.category === "Journal" && activePrompt?.description && (
           <Text style={styles.description}>{activePrompt.description}</Text>
-        )}
-
-        {/* Blue banner for Journal prompts */}
-        {activePrompt?.category === "Journal" && (
-          <View style={styles.journalBanner}>
-            <FontAwesome name="photo" size={16} color={theme2Colors.blue} />
-            <Text style={styles.journalBannerText}>Try add 5 photos, or ideally 1 per day.</Text>
-          </View>
         )}
 
         {/* Media preview carousel - positioned between description and input */}
@@ -2678,6 +2830,14 @@ export default function EntryComposer() {
           </View>
         )}
 
+        {/* Banner for Journal prompts - show below carousel, only if less than 5 photos */}
+        {activePrompt?.category === "Journal" && mediaItems.filter(item => item.type === "photo").length < 5 && (
+          <View style={styles.journalBanner}>
+            <FontAwesome name="photo" size={16} color={theme2Colors.text} />
+            <Text style={styles.journalBannerText}>Try add 5 photos, or ideally 1 per day.</Text>
+          </View>
+        )}
+
         <View ref={inputContainerRef} onLayout={handleInputLayout} style={{ position: 'relative' }}>
           <TextInput
             ref={textInputRef}
@@ -2757,7 +2917,7 @@ export default function EntryComposer() {
             placeholder={activePrompt?.category === "Journal" ? "Tell us about your week.." : "Tell us what you think..."}
             placeholderTextColor={theme2Colors.textSecondary}
             multiline
-            autoFocus={activePrompt?.category !== "Journal"}
+            autoFocus={activePrompt && activePrompt.category !== "Journal"}
             showSoftInputOnFocus={true}
             keyboardType="default"
             returnKeyType="default"
@@ -3116,13 +3276,28 @@ export default function EntryComposer() {
             onPress={() => setShowJournalPhotoModal(false)}
           />
           <View style={styles.successContainer}>
+          <ScrollView 
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingTop: spacing.xl + spacing.md, paddingBottom: spacing.xl }}
+            showsVerticalScrollIndicator={false}
+          >
             <Text style={styles.successTitle}>Add more photos?</Text>
             <Text style={styles.uploadingSubtitle}>
-              For your weekly photo journal, try adding more pics to show your group what's your week was like. {"\n\n"}Don't worry if it seems "mundane" or "boring", the idea is an honest photo dump of what's going on in your life.{"\n\n"}Little moments matter and are fun to see.
+              For your weekly photo journal, try adding more pics to show what your week was like.{"\n\n"}Don't worry if it seems "mundane" or "boring", the idea is an honest photo dump of what you did.{"\n\n"}Little moments matter and are fun to see.
             </Text>
-            {/* Inspiration tags carousel */}
-            <InspirationTagsCarousel theme2Colors={theme2Colors} spacing={spacing} typography={typography} />
+            {/* Inspiration image gallery */}
+            <JournalInspirationGalleryWithHeader theme2Colors={theme2Colors} spacing={spacing} typography={typography} />
             <View style={styles.journalModalButtons}>
+              <TouchableOpacity
+                style={styles.journalModalSecondaryButton}
+                onPress={() => {
+                  setShowJournalPhotoModal(false)
+                  performPost()
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.journalModalSecondaryButtonText}>Post</Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.journalModalPrimaryButton}
                 onPress={async () => {
@@ -3134,157 +3309,13 @@ export default function EntryComposer() {
                 }}
                 activeOpacity={0.7}
               >
-                <Text style={styles.journalModalPrimaryButtonText}>Add more pics</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.journalModalSecondaryButton}
-                onPress={() => {
-                  setShowJournalPhotoModal(false)
-                  performPost()
-                }}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.journalModalSecondaryButtonText}>Post anyway</Text>
+                <Text style={styles.journalModalPrimaryButtonText}>Add more</Text>
               </TouchableOpacity>
             </View>
+          </ScrollView>
           </View>
         </View>
       </Modal>
-    </View>
-  )
-}
-
-// Inspiration Tags Carousel Component for Journal modal
-function InspirationTagsCarousel({ theme2Colors, spacing, typography }: { theme2Colors: any; spacing: any; typography: any }) {
-  const tags = [
-    "Caught up with a friend?",
-    "Did something nice for yourself?",
-    "Something unfortunate happen?",
-    "See something cool?",
-    "Eat something tasty?",
-    "Take a nice fit pic?",
-    "Make something you're proud of?",
-    "Take a nice selfie?",
-    "Enjoy a view?",
-  ]
-
-  // Create 3 rows, distributing tags evenly
-  const row1 = tags.slice(0, 3)
-  const row2 = tags.slice(3, 6)
-  const row3 = tags.slice(6, 9)
-
-  // Animation values for each row (moving in opposite directions)
-  const anim1 = useRef(new Animated.Value(0)).current
-  const anim2 = useRef(new Animated.Value(0)).current
-  const anim3 = useRef(new Animated.Value(0)).current
-
-  useEffect(() => {
-    // Row 1: moves left (negative direction)
-    const animation1 = Animated.loop(
-      Animated.timing(anim1, {
-        toValue: 1,
-        duration: 20000, // 20 seconds for slow movement
-        useNativeDriver: true,
-      })
-    )
-
-    // Row 2: moves right (positive direction)
-    const animation2 = Animated.loop(
-      Animated.timing(anim2, {
-        toValue: 1,
-        duration: 25000, // Slightly different speed
-        useNativeDriver: true,
-      })
-    )
-
-    // Row 3: moves left (negative direction)
-    const animation3 = Animated.loop(
-      Animated.timing(anim3, {
-        toValue: 1,
-        duration: 22000, // Different speed
-        useNativeDriver: true,
-      })
-    )
-
-    animation1.start()
-    animation2.start()
-    animation3.start()
-
-    return () => {
-      animation1.stop()
-      animation2.stop()
-      animation3.stop()
-    }
-  }, [])
-
-  // Calculate tag width for seamless looping (approximate)
-  const tagWidth = 150 // Approximate width per tag
-
-  // Interpolate animation values to translateX
-  const translateX1 = anim1.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, -(tagWidth * row1.length)], // Move left
-  })
-
-  const translateX2 = anim2.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, tagWidth * row2.length], // Move right
-  })
-
-  const translateX3 = anim3.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, -(tagWidth * row3.length)], // Move left
-  })
-
-  const tagStyles = StyleSheet.create({
-    container: {
-      marginTop: spacing.lg,
-      marginBottom: spacing.md,
-      overflow: "hidden",
-      height: 120, // Fixed height for 3 rows
-    },
-    row: {
-      flexDirection: "row",
-      marginBottom: spacing.sm,
-      overflow: "hidden",
-    },
-    tagContainer: {
-      flexDirection: "row",
-    },
-    tag: {
-      backgroundColor: theme2Colors.white,
-      borderWidth: 1,
-      borderColor: theme2Colors.text,
-      borderRadius: 16,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.xs,
-      marginRight: spacing.sm,
-    },
-    tagText: {
-      ...typography.body,
-      fontSize: 12,
-      color: theme2Colors.text,
-    },
-  })
-
-  const renderRow = (rowTags: string[], translateX: Animated.AnimatedInterpolation<number>) => (
-    <View style={tagStyles.row}>
-      <Animated.View style={[tagStyles.tagContainer, { transform: [{ translateX }] }]}>
-        {/* Render tags multiple times for seamless loop */}
-        {[...rowTags, ...rowTags, ...rowTags].map((tag, index) => (
-          <View key={`${tag}-${index}`} style={tagStyles.tag}>
-            <Text style={tagStyles.tagText}>{tag}</Text>
-          </View>
-        ))}
-      </Animated.View>
-    </View>
-  )
-
-  return (
-    <View style={tagStyles.container}>
-      {renderRow(row1, translateX1)}
-      {renderRow(row2, translateX2)}
-      {renderRow(row3, translateX3)}
     </View>
   )
 }
