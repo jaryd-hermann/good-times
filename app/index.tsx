@@ -499,6 +499,13 @@ export default function Index() {
       hasNavigatedRef.current = false;
     }
     
+    // CRITICAL FIX: If we think we've navigated but we're still on root route, reset navigation state
+    // This prevents infinite boot screen when navigation didn't actually complete
+    if (hasNavigatedRef.current && isOnRoot) {
+      console.log("[boot] Boot flow: hasNavigatedRef is true but still on root - resetting navigation state");
+      hasNavigatedRef.current = false;
+    }
+    
     const shouldSkip = hasNavigatedRef.current && !wasRecheckTriggered && (
       (!isOnRoot) || // Already navigated and not on root
       (isOnRoot && authLoading === false && !user && !restoringSession) // On root but no user and auth done
@@ -1399,11 +1406,11 @@ export default function Index() {
   }
   
   // CRITICAL: Always show boot screen during boot to prevent black screens
-  // Show boot screen immediately if we're on root route OR if explicitly set to show
+  // Show boot screen based on shouldShowBooting (which includes root route check) or explicit flags
   // This prevents black screens when opening from background
-  // CRITICAL FIX: Always render boot screen immediately on root route to prevent blank beige screen
-  // This ensures the spinning loading.png is visible as soon as native splash hides
-  const shouldRenderBootScreen = shouldShowBooting || shouldForceShowBoot || (isOnRootRoute && !isPasswordResetLink) || shouldShowBootScreen;
+  // CRITICAL FIX: Only show boot screen when actually booting, not just because we're on root route
+  // This prevents infinite boot screen when navigation should have completed
+  const shouldRenderBootScreen = shouldShowBooting || shouldForceShowBoot || shouldShowBootScreen;
   
   const spin = rotateAnim.interpolate({
     inputRange: [0, 1],
@@ -1413,31 +1420,23 @@ export default function Index() {
   // CRITICAL: Hide native splash screen when boot screen is ready to show
   // This ensures smooth transition from native splash to boot screen
   // Only hide after boot screen has rendered to prevent black screen gap
-  // CRITICAL FIX: Always show boot screen immediately on mount to prevent blank beige screen
-  // Hide native splash only after boot screen is definitely rendered and visible
   useEffect(() => {
     // Always ensure boot screen is showing before hiding native splash
     // This prevents the blank beige screen gap
     if (shouldRenderBootScreen || shouldShowBootScreen || booting) {
-      // Longer delay to ensure boot screen has fully rendered before hiding native splash
+      // Delay to ensure boot screen has fully rendered before hiding native splash
       // This prevents the blank beige screen from showing
       const timer = setTimeout(() => {
         SplashScreen.hideAsync().catch(() => {})
-      }, 300) // Increased delay to ensure boot screen is visible before hiding native splash
+      }, 300)
       return () => clearTimeout(timer)
     }
   }, [shouldRenderBootScreen, shouldShowBootScreen, booting])
-
-  // CRITICAL: Always render boot screen when on root route to prevent blank beige screen
-  // This ensures the spinning loading.png is visible immediately, even before other conditions are evaluated
-  // Only skip rendering if we're handling password reset or have navigated away from root
-  const shouldAlwaysShowSpinner = isOnRootRoute && !isPasswordResetLink && !err;
   
   return (
     <View style={{ flex: 1, backgroundColor: theme2Colors.beige }}>
-      {/* Always show spinner when beige background is visible, unless showing error */}
-      {/* CRITICAL FIX: Always show spinner on root route to prevent blank beige screen */}
-      {shouldAlwaysShowSpinner || (!err && shouldRenderBootScreen) ? (
+      {/* Show boot screen when actually booting */}
+      {!err && shouldRenderBootScreen ? (
         <View style={styles.bootContainer}>
           <Animated.View
             style={[
