@@ -1080,9 +1080,17 @@ export default function RootLayout() {
   // 2️⃣ SplashScreen logic - Keep native splash visible until boot screen is ready
   // CRITICAL: Don't hide native splash immediately - let boot screen handle it
   // This prevents black screen flash between native splash and boot screen
-  // CRITICAL FIX: Don't hide native splash here - let app/index.tsx handle it
-  // This ensures boot screen is visible before native splash hides, preventing blank beige screen
-  // The native splash will be hidden by app/index.tsx once boot screen is ready
+  useEffect(() => {
+    // Only hide native splash after fonts load AND a small delay to ensure boot screen is ready
+    // This prevents the black screen gap
+    if (fontsLoaded || fontsTimedOut) {
+      // Small delay to ensure boot screen has rendered
+      const timer = setTimeout(() => {
+        SplashScreen.hideAsync().catch(() => {})
+      }, 100) // Small delay to ensure boot screen is ready
+      return () => clearTimeout(timer)
+    }
+  }, [fontsLoaded, fontsTimedOut])
 
   // 3️⃣ Render the app normally
   // Option 4: Proceed with app even if fonts haven't loaded (after timeout or error)
