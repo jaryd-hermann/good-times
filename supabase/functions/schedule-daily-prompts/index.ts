@@ -485,12 +485,36 @@ serve(async (req) => {
       // ========================================================================
       
       // Get all prompts that have been asked (to exclude from selection)
-      const { data: allAskedPrompts } = await supabaseClient
-        .from("daily_prompts")
-        .select("prompt_id, date, prompt:prompts(category, deck_id)")
-        .eq("group_id", group.id)
-        .is("user_id", null) // Only general prompts
-        .order("date", { ascending: false })
+      // CRITICAL FIX: Paginate to fetch ALL asked prompts (not just first 1000)
+      let allAskedPrompts: any[] = []
+      let from = 0
+      const pageSize = 1000
+      let hasMore = true
+      
+      while (hasMore) {
+        const { data: pagePrompts, error } = await supabaseClient
+          .from("daily_prompts")
+          .select("prompt_id, date, prompt:prompts(category, deck_id)")
+          .eq("group_id", group.id)
+          .is("user_id", null) // Only general prompts
+          .order("date", { ascending: false })
+          .range(from, from + pageSize - 1)
+        
+        if (error) {
+          console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching asked prompts:`, error)
+          break
+        }
+        
+        if (pagePrompts && pagePrompts.length > 0) {
+          allAskedPrompts = allAskedPrompts.concat(pagePrompts)
+          from += pageSize
+          if (pagePrompts.length < pageSize) {
+            hasMore = false
+          }
+        } else {
+          hasMore = false
+        }
+      }
       
       const askedPromptIds = new Set<string>()
       const askedStandardPromptIds = new Set<string>() // Track Standard prompts separately
@@ -669,13 +693,37 @@ serve(async (req) => {
       
       if (lastRememberingDate) {
         // Count Standard questions since the last Remembering question date (excluding discovery)
-        const { data: standardPromptsSinceRemembering } = await supabaseClient
-          .from("daily_prompts")
-          .select("prompt_id, prompt:prompts(category), is_discovery")
-          .eq("group_id", group.id)
-          .is("user_id", null)
-          .gt("date", lastRememberingDate) // All prompts AFTER last Remembering
-          .order("date", { ascending: true })
+        // CRITICAL FIX: Paginate to fetch ALL prompts since last Remembering
+        let standardPromptsSinceRemembering: any[] = []
+        let from = 0
+        const pageSize = 1000
+        let hasMore = true
+        
+        while (hasMore) {
+          const { data: pagePrompts, error } = await supabaseClient
+            .from("daily_prompts")
+            .select("prompt_id, prompt:prompts(category), is_discovery")
+            .eq("group_id", group.id)
+            .is("user_id", null)
+            .gt("date", lastRememberingDate) // All prompts AFTER last Remembering
+            .order("date", { ascending: true })
+            .range(from, from + pageSize - 1)
+          
+          if (error) {
+            console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching Standard prompts since Remembering:`, error)
+            break
+          }
+          
+          if (pagePrompts && pagePrompts.length > 0) {
+            standardPromptsSinceRemembering = standardPromptsSinceRemembering.concat(pagePrompts)
+            from += pageSize
+            if (pagePrompts.length < pageSize) {
+              hasMore = false
+            }
+          } else {
+            hasMore = false
+          }
+        }
 
         if (standardPromptsSinceRemembering) {
           for (const dp of standardPromptsSinceRemembering) {
@@ -688,12 +736,36 @@ serve(async (req) => {
         }
       } else {
         // No Remembering question found - count all Standard questions ever asked (excluding discovery)
-        const { data: allStandardPrompts } = await supabaseClient
-          .from("daily_prompts")
-          .select("prompt_id, prompt:prompts(category), is_discovery")
-          .eq("group_id", group.id)
-          .is("user_id", null)
-          .order("date", { ascending: true })
+        // CRITICAL FIX: Paginate to fetch ALL Standard prompts
+        let allStandardPrompts: any[] = []
+        let from = 0
+        const pageSize = 1000
+        let hasMore = true
+        
+        while (hasMore) {
+          const { data: pagePrompts, error } = await supabaseClient
+            .from("daily_prompts")
+            .select("prompt_id, prompt:prompts(category), is_discovery")
+            .eq("group_id", group.id)
+            .is("user_id", null)
+            .order("date", { ascending: true })
+            .range(from, from + pageSize - 1)
+          
+          if (error) {
+            console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching all Standard prompts:`, error)
+            break
+          }
+          
+          if (pagePrompts && pagePrompts.length > 0) {
+            allStandardPrompts = allStandardPrompts.concat(pagePrompts)
+            from += pageSize
+            if (pagePrompts.length < pageSize) {
+              hasMore = false
+            }
+          } else {
+            hasMore = false
+          }
+        }
 
         if (allStandardPrompts) {
           for (const dp of allStandardPrompts) {
@@ -708,12 +780,36 @@ serve(async (req) => {
 
       // Count Standard questions (excluding discovery) for discovery trigger (every 10th)
       // This is separate from Remembering count - discovery can happen independently
-      const { data: allStandardForDiscovery } = await supabaseClient
-        .from("daily_prompts")
-        .select("prompt_id, prompt:prompts(category), is_discovery")
-        .eq("group_id", group.id)
-        .is("user_id", null)
-        .order("date", { ascending: true })
+      // CRITICAL FIX: Paginate to fetch ALL Standard prompts for discovery counting
+      let allStandardForDiscovery: any[] = []
+      let from = 0
+      const pageSize = 1000
+      let hasMore = true
+      
+      while (hasMore) {
+        const { data: pagePrompts, error } = await supabaseClient
+          .from("daily_prompts")
+          .select("prompt_id, prompt:prompts(category), is_discovery")
+          .eq("group_id", group.id)
+          .is("user_id", null)
+          .order("date", { ascending: true })
+          .range(from, from + pageSize - 1)
+        
+        if (error) {
+          console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching Standard prompts for discovery:`, error)
+          break
+        }
+        
+        if (pagePrompts && pagePrompts.length > 0) {
+          allStandardForDiscovery = allStandardForDiscovery.concat(pagePrompts)
+          from += pageSize
+          if (pagePrompts.length < pageSize) {
+            hasMore = false
+          }
+        } else {
+          hasMore = false
+        }
+      }
 
       let standardCountForDiscovery = 0
       if (allStandardForDiscovery) {
@@ -867,11 +963,38 @@ serve(async (req) => {
         
         if (canScheduleRemembering) {
           // Get available Remembering prompts
-          const { data: rememberingPrompts } = await supabaseClient
-            .from("prompts")
-            .select("*")
-            .eq("category", "Remembering")
-            .not("id", "in", Array.from(askedPromptIds))
+          // CRITICAL FIX: Paginate to fetch ALL Remembering prompts, then filter in JavaScript
+          let allRememberingPrompts: any[] = []
+          let from = 0
+          const pageSize = 1000
+          let hasMore = true
+          
+          while (hasMore) {
+            const { data: pagePrompts, error } = await supabaseClient
+              .from("prompts")
+              .select("*")
+              .eq("category", "Remembering")
+              .range(from, from + pageSize - 1)
+            
+            if (error) {
+              console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching Remembering prompts:`, error)
+              break
+            }
+            
+            if (pagePrompts && pagePrompts.length > 0) {
+              allRememberingPrompts = allRememberingPrompts.concat(pagePrompts)
+              from += pageSize
+              if (pagePrompts.length < pageSize) {
+                hasMore = false
+              }
+            } else {
+              hasMore = false
+            }
+          }
+          
+          // Filter in JavaScript to exclude asked prompts (avoids Supabase array size limits)
+          const askedPromptIdsArray = Array.from(askedPromptIds)
+          const rememberingPrompts = allRememberingPrompts.filter((p: any) => !askedPromptIdsArray.includes(p.id))
 
           if (rememberingPrompts && rememberingPrompts.length > 0) {
             // Select one (we'll rotate memorial names in getDailyPrompt)
@@ -890,19 +1013,66 @@ serve(async (req) => {
       // PRIORITY 5: STANDARD QUESTION (with interest-based personalization)
       if (!selectedPrompt) {
         // Check if all ice breakers have been asked (including null order ones)
-        const { data: allIceBreakers } = await supabaseClient
-          .from("prompts")
-          .select("id")
-          .eq("ice_breaker", true)
+        // CRITICAL FIX: Paginate to fetch ALL ice breaker prompts
+        let allIceBreakers: any[] = []
+        let from = 0
+        const pageSize = 1000
+        let hasMore = true
+        
+        while (hasMore) {
+          const { data: pagePrompts, error } = await supabaseClient
+            .from("prompts")
+            .select("id")
+            .eq("ice_breaker", true)
+            .range(from, from + pageSize - 1)
+          
+          if (error) {
+            console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching ice breaker prompts:`, error)
+            break
+          }
+          
+          if (pagePrompts && pagePrompts.length > 0) {
+            allIceBreakers = allIceBreakers.concat(pagePrompts)
+            from += pageSize
+            if (pagePrompts.length < pageSize) {
+              hasMore = false
+            }
+          } else {
+            hasMore = false
+          }
+        }
         
         const allIceBreakerIds = new Set((allIceBreakers || []).map((p: any) => p.id))
         
         // Get all asked prompts that are ice breakers
-        const { data: allAskedPromptsForIceBreakerCheck } = await supabaseClient
-          .from("daily_prompts")
-          .select("prompt_id, prompt:prompts(ice_breaker)")
-          .eq("group_id", group.id)
-          .is("user_id", null)
+        // CRITICAL FIX: Paginate to fetch ALL asked prompts for ice breaker check
+        let allAskedPromptsForIceBreakerCheck: any[] = []
+        from = 0
+        hasMore = true
+        
+        while (hasMore) {
+          const { data: pagePrompts, error } = await supabaseClient
+            .from("daily_prompts")
+            .select("prompt_id, prompt:prompts(ice_breaker)")
+            .eq("group_id", group.id)
+            .is("user_id", null)
+            .range(from, from + pageSize - 1)
+          
+          if (error) {
+            console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching asked prompts for ice breaker check:`, error)
+            break
+          }
+          
+          if (pagePrompts && pagePrompts.length > 0) {
+            allAskedPromptsForIceBreakerCheck = allAskedPromptsForIceBreakerCheck.concat(pagePrompts)
+            from += pageSize
+            if (pagePrompts.length < pageSize) {
+              hasMore = false
+            }
+          } else {
+            hasMore = false
+          }
+        }
         
         const askedIceBreakerIds = new Set<string>()
         if (allAskedPromptsForIceBreakerCheck) {

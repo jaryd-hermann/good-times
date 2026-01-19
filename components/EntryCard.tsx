@@ -67,6 +67,7 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   const [commentLightboxPhotos, setCommentLightboxPhotos] = useState<string[]>([])
   const [commentEmojiPickerCommentId, setCommentEmojiPickerCommentId] = useState<string | null>(null)
   const [statusModalVisible, setStatusModalVisible] = useState(false)
+  const [isTextExpanded, setIsTextExpanded] = useState(false)
 
   useEffect(() => {
     async function loadUser() {
@@ -165,6 +166,18 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
   const estimatedCharsPerLine = 50
   const minCharsForFade = MAX_TEXT_LINES * estimatedCharsPerLine
   const shouldShowFade = entry.text_content && entry.text_content.length >= minCharsForFade
+  const isTextTruncated = shouldShowFade && !isTextExpanded
+
+  // Handle text area tap
+  function handleTextPress() {
+    if (isTextTruncated) {
+      // Expand text
+      setIsTextExpanded(true)
+    } else if (isTextExpanded) {
+      // All text is revealed, navigate to entry detail
+      handleEntryPress()
+    }
+  }
 
 
   // Separate media types
@@ -1510,24 +1523,44 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
 
         {/* Text Content */}
         {entry.text_content && (
-          <View style={styles.textContainer}>
-            <MentionableText 
-              text={entry.text_content} 
-              textStyle={styles.entryText} 
-              linkStyle={styles.link} 
-              mentionStyle={styles.mention}
-              groupId={entry.group_id}
-              onMentionPress={handleMentionPress}
-              numberOfLines={MAX_TEXT_LINES}
-            />
-            {/* Fade overlay for last 2 lines (only when exceeding 14 lines) */}
-            {shouldShowFade && (
-              <View style={styles.textFadeOverlay} pointerEvents="none">
-                <View style={styles.fadeLine1} />
-                <View style={styles.fadeLine2} />
-              </View>
-            )}
-          </View>
+          shouldShowFade ? (
+            <TouchableOpacity 
+              style={styles.textContainer}
+              onPress={(e) => {
+                e.stopPropagation()
+                handleTextPress()
+              }}
+              activeOpacity={0.7}
+            >
+              <MentionableText 
+                text={entry.text_content} 
+                textStyle={styles.entryText} 
+                linkStyle={styles.link} 
+                mentionStyle={styles.mention}
+                groupId={entry.group_id}
+                onMentionPress={handleMentionPress}
+                numberOfLines={isTextExpanded ? undefined : MAX_TEXT_LINES}
+              />
+              {/* Fade overlay for last 2 lines (only when exceeding 14 lines and not expanded) */}
+              {isTextTruncated && (
+                <View style={styles.textFadeOverlay} pointerEvents="none">
+                  <View style={styles.fadeLine1} />
+                  <View style={styles.fadeLine2} />
+                </View>
+              )}
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.textContainer}>
+              <MentionableText 
+                text={entry.text_content} 
+                textStyle={styles.entryText} 
+                linkStyle={styles.link} 
+                mentionStyle={styles.mention}
+                groupId={entry.group_id}
+                onMentionPress={handleMentionPress}
+              />
+            </View>
+          )
         )}
 
         {/* Voice Memos (after text, before embedded media) */}

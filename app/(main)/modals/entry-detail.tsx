@@ -2180,28 +2180,31 @@ export default function EntryDetail() {
                       {comment.media_url && comment.media_type && (
                         <View style={styles.commentMediaContainer}>
                           {comment.media_type === "photo" && (
-                            <TouchableOpacity
-                              onPress={(e) => {
-                                e.stopPropagation()
-                                // Get all comment photo URLs for lightbox
-                                const commentPhotos = comments
-                                  .map((c) => c.media_url && c.media_type === "photo" ? c.media_url : null)
-                                  .filter((url): url is string => url !== null)
-                                const photoIndex = commentPhotos.indexOf(comment.media_url)
-                                if (photoIndex >= 0) {
-                                  setCommentLightboxPhotos(commentPhotos)
-                                  setCommentLightboxIndex(photoIndex)
-                                  setCommentLightboxVisible(true)
-                                }
-                              }}
-                              activeOpacity={0.9}
-                            >
-                              <Image
-                                source={{ uri: comment.media_url }}
-                                style={styles.commentMediaThumbnail}
-                                resizeMode="cover"
-                              />
-                            </TouchableOpacity>
+                            <View style={styles.commentMediaThumbnailContainer}>
+                              <TouchableOpacity
+                                onPress={(e) => {
+                                  e.stopPropagation()
+                                  // Get all comment photo URLs for lightbox
+                                  const commentPhotos = comments
+                                    .map((c) => c.media_url && c.media_type === "photo" ? c.media_url : null)
+                                    .filter((url): url is string => url !== null)
+                                  const photoIndex = commentPhotos.indexOf(comment.media_url)
+                                  if (photoIndex >= 0) {
+                                    setCommentLightboxPhotos(commentPhotos)
+                                    setCommentLightboxIndex(photoIndex)
+                                    setCommentLightboxVisible(true)
+                                  }
+                                }}
+                                activeOpacity={0.9}
+                                style={styles.commentVideoWrapper}
+                              >
+                                <Image
+                                  source={{ uri: comment.media_url }}
+                                  style={styles.commentMediaThumbnail}
+                                  resizeMode="contain"
+                                />
+                              </TouchableOpacity>
+                            </View>
                           )}
                           {comment.media_type === "video" && comment.media_url && (
                             <View style={styles.commentMediaThumbnailContainer}>

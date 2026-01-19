@@ -327,8 +327,8 @@ export default function EntryComposer() {
   // Large files loaded entirely into memory can crash the app
   // Videos are most problematic, so stricter limit
   const MAX_VIDEO_SIZE = 1024 * 1024 * 1024 // 1GB for videos
-  const MAX_PHOTO_SIZE = 50 * 1024 * 1024 // 50MB for photos
-  const MAX_AUDIO_SIZE = 50 * 1024 * 1024 // 50MB for audio
+  const MAX_PHOTO_SIZE = 1024 * 1024 * 1024 // 1GB for photos
+  const MAX_AUDIO_SIZE = 1024 * 1024 * 1024 // 1GB for audio
 
   useEffect(() => {
     loadUserAndGroup()
@@ -1658,7 +1658,7 @@ export default function EntryComposer() {
             // Log error but don't throw immediately - let other uploads complete
             console.error(`[entry-composer] Failed to upload ${item.type}:`, error)
             // Provide more specific error messages
-            const errorMessage = error.message?.includes("too large") 
+            const errorMessage = error.message?.includes("too large") || error.message?.includes("memory") || error.message?.includes("out of memory")
               ? error.message 
               : `Failed to upload ${item.type}: ${error.message || "Unknown error"}`
             throw new Error(errorMessage)
@@ -2602,6 +2602,8 @@ export default function EntryComposer() {
       backgroundColor: theme2Colors.beige,
       padding: spacing.xl,
       zIndex: 0,
+      justifyContent: "center",
+      alignItems: "center",
     },
     successTexture: {
       ...StyleSheet.absoluteFillObject,

@@ -306,14 +306,16 @@ export default function Welcome1() {
                     resizeMode="cover"
                   />
                 </View>
-                {/* Play Button Overlay */}
-                <TouchableOpacity
-                  style={styles.playButton}
-                  onPress={handlePlayVideo}
-                  activeOpacity={0.8}
-                >
-                  <FontAwesome name="play" size={24} color={theme2Colors.text} />
-                </TouchableOpacity>
+                {/* Play Button Overlay - Temporarily hidden */}
+                {false && (
+                  <TouchableOpacity
+                    style={styles.playButton}
+                    onPress={handlePlayVideo}
+                    activeOpacity={0.8}
+                  >
+                    <FontAwesome name="play" size={24} color={theme2Colors.text} />
+                  </TouchableOpacity>
+                )}
               </>
             )}
             {/* Video - use WebView as workaround for CORS issues on iOS */}
