@@ -41,9 +41,10 @@ export async function uploadMedia(
       }
     }
 
-    // Generate unique filename
+    // Generate unique filename with timestamp and random component to avoid collisions
     const fileExt = fileUri.split(".").pop() || (fileType === "video" ? "mp4" : fileType === "audio" ? "m4a" : "jpg")
-    const fileName = `${Date.now()}.${fileExt}`
+    const randomId = Math.random().toString(36).slice(2, 10)
+    const fileName = `${Date.now()}-${randomId}.${fileExt}`
     const filePath = `${groupId}/${entryId}/${fileName}`
 
     // For large files (>200MB), use FormData upload to avoid loading entire file into memory
@@ -99,6 +100,15 @@ export async function uploadMedia(
     })
 
     if (error) {
+      // If file already exists, return its public URL instead of failing
+      // This handles cases where a retry happens after a partial upload
+      if (error.message?.includes("already exists") || error.message?.includes("duplicate")) {
+        console.log(`[storage] File already exists at ${filePath}, returning existing URL`)
+        const {
+          data: { publicUrl },
+        } = supabase.storage.from("entries-media").getPublicUrl(filePath)
+        return publicUrl
+      }
       // Provide more specific error messages
       if (error.message?.includes("size") || error.message?.includes("large")) {
         throw new Error("File is too large to upload. Please try a smaller file.")
@@ -174,6 +184,15 @@ async function uploadLargeFile(
 
     if (!response.ok) {
       const errorText = await response.text()
+      // If file already exists, return its public URL instead of failing
+      // This handles cases where a retry happens after a partial upload
+      if (response.status === 409 || errorText?.includes("already exists") || errorText?.includes("duplicate")) {
+        console.log(`[storage] File already exists at ${filePath}, returning existing URL`)
+        const {
+          data: { publicUrl },
+        } = supabase.storage.from("entries-media").getPublicUrl(filePath)
+        return publicUrl
+      }
       throw new Error(`Upload failed: ${response.status} ${errorText}`)
     }
 

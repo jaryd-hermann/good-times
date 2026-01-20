@@ -2344,19 +2344,32 @@ export default function Home() {
       // This filter takes priority - when active, ONLY show Journal category entries on Sundays
       // This ensures we only show entries from when the Journal question was actually asked
       // (not prior Sundays that had Standard questions)
+      // Weekly Photo Journal filter - only show Journal entries on Sundays
+      // CRITICAL: This is an exclusive filter - when active, ONLY show matching entries
+      // This filter takes priority and must be checked first
       if (showWeeklyPhotoJournal) {
-        // CRITICAL: This is an exclusive filter - when active, ONLY show matching entries
         // Must have a prompt with Journal category AND must be a Sunday
         // Check each condition explicitly to ensure proper filtering
-        const hasPrompt = !!entry.prompt
-        const isJournalCategory = category === "Journal"
-        const isSundayDate = isSunday(entry.date)
-        
-        // Only include entries that meet ALL criteria
-        if (!hasPrompt || !isJournalCategory || !isSundayDate) {
-          return false // Exclude this entry - doesn't match Weekly Photo Journal filter
+        if (!entry.prompt) {
+          return false // No prompt - exclude
         }
-        // Entry passed the Journal + Sunday check - continue to other filters below
+        
+        if (category !== "Journal") {
+          return false // Not Journal category - exclude
+        }
+        
+        // Normalize date to YYYY-MM-DD format (isSunday expects this format)
+        if (!entry.date) {
+          return false // No date - exclude
+        }
+        
+        const normalizedDate = entry.date.split('T')[0]
+        if (!isSunday(normalizedDate)) {
+          return false // Not a Sunday - exclude
+        }
+        
+        // Entry passed all checks - include it
+        // Continue to other filters below (but they shouldn't exclude Journal entries)
       }
 
       if (selectedCategories.length > 0 && (!category || !selectedCategories.includes(category))) {
@@ -5608,21 +5621,6 @@ export default function Home() {
               ? utcStringToLocalDate(currentGroup.created_at)
               : null
             
-            const allDatesToShow = new Set([
-              ...Object.keys(entriesByDate),
-              ...datesWithoutUserEntry,
-            ])
-            
-            // Filter out dates before group creation
-            const filteredDatesToShow = groupCreatedDate
-              ? Array.from(allDatesToShow).filter((date) => date >= groupCreatedDate)
-              : Array.from(allDatesToShow)
-            
-            // Sort dates descending (most recent first)
-            const sortedDates = filteredDatesToShow.sort((a, b) => {
-              return new Date(b).getTime() - new Date(a).getTime()
-            })
-            
             // Use entriesWithBirthdayCards (which includes birthday cards mixed with regular entries)
             // Also merge entriesForDatesWithoutUserEntry for dates where user hasn't answered
             // This ensures entries are visible with fuzzy overlay even when user hasn't answered
@@ -5645,13 +5643,67 @@ export default function Home() {
               if (!entriesByDateFiltered[date]) {
                 entriesByDateFiltered[date] = []
               }
-              // Merge entries, avoiding duplicates
+              // Merge entries, avoiding duplicates AND applying Weekly Photo Journal filter
               const existingIds = new Set(entriesByDateFiltered[date].map((e: any) => e.id))
               entriesForDatesWithoutUserEntry[date].forEach((entry: any) => {
-                if (!existingIds.has(entry.id)) {
-                  entriesByDateFiltered[date].push(entry)
+                // Skip if already exists
+                if (existingIds.has(entry.id)) {
+                  return
                 }
+                
+                // Apply Weekly Photo Journal filter if active
+                if (showWeeklyPhotoJournal) {
+                  if (!entry.prompt) {
+                    return // No prompt - exclude
+                  }
+                  
+                  const isCustom = entry.prompt?.is_custom === true
+                  const category = isCustom ? "Custom" : (entry.prompt?.category ?? "")
+                  
+                  if (category !== "Journal") {
+                    return // Not Journal category - exclude
+                  }
+                  
+                  // Normalize date to YYYY-MM-DD format (isSunday expects this format)
+                  if (!entry.date) {
+                    return // No date - exclude
+                  }
+                  
+                  const normalizedDate = entry.date.split('T')[0]
+                  if (!isSunday(normalizedDate)) {
+                    return // Not a Sunday - exclude
+                  }
+                }
+                
+                // Entry passed all filters - add it
+                entriesByDateFiltered[date].push(entry)
               })
+            })
+            
+            // Build list of dates to show
+            // When Weekly Photo Journal filter is active, only include dates that have entries
+            const allDatesToShow = new Set([
+              ...Object.keys(entriesByDateFiltered),
+              // Only include datesWithoutUserEntry if filter is NOT active (to show prompt cards)
+              ...(showWeeklyPhotoJournal ? [] : datesWithoutUserEntry),
+            ])
+            
+            // Filter out dates before group creation
+            let filteredDatesToShow = groupCreatedDate
+              ? Array.from(allDatesToShow).filter((date) => date >= groupCreatedDate)
+              : Array.from(allDatesToShow)
+            
+            // When Weekly Photo Journal filter is active, only show dates that have entries
+            if (showWeeklyPhotoJournal) {
+              filteredDatesToShow = filteredDatesToShow.filter((date) => {
+                const dateEntries = entriesByDateFiltered[date] || []
+                return dateEntries.length > 0 // Only show dates with entries
+              })
+            }
+            
+            // Sort dates descending (most recent first)
+            const sortedDates = filteredDatesToShow.sort((a, b) => {
+              return new Date(b).getTime() - new Date(a).getTime()
             })
             
             return sortedDates.map((date) => {

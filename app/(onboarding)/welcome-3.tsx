@@ -79,6 +79,9 @@ export default function Welcome3() {
             <Text style={[styles.body, styles.secondParagraph]}>
               Good Times is a social app for friends & family to meaningfully <Text style={styles.boldText}>connect over one question a day</Text>.
             </Text>
+            <Text style={[styles.body, styles.secondParagraph]}>
+              Once a week on Sunday, see what everyone did with a weekly photo journal.
+            </Text>
           </View>
         </View>
       </ScrollView>
@@ -225,10 +228,5 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     opacity: 0.3,
     zIndex: 1,
-  },
-  textureImage: {
-    ...StyleSheet.absoluteFillObject,
-    width: "100%",
-    height: "100%",
   },
 })

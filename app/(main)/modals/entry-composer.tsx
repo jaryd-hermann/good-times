@@ -49,6 +49,7 @@ function getDayIndex(dateString: string, groupId?: string) {
 }
 import { UserProfileModal } from "../../../components/UserProfileModal"
 import { VideoMessageModal } from "../../../components/VideoMessageModal"
+import { JournalWeeklyMediaPicker } from "../../../components/JournalWeeklyMediaPicker"
 import * as FileSystem from "expo-file-system/legacy"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { usePostHog } from "posthog-react-native"
@@ -261,6 +262,7 @@ export default function EntryComposer() {
   const [showUploadingModal, setShowUploadingModal] = useState(false)
   const [showFileSizeModal, setShowFileSizeModal] = useState(false)
   const [showJournalPhotoModal, setShowJournalPhotoModal] = useState(false)
+  const [showJournalWeeklyPicker, setShowJournalWeeklyPicker] = useState(false)
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const dragPosition = useRef(new Animated.ValueXY()).current
@@ -1083,9 +1085,74 @@ export default function EntryComposer() {
     }
   }
 
+  // Handle photos selected from Journal weekly picker
+  async function handleJournalWeeklyPhotosSelected(photos: Array<{ uri: string; type: "photo" | "video" }>) {
+    // Process photos similar to openGallery, but photos are already filtered
+    const validAssets = []
+    const errors: string[] = []
+    
+    for (const photo of photos) {
+      const sizeCheck = await checkFileSize(photo.uri, photo.type)
+      
+      if (sizeCheck.valid) {
+        validAssets.push(photo)
+      } else if (sizeCheck.error) {
+        errors.push(sizeCheck.error)
+      }
+    }
+    
+    // Show errors if any files were rejected
+    if (errors.length > 0) {
+      Alert.alert(
+        "File Too Large",
+        errors.length === 1 
+          ? errors[0]
+          : `${errors.length} files were too large:\n\n${errors.slice(0, 3).join("\n")}${errors.length > 3 ? `\n...and ${errors.length - 3} more` : ""}`,
+        [{ text: "OK" }]
+      )
+    }
+    
+    if (validAssets.length > 0) {
+      // Process assets and copy to accessible location if needed (iOS)
+      const newItems = await Promise.all(
+        validAssets.map(async (asset) => {
+          let uri = asset.uri
+          
+          // On iOS, copy files to temporary location to ensure they're accessible
+          if (Platform.OS === "ios") {
+            try {
+              const fileExtension = uri.toLowerCase().includes(".png") ? ".png" : ".jpg"
+              const tempUri = `${FileSystem.cacheDirectory}${Date.now()}-${Math.random().toString(36).slice(2)}${fileExtension}`
+              await FileSystem.copyAsync({
+                from: uri,
+                to: tempUri,
+              })
+              uri = tempUri
+            } catch (copyError) {
+              console.warn("[entry-composer] Failed to copy iOS image to temp location, using original URI:", copyError)
+            }
+          }
+          
+          return {
+            id: createMediaId(),
+            uri: uri,
+            type: asset.type,
+            thumbnailUri: undefined,
+          }
+        })
+      )
+      setMediaItems((prev) => [...prev, ...newItems])
+    }
+  }
+
   async function handleGalleryAction() {
-    // Open gallery directly (no modal)
-    openGallery()
+    // For Journal prompts, use custom weekly media picker
+    if (activePrompt?.category === "Journal") {
+      setShowJournalWeeklyPicker(true)
+    } else {
+      // Open gallery directly (no modal)
+      openGallery()
+    }
   }
 
   async function openCamera() {
@@ -3261,6 +3328,25 @@ export default function EntryComposer() {
           </View>
         </View>
       </Modal>
+
+      {/* Journal Weekly Media Picker */}
+      <JournalWeeklyMediaPicker
+        visible={showJournalWeeklyPicker}
+        journalDate={date}
+        existingMedia={editMode && existingEntry?.media_urls ? existingEntry.media_urls.map((url, index) => ({
+          uri: url,
+          type: existingEntry.media_types?.[index] || "photo",
+        })) : []}
+        onClose={() => setShowJournalWeeklyPicker(false)}
+        onUpdate={handleJournalWeeklyPhotosSelected}
+        onCameraPress={async () => {
+          setShowJournalWeeklyPicker(false)
+          // Small delay to ensure modal closes before opening camera
+          setTimeout(() => {
+            openCamera()
+          }, 300)
+        }}
+      />
 
       {/* Journal Photo Validation Modal */}
       <Modal
