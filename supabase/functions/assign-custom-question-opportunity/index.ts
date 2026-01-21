@@ -62,13 +62,26 @@ serve(async (req) => {
 
     console.log(`[assign-custom-question-opportunity] Running for ${dayName} (${targetDate})`)
 
-    // Get all eligible groups
+    // BUG FIX 4: Get all eligible groups with better logging
     const { data: eligibleGroups, error: groupsError } = await supabaseClient
       .from("group_activity_tracking")
-      .select("group_id")
+      .select("group_id, is_eligible_for_custom_questions")
       .eq("is_eligible_for_custom_questions", true)
 
-    if (groupsError) throw groupsError
+    if (groupsError) {
+      console.error(`[assign-custom-question-opportunity] Error fetching eligible groups:`, groupsError)
+      throw groupsError
+    }
+
+    // BUG FIX 4: Log how many groups are eligible
+    console.log(`[assign-custom-question-opportunity] Found ${eligibleGroups?.length || 0} eligible groups for custom questions`)
+
+    // BUG FIX 4: Also check total groups to see if eligibility might be an issue
+    const { count: totalGroupsCount } = await supabaseClient
+      .from("groups")
+      .select("id", { count: "exact", head: true })
+    
+    console.log(`[assign-custom-question-opportunity] Total groups: ${totalGroupsCount || 0}, Eligible: ${eligibleGroups?.length || 0}`)
 
     const results = []
 

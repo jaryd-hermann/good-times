@@ -1094,6 +1094,7 @@ serve(async (req) => {
           let isDiscoveryQuestion = false
           
           // Check if this should be a discovery question (every 10th Standard)
+          // BUG FIX 3: Only trigger discovery if group has asked questions for all their own interests at least once
           if (standardCountForDiscovery > 0 && standardCountForDiscovery % 10 === 0) {
             // Get group's explicit and inferred interests
             const { data: groupDataForDiscovery } = await supabaseClient
@@ -1115,6 +1116,37 @@ serve(async (req) => {
               .filter((name: string) => name)
             
             const allGroupInterests = [...explicitInterests, ...inferredInterests]
+            
+            // BUG FIX 3: Check if group has asked questions for all their interests at least once
+            // Get all Standard prompts asked by this group and check which interests they cover
+            const { data: askedPromptsWithInterests } = await supabaseClient
+              .from("daily_prompts")
+              .select("prompt:prompts(interests)")
+              .eq("group_id", group.id)
+              .is("user_id", null)
+              .not("is_discovery", "eq", true) // Exclude discovery questions
+            
+            const askedInterestsSet = new Set<string>()
+            if (askedPromptsWithInterests) {
+              for (const dp of askedPromptsWithInterests) {
+                const prompt = dp.prompt as any
+                if (prompt?.interests && Array.isArray(prompt.interests)) {
+                  for (const interest of prompt.interests) {
+                    askedInterestsSet.add(interest)
+                  }
+                }
+              }
+            }
+            
+            // Check if all group interests have been asked at least once
+            const allInterestsAsked = allGroupInterests.length === 0 || 
+              allGroupInterests.every(interest => askedInterestsSet.has(interest))
+            
+            // Only proceed with discovery if all group interests have been asked
+            if (!allInterestsAsked) {
+              console.log(`[schedule-daily-prompts] Group ${group.id}: Skipping discovery - not all group interests have been asked yet. Group interests: ${allGroupInterests.join(', ')}, Asked interests: ${Array.from(askedInterestsSet).join(', ')}`)
+              // Fall through to standard interest cycle instead
+            } else {
             
             // Check if we're already testing a discovery interest
             const { data: activeDiscovery } = await supabaseClient
@@ -1248,7 +1280,8 @@ serve(async (req) => {
                 discoveryInterest = null
               }
             }
-          }
+            } // End of allInterestsAsked check - only proceed with discovery if all group interests asked
+          } // End of discovery check (every 10th Standard)
 
           // ========================================================================
           // STANDARD INTEREST CYCLE LOGIC (if not discovery)
@@ -1297,13 +1330,15 @@ serve(async (req) => {
             }
 
             // Get group's inferred interests and add them to the cycle
+            // BUG FIX 2: Also get last_interest_used to prevent back-to-back same interest
             const { data: groupData } = await supabaseClient
               .from("groups")
-              .select("interest_cycle_position, interest_cycle_interests, inferred_interests")
+              .select("interest_cycle_position, interest_cycle_interests, inferred_interests, last_interest_used")
               .eq("id", group.id)
               .single()
 
             const inferredInterests = groupData?.inferred_interests || []
+            const lastInterestUsed = groupData?.last_interest_used || null
             
             // Add inferred interests to weights (with weight = 1, or we could use a different weight)
             // For now, treat inferred interests as having weight 1 (they're less prominent)
@@ -1342,25 +1377,51 @@ serve(async (req) => {
             }
 
           // Determine which interest to use (or null for break)
+          // BUG FIX 2: Prevent back-to-back same interest by skipping if it matches lastInterestUsed
           let targetInterest: string | null = null
           
           if (cycleInterests.length === 0) {
             // No interests - use null (fallback to random Standard)
             targetInterest = null
           } else if (cycleInterests.length === 1) {
-            // Single interest - alternate with null
-            targetInterest = cyclePosition % 2 === 0 ? cycleInterests[0] : null
+            // Single interest - alternate with null, but skip if last was this interest
+            if (lastInterestUsed === cycleInterests[0]) {
+              // Last was this interest, use null break
+              targetInterest = null
+            } else {
+              // Alternate: 0 (interest), 1 (null), 0, 1...
+              targetInterest = cyclePosition % 2 === 0 ? cycleInterests[0] : null
+            }
           } else {
             // Multiple interests - cycle through them, then null break
+            // BUG FIX 2: Skip the interest if it matches lastInterestUsed
             if (cyclePosition < cycleInterests.length) {
-              targetInterest = cycleInterests[cyclePosition]
+              const candidateInterest = cycleInterests[cyclePosition]
+              // If this interest was used last time, skip to next or null break
+              if (lastInterestUsed === candidateInterest && cycleInterests.length > 1) {
+                // Skip to next interest or null break
+                if (cyclePosition + 1 < cycleInterests.length) {
+                  targetInterest = cycleInterests[cyclePosition + 1]
+                  cyclePosition = cyclePosition + 1 // Adjust position
+                } else {
+                  // Was last interest, use null break
+                  targetInterest = null
+                }
+              } else {
+                targetInterest = candidateInterest
+              }
             } else if (cyclePosition === cycleInterests.length) {
               // Null break after all interests
               targetInterest = null
             } else {
-              // Reset cycle
-              targetInterest = cycleInterests[0]
-              cyclePosition = 0
+              // Reset cycle - but skip if first interest was last used
+              if (lastInterestUsed === cycleInterests[0] && cycleInterests.length > 1) {
+                targetInterest = cycleInterests[1]
+                cyclePosition = 1
+              } else {
+                targetInterest = cycleInterests[0]
+                cyclePosition = 0
+              }
             }
           }
 
@@ -1657,42 +1718,171 @@ serve(async (req) => {
               }
             }
             
+            // BUG FIX 2: Update last_interest_used to prevent back-to-back same interest
             await supabaseClient
               .from("groups")
               .update({
                 interest_cycle_position: nextPosition,
+                last_interest_used: targetInterest, // Track which interest was just used
               })
               .eq("id", group.id)
           }
         }
 
         // Fallback: If no interest-based selection worked, use random Standard (original behavior)
-        // CRITICAL: Only use prompts that have NEVER been asked - NO RESETS, NO REUSES
+        // BUG FIX 1 & 5: Check if group has interests - if not, only use null-interest prompts
         console.error(`[schedule-daily-prompts] Group ${group.id}: BEFORE FALLBACK CHECK - selectedPrompt: ${selectedPrompt ? selectedPrompt.id : 'null'}`)
         if (!selectedPrompt) {
-          console.error(`[schedule-daily-prompts] Group ${group.id}: FALLBACK TRIGGERED - Using simplified getAvailableStandardPrompts()`)
+          console.error(`[schedule-daily-prompts] Group ${group.id}: FALLBACK TRIGGERED - Checking group interests for filtering`)
           
-          // Use the new helper function for reliable filtering
-          const { prompts: availablePrompts, debug: fallbackDebug } = await getAvailableStandardPrompts(
-            supabaseClient,
-            askedStandardPromptIds,
-            lastStandardPromptId,
-            askedCustomQuestionIds,
-            group.id
-          )
+          // BUG FIX 1: Check if group has any interests
+          const { data: groupInterestsCheck } = await supabaseClient
+            .from("group_interests")
+            .select("interest_id")
+            .eq("group_id", group.id)
+            .limit(1)
+          
+          const { data: groupDataCheck } = await supabaseClient
+            .from("groups")
+            .select("inferred_interests")
+            .eq("id", group.id)
+            .single()
+          
+          const hasExplicitInterests = (groupInterestsCheck?.length || 0) > 0
+          const hasInferredInterests = (groupDataCheck?.inferred_interests?.length || 0) > 0
+          const hasAnyInterests = hasExplicitInterests || hasInferredInterests
+          
+          let availablePrompts: any[] = []
+          let fallbackDebug: any = {}
+          
+          if (!hasAnyInterests) {
+            // BUG FIX 1: Group has no interests - only use null-interest Standard prompts
+            console.error(`[schedule-daily-prompts] Group ${group.id}: FALLBACK - Group has no interests, filtering to null-interest prompts only`)
+            
+            // Fetch all Standard prompts with null/empty interests
+            let allNullInterestPrompts: any[] = []
+            let from = 0
+            const pageSize = 1000
+            let hasMore = true
+            
+            while (hasMore) {
+              const { data: pagePrompts, error } = await supabaseClient
+                .from("prompts")
+                .select("*")
+                .eq("category", "Standard")
+                .or("interests.is.null,interests.eq.{}")
+                .range(from, from + pageSize - 1)
+              
+              if (error) {
+                console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching null-interest prompts in fallback:`, error)
+                break
+              }
+              
+              if (pagePrompts && pagePrompts.length > 0) {
+                allNullInterestPrompts = allNullInterestPrompts.concat(pagePrompts)
+                from += pageSize
+                if (pagePrompts.length < pageSize) {
+                  hasMore = false
+                }
+              } else {
+                hasMore = false
+              }
+            }
+            
+            // Filter using same logic as getAvailableStandardPrompts
+            const askedStandardArray = Array.from(askedStandardPromptIds)
+            const askedCustomArray = Array.from(askedCustomQuestionIds)
+            
+            availablePrompts = allNullInterestPrompts.filter((p: any) => {
+              if (askedStandardArray.includes(p.id)) return false
+              if (askedCustomArray.includes(p.id)) return false
+              if (lastStandardPromptId && p.id === lastStandardPromptId) return false
+              return true
+            })
+            
+            fallbackDebug = {
+              askedStandardCount: askedStandardPromptIds.size,
+              askedCustomCount: askedCustomQuestionIds.size,
+              lastStandardPromptId,
+              totalFetched: allNullInterestPrompts.length,
+              availableAfterFilter: availablePrompts.length,
+              filteredToNullInterestOnly: true,
+              groupHasInterests: false
+            }
+          } else {
+            // Group has interests - use standard fallback (all Standard prompts)
+            console.error(`[schedule-daily-prompts] Group ${group.id}: FALLBACK - Group has interests, using all Standard prompts`)
+            
+            const result = await getAvailableStandardPrompts(
+              supabaseClient,
+              askedStandardPromptIds,
+              lastStandardPromptId,
+              askedCustomQuestionIds,
+              group.id
+            )
+            
+            availablePrompts = result.prompts
+            fallbackDebug = { ...result.debug, filteredToNullInterestOnly: false, groupHasInterests: true }
+          }
           
           // Store debug info
           filteringDebug = fallbackDebug
           
           console.error(`[schedule-daily-prompts] Group ${group.id}: FALLBACK RESULTS - Available: ${availablePrompts.length}, Debug: ${JSON.stringify(fallbackDebug)}`)
           
+          // BUG FIX 5: Ensure we always select something if prompts are available
           if (availablePrompts && availablePrompts.length > 0) {
             const randomIndex = Math.floor(Math.random() * availablePrompts.length)
             selectedPrompt = availablePrompts[randomIndex]
-            selectionMethod = "standard"
+            selectionMethod = hasAnyInterests ? "standard_fallback" : "standard_null_fallback"
             console.error(`[schedule-daily-prompts] Group ${group.id}: FALLBACK SELECTION - Selected Standard prompt: ${selectedPrompt.id} from ${availablePrompts.length} available`)
           } else {
-            console.error(`[schedule-daily-prompts] Group ${group.id}: FALLBACK - No prompts available after filtering. Debug info in response.`)
+            // BUG FIX 5: If still no prompts, try removing last prompt restriction as last resort
+            console.error(`[schedule-daily-prompts] Group ${group.id}: FALLBACK - No prompts available after filtering. Trying without last prompt restriction...`)
+            
+            // Last resort: try without last prompt restriction
+            let lastResortPrompts: any[] = []
+            if (!hasAnyInterests) {
+              // Fetch null-interest prompts without last prompt restriction
+              const { data: nullPrompts } = await supabaseClient
+                .from("prompts")
+                .select("*")
+                .eq("category", "Standard")
+                .or("interests.is.null,interests.eq.{}")
+              
+              const askedStandardArray = Array.from(askedStandardPromptIds)
+              const askedCustomArray = Array.from(askedCustomQuestionIds)
+              
+              lastResortPrompts = (nullPrompts || []).filter((p: any) => {
+                if (askedStandardArray.includes(p.id)) return false
+                if (askedCustomArray.includes(p.id)) return false
+                return true
+              })
+            } else {
+              // Fetch all Standard prompts without last prompt restriction
+              const { data: allStandardPrompts } = await supabaseClient
+                .from("prompts")
+                .select("*")
+                .eq("category", "Standard")
+              
+              const askedStandardArray = Array.from(askedStandardPromptIds)
+              const askedCustomArray = Array.from(askedCustomQuestionIds)
+              
+              lastResortPrompts = (allStandardPrompts || []).filter((p: any) => {
+                if (askedStandardArray.includes(p.id)) return false
+                if (askedCustomArray.includes(p.id)) return false
+                return true
+              })
+            }
+            
+            if (lastResortPrompts.length > 0) {
+              const randomIndex = Math.floor(Math.random() * lastResortPrompts.length)
+              selectedPrompt = lastResortPrompts[randomIndex]
+              selectionMethod = hasAnyInterests ? "standard_fallback_last_resort" : "standard_null_fallback_last_resort"
+              console.error(`[schedule-daily-prompts] Group ${group.id}: LAST RESORT SELECTION - Selected Standard prompt: ${selectedPrompt.id} from ${lastResortPrompts.length} available (ignoring last prompt restriction)`)
+            } else {
+              console.error(`[schedule-daily-prompts] Group ${group.id}: FALLBACK - No prompts available even after removing last prompt restriction. Debug info in response.`)
+            }
           }
         }
       }
