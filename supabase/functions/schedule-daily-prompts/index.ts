@@ -695,11 +695,11 @@ serve(async (req) => {
         // Count Standard questions since the last Remembering question date (excluding discovery)
         // CRITICAL FIX: Paginate to fetch ALL prompts since last Remembering
         let standardPromptsSinceRemembering: any[] = []
-        let from = 0
-        const pageSize = 1000
-        let hasMore = true
+        let fromRemembering = 0
+        const pageSizeRemembering = 1000
+        let hasMoreRemembering = true
         
-        while (hasMore) {
+        while (hasMoreRemembering) {
           const { data: pagePrompts, error } = await supabaseClient
             .from("daily_prompts")
             .select("prompt_id, prompt:prompts(category), is_discovery")
@@ -707,7 +707,7 @@ serve(async (req) => {
             .is("user_id", null)
             .gt("date", lastRememberingDate) // All prompts AFTER last Remembering
             .order("date", { ascending: true })
-            .range(from, from + pageSize - 1)
+            .range(fromRemembering, fromRemembering + pageSizeRemembering - 1)
           
           if (error) {
             console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching Standard prompts since Remembering:`, error)
@@ -716,12 +716,12 @@ serve(async (req) => {
           
           if (pagePrompts && pagePrompts.length > 0) {
             standardPromptsSinceRemembering = standardPromptsSinceRemembering.concat(pagePrompts)
-            from += pageSize
-            if (pagePrompts.length < pageSize) {
-              hasMore = false
+            fromRemembering += pageSizeRemembering
+            if (pagePrompts.length < pageSizeRemembering) {
+              hasMoreRemembering = false
             }
           } else {
-            hasMore = false
+            hasMoreRemembering = false
           }
         }
 
@@ -738,18 +738,18 @@ serve(async (req) => {
         // No Remembering question found - count all Standard questions ever asked (excluding discovery)
         // CRITICAL FIX: Paginate to fetch ALL Standard prompts
         let allStandardPrompts: any[] = []
-        let from = 0
-        const pageSize = 1000
-        let hasMore = true
+        let fromAllStandard = 0
+        const pageSizeAllStandard = 1000
+        let hasMoreAllStandard = true
         
-        while (hasMore) {
+        while (hasMoreAllStandard) {
           const { data: pagePrompts, error } = await supabaseClient
             .from("daily_prompts")
             .select("prompt_id, prompt:prompts(category), is_discovery")
             .eq("group_id", group.id)
             .is("user_id", null)
             .order("date", { ascending: true })
-            .range(from, from + pageSize - 1)
+            .range(fromAllStandard, fromAllStandard + pageSizeAllStandard - 1)
           
           if (error) {
             console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching all Standard prompts:`, error)
@@ -758,12 +758,12 @@ serve(async (req) => {
           
           if (pagePrompts && pagePrompts.length > 0) {
             allStandardPrompts = allStandardPrompts.concat(pagePrompts)
-            from += pageSize
-            if (pagePrompts.length < pageSize) {
-              hasMore = false
+            fromAllStandard += pageSizeAllStandard
+            if (pagePrompts.length < pageSizeAllStandard) {
+              hasMoreAllStandard = false
             }
           } else {
-            hasMore = false
+            hasMoreAllStandard = false
           }
         }
 
@@ -782,34 +782,34 @@ serve(async (req) => {
       // This is separate from Remembering count - discovery can happen independently
       // CRITICAL FIX: Paginate to fetch ALL Standard prompts for discovery counting
       let allStandardForDiscovery: any[] = []
-      let from = 0
-      const pageSize = 1000
-      let hasMore = true
+      let fromDiscovery = 0
+      const pageSizeDiscovery = 1000
+      let hasMoreDiscovery = true
       
-      while (hasMore) {
+      while (hasMoreDiscovery) {
         const { data: pagePrompts, error } = await supabaseClient
           .from("daily_prompts")
           .select("prompt_id, prompt:prompts(category), is_discovery")
           .eq("group_id", group.id)
           .is("user_id", null)
           .order("date", { ascending: true })
-          .range(from, from + pageSize - 1)
+          .range(fromDiscovery, fromDiscovery + pageSizeDiscovery - 1)
         
         if (error) {
           console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching Standard prompts for discovery:`, error)
           break
         }
         
-        if (pagePrompts && pagePrompts.length > 0) {
-          allStandardForDiscovery = allStandardForDiscovery.concat(pagePrompts)
-          from += pageSize
-          if (pagePrompts.length < pageSize) {
-            hasMore = false
+          if (pagePrompts && pagePrompts.length > 0) {
+            allStandardForDiscovery = allStandardForDiscovery.concat(pagePrompts)
+            fromDiscovery += pageSizeDiscovery
+            if (pagePrompts.length < pageSizeDiscovery) {
+              hasMoreDiscovery = false
+            }
+          } else {
+            hasMoreDiscovery = false
           }
-        } else {
-          hasMore = false
         }
-      }
 
       let standardCountForDiscovery = 0
       if (allStandardForDiscovery) {
@@ -1331,14 +1331,43 @@ serve(async (req) => {
 
             // Get group's inferred interests and add them to the cycle
             // BUG FIX 2: Also get last_interest_used to prevent back-to-back same interest
-            const { data: groupData } = await supabaseClient
-              .from("groups")
-              .select("interest_cycle_position, interest_cycle_interests, inferred_interests, last_interest_used")
-              .eq("id", group.id)
-              .single()
+            // CRITICAL: Handle case where last_interest_used column doesn't exist yet (migration not run)
+            let groupData: any = null
+            let lastInterestUsed: string | null = null
+            try {
+              const { data, error } = await supabaseClient
+                .from("groups")
+                .select("interest_cycle_position, interest_cycle_interests, inferred_interests, last_interest_used")
+                .eq("id", group.id)
+                .single()
+              
+              if (error) {
+                // If column doesn't exist, try without it
+                console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching last_interest_used, trying without it:`, error.message)
+                const { data: fallbackData } = await supabaseClient
+                  .from("groups")
+                  .select("interest_cycle_position, interest_cycle_interests, inferred_interests")
+                  .eq("id", group.id)
+                  .single()
+                groupData = fallbackData
+                lastInterestUsed = null
+              } else {
+                groupData = data
+                lastInterestUsed = groupData?.last_interest_used || null
+              }
+            } catch (err) {
+              // Fallback if query fails
+              console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching group data:`, err)
+              const { data: fallbackData } = await supabaseClient
+                .from("groups")
+                .select("interest_cycle_position, interest_cycle_interests, inferred_interests")
+                .eq("id", group.id)
+                .single()
+              groupData = fallbackData
+              lastInterestUsed = null
+            }
 
             const inferredInterests = groupData?.inferred_interests || []
-            const lastInterestUsed = groupData?.last_interest_used || null
             
             // Add inferred interests to weights (with weight = 1, or we could use a different weight)
             // For now, treat inferred interests as having weight 1 (they're less prominent)
@@ -1426,6 +1455,7 @@ serve(async (req) => {
           }
 
           // Get Standard questions matching the target interest
+          // CRITICAL: Initialize standardPrompts before use
           let standardPrompts: any[] = []
           
           // CRITICAL FIX: Fetch all Standard prompts first, then filter in JavaScript
@@ -1435,17 +1465,17 @@ serve(async (req) => {
           if (targetInterest === null) {
             // Get Standard questions with null/empty interests - paginate to get ALL
             let allNullInterestPrompts: any[] = []
-            let from = 0
-            const pageSize = 1000
-            let hasMore = true
+            let fromNull = 0
+            const pageSizeNull = 1000
+            let hasMoreNull = true
             
-            while (hasMore) {
+            while (hasMoreNull) {
               const { data: pagePrompts, error } = await supabaseClient
                 .from("prompts")
                 .select("*")
                 .eq("category", "Standard")
                 .or("interests.is.null,interests.eq.{}")
-                .range(from, from + pageSize - 1)
+                .range(fromNull, fromNull + pageSizeNull - 1)
               
               if (error) {
                 console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching null-interest prompts:`, error)
@@ -1454,12 +1484,12 @@ serve(async (req) => {
               
               if (pagePrompts && pagePrompts.length > 0) {
                 allNullInterestPrompts = allNullInterestPrompts.concat(pagePrompts)
-                from += pageSize
-                if (pagePrompts.length < pageSize) {
-                  hasMore = false
+                fromNull += pageSizeNull
+                if (pagePrompts.length < pageSizeNull) {
+                  hasMoreNull = false
                 }
               } else {
-                hasMore = false
+                hasMoreNull = false
               }
             }
             
@@ -1485,17 +1515,17 @@ serve(async (req) => {
           } else {
             // Get Standard questions where interests array contains targetInterest - paginate to get ALL
             let allInterestPrompts: any[] = []
-            let from = 0
-            const pageSize = 1000
-            let hasMore = true
+            let fromInterest = 0
+            const pageSizeInterest = 1000
+            let hasMoreInterest = true
             
-            while (hasMore) {
+            while (hasMoreInterest) {
               const { data: pagePrompts, error } = await supabaseClient
                 .from("prompts")
                 .select("*")
                 .eq("category", "Standard")
                 .contains("interests", [targetInterest])
-                .range(from, from + pageSize - 1)
+                .range(fromInterest, fromInterest + pageSizeInterest - 1)
               
               if (error) {
                 console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching interest prompts for ${targetInterest}:`, error)
@@ -1504,12 +1534,12 @@ serve(async (req) => {
               
               if (pagePrompts && pagePrompts.length > 0) {
                 allInterestPrompts = allInterestPrompts.concat(pagePrompts)
-                from += pageSize
-                if (pagePrompts.length < pageSize) {
-                  hasMore = false
+                fromInterest += pageSizeInterest
+                if (pagePrompts.length < pageSizeInterest) {
+                  hasMoreInterest = false
                 }
               } else {
-                hasMore = false
+                hasMoreInterest = false
               }
             }
             
@@ -1559,17 +1589,17 @@ serve(async (req) => {
             if (cycleInterests.length === 0) {
               // CRITICAL FIX: Fetch all Standard prompts with null interests, then filter in JavaScript - paginate to get ALL
               let allNullInterestPrompts: any[] = []
-              let from = 0
-              const pageSize = 1000
-              let hasMore = true
+              let fromEmpty = 0
+              const pageSizeEmpty = 1000
+              let hasMoreEmpty = true
               
-              while (hasMore) {
+              while (hasMoreEmpty) {
                 const { data: pagePrompts, error } = await supabaseClient
                   .from("prompts")
                   .select("*")
                   .eq("category", "Standard")
                   .or("interests.is.null,interests.eq.{}")
-                  .range(from, from + pageSize - 1)
+                  .range(fromEmpty, fromEmpty + pageSizeEmpty - 1)
                 
                 if (error) {
                   console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching null-interest prompts (fallback):`, error)
@@ -1578,12 +1608,12 @@ serve(async (req) => {
                 
                 if (pagePrompts && pagePrompts.length > 0) {
                   allNullInterestPrompts = allNullInterestPrompts.concat(pagePrompts)
-                  from += pageSize
-                  if (pagePrompts.length < pageSize) {
-                    hasMore = false
+                  fromEmpty += pageSizeEmpty
+                  if (pagePrompts.length < pageSizeEmpty) {
+                    hasMoreEmpty = false
                   }
                 } else {
-                  hasMore = false
+                  hasMoreEmpty = false
                 }
               }
               
@@ -1614,17 +1644,17 @@ serve(async (req) => {
               if (targetInterest === null) {
                 // CRITICAL FIX: Fetch all Standard prompts with null interests, then filter in JavaScript - paginate to get ALL
                 let allNullInterestPrompts: any[] = []
-                let from = 0
-                const pageSize = 1000
-                let hasMore = true
+                let fromRecalc = 0
+                const pageSizeRecalc = 1000
+                let hasMoreRecalc = true
                 
-                while (hasMore) {
+                while (hasMoreRecalc) {
                   const { data: pagePrompts, error } = await supabaseClient
                     .from("prompts")
                     .select("*")
                     .eq("category", "Standard")
                     .or("interests.is.null,interests.eq.{}")
-                    .range(from, from + pageSize - 1)
+                    .range(fromRecalc, fromRecalc + pageSizeRecalc - 1)
                   
                   if (error) {
                     console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching null-interest prompts (recalc):`, error)
@@ -1633,12 +1663,12 @@ serve(async (req) => {
                   
                   if (pagePrompts && pagePrompts.length > 0) {
                     allNullInterestPrompts = allNullInterestPrompts.concat(pagePrompts)
-                    from += pageSize
-                    if (pagePrompts.length < pageSize) {
-                      hasMore = false
+                    fromRecalc += pageSizeRecalc
+                    if (pagePrompts.length < pageSizeRecalc) {
+                      hasMoreRecalc = false
                     }
                   } else {
-                    hasMore = false
+                    hasMoreRecalc = false
                   }
                 }
                 
@@ -1652,17 +1682,17 @@ serve(async (req) => {
               } else {
                 // CRITICAL FIX: Fetch all Standard prompts with target interest, then filter in JavaScript - paginate to get ALL
                 let allNextInterestPrompts: any[] = []
-                let from = 0
-                const pageSize = 1000
-                let hasMore = true
+                let fromNextInterest = 0
+                const pageSizeNextInterest = 1000
+                let hasMoreNextInterest = true
                 
-                while (hasMore) {
+                while (hasMoreNextInterest) {
                   const { data: pagePrompts, error } = await supabaseClient
                     .from("prompts")
                     .select("*")
                     .eq("category", "Standard")
                     .contains("interests", [targetInterest])
-                    .range(from, from + pageSize - 1)
+                    .range(fromNextInterest, fromNextInterest + pageSizeNextInterest - 1)
                   
                   if (error) {
                     console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching interest prompts for ${targetInterest} (recalc):`, error)
@@ -1671,12 +1701,12 @@ serve(async (req) => {
                   
                   if (pagePrompts && pagePrompts.length > 0) {
                     allNextInterestPrompts = allNextInterestPrompts.concat(pagePrompts)
-                    from += pageSize
-                    if (pagePrompts.length < pageSize) {
-                      hasMore = false
+                    fromNextInterest += pageSizeNextInterest
+                    if (pagePrompts.length < pageSizeNextInterest) {
+                      hasMoreNextInterest = false
                     }
                   } else {
-                    hasMore = false
+                    hasMoreNextInterest = false
                   }
                 }
                 
@@ -1689,7 +1719,6 @@ serve(async (req) => {
                 })
               }
             }
-          }
           }
 
           // Select random question from available prompts (already filtered to exclude last Standard prompt)
@@ -1719,15 +1748,34 @@ serve(async (req) => {
             }
             
             // BUG FIX 2: Update last_interest_used to prevent back-to-back same interest
-            await supabaseClient
-              .from("groups")
-              .update({
-                interest_cycle_position: nextPosition,
-                last_interest_used: targetInterest, // Track which interest was just used
-              })
-              .eq("id", group.id)
+            // CRITICAL: Handle case where last_interest_used column doesn't exist yet
+            try {
+              await supabaseClient
+                .from("groups")
+                .update({
+                  interest_cycle_position: nextPosition,
+                  last_interest_used: targetInterest, // Track which interest was just used
+                })
+                .eq("id", group.id)
+            } catch (updateError) {
+              // If column doesn't exist, update without it
+              const errorMessage = updateError instanceof Error ? updateError.message : String(updateError)
+              const errorCode = (updateError as any)?.code
+              if (errorMessage?.includes("last_interest_used") || errorCode === "42703") {
+                console.error(`[schedule-daily-prompts] Group ${group.id}: last_interest_used column doesn't exist, updating without it`)
+                await supabaseClient
+                  .from("groups")
+                  .update({
+                    interest_cycle_position: nextPosition,
+                  })
+                  .eq("id", group.id)
+              } else {
+                throw updateError
+              }
+            }
           }
         }
+        } // Close if (allIceBreakersAsked) block
 
         // Fallback: If no interest-based selection worked, use random Standard (original behavior)
         // BUG FIX 1 & 5: Check if group has interests - if not, only use null-interest prompts
@@ -1761,17 +1809,17 @@ serve(async (req) => {
             
             // Fetch all Standard prompts with null/empty interests
             let allNullInterestPrompts: any[] = []
-            let from = 0
-            const pageSize = 1000
-            let hasMore = true
+            let fromFallback = 0
+            const pageSizeFallback = 1000
+            let hasMoreFallback = true
             
-            while (hasMore) {
+            while (hasMoreFallback) {
               const { data: pagePrompts, error } = await supabaseClient
                 .from("prompts")
                 .select("*")
                 .eq("category", "Standard")
                 .or("interests.is.null,interests.eq.{}")
-                .range(from, from + pageSize - 1)
+                .range(fromFallback, fromFallback + pageSizeFallback - 1)
               
               if (error) {
                 console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching null-interest prompts in fallback:`, error)
@@ -1780,12 +1828,12 @@ serve(async (req) => {
               
               if (pagePrompts && pagePrompts.length > 0) {
                 allNullInterestPrompts = allNullInterestPrompts.concat(pagePrompts)
-                from += pageSize
-                if (pagePrompts.length < pageSize) {
-                  hasMore = false
+                fromFallback += pageSizeFallback
+                if (pagePrompts.length < pageSizeFallback) {
+                  hasMoreFallback = false
                 }
               } else {
-                hasMore = false
+                hasMoreFallback = false
               }
             }
             
@@ -1961,7 +2009,7 @@ serve(async (req) => {
         selection_method: selectionMethod,
         deck_id: selectedDeckId,
       })
-      } catch (groupError) {
+    } catch (groupError) {
         const groupErrorMessage = groupError instanceof Error ? groupError.message : String(groupError)
         console.error(`[schedule-daily-prompts] Group ${group.id}: ERROR - ${groupErrorMessage}`)
         results.push({

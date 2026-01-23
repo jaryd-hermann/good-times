@@ -1554,20 +1554,32 @@ export default function Home() {
   })
 
   // Fetch prompts for dates where user hasn't answered (to show prompt card)
-  // CRITICAL: Filter out dates before group creation
+  // CRITICAL: Filter out dates before group creation AND filter by activePeriod if set
   const datesWithoutUserEntry = useMemo(() => {
     const groupCreatedDate = currentGroup?.created_at 
       ? utcStringToLocalDate(currentGroup.created_at)
       : null
     
-    return allDates.filter((date) => {
+    let filteredDates = allDates.filter((date) => {
       // Exclude dates before group creation
       if (groupCreatedDate && date < groupCreatedDate) {
         return false
       }
       return !userEntriesByDate[date]
     })
-  }, [allDates, userEntriesByDate, currentGroup?.created_at])
+    
+    // Filter by activePeriod if set
+    if (activePeriod) {
+      const start = parseISO(activePeriod.start)
+      const end = parseISO(activePeriod.end)
+      filteredDates = filteredDates.filter((date) => {
+        const dateObj = parseISO(date)
+        return dateObj >= start && dateObj <= end
+      })
+    }
+    
+    return filteredDates
+  }, [allDates, userEntriesByDate, currentGroup?.created_at, activePeriod])
 
   const { data: promptsForDatesWithoutEntry = {} } = useQuery({
     queryKey: ["promptsForHomeDates", currentGroupId, userId, datesWithoutUserEntry.join(",")],
@@ -1600,8 +1612,9 @@ export default function Home() {
   })
 
   // Fetch entries for dates where user hasn't answered (to show who answered)
+  // CRITICAL: Filter entries by selectedMembers if filtering by person
   const { data: entriesForDatesWithoutUserEntry = {} } = useQuery({
-    queryKey: ["entriesForHomeDatesWithoutUserEntry", currentGroupId, datesWithoutUserEntry.join(",")],
+    queryKey: ["entriesForHomeDatesWithoutUserEntry", currentGroupId, datesWithoutUserEntry.join(","), selectedMembers.join(",")],
     queryFn: async () => {
       if (!currentGroupId || datesWithoutUserEntry.length === 0) return {}
       const entriesByDate: Record<string, any[]> = {}
@@ -1610,7 +1623,15 @@ export default function Home() {
           try {
             const entries = await getEntriesForDate(currentGroupId, date)
             if (entries && entries.length > 0) {
-              entriesByDate[date] = entries
+              // Filter by selectedMembers if filtering by person
+              let filteredEntries = entries
+              if (selectedMembers.length > 0) {
+                filteredEntries = entries.filter((entry: any) => selectedMembers.includes(entry.user_id))
+              }
+              // Only include date if there are entries (after filtering)
+              if (filteredEntries.length > 0) {
+                entriesByDate[date] = filteredEntries
+              }
             }
           } catch (error) {
             console.warn(`[home] Failed to fetch entries for date ${date}:`, error)
@@ -5685,13 +5706,31 @@ export default function Home() {
             const allDatesToShow = new Set([
               ...Object.keys(entriesByDateFiltered),
               // Only include datesWithoutUserEntry if filter is NOT active (to show prompt cards)
-              ...(showWeeklyPhotoJournal ? [] : datesWithoutUserEntry),
+              // But only include dates where filtered person has entries (if filtering by person)
+              ...(showWeeklyPhotoJournal ? [] : datesWithoutUserEntry.filter((date) => {
+                // If filtering by person, only include dates where that person has entries
+                if (selectedMembers.length > 0) {
+                  const dateEntries = entriesForDatesWithoutUserEntry[date] || []
+                  return dateEntries.length > 0
+                }
+                return true
+              })),
             ])
             
             // Filter out dates before group creation
             let filteredDatesToShow = groupCreatedDate
               ? Array.from(allDatesToShow).filter((date) => date >= groupCreatedDate)
               : Array.from(allDatesToShow)
+            
+            // Filter by activePeriod if set
+            if (activePeriod) {
+              const start = parseISO(activePeriod.start)
+              const end = parseISO(activePeriod.end)
+              filteredDatesToShow = filteredDatesToShow.filter((date) => {
+                const dateObj = parseISO(date)
+                return dateObj >= start && dateObj <= end
+              })
+            }
             
             // When Weekly Photo Journal filter is active, only show dates that have entries
             if (showWeeklyPhotoJournal) {
@@ -5721,13 +5760,43 @@ export default function Home() {
               // Birthday cards always show without fuzzy overlay
               const visibleEntries = dateEntries
               
+              // Check if today is within activePeriod (if filtering by period)
+              const isTodayInActivePeriod = !activePeriod || (() => {
+                const start = parseISO(activePeriod.start)
+                const end = parseISO(activePeriod.end)
+                const todayObj = parseISO(todayDate)
+                return todayObj >= start && todayObj <= end
+              })()
+              
+              // Check if filtered person has entries for this date (when filtering by person)
+              const filteredPersonHasEntries = selectedMembers.length === 0 || (() => {
+                // Check entriesByDateFiltered first (for dates user has answered)
+                const dateEntries = entriesByDateFiltered[date] || []
+                if (dateEntries.length > 0) {
+                  return true // Entries already filtered by selectedMembers in filteredEntries
+                }
+                // Check entriesForDatesWithoutUserEntry (for dates user hasn't answered)
+                const dateEntriesForPerson = entriesForDatesWithoutUserEntry[date] || []
+                return dateEntriesForPerson.length > 0
+              })()
+              
+              // Check if prompt should be shown (only if filtered person has entries for this date)
+              const shouldShowPrompt = !promptForDate || (() => {
+                // If filtering by person, only show prompt if that person has entries
+                if (selectedMembers.length > 0) {
+                  const dateEntriesForPerson = entriesForDatesWithoutUserEntry[date] || []
+                  return dateEntriesForPerson.length > 0
+                }
+                return true
+              })()
+              
               return (
                 <View 
                   key={date} 
                   style={styles.daySection}
                 >
-                  {/* Show "Today's answers" header for today if there are entries */}
-                  {isDateToday && visibleEntries.length > 0 && (
+                  {/* Show "Today's answers" header for today if there are entries AND today is within active period AND filtered person has entries */}
+                  {isDateToday && visibleEntries.length > 0 && isTodayInActivePeriod && filteredPersonHasEntries && (
                     <View 
                       style={styles.dateHeaderContainer}
                       ref={(ref) => {
@@ -5792,7 +5861,8 @@ export default function Home() {
                   {/* Removed "Answer to see what they said" - users can now view entries without answering */}
                   
                   {/* Show prompt card if user hasn't answered (only show for today at top, or in feed for past dates) */}
-                  {!hasUserEntry && promptForDate && !isDateToday && (() => {
+                  {/* Only show prompt if filtered person has entries for this date (when filtering by person) */}
+                  {!hasUserEntry && promptForDate && !isDateToday && shouldShowPrompt && (() => {
                     // Check if this prompt is a Remembering category question
                     const isRememberingCategory = promptForDate.prompt?.category === "Remembering"
                     

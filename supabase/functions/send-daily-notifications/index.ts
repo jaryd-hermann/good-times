@@ -16,52 +16,84 @@ function getDayIndex(dateString: string, groupId: string): number {
 }
 
 // Calculate 8 AM local time for a user's timezone, converted to UTC
-function get8AMLocalTimeUTC(userTimezone: string, date: Date = new Date()): Date {
-  // Get the date string (YYYY-MM-DD) from the date parameter
-  const dateStr = date.toISOString().split("T")[0]
+// dateOrDateStr: Either a Date object or a date string (YYYY-MM-DD)
+// If Date object: determines "today" by formatting current time in user's timezone
+// If date string: uses that specific date and finds 8am on that date in user's timezone
+function get8AMLocalTimeUTC(userTimezone: string, dateOrDateStr: Date | string = new Date()): Date {
+  // CRITICAL: Determine the target date string
+  let targetDateStr: string
   
-  // The correct approach: Find what UTC time equals 8 AM in the user's timezone
-  // We do this by testing UTC times and checking what they are in the user's timezone
+  if (typeof dateOrDateStr === 'string') {
+    // Date string provided - use it directly (assumed to be the date we want 8am on)
+    targetDateStr = dateOrDateStr
+  } else {
+    // Date object provided - format it in user's timezone to get their local date
+    const dateFormatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: userTimezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+    targetDateStr = dateFormatter.format(dateOrDateStr) // Returns YYYY-MM-DD in user's timezone
+  }
   
-  // Create formatter for user's timezone
-  const formatter = new Intl.DateTimeFormat("en-US", {
+  // Get the date string in the user's timezone (YYYY-MM-DD) - this is our target date
+  const userLocalDateStr = targetDateStr
+  
+  // Create formatter for user's timezone to check hour/minute
+  const timeFormatter = new Intl.DateTimeFormat("en-US", {
     timeZone: userTimezone,
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
   })
   
-  // Binary search: Start with a reasonable guess (8 AM UTC) and adjust
-  // For US timezones, 8 AM local is usually between 12:00-16:00 UTC depending on DST
-  let low = 0
-  let high = 23
-  let bestUTC = new Date(`${dateStr}T12:00:00Z`) // Default to noon UTC as starting point
+  // We need to test UTC times across a 48-hour window to find 8am on the user's local date
+  // This handles cases where 8am local might be on the previous or next UTC day
+  // Start testing from 24 hours before the user's local date (in UTC)
+  const baseUTC = new Date(`${userLocalDateStr}T00:00:00Z`)
+  baseUTC.setUTCHours(baseUTC.getUTCHours() - 24) // Go back 24 hours to cover timezones ahead
+  
+  let bestUTC: Date | null = null
   let minDiff = Infinity
   
-  // Try UTC hours to find the one that equals 8 AM in user's timezone
-  for (let utcHour = 0; utcHour < 24; utcHour++) {
-    const testUTC = new Date(`${dateStr}T${String(utcHour).padStart(2, "0")}:00:00Z`)
-    const testInUserTZ = formatter.formatToParts(testUTC)
+  // Test UTC times across a 48-hour window (covers all timezones)
+  for (let utcHourOffset = 0; utcHourOffset < 48; utcHourOffset++) {
+    const testUTC = new Date(baseUTC)
+    testUTC.setUTCHours(testUTC.getUTCHours() + utcHourOffset)
+    
+    // Check what date and time this UTC time is in the user's timezone
+    const testInUserTZ = timeFormatter.formatToParts(testUTC)
     const testHour = parseInt(testInUserTZ.find(p => p.type === "hour")?.value || "0")
     const testMinute = parseInt(testInUserTZ.find(p => p.type === "minute")?.value || "0")
     
-    // Check if this UTC time equals 8:00 AM in user's timezone
-    if (testHour === 8 && testMinute === 0) {
+    // Check what date this UTC time represents in user's timezone
+    const testDateInUserTZ = dateFormatter.format(testUTC)
+    
+    // Check if this UTC time equals 8:00 AM on the target date in user's timezone
+    if (testDateInUserTZ === userLocalDateStr && testHour === 8 && testMinute === 0) {
       return testUTC
     }
     
-    // Track the closest match
-    const totalMinutes = testHour * 60 + testMinute
-    const targetMinutes = 8 * 60 // 8 AM = 480 minutes
-    const diff = Math.abs(totalMinutes - targetMinutes)
-    if (diff < minDiff) {
-      minDiff = diff
-      bestUTC = testUTC
+    // Track the closest match (same date, closest to 8am)
+    if (testDateInUserTZ === userLocalDateStr) {
+      const totalMinutes = testHour * 60 + testMinute
+      const targetMinutes = 8 * 60 // 8 AM = 480 minutes
+      const diff = Math.abs(totalMinutes - targetMinutes)
+      if (diff < minDiff) {
+        minDiff = diff
+        bestUTC = testUTC
+      }
     }
   }
   
   // Return the closest match (should be exact, but fallback in case of edge cases)
-  return bestUTC
+  if (bestUTC) {
+    return bestUTC
+  }
+  
+  // Fallback: return 8am UTC (shouldn't happen, but safety)
+  return new Date(`${userLocalDateStr}T08:00:00Z`)
 }
 
 serve(async (req) => {
@@ -328,7 +360,10 @@ serve(async (req) => {
         }
 
         // Calculate 8 AM local time for this user (in UTC)
-        const scheduledTime = get8AMLocalTimeUTC(userTimezone, new Date(today + "T00:00:00"))
+        // CRITICAL: Pass the UTC "today" date string directly
+        // We want 8am on this date in the user's timezone
+        // For example: if today is "2024-01-15" (UTC date), we want 8am EST on Jan 15
+        const scheduledTime = get8AMLocalTimeUTC(userTimezone, today)
         
         // Queue notification for 8 AM local time
         const notificationTitle = `Answer today's question in ${group.name}`
