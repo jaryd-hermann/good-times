@@ -3130,8 +3130,7 @@ export default function Home() {
           }
         }
         
-        // Handle member_name variable - ONLY use prompt_name_usage, NO fallback
-        // CRITICAL: Must use the exact name from prompt_name_usage that getDailyPrompt set
+        // Handle member_name variable - check prompt_name_usage first, then use fallback
         // Skip for Journal category prompts (they don't use member_name)
         if (question.match(/\{.*member_name.*\}/i) && dailyPrompt?.prompt_id && selectedDate && dailyPrompt?.prompt?.category !== "Journal") {
           const normalizedDate = selectedDate.split('T')[0]
@@ -3145,10 +3144,16 @@ export default function Home() {
             if (question.match(/\{.*member_name.*\}/i)) {
               console.warn(`[home] replaceDynamicVariables failed to replace member_name. Question: ${question}, Member: ${memberNameUsed}`)
             }
+          } else if (groupMembersForVariables.length > 0) {
+            // Fallback: if no usage record exists, use deterministic logic to select member
+            // This matches the logic in getDailyPrompt and entry-composer
+            console.warn(`[home] No prompt_name_usage found for member_name, using fallback logic. promptId: ${dailyPrompt.prompt_id}, date: ${selectedDate}, groupId: ${currentGroupId}`)
+            // Use first member as fallback (getDailyPrompt will create the record)
+            variables.member_name = groupMembersForVariables[0].user?.name || "them"
+            question = replaceDynamicVariables(question, variables)
           } else {
-            // If prompt_name_usage doesn't exist, this might be a fallback prompt
-            // Log warning instead of error to avoid noise
-            console.warn(`[home] No prompt_name_usage found for member_name (may be fallback prompt). promptId: ${dailyPrompt.prompt_id}, date: ${selectedDate}, groupId: ${currentGroupId}`)
+            // No members available - log warning
+            console.warn(`[home] No prompt_name_usage found for member_name and no members available. promptId: ${dailyPrompt.prompt_id}, date: ${selectedDate}, groupId: ${currentGroupId}`)
             // Leave {member_name} as-is - will be filtered out by final check
           }
         }
@@ -3183,7 +3188,7 @@ export default function Home() {
         }
       }
       
-      // Handle member_name variable - check prompt_name_usage first
+      // Handle member_name variable - check prompt_name_usage first, then use fallback
       if (question.match(/\{.*member_name.*\}/i)) {
         const entryPromptId = entries[0].prompt_id
         if (entryPromptId && selectedDate) {
@@ -3200,8 +3205,17 @@ export default function Home() {
             console.warn(`[home] No prompt_name_usage found for member_name, using first member as fallback`)
             variables.member_name = groupMembersForVariables[0].user?.name || "them"
             question = replaceDynamicVariables(question, variables)
+          } else {
+            // No members available - leave placeholder (will be filtered out)
+            console.warn(`[home] No prompt_name_usage found for member_name and no members available for entry prompt`)
           }
         }
+      }
+      
+      // Final check: if question still has variables, return empty string (will show fallback)
+      if (question.match(/\{.*(memorial_name|member_name).*\}/i)) {
+        console.warn(`[home] Question from entries still has variables after personalization: ${question}`)
+        return ""
       }
       
       return question
@@ -3213,7 +3227,7 @@ export default function Home() {
 
   // Fetch prompt_name_usage for today's member_name (for prompt card at top)
   const { data: todayMemberNameUsage = [] } = useQuery({
-    queryKey: ["memberNameUsage", currentGroupId, todayDate],
+    queryKey: ["memberNameUsage", currentGroupId, todayDate, todayPromptId],
     queryFn: async () => {
       if (!currentGroupId || !todayPromptId) return []
       const { data, error } = await supabase
@@ -3228,14 +3242,14 @@ export default function Home() {
       }
       return (data || []) as Array<{ prompt_id: string; date_used: string; name_used: string; created_at: string }>
     },
-    enabled: !!currentGroupId && !!todayPromptId && !!todayDailyPrompt?.prompt?.question?.match(/\{.*member_name.*\}/i) && todayDailyPrompt?.prompt?.category !== "Journal",
+    enabled: !!currentGroupId && !!todayPromptId && (!!todayDailyPrompt?.prompt?.question?.match(/\{.*member_name.*\}/i) || !!todayEntries[0]?.prompt?.question?.match(/\{.*member_name.*\}/i)) && todayDailyPrompt?.prompt?.category !== "Journal",
     staleTime: 0,
     refetchOnMount: true,
   })
 
   // Fetch prompt_name_usage for today's memorial_name (for prompt card at top)
   const { data: todayMemorialNameUsage = [] } = useQuery({
-    queryKey: ["memorialNameUsage", currentGroupId, todayDate],
+    queryKey: ["memorialNameUsage", currentGroupId, todayDate, todayPromptId],
     queryFn: async () => {
       if (!currentGroupId || !todayPromptId) return []
       const { data, error } = await supabase
@@ -3250,7 +3264,7 @@ export default function Home() {
       }
       return (data || []) as Array<{ prompt_id: string; date_used: string; name_used: string; created_at: string }>
     },
-    enabled: !!currentGroupId && !!todayPromptId && !!todayDailyPrompt?.prompt?.question?.match(/\{.*memorial_name.*\}/i),
+    enabled: !!currentGroupId && !!todayPromptId && (!!todayDailyPrompt?.prompt?.question?.match(/\{.*memorial_name.*\}/i) || !!todayEntries[0]?.prompt?.question?.match(/\{.*memorial_name.*\}/i)),
     staleTime: 0,
     refetchOnMount: true,
   })
@@ -3330,8 +3344,7 @@ export default function Home() {
           }
         }
         
-        // Handle member_name variable - ONLY use prompt_name_usage, NO fallback
-        // CRITICAL: Must use the exact name from prompt_name_usage that getDailyPrompt set
+        // Handle member_name variable - check prompt_name_usage first, then use fallback
         // Skip for Journal category prompts (they don't use member_name)
         if (question.match(/\{.*member_name.*\}/i) && todayDailyPrompt?.prompt_id && todayDate && todayDailyPrompt?.prompt?.category !== "Journal") {
           const normalizedDate = todayDate.split('T')[0]
@@ -3345,10 +3358,16 @@ export default function Home() {
             if (question.match(/\{.*member_name.*\}/i)) {
               console.warn(`[home] replaceDynamicVariables failed to replace member_name. Question: ${question}, Member: ${memberNameUsed}`)
             }
+          } else if (groupMembersForVariables.length > 0) {
+            // Fallback: if no usage record exists, use deterministic logic to select member
+            // This matches the logic in getDailyPrompt and entry-composer
+            console.warn(`[home] No prompt_name_usage found for member_name, using fallback logic. promptId: ${todayDailyPrompt.prompt_id}, date: ${todayDate}, groupId: ${currentGroupId}`)
+            // Use first member as fallback (getDailyPrompt will create the record)
+            variables.member_name = groupMembersForVariables[0].user?.name || "them"
+            question = replaceDynamicVariables(question, variables)
           } else {
-            // If prompt_name_usage doesn't exist, this might be a fallback prompt
-            // Log warning instead of error to avoid noise
-            console.warn(`[home] No prompt_name_usage found for member_name (may be fallback prompt). promptId: ${todayDailyPrompt.prompt_id}, date: ${todayDate}, groupId: ${currentGroupId}`)
+            // No members available - log warning
+            console.warn(`[home] No prompt_name_usage found for member_name and no members available. promptId: ${todayDailyPrompt.prompt_id}, date: ${todayDate}, groupId: ${currentGroupId}`)
             // Leave {member_name} as-is - will be filtered out by final check
           }
         }
@@ -3383,7 +3402,7 @@ export default function Home() {
         }
       }
       
-      // Handle member_name variable - check prompt_name_usage first
+      // Handle member_name variable - check prompt_name_usage first, then use fallback
       if (question.match(/\{.*member_name.*\}/i)) {
         const entryPromptId = todayEntries[0].prompt_id
         if (entryPromptId && todayDate) {
@@ -3400,8 +3419,17 @@ export default function Home() {
             console.warn(`[home] No prompt_name_usage found for member_name, using first member as fallback`)
             variables.member_name = groupMembersForVariables[0].user?.name || "them"
             question = replaceDynamicVariables(question, variables)
+          } else {
+            // No members available - leave placeholder (will be filtered out)
+            console.warn(`[home] No prompt_name_usage found for member_name and no members available for entry prompt`)
           }
         }
+      }
+      
+      // Final check: if question still has variables, return empty string (will show fallback)
+      if (question.match(/\{.*(memorial_name|member_name).*\}/i)) {
+        console.warn(`[home] Question from todayEntries still has variables after personalization: ${question}`)
+        return ""
       }
       
       return question
@@ -5889,6 +5917,13 @@ export default function Home() {
                         }
                         return "Question unavailable"
                       }
+                      // Check if question still has placeholders - if so, don't display it
+                      if (question.match(/\{.*(memorial_name|member_name).*\}/i)) {
+                        if (__DEV__) {
+                          console.warn(`[home] Question still has placeholders after personalization: ${question}`)
+                        }
+                        return "Question unavailable"
+                      }
                       return question
                     })()}
                   </Text>
@@ -6452,7 +6487,56 @@ export default function Home() {
                                 styles.promptQuestion,
                                 isRememberingCategory && styles.promptQuestionRemembering
                               ]}>
-                                {promptForDate.prompt?.question || "Question"}
+                                {(() => {
+                                  let question = promptForDate.prompt?.question || "Question"
+                                  if (!question || question === "Question") return question
+                                  
+                                  // Personalize the question with variables
+                                  const variables: Record<string, string> = {}
+                                  
+                                  // Handle memorial_name variable
+                                  if (question.match(/\{.*memorial_name.*\}/i) && promptForDate.prompt_id && date && memorials.length > 0) {
+                                    const normalizedDate = date.split('T')[0]
+                                    const usageKey = `${promptForDate.prompt_id}-${normalizedDate}`
+                                    const memorialNameUsed = memorialUsageMap.get(usageKey)
+                                    
+                                    if (memorialNameUsed) {
+                                      question = personalizeMemorialPrompt(question, memorialNameUsed)
+                                    } else {
+                                      // Fallback: use deterministic logic to select memorial
+                                      const dayIndex = getDayIndex(date, currentGroupId || "")
+                                      const memorialIndex = dayIndex % memorials.length
+                                      const selectedMemorialName = memorials[memorialIndex]?.name
+                                      if (selectedMemorialName) {
+                                        question = personalizeMemorialPrompt(question, selectedMemorialName)
+                                      }
+                                    }
+                                  }
+                                  
+                                  // Handle member_name variable
+                                  if (question.match(/\{.*member_name.*\}/i) && promptForDate.prompt_id && date && promptForDate.prompt?.category !== "Journal") {
+                                    const normalizedDate = date.split('T')[0]
+                                    const usageKey = `${promptForDate.prompt_id}-${normalizedDate}`
+                                    const memberNameUsed = memberUsageMap.get(usageKey)
+                                    
+                                    if (memberNameUsed) {
+                                      variables.member_name = memberNameUsed
+                                      question = replaceDynamicVariables(question, variables)
+                                    } else if (groupMembersForVariables.length > 0) {
+                                      // Fallback: if no usage record exists, use first member
+                                      variables.member_name = groupMembersForVariables[0].user?.name || "them"
+                                      question = replaceDynamicVariables(question, variables)
+                                    }
+                                  }
+                                  
+                                  // Final check: if question still has placeholders, don't display it
+                                  if (question.match(/\{.*(memorial_name|member_name).*\}/i)) {
+                                    console.warn(`[home] Question still has placeholders after personalization: ${question}`)
+                                    return "Question unavailable"
+                                  }
+                                  
+                                  return question
+                                })()}
                               </Text>
                               {/* Show answerer names text if there are entries but user hasn't answered */}
                               {(() => {
