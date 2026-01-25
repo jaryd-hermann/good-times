@@ -1154,12 +1154,15 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
       paddingRight: spacing.xs, // Reduced padding so images span more width
       gap: spacing.xs, // Reduced gap between images
     },
-    photoCarouselItem: {
+    photoCarouselItemContainer: {
       width: SCREEN_WIDTH * 0.75, // Smaller to show part of next image
+      marginRight: spacing.xs, // Reduced margin
+    },
+    photoCarouselItem: {
+      width: "100%",
       height: SCREEN_WIDTH * 0.75,
       overflow: "hidden",
       backgroundColor: theme2Colors.beige,
-      marginRight: spacing.xs, // Reduced margin
       borderRadius: 12,
     },
     photoCarouselItemLast: {
@@ -1168,6 +1171,15 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
     photoCarouselImage: {
       width: "100%",
       height: "100%",
+    },
+    captionText: {
+      ...typography.body,
+      fontSize: 14,
+      color: theme2Colors.text,
+      marginTop: spacing.sm,
+      marginBottom: spacing.xs,
+      paddingHorizontal: spacing.xs,
+      lineHeight: 20,
     },
     paginationDots: {
       flexDirection: "row",
@@ -1629,42 +1641,61 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
               }}
               scrollEventThrottle={16}
             >
-              {photoVideoMedia.map((item, idx) => (
-                <TouchableOpacity
-                  key={item.index}
-                  onPress={(e) => {
-                    e.stopPropagation()
-                    handleEntryPress()
-                  }}
-                  activeOpacity={0.9}
-                  style={[
-                    styles.photoCarouselItem,
-                    idx === photoVideoMedia.length - 1 && styles.photoCarouselItemLast
-                  ]}
-                >
-                  {item.type === "photo" ? (
-                    <Image
-                      source={{ uri: item.url }}
-                      style={styles.photoCarouselImage}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <VideoPlayer 
-                      uri={item.url} 
-                      index={item.index}
-                      videoId={`${entry.id}-video-${item.index}`}
-                      dimensions={videoDimensions[item.index]}
-                      containerStyle={{ height: SCREEN_WIDTH * 0.75 }}
-                      onLoad={(dimensions) => {
-                        setVideoDimensions((prev) => ({
-                          ...prev,
-                          [item.index]: dimensions,
-                        }))
-                      }}
-                    />
-                  )}
-                </TouchableOpacity>
-              ))}
+              {photoVideoMedia.map((item, idx) => {
+                // Get caption for this photo (only for Journal entries)
+                const caption = entry.prompt?.category === "Journal" && item.type === "photo" && entry.captions?.[item.index]
+                  ? entry.captions[item.index]
+                  : null
+                
+                return (
+                  <View
+                    key={item.index}
+                    style={[
+                      styles.photoCarouselItemContainer,
+                      idx === photoVideoMedia.length - 1 && styles.photoCarouselItemLast
+                    ]}
+                  >
+                    <View
+                      style={styles.photoCarouselItem}
+                    >
+                      <TouchableOpacity
+                        onPress={(e) => {
+                          e.stopPropagation()
+                          handleEntryPress()
+                        }}
+                        activeOpacity={0.9}
+                        style={{ flex: 1 }}
+                      >
+                        {item.type === "photo" ? (
+                          <Image
+                            source={{ uri: item.url }}
+                            style={styles.photoCarouselImage}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <VideoPlayer 
+                            uri={item.url} 
+                            index={item.index}
+                            videoId={`${entry.id}-video-${item.index}`}
+                            dimensions={videoDimensions[item.index]}
+                            containerStyle={{ height: SCREEN_WIDTH * 0.75 }}
+                            onLoad={(dimensions) => {
+                              setVideoDimensions((prev) => ({
+                                ...prev,
+                                [item.index]: dimensions,
+                              }))
+                            }}
+                          />
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                    {/* Caption below image (only for Journal photos) */}
+                    {caption && (
+                      <Text style={styles.captionText}>{caption}</Text>
+                    )}
+                  </View>
+                )
+              })}
             </ScrollView>
             {/* Pagination dots */}
             <View style={styles.paginationDots}>
@@ -1684,35 +1715,40 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
         {/* Single Photo or Video (full width, respect aspect ratio) */}
         {!hasMultiplePhotoVideo && firstPhotoVideo && (
           firstPhotoVideo.type === "photo" ? (
-            <TouchableOpacity
-              onPress={(e) => {
-                e.stopPropagation()
-                handleEntryPress()
-              }}
-              activeOpacity={0.9}
-              style={styles.mediaWrapper}
-            >
-              <Image
-                source={{ uri: firstPhotoVideo.url }}
-                style={imageDimensions[firstPhotoVideo.index] ? {
-                  width: "100%",
-                  height: undefined,
-                  aspectRatio: imageDimensions[firstPhotoVideo.index].width / imageDimensions[firstPhotoVideo.index].height,
-                  backgroundColor: theme2Colors.beige,
-                  borderRadius: 12,
-                } : styles.mediaImage}
-                resizeMode="cover"
-                onLoad={(e) => {
-                  const { width, height } = e.nativeEvent.source
-                  if (width && height) {
-                    setImageDimensions((prev) => ({
-                      ...prev,
-                      [firstPhotoVideo.index]: { width, height },
-                    }))
-                  }
+            <View style={styles.mediaWrapper}>
+              <TouchableOpacity
+                onPress={(e) => {
+                  e.stopPropagation()
+                  handleEntryPress()
                 }}
-              />
-            </TouchableOpacity>
+                activeOpacity={0.9}
+              >
+                <Image
+                  source={{ uri: firstPhotoVideo.url }}
+                  style={imageDimensions[firstPhotoVideo.index] ? {
+                    width: "100%",
+                    height: undefined,
+                    aspectRatio: imageDimensions[firstPhotoVideo.index].width / imageDimensions[firstPhotoVideo.index].height,
+                    backgroundColor: theme2Colors.beige,
+                    borderRadius: 12,
+                  } : styles.mediaImage}
+                  resizeMode="cover"
+                  onLoad={(e) => {
+                    const { width, height } = e.nativeEvent.source
+                    if (width && height) {
+                      setImageDimensions((prev) => ({
+                        ...prev,
+                        [firstPhotoVideo.index]: { width, height },
+                      }))
+                    }
+                  }}
+                />
+              </TouchableOpacity>
+              {/* Caption below image (only for Journal photos) */}
+              {entry.prompt?.category === "Journal" && entry.captions?.[firstPhotoVideo.index] && (
+                <Text style={styles.captionText}>{entry.captions[firstPhotoVideo.index]}</Text>
+              )}
+            </View>
           ) : (
             <View style={styles.mediaWrapper}>
               <VideoPlayer 

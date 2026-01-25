@@ -123,6 +123,7 @@ export default function EntryDetail() {
   const commentRecordingTimerRef = useRef<NodeJS.Timeout | null>(null)
   const [isCommentInputFocused, setIsCommentInputFocused] = useState(false)
   const [isUploadingComment, setIsUploadingComment] = useState(false)
+  const [showNavHeader, setShowNavHeader] = useState(true)
   
   // Comment editing state
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
@@ -1215,8 +1216,10 @@ export default function EntryDetail() {
       flexDirection: "row",
       justifyContent: "space-between",
       alignItems: "center",
-      padding: spacing.md,
-      paddingTop: spacing.xxl * 2,
+      paddingTop: spacing.xxl, // Reduced from spacing.xxl * 2 to be slightly higher
+      paddingBottom: spacing.md,
+      marginBottom: 0,
+      // ContentContainer padding applies to all children, so this will align with content below
     },
     navAction: {
       width: 40,
@@ -1306,6 +1309,14 @@ export default function EntryDetail() {
     mediaImage: {
       width: "100%",
       height: 300, // Fallback height while loading dimensions
+    },
+    captionText: {
+      ...typography.body,
+      fontSize: 14,
+      color: theme2Colors.text,
+      marginTop: spacing.sm,
+      marginBottom: spacing.xs,
+      lineHeight: 20,
     },
     audioPill: {
       flexDirection: "row",
@@ -1770,32 +1781,40 @@ export default function EntryDetail() {
       enabled={Platform.OS === "ios"}
     >
       <View style={styles.containerInner}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={handleBack} style={styles.navAction} activeOpacity={0.7}>
-            <FontAwesome name="angle-left" size={18} color={isDark ? "#000000" : theme2Colors.text} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={handleNext}
-            disabled={!effectiveNextEntryId}
-            style={[
-              styles.navAction,
-              styles.navActionNext,
-              !effectiveNextEntryId && styles.navActionDisabled
-            ]}
-            activeOpacity={0.7}
-          >
-            <FontAwesome name="angle-right" size={18} color={theme2Colors.text} />
-          </TouchableOpacity>
-        </View>
-
         <ScrollView 
           ref={scrollViewRef} 
           style={styles.content}
           contentContainerStyle={styles.contentContainer}
           keyboardShouldPersistTaps="handled"
+          onScroll={(event) => {
+            const scrollY = event.nativeEvent.contentOffset.y
+            // Show header when at top (within 50px), hide when scrolled down
+            setShowNavHeader(scrollY < 50)
+          }}
+          scrollEventThrottle={16}
         >
           {entry && (
             <>
+              {/* Navigation header - only visible when at top */}
+              {showNavHeader && (
+                <View style={styles.header}>
+                  <TouchableOpacity onPress={handleBack} style={styles.navAction} activeOpacity={0.7}>
+                    <FontAwesome name="angle-left" size={18} color={isDark ? "#000000" : theme2Colors.text} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={handleNext}
+                    disabled={!effectiveNextEntryId}
+                    style={[
+                      styles.navAction,
+                      styles.navActionNext,
+                      !effectiveNextEntryId && styles.navActionDisabled
+                    ]}
+                    activeOpacity={0.7}
+                  >
+                    <FontAwesome name="angle-right" size={18} color={theme2Colors.text} />
+                  </TouchableOpacity>
+                </View>
+              )}
               <View style={styles.entryHeader}>
                 <Avatar uri={entry.user?.avatar_url} name={entry.user?.name || "User"} size={48} />
                 <View style={styles.headerText}>
@@ -1921,30 +1940,40 @@ export default function EntryDetail() {
                         .filter((u): u is string => u !== null)
                       const photoIndex = photoUrls.indexOf(url)
                       
+                      // Get caption for this photo (only for Journal entries)
+                      const caption = entry.prompt?.category === "Journal" && entry.captions?.[index]
+                        ? entry.captions[index]
+                        : null
+                      
                       return (
-                        <TouchableOpacity
-                          key={index}
-                          activeOpacity={0.9}
-                          onPress={() => {
-                            setLightboxIndex(photoIndex >= 0 ? photoIndex : 0)
-                            setLightboxVisible(true)
-                          }}
-                        >
-                          <Image
-                            source={{ uri: url }}
-                            style={imageStyle}
-                            resizeMode="contain"
-                            onLoad={(e) => {
-                              const { width, height } = e.nativeEvent.source
-                              if (width && height) {
-                                setImageDimensions((prev) => ({
-                                  ...prev,
-                                  [index]: { width, height },
-                                }))
-                              }
+                        <View key={index}>
+                          <TouchableOpacity
+                            activeOpacity={0.9}
+                            onPress={() => {
+                              setLightboxIndex(photoIndex >= 0 ? photoIndex : 0)
+                              setLightboxVisible(true)
                             }}
-                          />
-                        </TouchableOpacity>
+                          >
+                            <Image
+                              source={{ uri: url }}
+                              style={imageStyle}
+                              resizeMode="contain"
+                              onLoad={(e) => {
+                                const { width, height } = e.nativeEvent.source
+                                if (width && height) {
+                                  setImageDimensions((prev) => ({
+                                    ...prev,
+                                    [index]: { width, height },
+                                  }))
+                                }
+                              }}
+                            />
+                          </TouchableOpacity>
+                          {/* Caption below image (only for Journal photos) */}
+                          {caption && (
+                            <Text style={styles.captionText}>{caption}</Text>
+                          )}
+                        </View>
                       )
                     }
                     if (mediaType === "video") {

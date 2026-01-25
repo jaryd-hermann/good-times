@@ -19,13 +19,14 @@ import {
   PanResponder,
   Animated,
   Dimensions,
+  Vibration,
 } from "react-native"
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
 import * as ImagePicker from "expo-image-picker"
 import { Audio, Video, ResizeMode } from "expo-av"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { supabase } from "../../../lib/supabase"
-import { createEntry, updateEntry, getAllPrompts, getMemorials, getGroupMembers, getGroup, getEntryById, getEntriesForDate, getUserEntryForDate, getDailyPrompt } from "../../../lib/db"
+import { createEntry, updateEntry, getAllPrompts, getMemorials, getGroupMembers, getGroup, getEntryById, getEntriesForDate, getUserEntryForDate, getDailyPrompt, getCurrentUser } from "../../../lib/db"
 import type { Prompt } from "../../../lib/types"
 import { uploadMedia } from "../../../lib/storage"
 import { typography, spacing } from "../../../lib/theme"
@@ -50,7 +51,9 @@ function getDayIndex(dateString: string, groupId?: string) {
 import { UserProfileModal } from "../../../components/UserProfileModal"
 import { VideoMessageModal } from "../../../components/VideoMessageModal"
 import { JournalWeeklyMediaPicker } from "../../../components/JournalWeeklyMediaPicker"
+import { MediaCaptions } from "../../../components/MediaCaptions"
 import * as FileSystem from "expo-file-system/legacy"
+import * as MediaLibrary from "expo-media-library"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { usePostHog } from "posthog-react-native"
 import { captureEvent, safeCapture } from "../../../lib/posthog"
@@ -253,6 +256,7 @@ export default function EntryComposer() {
   const scrollViewRef = useRef<ScrollView>(null)
   const inputContainerRef = useRef<View>(null)
   const mediaCarouselRef = useRef<View>(null)
+  const mediaCarouselScrollViewRef = useRef<ScrollView>(null)
   const previousMediaCountRef = useRef<number>(0)
   const mediaCarouselYRef = useRef<number | null>(null)
   const inputContainerYRef = useRef<number | null>(null)
@@ -263,6 +267,11 @@ export default function EntryComposer() {
   const [showFileSizeModal, setShowFileSizeModal] = useState(false)
   const [showJournalPhotoModal, setShowJournalPhotoModal] = useState(false)
   const [showJournalWeeklyPicker, setShowJournalWeeklyPicker] = useState(false)
+  const [showMediaCaptions, setShowMediaCaptions] = useState(false)
+  const [mediaCaptionsInitialIndex, setMediaCaptionsInitialIndex] = useState(0)
+  const [captions, setCaptions] = useState<(string | null)[]>([])
+  const [currentUserAvatar, setCurrentUserAvatar] = useState<string | undefined>()
+  const [currentUserName, setCurrentUserName] = useState("You")
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const dragPosition = useRef(new Animated.ValueXY()).current
@@ -427,6 +436,12 @@ export default function EntryComposer() {
     } = await supabase.auth.getUser()
     if (user) {
       setUserId(user.id)
+      // Load user profile for captions
+      const profile = await getCurrentUser()
+      if (profile) {
+        setCurrentUserAvatar(profile.avatar_url || undefined)
+        setCurrentUserName(profile.name || "You")
+      }
       
       // If groupId is passed as param, use it (most reliable)
       if (groupIdParam) {
@@ -830,6 +845,14 @@ export default function EntryComposer() {
         })
         setMediaItems(existingMediaItems)
         
+        // Load captions from existing entry
+        if (existingEntry.captions) {
+          setCaptions(existingEntry.captions)
+        } else {
+          // Initialize empty captions array if none exist
+          setCaptions(new Array(existingEntry.media_urls.length).fill(null))
+        }
+        
         // Load audio durations for existing audio items
         existingMediaItems.forEach((item) => {
           if (item.type === "audio") {
@@ -1086,7 +1109,7 @@ export default function EntryComposer() {
   }
 
   // Handle photos selected from Journal weekly picker
-  async function handleJournalWeeklyPhotosSelected(photos: Array<{ uri: string; type: "photo" | "video" }>) {
+  async function handleJournalWeeklyPhotosSelected(photos: Array<{ uri: string; type: "photo" | "video"; assetId?: string }>) {
     // Process photos similar to openGallery, but photos are already filtered
     const validAssets = []
     const errors: string[] = []
@@ -1113,15 +1136,33 @@ export default function EntryComposer() {
     }
     
     if (validAssets.length > 0) {
-      // Process assets and copy to accessible location if needed (iOS)
+      // Process assets and convert MediaLibrary URIs to readable file paths
       const newItems = await Promise.all(
         validAssets.map(async (asset) => {
           let uri = asset.uri
           
+          // MediaLibrary URIs from getAssetsAsync() might not be directly readable
+          // Use assetId if available to get the actual readable file URI via getAssetInfoAsync
+          if (asset.assetId) {
+            try {
+              // Get asset info using the asset ID to get the localUri (readable file path)
+              const assetInfo = await MediaLibrary.getAssetInfoAsync(asset.assetId)
+              if (assetInfo?.localUri) {
+                uri = assetInfo.localUri
+              } else if (assetInfo?.uri) {
+                uri = assetInfo.uri
+              }
+            } catch (assetError) {
+              console.warn("[entry-composer] Failed to get asset info for assetId:", asset.assetId, assetError)
+              // Continue with original URI and try to copy it below
+            }
+          }
+          
           // On iOS, copy files to temporary location to ensure they're accessible
+          // This fixes issues with MediaLibrary URIs that aren't directly readable
           if (Platform.OS === "ios") {
             try {
-              const fileExtension = uri.toLowerCase().includes(".png") ? ".png" : ".jpg"
+              const fileExtension = asset.type === "video" ? ".mov" : uri.toLowerCase().includes(".png") ? ".png" : ".jpg"
               const tempUri = `${FileSystem.cacheDirectory}${Date.now()}-${Math.random().toString(36).slice(2)}${fileExtension}`
               await FileSystem.copyAsync({
                 from: uri,
@@ -1129,7 +1170,10 @@ export default function EntryComposer() {
               })
               uri = tempUri
             } catch (copyError) {
-              console.warn("[entry-composer] Failed to copy iOS image to temp location, using original URI:", copyError)
+              console.error("[entry-composer] Failed to copy file to temp location:", copyError)
+              // If copy fails and we have an assetId, the original URI might not be readable
+              // Throw a more helpful error message
+              throw new Error(`Failed to read photo file: ${copyError.message || "File is not readable"}. Please try selecting the photo again.`)
             }
           }
           
@@ -1141,7 +1185,22 @@ export default function EntryComposer() {
           }
         })
       )
+      
+      // Calculate photo/video items count before updating state
+      const currentPhotoVideoItems = mediaItems.filter((item) => item.type !== "audio")
+      const totalPhotoVideoItems = currentPhotoVideoItems.length + newItems.length
+      
       setMediaItems((prev) => [...prev, ...newItems])
+      
+      // Sync captions array - add null captions for new photos
+      setCaptions((prevCaptions) => {
+        const newCaptions = [...prevCaptions]
+        // Add null captions for new photos
+        while (newCaptions.length < totalPhotoVideoItems) {
+          newCaptions.push(null)
+        }
+        return newCaptions
+      })
     }
   }
 
@@ -1153,6 +1212,25 @@ export default function EntryComposer() {
       // Open gallery directly (no modal)
       openGallery()
     }
+  }
+
+  function handleOpenCaptions(initialIndex: number = 0) {
+    setMediaCaptionsInitialIndex(initialIndex)
+    setShowMediaCaptions(true)
+  }
+
+  function handleCloseCaptions() {
+    setShowMediaCaptions(false)
+  }
+
+  function handleSaveCaptions(updatedCaptions: (string | null)[]) {
+    setCaptions(updatedCaptions)
+  }
+
+  function handleCaptionsComplete() {
+    setShowMediaCaptions(false)
+    // Focus back on text input
+    textInputRef.current?.focus()
   }
 
   async function openCamera() {
@@ -1480,15 +1558,37 @@ export default function EntryComposer() {
   }
 
   const handleRemoveMedia = useCallback((id: string) => {
-    setMediaItems((prev) => prev.filter((item) => item.id !== id))
+    setMediaItems((prev) => {
+      const filtered = prev.filter((item) => item.id !== id)
+      // Sync captions array - remove caption at the same index
+      const photoVideoItems = prev.filter((item) => item.type !== "audio")
+      const removedIndex = photoVideoItems.findIndex((item) => item.id === id)
+      if (removedIndex !== -1) {
+        setCaptions((prevCaptions) => {
+          const newCaptions = [...prevCaptions]
+          newCaptions.splice(removedIndex, 1)
+          return newCaptions
+        })
+      }
+      return filtered
+    })
   }, [])
 
   // Handle drag and drop reordering
   function handleDragStart(itemId: string) {
     setDraggedItemId(itemId)
+    // Disable scrolling on the carousel ScrollView when dragging starts
+    if (mediaCarouselScrollViewRef.current) {
+      mediaCarouselScrollViewRef.current.setNativeProps({ scrollEnabled: false })
+    }
   }
 
   function handleDragEnd() {
+    // Always re-enable scrolling when drag ends, even if drag was cancelled
+    if (mediaCarouselScrollViewRef.current) {
+      mediaCarouselScrollViewRef.current.setNativeProps({ scrollEnabled: true })
+    }
+    
     if (draggedItemId === null || dragOverIndex === null) {
       setDraggedItemId(null)
       setDragOverIndex(null)
@@ -1504,6 +1604,10 @@ export default function EntryComposer() {
       setDraggedItemId(null)
       setDragOverIndex(null)
       dragPosition.setValue({ x: 0, y: 0 })
+      // Re-enable scrolling
+      if (mediaCarouselScrollViewRef.current) {
+        mediaCarouselScrollViewRef.current.setNativeProps({ scrollEnabled: true })
+      }
       return
     }
 
@@ -1531,6 +1635,11 @@ export default function EntryComposer() {
     setDraggedItemId(null)
     setDragOverIndex(null)
     dragPosition.setValue({ x: 0, y: 0 })
+    
+    // Re-enable scrolling on the carousel ScrollView when dragging ends
+    if (mediaCarouselScrollViewRef.current) {
+      mediaCarouselScrollViewRef.current.setNativeProps({ scrollEnabled: true })
+    }
   }
 
   async function handleNavigateToHome(entryDate?: string) {
@@ -1769,6 +1878,13 @@ export default function EntryComposer() {
       
       if (editMode && entryId) {
         // Update existing entry
+        // Sync captions array with media_urls (remove captions for deleted media)
+        const syncedCaptions = uploadedMedia.map((_, index) => {
+          // Find corresponding caption from original captions array
+          // Match by index if media order is preserved, otherwise use null
+          return captions[index] || null
+        })
+        
         await updateEntry(
           entryId,
           userId,
@@ -1776,6 +1892,7 @@ export default function EntryComposer() {
             text_content: text.trim() || undefined,
             media_urls: uploadedMedia.map((item) => item.url),
             media_types: uploadedMedia.map((item) => item.type) as ("photo" | "video" | "audio")[],
+            captions: syncedCaptions.length > 0 ? syncedCaptions : undefined,
             embedded_media: embeddedMediaForStorage.length > 0 ? embeddedMediaForStorage : undefined,
             mentions: mentionedUserIds.length > 0 ? mentionedUserIds : undefined,
           }
@@ -1808,6 +1925,11 @@ export default function EntryComposer() {
         ])
       } else {
         // Create new entry
+        // Sync captions array with media_urls (only for Journal entries)
+        const syncedCaptions = activePrompt?.category === "Journal" 
+          ? uploadedMedia.map((_, index) => captions[index] || null)
+          : undefined
+        
         const newEntry = await createEntry({
           group_id: currentGroupId,
           user_id: userId,
@@ -1816,6 +1938,7 @@ export default function EntryComposer() {
           text_content: text.trim() || undefined,
           media_urls: uploadedMedia.map((item) => item.url),
           media_types: uploadedMedia.map((item) => item.type) as ("photo" | "video" | "audio")[],
+          captions: syncedCaptions && syncedCaptions.length > 0 ? syncedCaptions : undefined,
           embedded_media: embeddedMediaForStorage.length > 0 ? embeddedMediaForStorage : undefined,
           mentions: mentionedUserIds.length > 0 ? mentionedUserIds : undefined,
         })
@@ -2293,6 +2416,28 @@ export default function EntryComposer() {
       color: theme2Colors.text,
       fontWeight: "500",
     },
+    captionsCTA: {
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
+      marginTop: spacing.xs,
+      marginBottom: spacing.xs,
+    },
+    captionsCTAContainer: {
+      backgroundColor: theme2Colors.white,
+      borderRadius: 20,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm,
+      alignSelf: "center",
+      borderWidth: 2,
+      borderColor: theme2Colors.text,
+    },
+    captionsCTAText: {
+      ...typography.body,
+      fontSize: 14,
+      color: "#000000", // Always black text
+      textAlign: "center",
+      fontWeight: "600",
+    },
     mediaThumbnailWrapper: {
       width: 120,
       height: 120,
@@ -2455,6 +2600,21 @@ export default function EntryComposer() {
       alignItems: "center",
       borderRadius: 12,
       gap: spacing.xs,
+    },
+    captionedTag: {
+      position: "absolute",
+      bottom: spacing.xs,
+      left: spacing.xs,
+      backgroundColor: "rgba(64, 64, 64, 0.8)", // Dark gray with opacity
+      borderRadius: 12,
+      paddingHorizontal: spacing.xs,
+      paddingVertical: 2,
+    },
+    captionedTagText: {
+      ...typography.caption,
+      fontSize: 10,
+      color: theme2Colors.white,
+      fontWeight: "600",
     },
     uploadText: {
       ...typography.caption,
@@ -2817,10 +2977,12 @@ export default function EntryComposer() {
             onLayout={handleMediaCarouselLayout}
           >
             <ScrollView 
+              ref={mediaCarouselScrollViewRef}
               horizontal 
               showsHorizontalScrollIndicator={false}
               style={styles.mediaScrollContainer}
               contentContainerStyle={styles.mediaScrollContent}
+              scrollEnabled={draggedItemId === null} // Disable scrolling when dragging
             >
               {activePrompt?.category === "Journal" ? (
                 <>
@@ -2828,6 +2990,8 @@ export default function EntryComposer() {
                   {mediaItems.filter(item => item.type !== "audio").map((item, index) => {
                     const photoVideoItems = mediaItems.filter(item => item.type !== "audio")
                     const itemIndex = photoVideoItems.findIndex(i => i.id === item.id)
+                    // Check if this photo has a caption (only for Journal entries)
+                    const hasCaption = activePrompt?.category === "Journal" && item.type === "photo" && captions[itemIndex] ? true : false
                     
                     return (
                       <DraggableMediaThumbnail
@@ -2843,6 +3007,8 @@ export default function EntryComposer() {
                         onDragEnd={handleDragEnd}
                         onSetDragOverIndex={setDragOverIndex}
                         onRemoveMedia={handleRemoveMedia}
+                        onImagePress={activePrompt?.category === "Journal" && item.type === "photo" ? handleOpenCaptions : undefined}
+                        hasCaption={hasCaption}
                         colors={colors}
                         styles={styles}
                       />
@@ -2874,6 +3040,8 @@ export default function EntryComposer() {
                 mediaItems.filter(item => item.type !== "audio").map((item, index) => {
                   const photoVideoItems = mediaItems.filter(item => item.type !== "audio")
                   const itemIndex = photoVideoItems.findIndex(i => i.id === item.id)
+                  // Check if this photo has a caption (only for Journal entries)
+                  const hasCaption = activePrompt?.category === "Journal" && item.type === "photo" && captions[itemIndex] ? true : false
                   
                   return (
                     <DraggableMediaThumbnail
@@ -2889,6 +3057,8 @@ export default function EntryComposer() {
                       onDragEnd={handleDragEnd}
                       onSetDragOverIndex={setDragOverIndex}
                       onRemoveMedia={handleRemoveMedia}
+                      onImagePress={activePrompt?.category === "Journal" && item.type === "photo" ? handleOpenCaptions : undefined}
+                      hasCaption={hasCaption}
                       colors={colors}
                       styles={styles}
                     />
@@ -2899,13 +3069,19 @@ export default function EntryComposer() {
           </View>
         )}
 
-        {/* Banner for Journal prompts - show below carousel, only if less than 5 photos */}
-        {activePrompt?.category === "Journal" && mediaItems.filter(item => item.type === "photo").length < 5 && (
-          <View style={styles.journalBanner}>
-            <FontAwesome name="photo" size={16} color={theme2Colors.text} />
-            <Text style={styles.journalBannerText}>Try add 5 photos, or ideally 1 per day.</Text>
+        {/* Captions CTA - Only show for Journal prompts when photos are present */}
+        {activePrompt?.category === "Journal" && mediaItems.filter(item => item.type === "photo").length > 0 && (
+          <View style={styles.captionsCTA}>
+            <TouchableOpacity 
+              style={styles.captionsCTAContainer} 
+              onPress={handleOpenCaptions}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.captionsCTAText}>Tap a photo or here to edit captions</Text>
+            </TouchableOpacity>
           </View>
         )}
+
 
         <View ref={inputContainerRef} onLayout={handleInputLayout} style={{ position: 'relative' }}>
           <TextInput
@@ -3333,12 +3509,23 @@ export default function EntryComposer() {
       <JournalWeeklyMediaPicker
         visible={showJournalWeeklyPicker}
         journalDate={date}
-        existingMedia={editMode && existingEntry?.media_urls ? existingEntry.media_urls.map((url, index) => ({
-          uri: url,
-          type: existingEntry.media_types?.[index] || "photo",
-        })) : []}
+        existingMedia={
+          editMode && existingEntry?.media_urls
+            ? existingEntry.media_urls.map((url, index) => ({
+                uri: url,
+                type: existingEntry.media_types?.[index] || "photo",
+              }))
+            : // In create mode, pass current mediaItems so picker knows what's already selected
+              mediaItems
+                .filter((item) => item.type !== "audio")
+                .map((item) => ({
+                  uri: item.uri,
+                  type: item.type,
+                }))
+        }
         onClose={() => setShowJournalWeeklyPicker(false)}
         onUpdate={handleJournalWeeklyPhotosSelected}
+        onEditCaptions={handleOpenCaptions}
         onCameraPress={async () => {
           setShowJournalWeeklyPicker(false)
           // Small delay to ensure modal closes before opening camera
@@ -3347,6 +3534,23 @@ export default function EntryComposer() {
           }, 300)
         }}
       />
+
+      {/* Media Captions Editor */}
+      {activePrompt?.category === "Journal" && (
+        <MediaCaptions
+          visible={showMediaCaptions}
+          photos={mediaItems
+            .filter((item) => item.type === "photo")
+            .map((item) => ({ uri: item.uri, id: item.id }))}
+          initialIndex={mediaCaptionsInitialIndex}
+          initialCaptions={captions}
+          userName={currentUserName}
+          userAvatar={currentUserAvatar}
+          onClose={handleCloseCaptions}
+          onSave={handleSaveCaptions}
+          onComplete={handleCaptionsComplete}
+        />
+      )}
 
       {/* Journal Photo Validation Modal */}
       <Modal
@@ -3427,6 +3631,8 @@ function DraggableMediaThumbnail({
   onDragEnd,
   onSetDragOverIndex,
   onRemoveMedia,
+  onImagePress,
+  hasCaption,
   colors,
   styles,
 }: {
@@ -3441,11 +3647,16 @@ function DraggableMediaThumbnail({
   onDragEnd: () => void
   onSetDragOverIndex: (index: number | null) => void
   onRemoveMedia: (id: string) => void
+  onImagePress?: (index: number) => void
+  hasCaption?: boolean
   colors: any
   styles: any
 }) {
   const isDragging = draggedItemId === item.id
   const isDragOver = dragOverIndex === itemIndex && draggedItemId !== item.id
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const hasTriggeredHapticRef = useRef(false)
+  const allowPressRef = useRef(true) // Track if we should allow onPress (false when long press starts)
   
   // PanResponder for drag and drop - only active when this item is being dragged
   const panResponder = useMemo(
@@ -3461,23 +3672,99 @@ function DraggableMediaThumbnail({
       // Active pan responder for the item being dragged
       return PanResponder.create({
         onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
+        onStartShouldSetPanResponderCapture: () => true, // Capture gesture before ScrollView
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          // Only respond to horizontal movement (drag), not vertical (scroll)
+          return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 10
+        },
+        onMoveShouldSetPanResponderCapture: () => true, // Capture gesture before ScrollView
+        onPanResponderGrant: () => {
+          // When gesture starts, ensure we're in drag mode
+          dragPosition.setValue({ x: 0, y: 0 })
+        },
         onPanResponderMove: (_, gestureState) => {
           dragPosition.setValue({ x: gestureState.dx, y: gestureState.dy })
           // Calculate which index we're dragging over based on horizontal position
           const thumbWidth = 120 + spacing.sm
           const newIndex = Math.round(gestureState.dx / thumbWidth) + itemIndex
           if (newIndex >= 0 && newIndex < totalItems && newIndex !== itemIndex) {
+            // Trigger haptic feedback when dragging over a new position
+            if (dragOverIndex !== newIndex) {
+              // Light haptic feedback for position change
+              if (Platform.OS === "ios") {
+                Vibration.vibrate(10) // Short vibration
+              } else {
+                Vibration.vibrate(50) // Android vibration
+              }
+            }
             onSetDragOverIndex(newIndex)
           }
         },
         onPanResponderRelease: () => {
+          // Medium haptic feedback on drop
+          if (Platform.OS === "ios") {
+            Vibration.vibrate(20)
+          } else {
+            Vibration.vibrate(100)
+          }
           onDragEnd()
+          hasTriggeredHapticRef.current = false
+        },
+        onPanResponderTerminate: () => {
+          // Handle case where gesture is interrupted
+          onDragEnd()
+          hasTriggeredHapticRef.current = false
         },
       })
     },
-    [item.id, itemIndex, totalItems, draggedItemId, dragPosition, onSetDragOverIndex, onDragEnd]
+    [item.id, itemIndex, totalItems, draggedItemId, dragPosition, dragOverIndex, onSetDragOverIndex, onDragEnd]
   )
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current)
+      }
+    }
+  }, [])
+
+  const handlePressIn = () => {
+    if (draggedItemId || uploadingMedia[item.id]) return
+    
+    // Allow press initially
+    allowPressRef.current = true
+    
+    // Start timer for 1 second long press
+    longPressTimerRef.current = setTimeout(() => {
+      if (!draggedItemId && !uploadingMedia[item.id] && !hasTriggeredHapticRef.current) {
+        // Disable press when long press starts
+        allowPressRef.current = false
+        // Trigger haptic feedback
+        if (Platform.OS === "ios") {
+          Vibration.vibrate(30) // Medium haptic feedback
+        } else {
+          Vibration.vibrate(100) // Android vibration
+        }
+        hasTriggeredHapticRef.current = true
+        onDragStart(item.id)
+        dragPosition.setValue({ x: 0, y: 0 })
+      }
+    }, 1000) as unknown as NodeJS.Timeout
+  }
+
+  const handlePressOut = () => {
+    // Cancel long press if user releases before 1 second
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+      // If timer was cancelled, it was a quick tap - allow onPress
+      allowPressRef.current = true
+    }
+    if (!isDragging) {
+      hasTriggeredHapticRef.current = false
+    }
+  }
 
   return (
     <Animated.View
@@ -3495,18 +3782,26 @@ function DraggableMediaThumbnail({
     >
       <TouchableOpacity
         activeOpacity={0.9}
-        onLongPress={() => {
-          if (!draggedItemId && !uploadingMedia[item.id]) {
-            onDragStart(item.id)
-            dragPosition.setValue({ x: 0, y: 0 })
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        onPress={() => {
+          // Only handle press for photos (not videos) and when not dragging
+          // Only fire if it was a quick tap (not a long press)
+          if (item.type === "photo" && !isDragging && allowPressRef.current && onImagePress) {
+            onImagePress(itemIndex)
           }
         }}
-        delayLongPress={300}
+        delayLongPress={0} // We handle the delay manually
         style={{ flex: 1 }}
       >
         {item.type === "photo" ? (
           <>
             <Image source={{ uri: item.uri }} style={styles.mediaThumbnail} resizeMode="cover" />
+            {hasCaption && (
+              <View style={styles.captionedTag}>
+                <Text style={styles.captionedTagText}>Captioned</Text>
+              </View>
+            )}
             {uploadingMedia[item.id] && (
               <View style={styles.uploadOverlay}>
                 <ActivityIndicator size="large" color={colors.white} />

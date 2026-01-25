@@ -75,6 +75,7 @@ export interface Entry {
   text_content?: string
   media_urls?: string[]
   media_types?: ("photo" | "video" | "audio")[]
+  captions?: (string | null)[] // Array of captions parallel to media_urls. NULL indicates no caption. Only for Journal entries.
   embedded_media?: EmbeddedMedia[]
   mentions?: string[] // Array of user IDs mentioned in the entry
   created_at: string

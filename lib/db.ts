@@ -1963,6 +1963,7 @@ export async function createEntry(entry: {
   text_content?: string
   media_urls?: string[]
   media_types?: ("photo" | "video" | "audio")[]
+  captions?: (string | null)[] // Array of captions parallel to media_urls. NULL indicates no caption.
   embedded_media?: any[] // JSONB array
   mentions?: string[] // Array of user IDs mentioned in the entry
 }): Promise<Entry> {
@@ -2025,6 +2026,7 @@ export async function updateEntry(
     text_content?: string
     media_urls?: string[]
     media_types?: ("photo" | "video" | "audio")[]
+    captions?: (string | null)[] // Array of captions parallel to media_urls. NULL indicates no caption.
     embedded_media?: any[] // JSONB array
     mentions?: string[] // Array of user IDs mentioned in the entry
   }
