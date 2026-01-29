@@ -168,7 +168,61 @@ serve(async (req) => {
       if (membersError) throw membersError
 
       // ========================================================================
-      // PRIORITY 1: BIRTHDAYS (HIGHEST PRIORITY - cannot be skipped)
+      // PRIORITY 1: SUNDAY JOURNAL QUESTION (HIGHEST PRIORITY - takes precedence over birthdays)
+      // ========================================================================
+      // On Sundays, schedule the Journal prompt (weekly photo journal)
+      // This takes priority over ALL other scheduling including birthdays
+      // CRITICAL: Only schedule for today (future Sundays will be handled when they become today)
+      // This prevents overwriting past Sunday prompts
+      // CRITICAL: Journal prompts MUST ONLY be scheduled on Sundays
+      const isTodaySunday = isSunday(today)
+      if (isTodaySunday) {
+        // DOUBLE-CHECK: Verify it's actually Sunday before proceeding
+        // This is a safeguard against any potential bugs in isSunday()
+        const [year, month, day] = today.split("-").map(Number)
+        const dateCheck = new Date(year, month - 1, day)
+        const dayOfWeek = dateCheck.getDay()
+        
+        if (dayOfWeek !== 0) {
+          // This should never happen, but log error and skip Journal scheduling
+          console.error(`[schedule-daily-prompts] Group ${group.id}: CRITICAL ERROR - Attempted to schedule Journal prompt on non-Sunday date ${today} (day of week: ${dayOfWeek}). Skipping Journal scheduling.`)
+          // Fall through to regular scheduling instead of scheduling Journal
+        } else {
+          // Get the Journal prompt
+          const { data: journalPrompt } = await supabaseClient
+            .from("prompts")
+            .select("id")
+            .eq("category", "Journal")
+            .limit(1)
+            .maybeSingle()
+
+          if (journalPrompt) {
+            // Schedule Journal prompt for today (only)
+            await supabaseClient.from("daily_prompts").insert({
+              group_id: group.id,
+              prompt_id: journalPrompt.id,
+              date: today,
+            })
+
+            results.push({
+              group_id: group.id,
+              status: "journal_scheduled",
+            })
+            continue // Skip all other scheduling - Sunday Journal takes priority over everything
+          }
+        }
+      } else {
+        // Log if someone tries to backfill a non-Sunday date (for debugging)
+        if (requestBody.date) {
+          const [year, month, day] = today.split("-").map(Number)
+          const dateCheck = new Date(year, month - 1, day)
+          const dayOfWeek = dateCheck.getDay()
+          console.log(`[schedule-daily-prompts] Group ${group.id}: Skipping Journal prompt for non-Sunday date ${today} (day of week: ${dayOfWeek})`)
+        }
+      }
+
+      // ========================================================================
+      // PRIORITY 2: BIRTHDAYS (only if NOT Sunday - Journal takes priority on Sundays)
       // ========================================================================
       const birthdayMembers: Array<{ user_id: string; name: string }> = []
       if (members) {
@@ -247,62 +301,12 @@ serve(async (req) => {
           status: "birthday_scheduled",
           birthday_members: birthdayMembers.map((m) => m.name),
         })
-        continue // Skip all other scheduling - birthday is highest priority
+        continue // Skip all other scheduling - birthday takes priority (but not on Sundays)
       }
 
       // ========================================================================
-      // PRIORITY 2: SUNDAY JOURNAL QUESTION
+      // PRIORITY 3: CUSTOM QUESTIONS
       // ========================================================================
-      // On Sundays, schedule the Journal prompt (weekly photo journal)
-      // This takes priority over regular scheduling but not birthdays
-      // CRITICAL: Only schedule for today (future Sundays will be handled when they become today)
-      // This prevents overwriting past Sunday prompts
-      // CRITICAL: Journal prompts MUST ONLY be scheduled on Sundays
-      const isTodaySunday = isSunday(today)
-      if (isTodaySunday) {
-        // DOUBLE-CHECK: Verify it's actually Sunday before proceeding
-        // This is a safeguard against any potential bugs in isSunday()
-        const [year, month, day] = today.split("-").map(Number)
-        const dateCheck = new Date(year, month - 1, day)
-        const dayOfWeek = dateCheck.getDay()
-        
-        if (dayOfWeek !== 0) {
-          // This should never happen, but log error and skip Journal scheduling
-          console.error(`[schedule-daily-prompts] Group ${group.id}: CRITICAL ERROR - Attempted to schedule Journal prompt on non-Sunday date ${today} (day of week: ${dayOfWeek}). Skipping Journal scheduling.`)
-          // Fall through to regular scheduling instead of scheduling Journal
-        } else {
-          // Get the Journal prompt
-          const { data: journalPrompt } = await supabaseClient
-            .from("prompts")
-            .select("id")
-            .eq("category", "Journal")
-            .limit(1)
-            .maybeSingle()
-
-          if (journalPrompt) {
-            // Schedule Journal prompt for today (only)
-            await supabaseClient.from("daily_prompts").insert({
-              group_id: group.id,
-              prompt_id: journalPrompt.id,
-              date: today,
-            })
-
-            results.push({
-              group_id: group.id,
-              status: "journal_scheduled",
-            })
-            continue // Skip all other scheduling - Sunday is Journal day
-          }
-        }
-      } else {
-        // Log if someone tries to backfill a non-Sunday date (for debugging)
-        if (requestBody.date) {
-          const [year, month, day] = today.split("-").map(Number)
-          const dateCheck = new Date(year, month - 1, day)
-          const dayOfWeek = dateCheck.getDay()
-          console.log(`[schedule-daily-prompts] Group ${group.id}: Skipping Journal prompt for non-Sunday date ${today} (day of week: ${dayOfWeek})`)
-        }
-      }
 
       // ========================================================================
       // PRIORITY 3: CUSTOM QUESTIONS
@@ -1103,9 +1107,9 @@ serve(async (req) => {
               .eq("id", group.id)
               .single()
             
-            const inferredInterests = groupDataForDiscovery?.inferred_interests || []
-            
-            // Get explicit interests
+            // CRITICAL: Only use explicit interests for discovery eligibility check
+            // Inferred interests should NOT be used to determine if discovery should trigger
+            // Get explicit interests only
             const { data: explicitInterestsData } = await supabaseClient
               .from("group_interests")
               .select("interest:interests(name)")
@@ -1115,22 +1119,47 @@ serve(async (req) => {
               .map((gi: any) => gi.interest?.name)
               .filter((name: string) => name)
             
-            const allGroupInterests = [...explicitInterests, ...inferredInterests]
-            
             // BUG FIX 3: Check if group has asked questions for all their interests at least once
+            // CRITICAL FIX: Paginate to fetch ALL asked prompts to properly check interests
             // Get all Standard prompts asked by this group and check which interests they cover
-            const { data: askedPromptsWithInterests } = await supabaseClient
-              .from("daily_prompts")
-              .select("prompt:prompts(interests)")
-              .eq("group_id", group.id)
-              .is("user_id", null)
-              .not("is_discovery", "eq", true) // Exclude discovery questions
+            let allAskedPromptsWithInterests: any[] = []
+            let fromAsked = 0
+            const pageSizeAsked = 1000
+            let hasMoreAsked = true
+            
+            while (hasMoreAsked) {
+              const { data: pagePrompts, error } = await supabaseClient
+                .from("daily_prompts")
+                .select("prompt:prompts(interests, category)")
+                .eq("group_id", group.id)
+                .is("user_id", null)
+                .not("is_discovery", "eq", true) // Exclude discovery questions
+                .order("date", { ascending: false })
+                .range(fromAsked, fromAsked + pageSizeAsked - 1)
+              
+              if (error) {
+                console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching asked prompts for discovery check:`, error)
+                break
+              }
+              
+              if (pagePrompts && pagePrompts.length > 0) {
+                allAskedPromptsWithInterests = allAskedPromptsWithInterests.concat(pagePrompts)
+                fromAsked += pageSizeAsked
+                if (pagePrompts.length < pageSizeAsked) {
+                  hasMoreAsked = false
+                }
+              } else {
+                hasMoreAsked = false
+              }
+            }
             
             const askedInterestsSet = new Set<string>()
-            if (askedPromptsWithInterests) {
-              for (const dp of askedPromptsWithInterests) {
+            if (allAskedPromptsWithInterests) {
+              for (const dp of allAskedPromptsWithInterests) {
                 const prompt = dp.prompt as any
-                if (prompt?.interests && Array.isArray(prompt.interests)) {
+                // Only count Standard prompts (exclude Custom, Birthday, etc. for this check)
+                // Discovery should only trigger after Standard questions for all interests
+                if (prompt?.category === "Standard" && prompt?.interests && Array.isArray(prompt.interests)) {
                   for (const interest of prompt.interests) {
                     askedInterestsSet.add(interest)
                   }
@@ -1139,12 +1168,23 @@ serve(async (req) => {
             }
             
             // Check if all group interests have been asked at least once
-            const allInterestsAsked = allGroupInterests.length === 0 || 
-              allGroupInterests.every(interest => askedInterestsSet.has(interest))
+            // CRITICAL: Only count explicit interests for this check (not inferred)
+            // Discovery should only trigger after ALL explicit interests have been asked
+            const allExplicitInterestsAsked = explicitInterests.length === 0 || 
+              explicitInterests.every(interest => askedInterestsSet.has(interest))
+            
+            // Log for debugging
+            console.log(`[schedule-daily-prompts] Group ${group.id}: Discovery check - Explicit interests: ${explicitInterests.join(', ')}, Asked interests: ${Array.from(askedInterestsSet).join(', ')}, All explicit asked: ${allExplicitInterestsAsked}`)
+            
+            // Only proceed with discovery if ALL explicit interests have been asked
+            const allInterestsAsked = allExplicitInterestsAsked
             
             // Only proceed with discovery if all group interests have been asked
             if (!allInterestsAsked) {
-              console.log(`[schedule-daily-prompts] Group ${group.id}: Skipping discovery - not all group interests have been asked yet. Group interests: ${allGroupInterests.join(', ')}, Asked interests: ${Array.from(askedInterestsSet).join(', ')}`)
+              console.log(`[schedule-daily-prompts] Group ${group.id}: Skipping discovery - not all explicit interests have been asked yet. Explicit interests: ${explicitInterests.join(', ')}, Asked interests: ${Array.from(askedInterestsSet).join(', ')}`)
+              // CRITICAL: Set isDiscoveryQuestion to false and clear discoveryInterest to prevent any discovery selection
+              isDiscoveryQuestion = false
+              discoveryInterest = null
               // Fall through to standard interest cycle instead
             } else {
             
@@ -1164,15 +1204,38 @@ serve(async (req) => {
               isDiscoveryQuestion = true
               
               // CRITICAL FIX: Fetch all Standard prompts with this interest, then filter in JavaScript
-              // This avoids PGRST100 error when excludeIds array is too large
-              const { data: allDiscoveryPrompts } = await supabaseClient
-                .from("prompts")
-                .select("*")
-                .eq("category", "Standard")
-                .contains("interests", [discoveryInterest])
+              // PAGINATE to get ALL prompts (don't rely on default limit)
+              let allDiscoveryPrompts: any[] = []
+              let fromDiscoveryActive = 0
+              const pageSizeDiscoveryActive = 1000
+              let hasMoreDiscoveryActive = true
+              
+              while (hasMoreDiscoveryActive) {
+                const { data: pagePrompts, error } = await supabaseClient
+                  .from("prompts")
+                  .select("*")
+                  .eq("category", "Standard")
+                  .contains("interests", [discoveryInterest])
+                  .range(fromDiscoveryActive, fromDiscoveryActive + pageSizeDiscoveryActive - 1)
+                
+                if (error) {
+                  console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching discovery prompts for active interest:`, error)
+                  break
+                }
+                
+                if (pagePrompts && pagePrompts.length > 0) {
+                  allDiscoveryPrompts = allDiscoveryPrompts.concat(pagePrompts)
+                  fromDiscoveryActive += pageSizeDiscoveryActive
+                  if (pagePrompts.length < pageSizeDiscoveryActive) {
+                    hasMoreDiscoveryActive = false
+                  }
+                } else {
+                  hasMoreDiscoveryActive = false
+                }
+              }
               
               // Filter in JavaScript using Array.includes() for consistency
-              const discoveryPrompts = (allDiscoveryPrompts || []).filter((p: any) => {
+              const discoveryPrompts = allDiscoveryPrompts.filter((p: any) => {
                 if (askedStandardArray.includes(p.id)) return false
                 if (askedCustomArray.includes(p.id)) return false
                 if (lastStandardPromptId && p.id === lastStandardPromptId) return false
@@ -1201,14 +1264,38 @@ serve(async (req) => {
               if (relatedInterests && relatedInterests.length > 0) {
                 for (const related of relatedInterests) {
                   // CRITICAL FIX: Fetch all Standard prompts with this interest, then filter in JavaScript
-                  const { data: allDiscoveryPrompts } = await supabaseClient
-                    .from("prompts")
-                    .select("*")
-                    .eq("category", "Standard")
-                    .contains("interests", [related.interest_name])
+                  // PAGINATE to get ALL prompts (don't rely on default limit)
+                  let allDiscoveryPrompts: any[] = []
+                  let fromDiscoveryRelated = 0
+                  const pageSizeDiscoveryRelated = 1000
+                  let hasMoreDiscoveryRelated = true
+                  
+                  while (hasMoreDiscoveryRelated) {
+                    const { data: pagePrompts, error } = await supabaseClient
+                      .from("prompts")
+                      .select("*")
+                      .eq("category", "Standard")
+                      .contains("interests", [related.interest_name])
+                      .range(fromDiscoveryRelated, fromDiscoveryRelated + pageSizeDiscoveryRelated - 1)
+                    
+                    if (error) {
+                      console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching discovery prompts for related interest:`, error)
+                      break
+                    }
+                    
+                    if (pagePrompts && pagePrompts.length > 0) {
+                      allDiscoveryPrompts = allDiscoveryPrompts.concat(pagePrompts)
+                      fromDiscoveryRelated += pageSizeDiscoveryRelated
+                      if (pagePrompts.length < pageSizeDiscoveryRelated) {
+                        hasMoreDiscoveryRelated = false
+                      }
+                    } else {
+                      hasMoreDiscoveryRelated = false
+                    }
+                  }
                   
                   // Filter in JavaScript
-                  const discoveryPrompts = (allDiscoveryPrompts || []).filter((p: any) => {
+                  const discoveryPrompts = allDiscoveryPrompts.filter((p: any) => {
                     if (askedStandardPromptIds.has(p.id)) return false
                     if (askedCustomQuestionIds.has(p.id)) return false
                     if (lastStandardPromptId && p.id === lastStandardPromptId) return false
@@ -1254,30 +1341,71 @@ serve(async (req) => {
             }
             
             // If we found a discovery interest, select a question from it (excluding last prompt)
+            // CRITICAL: Double-check that discoveryInterest is not in group's explicit interests
             if (isDiscoveryQuestion && discoveryInterest) {
-              // CRITICAL FIX: Fetch all Standard prompts with this interest, then filter in JavaScript
-              const { data: allDiscoveryPrompts } = await supabaseClient
-                .from("prompts")
-                .select("*")
-                .eq("category", "Standard")
-                .contains("interests", [discoveryInterest])
-              
-              // Filter in JavaScript using Array.includes() for consistency
-              const discoveryPrompts = (allDiscoveryPrompts || []).filter((p: any) => {
-                if (askedStandardArray.includes(p.id)) return false
-                if (askedCustomArray.includes(p.id)) return false
-                if (lastStandardPromptId && p.id === lastStandardPromptId) return false
-                return true
-              })
-              
-              if (discoveryPrompts && discoveryPrompts.length > 0) {
-                const randomIndex = Math.floor(Math.random() * discoveryPrompts.length)
-                selectedPrompt = discoveryPrompts[randomIndex]
-                selectionMethod = `discovery_${discoveryInterest}`
-              } else {
-                // Discovery interest has no questions - fallback to standard cycle
+              // Safety check: Ensure discovery interest is not in group's explicit interests
+              if (explicitInterests.includes(discoveryInterest)) {
+                console.error(`[schedule-daily-prompts] Group ${group.id}: CRITICAL BUG - Discovery interest "${discoveryInterest}" is in group's explicit interests! Skipping discovery.`)
                 isDiscoveryQuestion = false
                 discoveryInterest = null
+              } else {
+                // CRITICAL FIX: Fetch all Standard prompts with this interest, then filter in JavaScript
+                // PAGINATE to get ALL prompts (don't rely on default limit)
+                let allDiscoveryPrompts: any[] = []
+                let fromDiscoveryFinal = 0
+                const pageSizeDiscoveryFinal = 1000
+                let hasMoreDiscoveryFinal = true
+                
+                while (hasMoreDiscoveryFinal) {
+                  const { data: pagePrompts, error } = await supabaseClient
+                    .from("prompts")
+                    .select("*")
+                    .eq("category", "Standard")
+                    .contains("interests", [discoveryInterest])
+                    .range(fromDiscoveryFinal, fromDiscoveryFinal + pageSizeDiscoveryFinal - 1)
+                  
+                  if (error) {
+                    console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching discovery prompts for final selection:`, error)
+                    break
+                  }
+                  
+                  if (pagePrompts && pagePrompts.length > 0) {
+                    allDiscoveryPrompts = allDiscoveryPrompts.concat(pagePrompts)
+                    fromDiscoveryFinal += pageSizeDiscoveryFinal
+                    if (pagePrompts.length < pageSizeDiscoveryFinal) {
+                      hasMoreDiscoveryFinal = false
+                    }
+                  } else {
+                    hasMoreDiscoveryFinal = false
+                  }
+                }
+                
+                // Filter in JavaScript using Array.includes() for consistency
+                const discoveryPrompts = allDiscoveryPrompts.filter((p: any) => {
+                  if (askedStandardArray.includes(p.id)) return false
+                  if (askedCustomArray.includes(p.id)) return false
+                  if (lastStandardPromptId && p.id === lastStandardPromptId) return false
+                  // Additional safety: Ensure prompt doesn't have any explicit group interests
+                  if (p.interests && Array.isArray(p.interests)) {
+                    for (const promptInterest of p.interests) {
+                      if (explicitInterests.includes(promptInterest)) {
+                        console.error(`[schedule-daily-prompts] Group ${group.id}: CRITICAL BUG - Discovery prompt ${p.id} has explicit interest "${promptInterest}"! Excluding.`)
+                        return false
+                      }
+                    }
+                  }
+                  return true
+                })
+                
+                if (discoveryPrompts && discoveryPrompts.length > 0) {
+                  const randomIndex = Math.floor(Math.random() * discoveryPrompts.length)
+                  selectedPrompt = discoveryPrompts[randomIndex]
+                  selectionMethod = `discovery_${discoveryInterest}`
+                } else {
+                  // Discovery interest has no questions - fallback to standard cycle
+                  isDiscoveryQuestion = false
+                  discoveryInterest = null
+                }
               }
             }
             } // End of allInterestsAsked check - only proceed with discovery if all group interests asked
@@ -1298,6 +1426,11 @@ serve(async (req) => {
                 interest:interests(name)
               `)
               .eq("group_id", group.id)
+
+            // Create explicitInterests array for validation
+            const explicitInterests = (groupInterestsData || [])
+              .map((gi: any) => gi.interest?.name)
+              .filter((name: string) => name)
 
             // Calculate weights (user counts) for each interest
             const interestWeights = new Map<string, number>()
@@ -1367,24 +1500,20 @@ serve(async (req) => {
               lastInterestUsed = null
             }
 
-            const inferredInterests = groupData?.inferred_interests || []
+            // CRITICAL FIX: DO NOT use inferred interests in the cycle
+            // Only explicit interests should be used for question selection
+            // Inferred interests are for discovery/engagement analysis, not for scheduling
+            // This prevents groups from getting questions for interests they didn't explicitly select
             
-            // Add inferred interests to weights (with weight = 1, or we could use a different weight)
-            // For now, treat inferred interests as having weight 1 (they're less prominent)
-            for (const inferred of inferredInterests) {
-              if (!interestWeights.has(inferred)) {
-                interestWeights.set(inferred, 1)
-              }
-            }
-
             let cyclePosition = groupData?.interest_cycle_position || 0
             let cycleInterests = groupData?.interest_cycle_interests || []
 
             // If no cycle interests set or interests have changed, rebuild cycle
-            // Compare total count (explicit + inferred) with cycle length
+            // CRITICAL: Only use explicit interests (interestWeights only contains explicit interests)
             const totalInterestCount = interestWeights.size
             if (cycleInterests.length === 0 || totalInterestCount !== cycleInterests.length) {
               // Sort interests by weight (descending), then by name for consistency
+              // interestWeights only contains explicit interests (from group_interests table)
               const sortedInterests = Array.from(interestWeights.entries())
                 .sort((a, b) => {
                   if (b[1] !== a[1]) return b[1] - a[1] // Higher weight first
@@ -1401,6 +1530,30 @@ serve(async (req) => {
                 .update({
                   interest_cycle_interests: cycleInterests,
                   interest_cycle_position: 0,
+                })
+                .eq("id", group.id)
+            }
+            
+            // CRITICAL VALIDATION: Ensure cycleInterests only contains explicit interests
+            // Filter out any inferred interests that might have been stored previously
+            const explicitInterestNames = explicitInterests
+            const validCycleInterests = cycleInterests.filter((interest: string) => 
+              explicitInterestNames.includes(interest)
+            )
+            
+            if (validCycleInterests.length !== cycleInterests.length) {
+              console.error(`[schedule-daily-prompts] Group ${group.id}: CRITICAL - Found inferred interests in cycle! Filtering them out. Original: [${cycleInterests.join(', ')}], Filtered: [${validCycleInterests.join(', ')}]`)
+              cycleInterests = validCycleInterests
+              // Reset position if it's now out of bounds
+              if (cyclePosition >= cycleInterests.length) {
+                cyclePosition = 0
+              }
+              // Update group with corrected cycle
+              await supabaseClient
+                .from("groups")
+                .update({
+                  interest_cycle_interests: cycleInterests,
+                  interest_cycle_position: cyclePosition,
                 })
                 .eq("id", group.id)
             }
@@ -1544,10 +1697,26 @@ serve(async (req) => {
             }
             
             // Filter in JavaScript using Array.includes() for consistency with fallback
+            // CRITICAL BUG FIX: Also validate that ALL prompt interests are in group's explicit interests
             let availablePrompts = allInterestPrompts.filter((p: any) => {
               if (askedStandardArray.includes(p.id)) return false
               if (askedCustomArray.includes(p.id)) return false
               if (lastStandardPromptId && p.id === lastStandardPromptId) return false
+              
+              // CRITICAL: Validate that ALL prompt interests are in group's explicit interests
+              if (p.interests && Array.isArray(p.interests) && p.interests.length > 0) {
+                const allInterestsValid = p.interests.every((interest: string) => 
+                  explicitInterests.includes(interest)
+                )
+                if (!allInterestsValid) {
+                  const invalidInterests = p.interests.filter((interest: string) => 
+                    !explicitInterests.includes(interest)
+                  )
+                  console.error(`[schedule-daily-prompts] Group ${group.id}: Rejecting prompt ${p.id} - has interests not in group's list: [${invalidInterests.join(', ')}]. Group interests: [${explicitInterests.join(', ')}]`)
+                  return false
+                }
+              }
+              
               return true
             })
             
@@ -1711,10 +1880,26 @@ serve(async (req) => {
                 }
                 
                 // Filter in JavaScript using Array.includes() for consistency with fallback
+                // CRITICAL BUG FIX: Also validate that ALL prompt interests are in group's explicit interests
                 standardPrompts = allNextInterestPrompts.filter((p: any) => {
                   if (askedStandardArray.includes(p.id)) return false
                   if (askedCustomArray.includes(p.id)) return false
                   if (lastStandardPromptId && p.id === lastStandardPromptId) return false
+                  
+                  // CRITICAL: Validate that ALL prompt interests are in group's explicit interests
+                  if (p.interests && Array.isArray(p.interests) && p.interests.length > 0) {
+                    const allInterestsValid = p.interests.every((interest: string) => 
+                      explicitInterests.includes(interest)
+                    )
+                    if (!allInterestsValid) {
+                      const invalidInterests = p.interests.filter((interest: string) => 
+                        !explicitInterests.includes(interest)
+                      )
+                      console.error(`[schedule-daily-prompts] Group ${group.id}: Rejecting prompt ${p.id} (recalc) - has interests not in group's list: [${invalidInterests.join(', ')}]. Group interests: [${explicitInterests.join(', ')}]`)
+                      return false
+                    }
+                  }
+                  
                   return true
                 })
               }
@@ -1727,8 +1912,57 @@ serve(async (req) => {
           if (availablePrompts.length > 0) {
             const randomIndex = Math.floor(Math.random() * availablePrompts.length)
             selectedPrompt = availablePrompts[randomIndex]
-            selectionMethod = targetInterest ? `standard_interest_${targetInterest}` : "standard_null_break"
-            console.error(`[schedule-daily-prompts] Group ${group.id}: INTEREST-BASED SELECTION - Selected prompt ${selectedPrompt.id} via ${selectionMethod}`)
+            
+            // CRITICAL SAFETY CHECK: Verify selected prompt matches target interest AND all interests are valid
+            if (selectedPrompt && selectedPrompt.interests && Array.isArray(selectedPrompt.interests)) {
+              // Check 1: If targetInterest is set, prompt must contain it
+              if (targetInterest !== null && !selectedPrompt.interests.includes(targetInterest)) {
+                console.error(`[schedule-daily-prompts] Group ${group.id}: CRITICAL BUG - Selected prompt ${selectedPrompt.id} does not contain target interest "${targetInterest}"! Prompt interests: ${selectedPrompt.interests.join(', ')}`)
+                // Try to find a prompt that actually matches
+                const matchingPrompt = availablePrompts.find((p: any) => 
+                  p.interests && Array.isArray(p.interests) && p.interests.includes(targetInterest)
+                )
+                if (matchingPrompt) {
+                  selectedPrompt = matchingPrompt
+                  console.error(`[schedule-daily-prompts] Group ${group.id}: Fixed - using matching prompt ${matchingPrompt.id}`)
+                } else {
+                  console.error(`[schedule-daily-prompts] Group ${group.id}: No matching prompt found, will fallback`)
+                  selectedPrompt = null
+                }
+              }
+              
+              // Check 2: Validate ALL prompt interests are in group's explicit interests (if prompt has interests)
+              if (selectedPrompt && selectedPrompt.interests && selectedPrompt.interests.length > 0) {
+                const allInterestsValid = selectedPrompt.interests.every((interest: string) => 
+                  explicitInterests.includes(interest)
+                )
+                if (!allInterestsValid) {
+                  const invalidInterests = selectedPrompt.interests.filter((interest: string) => 
+                    !explicitInterests.includes(interest)
+                  )
+                  console.error(`[schedule-daily-prompts] Group ${group.id}: CRITICAL BUG - Selected prompt ${selectedPrompt.id} has invalid interests [${invalidInterests.join(', ')}]! Group explicit interests: [${explicitInterests.join(', ')}]`)
+                  // Try to find a valid prompt
+                  const validPrompt = availablePrompts.find((p: any) => {
+                    if (!p.interests || !Array.isArray(p.interests) || p.interests.length === 0) {
+                      return targetInterest === null // Null-interest prompts only valid if targetInterest is null
+                    }
+                    return p.interests.every((interest: string) => explicitInterests.includes(interest))
+                  })
+                  if (validPrompt) {
+                    selectedPrompt = validPrompt
+                    console.error(`[schedule-daily-prompts] Group ${group.id}: Fixed - using valid prompt ${validPrompt.id}`)
+                  } else {
+                    console.error(`[schedule-daily-prompts] Group ${group.id}: No valid prompt found, will fallback`)
+                    selectedPrompt = null
+                  }
+                }
+              }
+            }
+            
+            if (selectedPrompt) {
+              selectionMethod = targetInterest ? `standard_interest_${targetInterest}` : "standard_null_break"
+              console.error(`[schedule-daily-prompts] Group ${group.id}: INTEREST-BASED SELECTION - Selected prompt ${selectedPrompt.id} via ${selectionMethod}`)
+            }
             
             // Update cycle position for next time
             let nextPosition: number
@@ -1783,22 +2017,16 @@ serve(async (req) => {
         if (!selectedPrompt) {
           console.error(`[schedule-daily-prompts] Group ${group.id}: FALLBACK TRIGGERED - Checking group interests for filtering`)
           
-          // BUG FIX 1: Check if group has any interests
+          // CRITICAL FIX: Only check explicit interests - inferred interests should NOT affect question selection
           const { data: groupInterestsCheck } = await supabaseClient
             .from("group_interests")
             .select("interest_id")
             .eq("group_id", group.id)
             .limit(1)
           
-          const { data: groupDataCheck } = await supabaseClient
-            .from("groups")
-            .select("inferred_interests")
-            .eq("id", group.id)
-            .single()
-          
           const hasExplicitInterests = (groupInterestsCheck?.length || 0) > 0
-          const hasInferredInterests = (groupDataCheck?.inferred_interests?.length || 0) > 0
-          const hasAnyInterests = hasExplicitInterests || hasInferredInterests
+          // Only use explicit interests - inferred interests are for discovery/analysis, not scheduling
+          const hasAnyInterests = hasExplicitInterests
           
           let availablePrompts: any[] = []
           let fallbackDebug: any = {}
@@ -1858,19 +2086,93 @@ serve(async (req) => {
               groupHasInterests: false
             }
           } else {
-            // Group has interests - use standard fallback (all Standard prompts)
-            console.error(`[schedule-daily-prompts] Group ${group.id}: FALLBACK - Group has interests, using all Standard prompts`)
+            // CRITICAL BUG FIX: Group has interests - MUST only use questions matching their interests or null-interest questions
+            // NEVER use questions with interests not in the group's list
+            console.error(`[schedule-daily-prompts] Group ${group.id}: FALLBACK - Group has interests, filtering to group interests + null-interest prompts only`)
             
-            const result = await getAvailableStandardPrompts(
-              supabaseClient,
-              askedStandardPromptIds,
+            // Get explicit interests for filtering
+            const { data: groupInterestsForFallback } = await supabaseClient
+              .from("group_interests")
+              .select("interest:interests(name)")
+              .eq("group_id", group.id)
+            
+            const explicitInterestsForFallback = (groupInterestsForFallback || [])
+              .map((gi: any) => gi.interest?.name)
+              .filter((name: string) => name)
+            
+            // Fetch ALL Standard prompts, then filter to only those matching group interests OR null-interest
+            let allStandardPromptsForFallback: any[] = []
+            let fromFallbackAll = 0
+            const pageSizeFallbackAll = 1000
+            let hasMoreFallbackAll = true
+            
+            while (hasMoreFallbackAll) {
+              const { data: pagePrompts, error } = await supabaseClient
+                .from("prompts")
+                .select("*")
+                .eq("category", "Standard")
+                .range(fromFallbackAll, fromFallbackAll + pageSizeFallbackAll - 1)
+              
+              if (error) {
+                console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching Standard prompts in fallback:`, error)
+                break
+              }
+              
+              if (pagePrompts && pagePrompts.length > 0) {
+                allStandardPromptsForFallback = allStandardPromptsForFallback.concat(pagePrompts)
+                fromFallbackAll += pageSizeFallbackAll
+                if (pagePrompts.length < pageSizeFallbackAll) {
+                  hasMoreFallbackAll = false
+                }
+              } else {
+                hasMoreFallbackAll = false
+              }
+            }
+            
+            // Filter to only prompts that:
+            // 1. Match group's explicit interests (prompt.interests contains at least one group interest)
+            // 2. OR have null/empty interests (break questions)
+            // AND exclude asked prompts
+            const askedStandardArray = Array.from(askedStandardPromptIds)
+            const askedCustomArray = Array.from(askedCustomQuestionIds)
+            
+            availablePrompts = allStandardPromptsForFallback.filter((p: any) => {
+              // Exclude asked prompts
+              if (askedStandardArray.includes(p.id)) return false
+              if (askedCustomArray.includes(p.id)) return false
+              if (lastStandardPromptId && p.id === lastStandardPromptId) return false
+              
+              // Check if prompt has interests
+              if (!p.interests || !Array.isArray(p.interests) || p.interests.length === 0) {
+                // Null/empty interests - allow (these are break questions)
+                return true
+              }
+              
+              // Check if prompt interests match group's explicit interests
+              // Allow if at least one prompt interest is in group's explicit interests
+              const hasMatchingInterest = p.interests.some((interest: string) => 
+                explicitInterestsForFallback.includes(interest)
+              )
+              
+              if (hasMatchingInterest) {
+                return true
+              }
+              
+              // CRITICAL: Reject prompts with interests NOT in group's list
+              console.error(`[schedule-daily-prompts] Group ${group.id}: FALLBACK - Rejecting prompt ${p.id} with interests [${p.interests.join(', ')}] - not in group's interests [${explicitInterestsForFallback.join(', ')}]`)
+              return false
+            })
+            
+            fallbackDebug = {
+              askedStandardCount: askedStandardPromptIds.size,
+              askedCustomCount: askedCustomQuestionIds.size,
               lastStandardPromptId,
-              askedCustomQuestionIds,
-              group.id
-            )
-            
-            availablePrompts = result.prompts
-            fallbackDebug = { ...result.debug, filteredToNullInterestOnly: false, groupHasInterests: true }
+              totalFetched: allStandardPromptsForFallback.length,
+              availableAfterFilter: availablePrompts.length,
+              filteredToGroupInterestsOnly: true,
+              groupHasInterests: true,
+              groupExplicitInterests: explicitInterestsForFallback
+            }
           }
           
           // Store debug info
@@ -1889,37 +2191,114 @@ serve(async (req) => {
             console.error(`[schedule-daily-prompts] Group ${group.id}: FALLBACK - No prompts available after filtering. Trying without last prompt restriction...`)
             
             // Last resort: try without last prompt restriction
+            // CRITICAL: Still must paginate and filter by interests
             let lastResortPrompts: any[] = []
             if (!hasAnyInterests) {
-              // Fetch null-interest prompts without last prompt restriction
-              const { data: nullPrompts } = await supabaseClient
-                .from("prompts")
-                .select("*")
-                .eq("category", "Standard")
-                .or("interests.is.null,interests.eq.{}")
+              // Fetch null-interest prompts without last prompt restriction - PAGINATE to get ALL
+              let allNullPrompts: any[] = []
+              let fromLastResortNull = 0
+              const pageSizeLastResortNull = 1000
+              let hasMoreLastResortNull = true
+              
+              while (hasMoreLastResortNull) {
+                const { data: pagePrompts, error } = await supabaseClient
+                  .from("prompts")
+                  .select("*")
+                  .eq("category", "Standard")
+                  .or("interests.is.null,interests.eq.{}")
+                  .range(fromLastResortNull, fromLastResortNull + pageSizeLastResortNull - 1)
+                
+                if (error) {
+                  console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching null prompts in last resort:`, error)
+                  break
+                }
+                
+                if (pagePrompts && pagePrompts.length > 0) {
+                  allNullPrompts = allNullPrompts.concat(pagePrompts)
+                  fromLastResortNull += pageSizeLastResortNull
+                  if (pagePrompts.length < pageSizeLastResortNull) {
+                    hasMoreLastResortNull = false
+                  }
+                } else {
+                  hasMoreLastResortNull = false
+                }
+              }
               
               const askedStandardArray = Array.from(askedStandardPromptIds)
               const askedCustomArray = Array.from(askedCustomQuestionIds)
               
-              lastResortPrompts = (nullPrompts || []).filter((p: any) => {
+              lastResortPrompts = allNullPrompts.filter((p: any) => {
                 if (askedStandardArray.includes(p.id)) return false
                 if (askedCustomArray.includes(p.id)) return false
                 return true
               })
             } else {
-              // Fetch all Standard prompts without last prompt restriction
-              const { data: allStandardPrompts } = await supabaseClient
-                .from("prompts")
-                .select("*")
-                .eq("category", "Standard")
+              // CRITICAL BUG FIX: Even in last resort, MUST filter by group interests AND paginate
+              // Get explicit interests for filtering
+              const { data: groupInterestsLastResort } = await supabaseClient
+                .from("group_interests")
+                .select("interest:interests(name)")
+                .eq("group_id", group.id)
+              
+              const explicitInterestsLastResort = (groupInterestsLastResort || [])
+                .map((gi: any) => gi.interest?.name)
+                .filter((name: string) => name)
+              
+              // CRITICAL: Fetch ALL Standard prompts with pagination (don't rely on default limit)
+              let allStandardPrompts: any[] = []
+              let fromLastResortAll = 0
+              const pageSizeLastResortAll = 1000
+              let hasMoreLastResortAll = true
+              
+              while (hasMoreLastResortAll) {
+                const { data: pagePrompts, error } = await supabaseClient
+                  .from("prompts")
+                  .select("*")
+                  .eq("category", "Standard")
+                  .range(fromLastResortAll, fromLastResortAll + pageSizeLastResortAll - 1)
+                
+                if (error) {
+                  console.error(`[schedule-daily-prompts] Group ${group.id}: Error fetching Standard prompts in last resort:`, error)
+                  break
+                }
+                
+                if (pagePrompts && pagePrompts.length > 0) {
+                  allStandardPrompts = allStandardPrompts.concat(pagePrompts)
+                  fromLastResortAll += pageSizeLastResortAll
+                  if (pagePrompts.length < pageSizeLastResortAll) {
+                    hasMoreLastResortAll = false
+                  }
+                } else {
+                  hasMoreLastResortAll = false
+                }
+              }
               
               const askedStandardArray = Array.from(askedStandardPromptIds)
               const askedCustomArray = Array.from(askedCustomQuestionIds)
               
-              lastResortPrompts = (allStandardPrompts || []).filter((p: any) => {
+              lastResortPrompts = allStandardPrompts.filter((p: any) => {
                 if (askedStandardArray.includes(p.id)) return false
                 if (askedCustomArray.includes(p.id)) return false
-                return true
+                
+                // CRITICAL: Still filter by interests even in last resort
+                if (!p.interests || !Array.isArray(p.interests) || p.interests.length === 0) {
+                  // Null/empty interests - allow (break questions)
+                  return true
+                }
+                
+                // CRITICAL: Validate ALL prompt interests are in group's explicit interests
+                const allInterestsValid = p.interests.every((interest: string) => 
+                  explicitInterestsLastResort.includes(interest)
+                )
+                
+                if (!allInterestsValid) {
+                  const invalidInterests = p.interests.filter((interest: string) => 
+                    !explicitInterestsLastResort.includes(interest)
+                  )
+                  console.error(`[schedule-daily-prompts] Group ${group.id}: LAST RESORT - Rejecting prompt ${p.id} with interests [${p.interests.join(', ')}] - invalid interests: [${invalidInterests.join(', ')}]. Group interests: [${explicitInterestsLastResort.join(', ')}]`)
+                }
+                
+                return allInterestsValid
               })
             }
             

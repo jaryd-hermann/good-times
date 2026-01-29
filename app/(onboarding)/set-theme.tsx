@@ -273,7 +273,19 @@ export default function SetTheme() {
       width: "100%",
       height: "100%",
     },
-  }), [insets.top])
+    selectedTag: {
+      marginTop: spacing.sm,
+      backgroundColor: theme2Colors.onboardingPink,
+      borderRadius: 12,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
+    },
+    selectedTagText: {
+      fontFamily: "Roboto-Bold",
+      fontSize: 12,
+      color: theme2Colors.white,
+    },
+  }), [insets.top, selectedTheme])
 
   if (isLoading) {
     return null
@@ -301,6 +313,11 @@ export default function SetTheme() {
             activeOpacity={0.8}
           >
             <Text style={[styles.themeCardText, styles.darkThemeCardText]}>Dark theme</Text>
+            {selectedTheme === "dark" && (
+              <View style={styles.selectedTag}>
+                <Text style={styles.selectedTagText}>Selected</Text>
+              </View>
+            )}
           </TouchableOpacity>
 
           {/* Light Theme Card */}
@@ -314,6 +331,11 @@ export default function SetTheme() {
             activeOpacity={0.8}
           >
             <Text style={styles.themeCardText}>Light theme</Text>
+            {selectedTheme === "light" && (
+              <View style={styles.selectedTag}>
+                <Text style={styles.selectedTagText}>Selected</Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
 

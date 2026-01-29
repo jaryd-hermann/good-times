@@ -15,85 +15,65 @@ function getDayIndex(dateString: string, groupId: string): number {
   return diff + groupOffset
 }
 
-// Calculate 8 AM local time for a user's timezone, converted to UTC
+// Calculate 7 AM Eastern Time (EST/EDT) for a given date, converted to UTC
 // dateOrDateStr: Either a Date object or a date string (YYYY-MM-DD)
-// If Date object: determines "today" by formatting current time in user's timezone
-// If date string: uses that specific date and finds 8am on that date in user's timezone
-function get8AMLocalTimeUTC(userTimezone: string, dateOrDateStr: Date | string = new Date()): Date {
-  // CRITICAL: Determine the target date string
+// Returns UTC time that represents 7 AM Eastern Time on the given date
+function get7AMEasternTimeUTC(dateOrDateStr: Date | string = new Date()): Date {
+  // Determine the target date string
   let targetDateStr: string
   
   if (typeof dateOrDateStr === 'string') {
-    // Date string provided - use it directly (assumed to be the date we want 8am on)
+    // Date string provided - use it directly
     targetDateStr = dateOrDateStr
   } else {
-    // Date object provided - format it in user's timezone to get their local date
-    const dateFormatter = new Intl.DateTimeFormat("en-CA", {
-      timeZone: userTimezone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    })
-    targetDateStr = dateFormatter.format(dateOrDateStr) // Returns YYYY-MM-DD in user's timezone
+    // Date object provided - format it as YYYY-MM-DD
+    const year = dateOrDateStr.getFullYear()
+    const month = String(dateOrDateStr.getMonth() + 1).padStart(2, '0')
+    const day = String(dateOrDateStr.getDate()).padStart(2, '0')
+    targetDateStr = `${year}-${month}-${day}`
   }
   
-  // Get the date string in the user's timezone (YYYY-MM-DD) - this is our target date
-  const userLocalDateStr = targetDateStr
-  
-  // Create formatter for user's timezone to check hour/minute
-  const timeFormatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: userTimezone,
+  // Create a date formatter for Eastern Time (America/New_York handles EST/EDT automatically)
+  const easternTimeFormatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
   })
   
-  // We need to test UTC times across a 48-hour window to find 8am on the user's local date
-  // This handles cases where 8am local might be on the previous or next UTC day
-  // Start testing from 24 hours before the user's local date (in UTC)
-  const baseUTC = new Date(`${userLocalDateStr}T00:00:00Z`)
-  baseUTC.setUTCHours(baseUTC.getUTCHours() - 24) // Go back 24 hours to cover timezones ahead
+  // We need to find the UTC time that equals 7:00 AM Eastern Time on the target date
+  // Start testing from 12 hours before the target date (in UTC) to cover all timezones
+  const baseUTC = new Date(`${targetDateStr}T00:00:00Z`)
+  baseUTC.setUTCHours(baseUTC.getUTCHours() - 12) // Go back 12 hours
   
-  let bestUTC: Date | null = null
-  let minDiff = Infinity
-  
-  // Test UTC times across a 48-hour window (covers all timezones)
-  for (let utcHourOffset = 0; utcHourOffset < 48; utcHourOffset++) {
+  // Test UTC times across a 24-hour window to find 7 AM Eastern Time
+  for (let utcHourOffset = 0; utcHourOffset < 24; utcHourOffset++) {
     const testUTC = new Date(baseUTC)
     testUTC.setUTCHours(testUTC.getUTCHours() + utcHourOffset)
     
-    // Check what date and time this UTC time is in the user's timezone
-    const testInUserTZ = timeFormatter.formatToParts(testUTC)
-    const testHour = parseInt(testInUserTZ.find(p => p.type === "hour")?.value || "0")
-    const testMinute = parseInt(testInUserTZ.find(p => p.type === "minute")?.value || "0")
+    // Format this UTC time in Eastern Time
+    const parts = easternTimeFormatter.formatToParts(testUTC)
+    const year = parts.find(p => p.type === "year")?.value
+    const month = parts.find(p => p.type === "month")?.value
+    const day = parts.find(p => p.type === "day")?.value
+    const hour = parseInt(parts.find(p => p.type === "hour")?.value || "0")
+    const minute = parseInt(parts.find(p => p.type === "minute")?.value || "0")
     
-    // Check what date this UTC time represents in user's timezone
-    const testDateInUserTZ = dateFormatter.format(testUTC)
+    const testDateInEastern = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
     
-    // Check if this UTC time equals 8:00 AM on the target date in user's timezone
-    if (testDateInUserTZ === userLocalDateStr && testHour === 8 && testMinute === 0) {
+    // Check if this UTC time equals 7:00 AM Eastern Time on the target date
+    if (testDateInEastern === targetDateStr && hour === 7 && minute === 0) {
       return testUTC
     }
-    
-    // Track the closest match (same date, closest to 8am)
-    if (testDateInUserTZ === userLocalDateStr) {
-      const totalMinutes = testHour * 60 + testMinute
-      const targetMinutes = 8 * 60 // 8 AM = 480 minutes
-      const diff = Math.abs(totalMinutes - targetMinutes)
-      if (diff < minDiff) {
-        minDiff = diff
-        bestUTC = testUTC
-      }
-    }
   }
   
-  // Return the closest match (should be exact, but fallback in case of edge cases)
-  if (bestUTC) {
-    return bestUTC
-  }
-  
-  // Fallback: return 8am UTC (shouldn't happen, but safety)
-  return new Date(`${userLocalDateStr}T08:00:00Z`)
+  // Fallback: calculate manually (shouldn't happen, but safety)
+  // 7 AM EST = 12 PM UTC (UTC-5), 7 AM EDT = 11 AM UTC (UTC-4)
+  // We'll use a simple approximation - this is a fallback only
+  return new Date(`${targetDateStr}T12:00:00Z`)
 }
 
 serve(async (req) => {
@@ -176,10 +156,10 @@ serve(async (req) => {
       }
 
       for (const targetUser of targetUsers) {
-        // Get user info including timezone
+        // Get user info (timezone no longer needed - all notifications sent at 7 AM EST)
         const { data: userData, error: userError } = await supabaseClient
           .from("users")
-          .select("id, name, email, timezone")
+          .select("id, name, email")
           .eq("id", targetUser.user_id)
           .single()
 
@@ -187,9 +167,6 @@ serve(async (req) => {
           console.log(`[send-daily-notifications] User not found: ${targetUser.user_id}`)
           continue
         }
-
-        // Get user's timezone (default to America/New_York if not set)
-        const userTimezone = userData.timezone || "America/New_York"
         
         // Check if user has push token
         const { data: pushTokens, error: tokenError } = await supabaseClient
@@ -359,13 +336,11 @@ serve(async (req) => {
           )
         }
 
-        // Calculate 8 AM local time for this user (in UTC)
-        // CRITICAL: Pass the UTC "today" date string directly
-        // We want 8am on this date in the user's timezone
-        // For example: if today is "2024-01-15" (UTC date), we want 8am EST on Jan 15
-        const scheduledTime = get8AMLocalTimeUTC(userTimezone, today)
+        // Calculate 7 AM Eastern Time (EST/EDT) for today, converted to UTC
+        // All users receive notifications at the same time: 7 AM Eastern Time
+        const scheduledTime = get7AMEasternTimeUTC(today)
         
-        // Queue notification for 8 AM local time
+        // Queue notification for 7 AM Eastern Time
         const notificationTitle = `Answer today's question in ${group.name}`
         const notificationBody = "Take a minute to answer so you can see what the others said"
         
@@ -387,12 +362,12 @@ serve(async (req) => {
         if (queueError) {
           console.error(`[send-daily-notifications] Error queueing notification for user ${targetUser.user_id}:`, queueError)
         } else {
-          console.log(`[send-daily-notifications] Queued notification for user ${targetUser.user_id} at ${scheduledTime.toISOString()} (8 AM ${userTimezone})`)
+          console.log(`[send-daily-notifications] Queued notification for user ${targetUser.user_id} at ${scheduledTime.toISOString()} (7 AM Eastern Time)`)
           notifications.push({ 
             user_id: targetUser.user_id, 
             status: "queued",
             scheduled_time: scheduledTime.toISOString(),
-            timezone: userTimezone
+            timezone: "America/New_York"
           })
         }
       }

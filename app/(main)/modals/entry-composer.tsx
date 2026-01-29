@@ -1136,6 +1136,15 @@ export default function EntryComposer() {
     }
     
     if (validAssets.length > 0) {
+      // Replace all photo/video items with the new selection from JournalWeeklyMediaPicker
+      // Keep audio items as they are (audio is not managed by JournalWeeklyMediaPicker)
+      const currentPhotoVideoItems = mediaItems.filter((item) => item.type !== "audio")
+      
+      // Store existing captions before replacing
+      // JournalWeeklyMediaPicker maintains consistent order (sorted by day Mon-Sun, then chronologically)
+      // So we can preserve captions by index when count matches
+      const existingCaptions = [...captions]
+      
       // Process assets and convert MediaLibrary URIs to readable file paths
       const newItems = await Promise.all(
         validAssets.map(async (asset) => {
@@ -1186,20 +1195,29 @@ export default function EntryComposer() {
         })
       )
       
-      // Calculate photo/video items count before updating state
-      const currentPhotoVideoItems = mediaItems.filter((item) => item.type !== "audio")
-      const totalPhotoVideoItems = currentPhotoVideoItems.length + newItems.length
+      // Replace all photo/video items with the new selection from JournalWeeklyMediaPicker
+      // Keep audio items as they are (audio is not managed by JournalWeeklyMediaPicker)
+      const audioItems = mediaItems.filter((item) => item.type === "audio")
       
-      setMediaItems((prev) => [...prev, ...newItems])
+      // Replace photo/video items with new selection
+      setMediaItems([...audioItems, ...newItems])
       
-      // Sync captions array - add null captions for new photos
+      // Sync captions array - preserve captions by index since JournalWeeklyMediaPicker maintains order
+      // The picker sends photos sorted by day (Mon-Sun), then chronologically within each day
+      // This order is consistent, so we can match captions by index
       setCaptions((prevCaptions) => {
-        const newCaptions = [...prevCaptions]
-        // Add null captions for new photos
-        while (newCaptions.length < totalPhotoVideoItems) {
-          newCaptions.push(null)
+        if (newItems.length === currentPhotoVideoItems.length) {
+          // Same count - preserve all captions by index (same order maintained by picker)
+          return prevCaptions.slice(0, currentPhotoVideoItems.length)
+        } else if (newItems.length > currentPhotoVideoItems.length) {
+          // Adding photos - preserve existing captions, add nulls for new ones at the end
+          const preserved = prevCaptions.slice(0, currentPhotoVideoItems.length)
+          const newOnes = new Array(newItems.length - currentPhotoVideoItems.length).fill(null)
+          return [...preserved, ...newOnes]
+        } else {
+          // Removing photos - preserve captions for remaining photos by index
+          return prevCaptions.slice(0, newItems.length)
         }
-        return newCaptions
       })
     }
   }

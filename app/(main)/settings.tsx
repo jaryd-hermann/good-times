@@ -904,6 +904,40 @@ export default function SettingsScreen() {
                 variant="secondary"
               />
               <Button
+                title="Simulate Background Open"
+                onPress={async () => {
+                  try {
+                    // CRITICAL: Do NOT clear session - keep it valid so boot flow can work
+                    // Only set boot flags and simulate inactivity
+                    await AsyncStorage.setItem("force_boot_refresh", "true")
+                    await AsyncStorage.setItem("force_boot_screen", "true")
+                    
+                    // Simulate long inactivity to trigger boot flow logic
+                    // This simulates the app being in background for a long time
+                    await simulateLongInactivity(35)
+                    
+                    Alert.alert(
+                      "Background Open Simulated",
+                      "Boot flags set and inactivity simulated. Session remains valid. Navigating to root to trigger boot flow...",
+                      [
+                        {
+                          text: "OK",
+                          onPress: () => {
+                            // Navigate to root to trigger boot flow
+                            // The boot flow will detect the flags and inactivity, then show boot screen
+                            router.replace("/")
+                          }
+                        }
+                      ]
+                    )
+                  } catch (error) {
+                    console.error("[SETTINGS] Failed to simulate background open:", error)
+                    Alert.alert("Error", `Failed to simulate background open: ${error}`)
+                  }
+                }}
+                variant="secondary"
+              />
+              <Button
                 title="Clear All Session Data"
                 onPress={handleClearAllSessionData}
                 variant="secondary"

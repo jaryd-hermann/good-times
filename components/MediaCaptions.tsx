@@ -55,6 +55,7 @@ export function MediaCaptions({
   const [keyboardHeight, setKeyboardHeight] = useState(0)
   const scrollViewRef = useRef<ScrollView>(null)
   const captionInputRef = useRef<TextInput>(null)
+  const wasVisibleRef = useRef(false)
 
   // Theme 2 colors
   const theme2Colors = {
@@ -69,9 +70,10 @@ export function MediaCaptions({
     textSecondary: isDark ? "#A0A0A0" : "#404040",
   }
 
-  // Reset to initial index when modal opens
+  // Reset to initial index when modal opens (only when visible changes from false to true)
   useEffect(() => {
-    if (visible) {
+    if (visible && !wasVisibleRef.current) {
+      // Modal just opened - reset everything
       setCurrentIndex(initialIndex)
       setCaptions(initialCaptions || [])
       setEditingCaptionIndex(null)
@@ -83,8 +85,22 @@ export function MediaCaptions({
           animated: false,
         })
       }, 100)
+      wasVisibleRef.current = true
+    } else if (!visible) {
+      // Modal closed - reset the ref
+      wasVisibleRef.current = false
     }
-  }, [visible, initialIndex, initialCaptions])
+    // Note: We don't update captions when initialCaptions changes while modal is open
+    // because we're managing captions state internally and syncing via onSave callback
+  }, [visible, initialIndex])
+  
+  // Sync captions when modal opens, but don't reset index
+  useEffect(() => {
+    if (visible && wasVisibleRef.current) {
+      // Modal is already open - sync captions but preserve current index
+      setCaptions(initialCaptions || [])
+    }
+  }, [initialCaptions, visible])
 
   // Listen to keyboard events
   useEffect(() => {

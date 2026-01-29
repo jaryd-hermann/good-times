@@ -3382,11 +3382,35 @@ export default function Home() {
         router.push(`/(main)/explore-decks?groupId=${notification.groupId}`)
       }
     } else if (notification.type === "birthday_card") {
-      // Navigate to birthday card screen
+      // Navigate to birthday card composer modal
       if (notification.birthdayPersonId && notification.birthdayDate) {
-        router.push(`/(main)/birthday-card?userId=${notification.birthdayPersonId}&date=${notification.birthdayDate}&groupId=${notification.groupId}`)
+        // Get the birthday card ID from the group, birthday user, and date
+        const { data: birthdayCard } = await supabase
+          .from("birthday_cards")
+          .select("id, birthday_user:users(name)")
+          .eq("group_id", notification.groupId)
+          .eq("birthday_user_id", notification.birthdayPersonId)
+          .eq("birthday_date", notification.birthdayDate)
+          .maybeSingle()
+        
+        if (birthdayCard) {
+          const birthdayUserName = (birthdayCard.birthday_user as any)?.name || "Someone"
+          router.push({
+            pathname: "/(main)/modals/birthday-card-composer",
+            params: {
+              cardId: birthdayCard.id,
+              groupId: notification.groupId,
+              birthdayUserId: notification.birthdayPersonId,
+              birthdayUserName: birthdayUserName,
+              returnTo: `/(main)/history?groupId=${notification.groupId}`,
+            },
+          })
+        } else {
+          // Fallback: navigate to history if card not found
+          router.replace("/(main)/history")
+        }
       } else {
-        router.replace("/(main)/home")
+        router.replace("/(main)/history")
       }
     } else if (notification.type === "custom_question_opportunity") {
       // Navigate to explore decks to ask custom question

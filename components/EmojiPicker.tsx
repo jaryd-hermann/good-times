@@ -1205,29 +1205,21 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
 
   useEffect(() => {
     if (visible) {
-      // Immediately set to final position to avoid lag - no animation delay
+      // CRITICAL: Set to final position IMMEDIATELY (no animation) for instant feel
+      // Set value synchronously before render to avoid any delay
       slideAnim.setValue(1)
-      // Use a very fast spring animation for instant feel
-      Animated.spring(slideAnim, {
-        toValue: 1,
-        useNativeDriver: true,
-        tension: 100, // Increased tension for faster animation
-        friction: 8, // Reduced friction for snappier feel
-      }).start()
       // Reset search and category when opened
       setSearchQuery("")
       setSelectedCategory(null)
       scrollViewRef.current?.scrollTo({ x: 0, y: 0, animated: false })
-      // Focus search input immediately to open keyboard faster
-      // Use requestAnimationFrame for immediate execution after render completes
-      // Double RAF ensures modal is fully mounted and ready
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          searchInputRef.current?.focus()
-        })
-      })
+      // DO NOT auto-focus search - only show keyboard if user explicitly taps search bar
     } else {
-      slideAnim.setValue(0)
+      // Only animate when closing (smooth close animation)
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start()
     }
   }, [visible, slideAnim])
 
@@ -1265,6 +1257,8 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
     }
   }, [])
 
+  // CRITICAL: When visible, set translateY to 0 immediately (no animation)
+  // Only use animation when closing (not opening)
   const translateY = slideAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [300, 0],
@@ -1305,10 +1299,10 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
 
   // Group filtered emojis into pages
   // When keyboard is open: 5 per page (1 row x 5 columns)
-  // When no keyboard: 20 per page (4 rows x 5 columns)
+  // When no keyboard: 28 per page (4 rows x 7 columns) - last column bleeds off screen to suggest horizontal scrolling
   const emojiPages = useMemo(() => {
     const pages: string[][] = []
-    const emojisPerPage = keyboardHeight > 0 ? 5 : 20
+    const emojisPerPage = keyboardHeight > 0 ? 5 : 28
     for (let i = 0; i < filteredEmojis.length; i += emojisPerPage) {
       pages.push(filteredEmojis.slice(i, i + emojisPerPage))
     }
@@ -1333,7 +1327,7 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
     <Modal
       visible={visible}
       transparent
-      animationType="fade"
+      animationType="none"
       onRequestClose={onClose}
     >
       <TouchableOpacity
@@ -1465,10 +1459,10 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
                             return buttonHeight + spacing.sm * 2
                           })()
                         : (() => {
-                            // Calculate height for 4 rows
-                            const buttonWidth = (SCREEN_WIDTH - spacing.lg * 2 - spacing.sm * 4) / 5
+                            // Calculate height for 4 rows (7 columns, last column bleeds off screen to suggest horizontal scrolling)
+                            const buttonWidth = (SCREEN_WIDTH - spacing.lg * 2 - spacing.sm * 6) / 7
                             const buttonHeight = buttonWidth
-                            return (buttonHeight * 4) + (spacing.sm * 5) + spacing.sm * 2
+                            return (buttonHeight * 4) + (spacing.sm * 3) + spacing.sm * 2
                           })(),
                     }
                   ]}
@@ -1479,8 +1473,9 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
                   keyboardShouldPersistTaps="handled"
                 >
                   {emojiPages.map((page, pageIndex) => {
-                    // Calculate emoji button size
-                    const buttonWidth = (SCREEN_WIDTH - spacing.lg * 2 - spacing.sm * 4) / 5
+                    // Calculate emoji button size - 7 columns when keyboard closed, 5 when open
+                    const columnsToShow = keyboardHeight > 0 ? 5 : 7
+                    const buttonWidth = (SCREEN_WIDTH - spacing.lg * 2 - spacing.sm * (columnsToShow - 1)) / columnsToShow
                     const buttonHeight = buttonWidth
                     const rowsToShow = keyboardHeight > 0 ? 1 : 4
                     // Calculate grid height: rows * buttonHeight + gaps between rows + padding
@@ -1497,17 +1492,23 @@ export function EmojiPicker({ visible, onClose, onSelectEmoji, currentReactions 
                             maxHeight: gridHeight,
                             minHeight: gridHeight, // Ensure minimum height so emojis are visible
                             paddingVertical: keyboardHeight > 0 ? spacing.xs : spacing.sm, // Reduce padding when keyboard is open
+                            paddingRight: keyboardHeight > 0 ? spacing.sm : spacing.md, // Extra padding at right for 7th column bleed
                           }
                         ]}>
                           {page.map((emoji, emojiIndex) => {
                             const isSelected = currentReactions.includes(emoji)
                             // Use combination of emoji and index for unique key
                             const uniqueKey = `${emoji}-${pageIndex}-${emojiIndex}`
+                            // Calculate button size dynamically based on columns (7 when keyboard closed, 5 when open)
+                            const columnsToShow = keyboardHeight > 0 ? 5 : 7
+                            const buttonWidth = (SCREEN_WIDTH - spacing.lg * 2 - spacing.sm * (columnsToShow - 1)) / columnsToShow
+                            const buttonHeight = buttonWidth
                             return (
                               <TouchableOpacity
                                 key={uniqueKey}
                                 style={[
                                   styles.emojiButton,
+                                  { width: buttonWidth, height: buttonHeight },
                                   isSelected && styles.emojiButtonSelected,
                                   isSelected && { backgroundColor: isDark ? themeColors.gray[800] : themeColors.gray[200] },
                                   isSelected && { borderColor: themeColors.accent },
@@ -1616,14 +1617,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
-    gap: spacing.sm,
+    gap: spacing.xs, // Closer together for 7 rows
     paddingVertical: spacing.sm,
     alignItems: "flex-start",
-    overflow: "hidden",
+    overflow: "visible", // Allow last row to bleed off screen
   },
   emojiButton: {
-    width: (SCREEN_WIDTH - spacing.lg * 2 - spacing.sm * 4) / 5,
-    height: (SCREEN_WIDTH - spacing.lg * 2 - spacing.sm * 4) / 5,
+    // Width calculated dynamically based on columns (7 when keyboard closed, 5 when open)
     borderRadius: 12,
     justifyContent: "center",
     alignItems: "center",

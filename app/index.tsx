@@ -1401,7 +1401,9 @@ export default function Index() {
   // CRITICAL: Always show boot screen during boot to prevent black screens
   // Show boot screen immediately if we're on root route OR if explicitly set to show
   // This prevents black screens when opening from background
-  const shouldRenderBootScreen = shouldShowBooting || shouldForceShowBoot || (isOnRootRoute && !isPasswordResetLink);
+  // CRITICAL FIX: Always show spinner when on root route to prevent blank beige screen
+  // The spinner animation already starts immediately, so we should always render it
+  const shouldRenderBootScreen = shouldShowBooting || shouldForceShowBoot || (isOnRootRoute && !isPasswordResetLink) || (!pathname || pathname === "/" || pathname === "");
   
   const spin = rotateAnim.interpolate({
     inputRange: [0, 1],
