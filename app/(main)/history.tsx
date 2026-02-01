@@ -5980,18 +5980,15 @@ export default function Home() {
                           <TouchableOpacity
                             style={styles.birthdayCardEntry}
                             onPress={() => {
-                              if (hasUserEntry) {
-                                router.push({
-                                  pathname: "/(main)/birthday-card-details",
-                                  params: {
-                                    cardId: entry.birthday_card_id,
-                                    groupId: currentGroupId!,
-                                    returnTo: "/(main)/history",
-                                  },
-                                })
-                              }
+                              router.push({
+                                pathname: "/(main)/birthday-card-details",
+                                params: {
+                                  cardId: entry.birthday_card_id,
+                                  groupId: currentGroupId!,
+                                  returnTo: "/(main)/history",
+                                },
+                              })
                             }}
-                            disabled={!hasUserEntry}
                             activeOpacity={0.9}
                           >
                             {/* Geometric shapes at top left */}
@@ -6007,23 +6004,21 @@ export default function Home() {
                               <Text style={styles.birthdayCardEntrySubtitle}>Happy birthday, {userName}. Your group wrote you a card</Text>
                               
                               {/* CTA Button */}
-                              {hasUserEntry && (
-                                <TouchableOpacity
-                                  style={styles.birthdayCardEntryButton}
-                                  onPress={() => {
-                                    router.push({
-                                      pathname: "/(main)/birthday-card-details",
-                                      params: {
-                                        cardId: entry.birthday_card_id,
-                                        groupId: currentGroupId!,
-                                        returnTo: "/(main)/history",
-                                      },
-                                    })
-                                  }}
-                                >
-                                  <Text style={styles.birthdayCardEntryButtonText}>Open card</Text>
-                                </TouchableOpacity>
-                              )}
+                              <TouchableOpacity
+                                style={styles.birthdayCardEntryButton}
+                                onPress={() => {
+                                  router.push({
+                                    pathname: "/(main)/birthday-card-details",
+                                    params: {
+                                      cardId: entry.birthday_card_id,
+                                      groupId: currentGroupId!,
+                                      returnTo: "/(main)/history",
+                                    },
+                                  })
+                                }}
+                              >
+                                <Text style={styles.birthdayCardEntryButtonText}>Open card</Text>
+                              </TouchableOpacity>
                             </View>
                             {/* Texture overlay */}
                             <View style={styles.birthdayCardEntryTexture} pointerEvents="none">

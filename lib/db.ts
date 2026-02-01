@@ -3,6 +3,29 @@ import type { User, Group, GroupMember, Prompt, DailyPrompt, Entry, Memorial, Re
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "./prompts"
 import { isSunday, getTodayDate } from "./utils"
 
+export interface MarketingStorySlide {
+  id: string
+  story_id: string
+  slide_number: number
+  headline: string
+  body: string
+}
+
+export async function getMarketingStory(storyId: string): Promise<MarketingStorySlide[]> {
+  const { data, error } = await supabase
+    .from("marketing_stories")
+    .select("*")
+    .eq("story_id", storyId)
+    .order("slide_number", { ascending: true })
+
+  if (error) {
+    console.error("[getMarketingStory] Error fetching story:", error)
+    return []
+  }
+
+  return data || []
+}
+
 // Helper function to select next memorial in rotation (week-based)
 // Ensures: Week 1 = Person A, Week 2 = Person B, etc.
 // CRITICAL: Check memorial usage across ALL Remembering prompts for this group, not just this specific prompt_id

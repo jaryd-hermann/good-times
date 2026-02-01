@@ -327,7 +327,7 @@ export default function BirthdayCardDetails() {
         ]}
       >
         <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-          <FontAwesome name="angle-left" size={18} color={theme2Colors.text} />
+          <FontAwesome name="angle-left" size={18} color={isDark ? "#000000" : theme2Colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Your group card</Text>
         <View style={{ width: 40 }} />
@@ -360,6 +360,7 @@ export default function BirthdayCardDetails() {
                   entryIds={entryIds}
                   index={index}
                   returnTo={cardReturnTo}
+                  hideCommentsAndReactions={true}
                 />
               )
             })}

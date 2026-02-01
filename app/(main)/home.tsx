@@ -51,6 +51,7 @@ import { EntryCard } from "../../components/EntryCard"
 import { CategoryTag } from "../../components/CategoryTag"
 import { PromptSkeleton } from "../../components/PromptSkeleton"
 import { EntryCardSkeleton } from "../../components/EntryCardSkeleton"
+import { MarketingCarousel } from "../../components/MarketingCarousel"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { FontAwesome } from "@expo/vector-icons"
 import { registerForPushNotifications, savePushToken } from "../../lib/notifications"
@@ -2780,6 +2781,7 @@ export default function Home() {
   // When showBirthdayCards filter is active, show ONLY birthday cards
   // CRITICAL: Only include cards that have entries
   // IMPORTANT: Only add birthday cards when showBirthdayCards is true OR when no other filters are active
+  // BUG FIX: Exclude user's own birthday card when it matches selectedDate (to avoid duplicate with banner)
   const entriesWithBirthdayCards = useMemo(() => {
     // Filter birthday cards to only include cards from the current group AND that have entries
     const filteredBirthdayCards = myBirthdayCards.filter((card) => {
@@ -2788,6 +2790,8 @@ export default function Home() {
       // Must have entries
       const cardEntries = allCardEntries[card.id] || []
       if (cardEntries.length === 0) return false
+      // Exclude user's own birthday card when it matches selectedDate (banner already shows it)
+      if (card.birthday_user_id === userId && card.birthday_date === selectedDate) return false
       return true
     })
     
@@ -2866,7 +2870,7 @@ export default function Home() {
       if (dateCompare !== 0) return dateCompare
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     })
-  }, [filteredEntries, showBirthdayCards, myBirthdayCards, currentGroupId, allCardEntries, hasActiveFilters])
+  }, [filteredEntries, showBirthdayCards, myBirthdayCards, currentGroupId, allCardEntries, hasActiveFilters, userId, selectedDate])
 
   // Group entries with birthday cards by date for feed
   const entriesByDate = useMemo(() => {
@@ -6778,6 +6782,36 @@ export default function Home() {
                         {isDateToday ? "No entries yet" : "No entries for this day"}
                       </Text>
                     </View>
+                  )}
+
+                  {/* Marketing Carousel - only show on today */}
+                  {isDateToday && (
+                    <MarketingCarousel
+                      cards={[
+                        {
+                          id: "tips-asking",
+                          storyId: "tips-asking",
+                          title: "Tips on asking questions",
+                          subtitle: "8 tips for crafting great questions",
+                          imageSource: require("../../assets/images/marketing-1.png"),
+                        },
+                        {
+                          id: "tips-answering",
+                          storyId: "tips-answering",
+                          title: "Tips on answering questions",
+                          subtitle: "8 ways to make your answers shine",
+                          imageSource: require("../../assets/images/marketing-2.png"),
+                        },
+                        {
+                          id: "tips-getting-most",
+                          storyId: "tips-getting-most",
+                          title: "How to get the most out of Good Times",
+                          subtitle: "8 tips to maximize your experience",
+                          imageSource: require("../../assets/images/marketing-3.png"),
+                        },
+                      ]}
+                      hideSeen={true}
+                    />
                   )}
           </View>
             )

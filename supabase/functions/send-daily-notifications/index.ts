@@ -15,10 +15,11 @@ function getDayIndex(dateString: string, groupId: string): number {
   return diff + groupOffset
 }
 
-// Calculate 7 AM Eastern Time (EST/EDT) for a given date, converted to UTC
+// Calculate 8 AM Eastern Time (EST/EDT) for a given date, converted to UTC
 // dateOrDateStr: Either a Date object or a date string (YYYY-MM-DD)
-// Returns UTC time that represents 7 AM Eastern Time on the given date
-function get7AMEasternTimeUTC(dateOrDateStr: Date | string = new Date()): Date {
+// Returns UTC time that represents 8 AM Eastern Time on the given date
+// All users receive notifications at 8 AM EST regardless of their timezone
+function get8AMEasternTimeUTC(dateOrDateStr: Date | string = new Date()): Date {
   // Determine the target date string
   let targetDateStr: string
   
@@ -33,8 +34,11 @@ function get7AMEasternTimeUTC(dateOrDateStr: Date | string = new Date()): Date {
     targetDateStr = `${year}-${month}-${day}`
   }
   
-  // Create a date formatter for Eastern Time (America/New_York handles EST/EDT automatically)
-  const easternTimeFormatter = new Intl.DateTimeFormat("en-US", {
+  // Parse the date components
+  const [year, month, day] = targetDateStr.split('-').map(Number)
+  
+  // Create a date formatter for Eastern Time
+  const easternFormatter = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
     year: "numeric",
     month: "2-digit",
@@ -44,36 +48,34 @@ function get7AMEasternTimeUTC(dateOrDateStr: Date | string = new Date()): Date {
     hour12: false,
   })
   
-  // We need to find the UTC time that equals 7:00 AM Eastern Time on the target date
-  // Start testing from 12 hours before the target date (in UTC) to cover all timezones
-  const baseUTC = new Date(`${targetDateStr}T00:00:00Z`)
-  baseUTC.setUTCHours(baseUTC.getUTCHours() - 12) // Go back 12 hours
-  
-  // Test UTC times across a 24-hour window to find 7 AM Eastern Time
-  for (let utcHourOffset = 0; utcHourOffset < 24; utcHourOffset++) {
-    const testUTC = new Date(baseUTC)
-    testUTC.setUTCHours(testUTC.getUTCHours() + utcHourOffset)
+  // We need to find the UTC time that equals 8:00 AM Eastern Time on the target date
+  // Start testing from 11:00 UTC (covers both EST and EDT cases)
+  // 8 AM EST = 1 PM UTC (UTC-5), 8 AM EDT = 12 PM UTC (UTC-4)
+  for (let utcHour = 11; utcHour <= 14; utcHour++) {
+    const testUTC = new Date(Date.UTC(year, month - 1, day, utcHour, 0, 0))
     
-    // Format this UTC time in Eastern Time
-    const parts = easternTimeFormatter.formatToParts(testUTC)
-    const year = parts.find(p => p.type === "year")?.value
-    const month = parts.find(p => p.type === "month")?.value
-    const day = parts.find(p => p.type === "day")?.value
-    const hour = parseInt(parts.find(p => p.type === "hour")?.value || "0")
-    const minute = parseInt(parts.find(p => p.type === "minute")?.value || "0")
+    // Format this UTC time in Eastern Time to see what time it represents
+    const parts = easternFormatter.formatToParts(testUTC)
+    const etYear = parts.find(p => p.type === "year")?.value
+    const etMonth = parts.find(p => p.type === "month")?.value
+    const etDay = parts.find(p => p.type === "day")?.value
+    const etHour = parseInt(parts.find(p => p.type === "hour")?.value || "0")
+    const etMinute = parseInt(parts.find(p => p.type === "minute")?.value || "0")
     
-    const testDateInEastern = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
+    if (!etYear || !etMonth || !etDay) continue
     
-    // Check if this UTC time equals 7:00 AM Eastern Time on the target date
-    if (testDateInEastern === targetDateStr && hour === 7 && minute === 0) {
+    const etDateStr = `${etYear}-${etMonth.padStart(2, '0')}-${etDay.padStart(2, '0')}`
+    
+    // Check if this UTC time equals 8:00 AM Eastern Time on the target date
+    if (etDateStr === targetDateStr && etHour === 8 && etMinute === 0) {
       return testUTC
     }
   }
   
-  // Fallback: calculate manually (shouldn't happen, but safety)
-  // 7 AM EST = 12 PM UTC (UTC-5), 7 AM EDT = 11 AM UTC (UTC-4)
-  // We'll use a simple approximation - this is a fallback only
-  return new Date(`${targetDateStr}T12:00:00Z`)
+  // Fallback: calculate manually
+  // 8 AM EST = 1 PM UTC (UTC-5), 8 AM EDT = 12 PM UTC (UTC-4)
+  // Default to 13:00 UTC (1 PM) which covers EST
+  return new Date(Date.UTC(year, month - 1, day, 13, 0, 0))
 }
 
 serve(async (req) => {
@@ -87,7 +89,17 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
     )
 
-    const today = new Date().toISOString().split("T")[0]
+    // Get "today" in Eastern Time, not UTC
+    // The cron runs at 00:05 UTC, which might still be "yesterday" in EST
+    // We want to schedule notifications for 8 AM EST on the Eastern "today"
+    const now = new Date()
+    const easternFormatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+    const today = easternFormatter.format(now) // Returns YYYY-MM-DD in Eastern Time
 
     // Get all daily prompts for today (both general and user-specific)
     const { data: dailyPrompts, error: promptsError } = await supabaseClient
@@ -156,7 +168,7 @@ serve(async (req) => {
       }
 
       for (const targetUser of targetUsers) {
-        // Get user info (timezone no longer needed - all notifications sent at 7 AM EST)
+        // Get user info (timezone no longer needed - all notifications sent at 8 AM EST)
         const { data: userData, error: userError } = await supabaseClient
           .from("users")
           .select("id, name, email")
@@ -336,11 +348,11 @@ serve(async (req) => {
           )
         }
 
-        // Calculate 7 AM Eastern Time (EST/EDT) for today, converted to UTC
-        // All users receive notifications at the same time: 7 AM Eastern Time
-        const scheduledTime = get7AMEasternTimeUTC(today)
+        // Calculate 8 AM Eastern Time (EST/EDT) for today, converted to UTC
+        // All users receive notifications at the same time: 8 AM Eastern Time
+        const scheduledTime = get8AMEasternTimeUTC(today)
         
-        // Queue notification for 7 AM Eastern Time
+        // Queue notification for 8 AM Eastern Time
         const notificationTitle = `Answer today's question in ${group.name}`
         const notificationBody = "Take a minute to answer so you can see what the others said"
         
@@ -362,7 +374,7 @@ serve(async (req) => {
         if (queueError) {
           console.error(`[send-daily-notifications] Error queueing notification for user ${targetUser.user_id}:`, queueError)
         } else {
-          console.log(`[send-daily-notifications] Queued notification for user ${targetUser.user_id} at ${scheduledTime.toISOString()} (7 AM Eastern Time)`)
+          console.log(`[send-daily-notifications] Queued notification for user ${targetUser.user_id} at ${scheduledTime.toISOString()} (8 AM Eastern Time)`)
           notifications.push({ 
             user_id: targetUser.user_id, 
             status: "queued",

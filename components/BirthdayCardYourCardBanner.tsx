@@ -98,7 +98,7 @@ export function BirthdayCardYourCardBanner({
           borderColor: isDark ? "#ffffff" : "#000000", // White in dark mode, black in light mode
           marginHorizontal: spacing.lg,
           marginTop: 0, // Reduced spacing below day navigation
-          marginBottom: spacing.lg,
+          marginBottom: spacing.md, // Reduced by 50% (was spacing.lg)
           flexDirection: "column", // Vertical layout for top-centered avatars
           alignItems: "center", // Center content horizontally
           justifyContent: "space-between",
@@ -106,7 +106,7 @@ export function BirthdayCardYourCardBanner({
           overflow: "hidden", // Ensure rounded corners clip content
         },
         bannerWrapper: {
-          marginBottom: spacing.lg,
+          marginBottom: spacing.md, // Reduced by 50% (was spacing.lg)
         },
         bannerContent: {
           flex: 1,

@@ -33,9 +33,10 @@ interface EntryCardProps {
   fuzzyOverlayPromptId?: string // Prompt ID to navigate to entry-composer when fuzzy overlay is tapped
   fuzzyOverlayDate?: string // Date to navigate to entry-composer when fuzzy overlay is tapped
   fuzzyOverlayGroupId?: string // Group ID to navigate to entry-composer when fuzzy overlay is tapped
+  hideCommentsAndReactions?: boolean // Hide comment and reaction options (for birthday card entries)
 }
 
-export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home", showFuzzyOverlay = false, onEntryPress, fuzzyOverlayPromptId, fuzzyOverlayDate, fuzzyOverlayGroupId }: EntryCardProps) {
+export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home", showFuzzyOverlay = false, onEntryPress, fuzzyOverlayPromptId, fuzzyOverlayDate, fuzzyOverlayGroupId, hideCommentsAndReactions = false }: EntryCardProps) {
   const router = useRouter()
   const { colors, isDark } = useTheme()
   const audioRefs = useRef<Record<string, Audio.Sound>>({})
@@ -1768,85 +1769,87 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
         )}
 
         {/* Comment Icons, React Button with Reactions, and CTA Button */}
-        <View style={styles.actionsRow}>
-          <View style={styles.actionsLeft}>
+        {!hideCommentsAndReactions && (
+          <View style={styles.actionsRow}>
             <View style={styles.actionsLeft}>
-              {/* Comment Icon - moved to left */}
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={(e) => {
-                  e.stopPropagation()
-                  handleEntryPress(true) // Scroll to comments
-                }}
-                activeOpacity={0.7}
-              >
-                <FontAwesome 
-                  name={(comments || []).length > 0 ? "comment" : "comment-o"} 
-                  size={20} 
-                  color={theme2Colors.text}
-                  style={(comments || []).length > 0 ? styles.iconSolid : styles.iconOutline}
-                />
-                {(comments || []).length > 0 && <Text style={styles.actionCount}>{(comments || []).length}</Text>}
-              </TouchableOpacity>
+              <View style={styles.actionsLeft}>
+                {/* Comment Icon - moved to left */}
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={(e) => {
+                    e.stopPropagation()
+                    handleEntryPress(true) // Scroll to comments
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <FontAwesome 
+                    name={(comments || []).length > 0 ? "comment" : "comment-o"} 
+                    size={20} 
+                    color={theme2Colors.text}
+                    style={(comments || []).length > 0 ? styles.iconSolid : styles.iconOutline}
+                  />
+                  {(comments || []).length > 0 && <Text style={styles.actionCount}>{(comments || []).length}</Text>}
+                </TouchableOpacity>
 
-              {/* React Button and Reactions - moved to right of comment */}
-              <View style={styles.reactionsRow}>
-                {/* Only show React Button if user hasn't reacted yet */}
-                {currentUserReactions.length === 0 && (
-                  <TouchableOpacity
-                    style={styles.actionButton}
-                    onPress={(e) => {
-                      e.stopPropagation()
-                      if (userId) {
-                        setShowEmojiPicker(true)
-                      }
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Image
-                      source={require("../assets/images/react.png")}
-                      style={styles.reactIcon}
-                      resizeMode="contain"
-                    />
-                  </TouchableOpacity>
-                )}
-                
-                {/* Reactions as avatars with emojis */}
-                {reactions.map((reaction) => {
-                  const emoji = reaction.type || "❤️"
-                  const user = (reaction as any).user
-                  return (
+                {/* React Button and Reactions - moved to right of comment */}
+                <View style={styles.reactionsRow}>
+                  {/* Only show React Button if user hasn't reacted yet */}
+                  {currentUserReactions.length === 0 && (
                     <TouchableOpacity
-                      key={reaction.id}
-                      style={styles.reactionAvatarContainer}
+                      style={styles.actionButton}
                       onPress={(e) => {
                         e.stopPropagation()
                         if (userId) {
-                          handleSelectEmoji(emoji)
+                          setShowEmojiPicker(true)
                         }
                       }}
                       activeOpacity={0.7}
                     >
-                      <View style={styles.reactionAvatarWrapper}>
-                        <Avatar
-                          uri={user?.avatar_url}
-                          name={user?.name || "User"}
-                          size={25}
-                        />
-                      </View>
-                      <View style={styles.reactionEmojiOverlay}>
-                        <Text style={styles.reactionEmojiOverlayText}>{emoji}</Text>
-                      </View>
+                      <Image
+                        source={require("../assets/images/react.png")}
+                        style={styles.reactIcon}
+                        resizeMode="contain"
+                      />
                     </TouchableOpacity>
-                  )
-                })}
+                  )}
+                  
+                  {/* Reactions as avatars with emojis */}
+                  {reactions.map((reaction) => {
+                    const emoji = reaction.type || "❤️"
+                    const user = (reaction as any).user
+                    return (
+                      <TouchableOpacity
+                        key={reaction.id}
+                        style={styles.reactionAvatarContainer}
+                        onPress={(e) => {
+                          e.stopPropagation()
+                          if (userId) {
+                            handleSelectEmoji(emoji)
+                          }
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.reactionAvatarWrapper}>
+                          <Avatar
+                            uri={user?.avatar_url}
+                            name={user?.name || "User"}
+                            size={25}
+                          />
+                        </View>
+                        <View style={styles.reactionEmojiOverlay}>
+                          <Text style={styles.reactionEmojiOverlayText}>{emoji}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    )
+                  })}
+                </View>
               </View>
             </View>
           </View>
-        </View>
+        )}
 
         {/* Comments Preview - Inside the card */}
-        {(comments || []).length > 0 && (
+        {!hideCommentsAndReactions && (comments || []).length > 0 && (
           <View style={styles.commentsContainer}>
           {(comments || []).length <= 10 ? (
             // Show all comments if 10 or fewer
@@ -1878,63 +1881,67 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                   <View style={styles.commentPreviewTextContainer}>
                     <View style={styles.commentPreviewUserRow}>
                       <Text style={styles.commentPreviewUser}>{comment.user?.name} </Text>
-                      {/* Spacer to push reactions/react button to the right */}
-                      <View style={{ flex: 1 }} />
-                      {/* Reactions and React Button - Right aligned */}
-                      <View style={styles.commentReactionsAndButtonContainer}>
-                        {/* Comment Reactions - On right side, next to React button */}
-                        {commentReactions.length > 0 && (
-                          <View style={[styles.commentReactionsContainer, currentUserCommentReactions.length > 0 && styles.commentReactionsContainerNoButton]}>
-                            {commentReactions.map((reaction: any) => {
-                              const emoji = reaction.type || "❤️"
-                              const user = reaction.user
-                              return (
-                                <TouchableOpacity
-                                  key={reaction.id}
-                                  style={styles.commentReactionAvatarContainer}
-                                  onPress={(e) => {
-                                    e.stopPropagation()
-                                    if (userId) {
-                                      handleSelectCommentEmoji(comment.id, emoji)
-                                    }
-                                  }}
-                                  activeOpacity={0.7}
-                                >
-                                  <View style={styles.commentReactionAvatarWrapper}>
-                                    <Avatar
-                                      uri={user?.avatar_url}
-                                      name={user?.name || "User"}
-                                      size={25}
-                                    />
-                                  </View>
-                                  <View style={styles.commentReactionEmojiOverlay}>
-                                    <Text style={styles.commentReactionEmojiOverlayText}>{emoji}</Text>
-                                  </View>
-                                </TouchableOpacity>
-                              )
-                            })}
+                      {!hideCommentsAndReactions && (
+                        <>
+                          {/* Spacer to push reactions/react button to the right */}
+                          <View style={{ flex: 1 }} />
+                          {/* Reactions and React Button - Right aligned */}
+                          <View style={styles.commentReactionsAndButtonContainer}>
+                            {/* Comment Reactions - On right side, next to React button */}
+                            {commentReactions.length > 0 && (
+                              <View style={[styles.commentReactionsContainer, currentUserCommentReactions.length > 0 && styles.commentReactionsContainerNoButton]}>
+                                {commentReactions.map((reaction: any) => {
+                                  const emoji = reaction.type || "❤️"
+                                  const user = reaction.user
+                                  return (
+                                    <TouchableOpacity
+                                      key={reaction.id}
+                                      style={styles.commentReactionAvatarContainer}
+                                      onPress={(e) => {
+                                        e.stopPropagation()
+                                        if (userId) {
+                                          handleSelectCommentEmoji(comment.id, emoji)
+                                        }
+                                      }}
+                                      activeOpacity={0.7}
+                                    >
+                                      <View style={styles.commentReactionAvatarWrapper}>
+                                        <Avatar
+                                          uri={user?.avatar_url}
+                                          name={user?.name || "User"}
+                                          size={25}
+                                        />
+                                      </View>
+                                      <View style={styles.commentReactionEmojiOverlay}>
+                                        <Text style={styles.commentReactionEmojiOverlayText}>{emoji}</Text>
+                                      </View>
+                                    </TouchableOpacity>
+                                  )
+                                })}
+                              </View>
+                            )}
+                            {/* React Button - Top right corner */}
+                            {currentUserCommentReactions.length === 0 && (
+                              <TouchableOpacity
+                                style={styles.commentReactButton}
+                                onPress={(e) => {
+                                  e.stopPropagation()
+                                  if (userId) {
+                                    setCommentEmojiPickerCommentId(comment.id)
+                                  }
+                                }}
+                                activeOpacity={0.7}
+                              >
+                                <Image
+                                  source={require("../assets/images/react.png")}
+                                  style={styles.commentReactIcon}
+                                  resizeMode="contain"
+                                />
+                              </TouchableOpacity>
+                            )}
                           </View>
-                        )}
-                        {/* React Button - Top right corner */}
-                        {currentUserCommentReactions.length === 0 && (
-                          <TouchableOpacity
-                            style={styles.commentReactButton}
-                            onPress={(e) => {
-                              e.stopPropagation()
-                              if (userId) {
-                                setCommentEmojiPickerCommentId(comment.id)
-                              }
-                            }}
-                            activeOpacity={0.7}
-                          >
-                            <Image
-                              source={require("../assets/images/react.png")}
-                              style={styles.commentReactIcon}
-                              resizeMode="contain"
-                            />
-                          </TouchableOpacity>
-                        )}
-                      </View>
+                        </>
+                      )}
                     </View>
                     {comment.text && (
                       <Text style={styles.commentPreviewText} numberOfLines={2}>
@@ -2054,63 +2061,67 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
                     <View style={styles.commentPreviewTextContainer}>
                       <View style={styles.commentPreviewUserRow}>
                         <Text style={styles.commentPreviewUser}>{comment.user?.name} </Text>
-                        {/* Spacer to push reactions/react button to the right */}
-                        <View style={{ flex: 1 }} />
-                        {/* Reactions and React Button - Right aligned */}
-                        <View style={styles.commentReactionsAndButtonContainer}>
-                          {/* Comment Reactions - On right side, next to React button */}
-                          {commentReactions.length > 0 && (
-                            <View style={[styles.commentReactionsContainer, currentUserCommentReactions.length > 0 && styles.commentReactionsContainerNoButton]}>
-                              {commentReactions.map((reaction: any) => {
-                                const emoji = reaction.type || "❤️"
-                                const user = reaction.user
-                                return (
-                                  <TouchableOpacity
-                                    key={reaction.id}
-                                    style={styles.commentReactionAvatarContainer}
-                                    onPress={(e) => {
-                                      e.stopPropagation()
-                                      if (userId) {
-                                        handleSelectCommentEmoji(comment.id, emoji)
-                                      }
-                                    }}
-                                    activeOpacity={0.7}
-                                  >
-                                    <View style={styles.commentReactionAvatarWrapper}>
-                                      <Avatar
-                                        uri={user?.avatar_url}
-                                        name={user?.name || "User"}
-                                        size={25}
-                                      />
-                                    </View>
-                                    <View style={styles.commentReactionEmojiOverlay}>
-                                      <Text style={styles.commentReactionEmojiOverlayText}>{emoji}</Text>
-                                    </View>
-                                  </TouchableOpacity>
-                                )
-                              })}
+                        {!hideCommentsAndReactions && (
+                          <>
+                            {/* Spacer to push reactions/react button to the right */}
+                            <View style={{ flex: 1 }} />
+                            {/* Reactions and React Button - Right aligned */}
+                            <View style={styles.commentReactionsAndButtonContainer}>
+                              {/* Comment Reactions - On right side, next to React button */}
+                              {commentReactions.length > 0 && (
+                                <View style={[styles.commentReactionsContainer, currentUserCommentReactions.length > 0 && styles.commentReactionsContainerNoButton]}>
+                                  {commentReactions.map((reaction: any) => {
+                                    const emoji = reaction.type || "❤️"
+                                    const user = reaction.user
+                                    return (
+                                      <TouchableOpacity
+                                        key={reaction.id}
+                                        style={styles.commentReactionAvatarContainer}
+                                        onPress={(e) => {
+                                          e.stopPropagation()
+                                          if (userId) {
+                                            handleSelectCommentEmoji(comment.id, emoji)
+                                          }
+                                        }}
+                                        activeOpacity={0.7}
+                                      >
+                                        <View style={styles.commentReactionAvatarWrapper}>
+                                          <Avatar
+                                            uri={user?.avatar_url}
+                                            name={user?.name || "User"}
+                                            size={25}
+                                          />
+                                        </View>
+                                        <View style={styles.commentReactionEmojiOverlay}>
+                                          <Text style={styles.commentReactionEmojiOverlayText}>{emoji}</Text>
+                                        </View>
+                                      </TouchableOpacity>
+                                    )
+                                  })}
+                                </View>
+                              )}
+                              {/* React Button - Top right corner */}
+                              {currentUserCommentReactions.length === 0 && (
+                                <TouchableOpacity
+                                  style={styles.commentReactButton}
+                                  onPress={(e) => {
+                                    e.stopPropagation()
+                                    if (userId) {
+                                      setCommentEmojiPickerCommentId(comment.id)
+                                    }
+                                  }}
+                                  activeOpacity={0.7}
+                                >
+                                  <Image
+                                    source={require("../assets/images/react.png")}
+                                    style={styles.commentReactIcon}
+                                    resizeMode="contain"
+                                  />
+                                </TouchableOpacity>
+                              )}
                             </View>
-                          )}
-                          {/* React Button - Top right corner */}
-                          {currentUserCommentReactions.length === 0 && (
-                            <TouchableOpacity
-                              style={styles.commentReactButton}
-                              onPress={(e) => {
-                                e.stopPropagation()
-                                if (userId) {
-                                  setCommentEmojiPickerCommentId(comment.id)
-                                }
-                              }}
-                              activeOpacity={0.7}
-                            >
-                              <Image
-                                source={require("../assets/images/react.png")}
-                                style={styles.commentReactIcon}
-                                resizeMode="contain"
-                              />
-                            </TouchableOpacity>
-                          )}
-                        </View>
+                          </>
+                        )}
                       </View>
                       {comment.text && (
                         <Text style={styles.commentPreviewText} numberOfLines={2}>
