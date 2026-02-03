@@ -55,7 +55,7 @@ import { MarketingCarousel } from "../../components/MarketingCarousel"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { FontAwesome } from "@expo/vector-icons"
 import { registerForPushNotifications, savePushToken } from "../../lib/notifications"
-import { getMemorials, getCustomQuestionOpportunity, hasSeenCustomQuestionOnboarding, getPendingVotes, getDeckDetails } from "../../lib/db"
+import { getMemorials, getCustomQuestionOpportunity, hasSeenCustomQuestionOnboarding } from "../../lib/db"
 import { personalizeMemorialPrompt, replaceDynamicVariables } from "../../lib/prompts"
 import { useTabBar } from "../../lib/tab-bar-context"
 import { CustomQuestionBanner } from "../../components/CustomQuestionBanner"
@@ -64,7 +64,7 @@ import { BirthdayCardEditBanner } from "../../components/BirthdayCardEditBanner"
 import { BirthdayCardYourCardBanner } from "../../components/BirthdayCardYourCardBanner"
 import { NotificationBell } from "../../components/NotificationBell"
 import { NotificationModal } from "../../components/NotificationModal"
-import { getInAppNotifications, markNotificationsAsChecked, markEntryAsVisited, markGroupAsVisited, clearAllNotifications, markQuestionAsAnswered, markDeckAsVoted, markBirthdayCardAsAdded, markCustomQuestionAsSubmitted, type InAppNotification } from "../../lib/notifications-in-app"
+import { getInAppNotifications, markNotificationsAsChecked, markEntryAsVisited, markGroupAsVisited, clearAllNotifications, markQuestionAsAnswered, markBirthdayCardAsAdded, markCustomQuestionAsSubmitted, type InAppNotification } from "../../lib/notifications-in-app"
 import { updateBadgeCount } from "../../lib/notifications-badge"
 import { UserProfileModal } from "../../components/UserProfileModal"
 import { useAuth } from "../../components/AuthProvider"
@@ -2396,22 +2396,6 @@ export default function Home() {
   const isCustomQuestion = dailyPrompt?.prompt?.is_custom === true
   const customQuestionData = (dailyPrompt?.prompt as any)?.customQuestion
 
-  // Get pending votes for deck voting
-  const { data: pendingVotes = [] } = useQuery({
-    queryKey: ["pendingVotes", currentGroupId, userId],
-    queryFn: () => (currentGroupId && userId ? getPendingVotes(currentGroupId, userId) : []),
-    enabled: !!currentGroupId && !!userId,
-    staleTime: 0, // Always refetch to ensure fresh data
-    refetchOnMount: true, // Refetch when component mounts
-    refetchOnWindowFocus: true, // Refetch when screen comes into focus
-  })
-
-  // Get deck info if prompt has deck_id
-  const { data: deckInfo } = useQuery({
-    queryKey: ["deckInfo", dailyPrompt?.deck_id],
-    queryFn: () => (dailyPrompt?.deck_id ? getDeckDetails(dailyPrompt.deck_id) : null),
-    enabled: !!dailyPrompt?.deck_id,
-  })
 
   // In dev mode, show banner if force toggle is enabled
   const [devForceCustomQuestion, setDevForceCustomQuestion] = useState(false)
@@ -3655,8 +3639,6 @@ export default function Home() {
       // Don't clear here - let it clear when they actually view the group
       // For now, we'll mark group as visited when they navigate
       await markGroupAsVisited(notification.groupId)
-    } else if (notification.type === "deck_vote_requested") {
-      // Clear when user votes (handled in deck-vote screen)
       // Don't clear here - let it clear when they vote
     } else if (notification.type === "birthday_card") {
       // Clear when user adds to birthday card (handled in birthday card screen)
@@ -3705,14 +3687,6 @@ export default function Home() {
             returnTo: "/(main)/home",
           },
         })
-      }
-    } else if (notification.type === "deck_vote_requested") {
-      // Navigate to deck vote page
-      if (notification.deckId) {
-        router.push(`/(main)/deck-vote?deckId=${notification.deckId}&groupId=${notification.groupId}`)
-      } else {
-        // Fallback to explore decks if deckId is missing
-        router.push(`/(main)/explore-decks?groupId=${notification.groupId}`)
       }
     } else if (notification.type === "birthday_card") {
       // Navigate to birthday card composer modal
@@ -4888,60 +4862,6 @@ export default function Home() {
       position: "relative",
       zIndex: 2, // Above texture overlay
     },
-    voteBannerWrapper: {
-      marginBottom: spacing.md, // Reduced padding below banner (50% of xl)
-      zIndex: 10, // Ensure banner renders above entries
-      elevation: 10, // Android elevation
-    },
-    voteBanner: {
-      backgroundColor: theme2Colors.cream,
-      paddingRight: spacing.md,
-      paddingLeft: spacing.md, // Add left padding
-      paddingVertical: spacing.sm, // Reduced vertical padding (50% of md)
-      borderRadius: 12,
-      borderWidth: 2,
-      borderColor: theme2Colors.yellow,
-      marginHorizontal: spacing.lg,
-      marginTop: 0, // Reduced spacing below day navigation
-      flexDirection: "row",
-      alignItems: "center", // Center content vertically
-      justifyContent: "space-between",
-      minHeight: 80, // Minimum height, can grow with content
-    },
-    voteBannerContent: {
-      flex: 1,
-      flexDirection: "row",
-      alignItems: "center",
-    },
-    voteBannerIconContainer: {
-      marginRight: spacing.md,
-      justifyContent: "center",
-      alignItems: "center",
-    },
-    voteBannerIcon: {
-      width: 60, // Smaller, not square - with padding
-      height: 60,
-      borderRadius: 4, // Slight rounding
-    },
-    voteBannerTextContainer: {
-      flex: 1,
-    },
-    voteBannerSubtext: {
-      ...typography.body,
-      fontSize: 14,
-      color: theme2Colors.textSecondary,
-      opacity: 0.9,
-      marginBottom: spacing.xs,
-    },
-    voteBannerText: {
-      ...typography.bodyBold,
-      fontSize: 16,
-      color: theme2Colors.text,
-    },
-    voteBannerChevron: {
-      marginLeft: spacing.md,
-      alignSelf: "center", // Center chevron vertically
-    },
     refreshIndicator: {
       alignItems: "center",
       justifyContent: "center",
@@ -5709,46 +5629,6 @@ export default function Home() {
             )
           })}
 
-          {/* Pending Vote Banner (today only, not for future days) */}
-          {pendingVotes.length > 0 && isToday && !isFuture && (
-            <View style={styles.voteBannerWrapper}>
-              <TouchableOpacity
-                style={styles.voteBanner}
-                onPress={() => {
-                  if (pendingVotes.length === 1) {
-                    router.push(`/(main)/deck-vote?deckId=${pendingVotes[0].deck_id}&groupId=${currentGroupId}`)
-                  } else {
-                    router.push(`/(main)/explore-decks?groupId=${currentGroupId}`)
-                  }
-                }}
-                activeOpacity={0.8}
-              >
-                <View style={styles.voteBannerContent}>
-                  {/* Deck image on the left */}
-                  <View style={styles.voteBannerIconContainer}>
-                    <Image
-                      source={getDeckImageSource(pendingVotes[0].deck?.name, pendingVotes[0].deck?.icon_url)}
-                      style={styles.voteBannerIcon}
-                      resizeMode="cover"
-                    />
-                  </View>
-                  {/* Text content */}
-                  <View style={styles.voteBannerTextContainer}>
-                    <Text style={styles.voteBannerSubtext}>
-                      {pendingVotes[0].requested_by_user?.name || "Someone"} wants to add a deck
-                    </Text>
-                    <Text style={styles.voteBannerText}>
-                      {pendingVotes.length === 1
-                        ? "Vote on it"
-                        : "Multiple decks being voted on"}
-                    </Text>
-                  </View>
-                </View>
-                {/* Chevron on the right */}
-                <FontAwesome name="chevron-right" size={16} color={theme2Colors.text} style={styles.voteBannerChevron} />
-              </TouchableOpacity>
-            </View>
-          )}
         </>
       )}
 

@@ -26,7 +26,7 @@ import * as ImagePicker from "expo-image-picker"
 import { Audio, Video, ResizeMode } from "expo-av"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { supabase } from "../../../lib/supabase"
-import { createEntry, updateEntry, getAllPrompts, getMemorials, getGroupMembers, getGroup, getEntryById, getEntriesForDate, getUserEntryForDate, getDailyPrompt, getCurrentUser } from "../../../lib/db"
+import { createEntry, updateEntry, getAllPrompts, getMemorials, getGroupMembers, getGroup, getEntryById, getEntriesForDate, getUserEntryForDate, getDailyPrompt, getCurrentUser, getUserGroups } from "../../../lib/db"
 import type { Prompt } from "../../../lib/types"
 import { uploadMedia } from "../../../lib/storage"
 import { typography, spacing } from "../../../lib/theme"
@@ -272,6 +272,8 @@ export default function EntryComposer() {
   const [captions, setCaptions] = useState<(string | null)[]>([])
   const [currentUserAvatar, setCurrentUserAvatar] = useState<string | undefined>()
   const [currentUserName, setCurrentUserName] = useState("You")
+  // Cross-group sharing state
+  const [shareMode, setShareMode] = useState<"all" | "current">("all")
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const dragPosition = useRef(new Animated.ValueXY()).current
@@ -656,6 +658,88 @@ export default function EntryComposer() {
     },
     enabled: !!currentGroupId && activePrompt?.category === "Journal",
   })
+
+  // Query to fetch user's groups with existing entry status for Journal cross-group sharing
+  // Only enabled when: Journal prompt + Sunday + user has multiple groups + not in edit mode
+  // OPTIMIZED: Use single database query instead of multiple parallel queries to avoid network congestion
+  const { data: groupsWithEntryStatus = [] } = useQuery({
+    queryKey: ["groupsWithEntryStatus", userId, date],
+    queryFn: async () => {
+      if (!userId || !date) return []
+      
+      // Get all user's groups
+      const groups = await getUserGroups(userId)
+      if (groups.length <= 1) return [] // Only show if user is in multiple groups
+      
+      // Get Journal prompt ID (same for all groups)
+      const { data: journalPrompt } = await supabase
+        .from("prompts")
+        .select("id")
+        .eq("category", "Journal")
+        .limit(1)
+        .maybeSingle()
+      
+      if (!journalPrompt) return []
+      
+      // OPTIMIZED: Single query to get all existing entries for all groups at once
+      // This avoids making multiple parallel database calls that could interfere with uploads
+      const normalizedDate = date.split('T')[0]
+      const groupIds = groups.map(g => g.id)
+      
+      const { data: existingEntries, error } = await supabase
+        .from("entries")
+        .select("group_id")
+        .eq("user_id", userId)
+        .eq("date", normalizedDate)
+        .in("group_id", groupIds)
+      
+      if (error) {
+        console.error("[entry-composer] Error fetching existing entries:", error)
+        return []
+      }
+      
+      // Create a set of group IDs that have existing entries
+      const groupsWithEntries = new Set(existingEntries?.map(e => e.group_id) || [])
+      
+      // Map groups with their entry status
+      const groupsWithStatus = groups.map((group) => ({
+        id: group.id,
+        name: group.name,
+        hasExistingEntry: groupsWithEntries.has(group.id),
+      }))
+      
+      return groupsWithStatus
+    },
+    enabled: !!userId && !!date && activePrompt?.category === "Journal" && isSunday(date) && !editMode && !loading && mediaItems.length === 0,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    staleTime: 60000, // Cache for 1 minute to avoid unnecessary refetches
+    retry: false, // Don't retry failed queries to avoid network congestion
+  })
+
+  // Determine if we should show cross-group sharing UI
+  const shouldShowCrossGroupSharing = useMemo(() => {
+    return (
+      activePrompt?.category === "Journal" &&
+      isSunday(date) &&
+      groupsWithEntryStatus.length > 1 &&
+      !editMode
+    )
+  }, [activePrompt?.category, date, groupsWithEntryStatus.length, editMode])
+
+  // Compute target groups based on share mode
+  const targetGroups = useMemo(() => {
+    if (!shouldShowCrossGroupSharing || !currentGroupId) return [currentGroupId]
+    
+    if (shareMode === "current") {
+      return [currentGroupId]
+    }
+    
+    // "all" mode: include all groups except those with existing entries
+    return groupsWithEntryStatus
+      .filter((g) => !g.hasExistingEntry)
+      .map((g) => g.id)
+  }, [shouldShowCrossGroupSharing, shareMode, currentGroupId, groupsWithEntryStatus])
 
   // Create a map of prompt_id + date -> memorial name used
   const memorialUsageMap = useMemo(() => {
@@ -1755,6 +1839,42 @@ export default function EntryComposer() {
     }
   }
 
+  // Helper function to get Journal prompt ID and week number for a group
+  async function getJournalPromptInfoForGroup(groupId: string, targetDate: string): Promise<{ promptId: string; weekNumber: number } | null> {
+    // Get Journal prompt ID (same for all groups)
+    const { data: journalPrompt } = await supabase
+      .from("prompts")
+      .select("id")
+      .eq("category", "Journal")
+      .limit(1)
+      .maybeSingle()
+    
+    if (!journalPrompt) return null
+    
+    // Calculate week number for this group
+    const todayDate = getTodayDate()
+    const { data: journalPrompts, error } = await supabase
+      .from("daily_prompts")
+      .select("date")
+      .eq("group_id", groupId)
+      .eq("prompt_id", journalPrompt.id)
+      .lt("date", todayDate)
+      .order("date", { ascending: true })
+    
+    if (error) {
+      console.error("[entry-composer] Error counting Journal prompts for group:", groupId, error)
+      return { promptId: journalPrompt.id, weekNumber: 1 }
+    }
+    
+    const validSundayPrompts = (journalPrompts || []).filter((dp: any) => {
+      return isSunday(dp.date)
+    })
+    
+    const weekNumber = validSundayPrompts.length + 1
+    
+    return { promptId: journalPrompt.id, weekNumber }
+  }
+
   async function handlePost() {
     if (!text.trim() && mediaItems.length === 0) {
       Alert.alert("Error", "Please add some content to your entry")
@@ -1948,6 +2068,7 @@ export default function EntryComposer() {
           ? uploadedMedia.map((_, index) => captions[index] || null)
           : undefined
         
+        // Post to current group first (synchronous - await success)
         const newEntry = await createEntry({
           group_id: currentGroupId,
           user_id: userId,
@@ -2030,6 +2151,73 @@ export default function EntryComposer() {
           queryClient.invalidateQueries({ queryKey: ["dailyPrompt", currentGroupId], exact: false }),
           queryClient.invalidateQueries({ queryKey: ["historyComments"] }),
         ])
+
+        // Cross-group sharing: Post to other groups in background (only for Journal prompts)
+        // Only proceed if we have successfully processed all media items (uploaded new ones, kept existing URLs)
+        // Note: If uploads failed, we would have thrown an error above, so we only reach here if uploads succeeded
+        if (shouldShowCrossGroupSharing && targetGroups.length > 1 && uploadedMedia.length === mediaItems.length) {
+          // Post to other groups (excluding current group which we already posted to)
+          const otherGroups = targetGroups.filter((groupId) => groupId !== currentGroupId)
+          
+          if (otherGroups.length > 0) {
+            // Post to other groups in background (don't await - let it happen in background)
+            // Add small delay between posts to avoid overwhelming the network
+            Promise.allSettled(
+              otherGroups.map(async (groupId, index) => {
+                // Add delay between posts (100ms per group) to avoid network congestion
+                if (index > 0) {
+                  await new Promise(resolve => setTimeout(resolve, 100 * index))
+                }
+                
+                try {
+                  // Get Journal prompt info for this group (prompt ID and week number)
+                  const journalInfo = await getJournalPromptInfoForGroup(groupId, date)
+                  if (!journalInfo) {
+                    console.warn(`[entry-composer] Skipping group ${groupId} - no Journal prompt found`)
+                    return
+                  }
+
+                  // Ensure we have valid uploaded media URLs (skip if uploads failed)
+                  if (!uploadedMedia || uploadedMedia.length === 0) {
+                    console.warn(`[entry-composer] Skipping group ${groupId} - no uploaded media available`)
+                    return
+                  }
+
+                  // Create entry for this group using same content
+                  await createEntry({
+                    group_id: groupId,
+                    user_id: userId,
+                    prompt_id: journalInfo.promptId,
+                    date,
+                    text_content: text.trim() || undefined,
+                    media_urls: uploadedMedia.map((item) => item.url), // Reuse uploaded URLs
+                    media_types: uploadedMedia.map((item) => item.type) as ("photo" | "video" | "audio")[],
+                    captions: syncedCaptions && syncedCaptions.length > 0 ? syncedCaptions : undefined,
+                    embedded_media: embeddedMediaForStorage.length > 0 ? embeddedMediaForStorage : undefined,
+                    mentions: mentionedUserIds.length > 0 ? mentionedUserIds : undefined,
+                  })
+
+                  // Invalidate queries for this group
+                  await Promise.all([
+                    queryClient.invalidateQueries({ queryKey: ["entries", groupId], exact: false }),
+                    queryClient.invalidateQueries({ queryKey: ["userEntry", groupId], exact: false }),
+                    queryClient.invalidateQueries({ queryKey: ["userEntriesForHistoryDates", groupId], exact: false }),
+                    queryClient.invalidateQueries({ queryKey: ["historyEntries", groupId], exact: false }),
+                    queryClient.invalidateQueries({ queryKey: ["dailyPrompt", groupId], exact: false }),
+                  ])
+                  
+                  console.log(`[entry-composer] Successfully posted to group ${groupId}`)
+                } catch (error: any) {
+                  console.error(`[entry-composer] Failed to post to group ${groupId}:`, error?.message || error)
+                  // Continue with other groups even if one fails
+                  // Don't show error to user - background operation
+                }
+              })
+            ).catch((error) => {
+              console.error("[entry-composer] Error in background group posting:", error)
+            })
+          }
+        }
       }
 
       // Hide uploading modal and navigate directly to home
@@ -2942,6 +3130,26 @@ export default function EntryComposer() {
       borderWidth: 1,
       borderColor: theme2Colors.textSecondary,
     },
+    sharePill: {
+      position: "absolute",
+      alignSelf: "center",
+      backgroundColor: isDark ? theme2Colors.beige : theme2Colors.white, // Black fill in dark mode, white in light mode
+      borderRadius: 20,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      borderWidth: 2,
+      borderColor: isDark ? theme2Colors.white : theme2Colors.text, // White stroke in dark mode, black in light mode
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+      zIndex: 1000,
+    },
+    sharePillText: {
+      ...typography.body,
+      fontSize: 14,
+      color: isDark ? theme2Colors.white : theme2Colors.text, // White text in dark mode, black in light mode
+      fontWeight: "600",
+    },
   }), [colors, isDark, theme2Colors])
 
   return (
@@ -3307,6 +3515,27 @@ export default function EntryComposer() {
         onAddVideo={handleAddVideo}
       />
 
+      {/* Cross-group sharing pill - floating above toolbar */}
+      {shouldShowCrossGroupSharing && !isNavigating && (
+        <TouchableOpacity
+          style={[
+            styles.sharePill,
+            {
+              bottom: Platform.OS === "android" 
+                ? keyboardHeight + spacing.xl + spacing.md + 80 
+                : keyboardHeight + 80,
+            },
+          ]}
+          onPress={() => setShareMode(shareMode === "all" ? "current" : "all")}
+          activeOpacity={0.7}
+        >
+          <FontAwesome name="users" size={14} color={isDark ? theme2Colors.white : theme2Colors.text} />
+          <Text style={styles.sharePillText}>
+            {shareMode === "all" ? "Share in all your groups" : "Share in just this group"}
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {/* Toolbar - positioned above keyboard */}
       {!isNavigating && (
       <View style={[styles.toolbar, { bottom: Platform.OS === "android" ? keyboardHeight + spacing.xl + spacing.md : keyboardHeight }]}>
@@ -3626,6 +3855,7 @@ export default function EntryComposer() {
           </View>
         </View>
       </Modal>
+
     </View>
   )
 }

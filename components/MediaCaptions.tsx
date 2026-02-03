@@ -155,19 +155,43 @@ export function MediaCaptions({
   }
 
   const handleNext = (updatedCaptions?: (string | null)[]) => {
+    // If currently editing and no updatedCaptions provided, save the caption first
+    // Note: updatedCaptions being provided means we already saved (from handleSaveCaption)
+    if (isEditing && !updatedCaptions) {
+      // Save current caption before proceeding
+      const newCaptions = [...captions]
+      while (newCaptions.length < photos.length) {
+        newCaptions.push(null)
+      }
+      newCaptions[currentIndex] = editingText.trim() || null
+      setCaptions(newCaptions)
+      setEditingCaptionIndex(null)
+      setEditingText("")
+      
+      // Save to parent
+      onSave(newCaptions)
+      
+      // Use updated captions for next step
+      updatedCaptions = newCaptions
+    }
+    
     if (currentIndex < photos.length - 1) {
+      // Move to next image
       const newIndex = currentIndex + 1
       setCurrentIndex(newIndex)
       scrollViewRef.current?.scrollTo({
         x: newIndex * SCREEN_WIDTH,
         animated: true,
       })
-      setEditingCaptionIndex(null)
-      setEditingText("")
     } else {
       // Last image - save and complete
-      // Use updatedCaptions if provided (from handleSaveCaption), otherwise use current state
-      handleSaveAndComplete(updatedCaptions)
+      // Use updatedCaptions if provided, otherwise use current state
+      const captionsToSave = updatedCaptions || captions
+      // Ensure we save the latest captions before completing
+      if (captionsToSave !== captions) {
+        setCaptions(captionsToSave)
+      }
+      handleSaveAndComplete(captionsToSave)
     }
   }
 
@@ -196,6 +220,8 @@ export function MediaCaptions({
       newCaptions.push(null)
     }
     newCaptions[currentIndex] = editingText.trim() || null
+    
+    // Update state first
     setCaptions(newCaptions)
     setEditingCaptionIndex(null)
     setEditingText("")
@@ -203,8 +229,11 @@ export function MediaCaptions({
     // Save immediately to parent component
     onSave(newCaptions)
     
-    // Auto-advance to next image, passing updated captions
-    handleNext(newCaptions)
+    // Auto-advance to next image after state updates
+    // Use setTimeout to ensure state has updated before calling handleNext
+    setTimeout(() => {
+      handleNext(newCaptions)
+    }, 0)
   }
 
   const handleCancelEdit = () => {
@@ -215,7 +244,17 @@ export function MediaCaptions({
   const handleSaveAndComplete = (updatedCaptions?: (string | null)[]) => {
     // Save captions before completing - use updatedCaptions if provided, otherwise use current state
     const captionsToSave = updatedCaptions || captions
+    
+    // Ensure captions state is updated
+    if (captionsToSave !== captions) {
+      setCaptions(captionsToSave)
+    }
+    
+    // Save to parent, then complete
+    // Only call onSave if captions have actually changed to avoid unnecessary updates
     onSave(captionsToSave)
+    
+    // Complete - this will close the modal
     if (onComplete) {
       onComplete()
     } else {
@@ -362,7 +401,7 @@ export function MediaCaptions({
     nextButtonText: {
       ...typography.bodyBold,
       fontSize: 14,
-      color: theme2Colors.white,
+      color: isDark ? "#FFFFFF" : "#000000",
     },
     saveButton: {
       backgroundColor: theme2Colors.blue,
@@ -421,7 +460,7 @@ export function MediaCaptions({
           </View>
           <View style={styles.headerRight}>
             <Text style={styles.counter}>
-              {currentIndex + 1} of {photos.length}
+              {String(currentIndex + 1)} of {String(photos.length)}
             </Text>
             <TouchableOpacity style={styles.closeButton} onPress={handleClose}>
               <FontAwesome name="times" size={18} color={theme2Colors.text} />
@@ -505,8 +544,7 @@ export function MediaCaptions({
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.nextButton}
-                  onPress={handleNext}
-                  disabled={isLastImage}
+                  onPress={() => handleNext()}
                 >
                   <Text style={styles.nextButtonText}>
                     {isLastImage ? "Done" : "Next"}

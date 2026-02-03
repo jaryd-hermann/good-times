@@ -94,12 +94,39 @@ export async function uploadMedia(
       throw new Error(`Failed to process file: ${decodeError.message || "Unknown error"}`)
     }
 
+    // Log upload attempt details for debugging
+    console.log(`[storage] Attempting upload: ${filePath}, size: ${decodedData.byteLength} bytes, type: ${fileType}`)
+    
     const { data, error } = await supabase.storage.from("entries-media").upload(filePath, decodedData, {
       contentType: getContentType(fileType, fileExt),
       upsert: false,
     })
 
     if (error) {
+      // Log full error details for debugging - try to access originalError
+      const errorDetails: any = {
+        message: error.message,
+        name: error.name,
+        statusCode: (error as any).statusCode,
+      }
+      
+      // Try to access originalError if it exists
+      if ((error as any).originalError) {
+        errorDetails.originalError = (error as any).originalError
+        errorDetails.originalErrorType = typeof (error as any).originalError
+        errorDetails.originalErrorKeys = Object.keys((error as any).originalError || {})
+      }
+      
+      // Try to access all properties of the error
+      try {
+        errorDetails.allErrorProperties = Object.getOwnPropertyNames(error)
+        errorDetails.errorString = String(error)
+      } catch (e) {
+        // Ignore if we can't access properties
+      }
+      
+      console.error(`[storage] Upload error details:`, errorDetails)
+      
       // If file already exists, return its public URL instead of failing
       // This handles cases where a retry happens after a partial upload
       if (error.message?.includes("already exists") || error.message?.includes("duplicate")) {
@@ -115,6 +142,8 @@ export async function uploadMedia(
       }
       throw error
     }
+    
+    console.log(`[storage] Upload successful: ${filePath}`)
 
     // Get public URL
     const {
@@ -123,7 +152,15 @@ export async function uploadMedia(
 
     return publicUrl
   } catch (error: any) {
-    console.error("[storage] Error uploading media:", error)
+    // Enhanced error logging for debugging
+    console.error("[storage] Error uploading media - Full details:", {
+      errorType: error?.constructor?.name,
+      message: error?.message,
+      name: error?.name,
+      statusCode: (error as any)?.statusCode,
+      code: (error as any)?.code,
+      errorObject: error,
+    })
     // Re-throw with more user-friendly message if it's our custom error
     if (error.message && (error.message.includes("too large") || error.message.includes("memory"))) {
       throw error
