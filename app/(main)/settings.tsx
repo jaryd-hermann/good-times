@@ -13,13 +13,16 @@ import {
   Platform,
   Share,
   BackHandler,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
 } from "react-native"
 import { useRouter } from "expo-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { supabase } from "../../lib/supabase"
-import { getCurrentUser, getUserGroups } from "../../lib/db"
+import { getCurrentUser, getUserGroups, deleteUserAccount } from "../../lib/db"
 import { spacing, typography } from "../../lib/theme"
 import { useTheme } from "../../lib/theme-context"
 import { Button } from "../../components/Button"
@@ -60,6 +63,9 @@ export default function SettingsScreen() {
   const [devForceCustomQuestion, setDevForceCustomQuestion] = useState(false)
   const [sessionState, setSessionState] = useState<SessionState | null>(null)
   const [onboardingGalleryVisible, setOnboardingGalleryVisible] = useState(false)
+  const [deleteAccountModalVisible, setDeleteAccountModalVisible] = useState(false)
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState("")
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false)
   const posthog = usePostHog()
 
   // Track loaded_settings_screen event
@@ -260,6 +266,79 @@ export default function SettingsScreen() {
 
   function handleReportIssue() {
     router.push("/(main)/feedback")
+  }
+
+  function handleDeleteAccountPress() {
+    // First confirmation - explain what will be deleted
+    Alert.alert(
+      "Delete My Account",
+      "Are you sure you want to delete your account? This action cannot be undone.\n\nThis will permanently delete:\n• All your answers and entries\n• All your group history\n• All shared media\n• Your group memberships\n\nYou will be logged out and all your data will be removed.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Continue",
+          style: "destructive",
+          onPress: () => {
+            // Show modal for second confirmation with text input
+            setDeleteAccountModalVisible(true)
+          },
+        },
+      ]
+    )
+  }
+
+  async function handleDeleteAccountConfirm() {
+    if (deleteConfirmationText.toLowerCase().trim() !== "goodbye") {
+      Alert.alert("Incorrect confirmation", 'Please type "goodbye" to confirm account deletion.')
+      return
+    }
+
+    setIsDeletingAccount(true)
+
+    try {
+      // Get user ID before deletion
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        throw new Error("User not found")
+      }
+
+      const userId = user.id
+
+      // Delete user account and all associated data
+      await deleteUserAccount(userId)
+
+      // Clear all local storage
+      try {
+        const allKeys = await AsyncStorage.getAllKeys()
+        await AsyncStorage.multiRemove(allKeys)
+      } catch (error) {
+        console.warn("[settings] Failed to clear all storage:", error)
+      }
+
+      // Clear biometric credentials
+      try {
+        const { clearBiometricCredentials } = await import("../../lib/biometric")
+        await clearBiometricCredentials()
+      } catch (error) {
+        console.warn("[settings] Failed to clear biometric credentials:", error)
+      }
+
+      // Sign out from Supabase
+      await supabase.auth.signOut()
+
+      // Clear queries
+      queryClient.removeQueries()
+
+      // Navigate to welcome screen
+      router.replace("/(onboarding)/welcome-1")
+    } catch (error: any) {
+      console.error("[settings] Failed to delete account:", error)
+      setIsDeletingAccount(false)
+      Alert.alert(
+        "Error",
+        error.message || "Failed to delete your account. Please try again or contact support."
+      )
+    }
   }
 
   async function handleDevForceCustomQuestionToggle(value: boolean) {
@@ -676,6 +755,15 @@ export default function SettingsScreen() {
       ...typography.bodyMedium,
       color: theme2Colors.textSecondary,
     },
+    deleteAccountLink: {
+      alignSelf: "center",
+      paddingVertical: spacing.xs,
+      marginTop: spacing.xs,
+    },
+    deleteAccountText: {
+      ...typography.bodyMedium,
+      color: theme2Colors.red,
+    },
     wordmark: {
       width: 240, // 2x larger (120 * 2)
       height: 80, // 2x larger (40 * 2)
@@ -690,6 +778,85 @@ export default function SettingsScreen() {
       fontSize: 12,
       fontStyle: "italic",
       lineHeight: 12, // 50% reduction from default 24px line height
+    },
+    deleteModalBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(0, 0, 0, 0.5)",
+      justifyContent: "center",
+      alignItems: "center",
+      padding: spacing.lg,
+    },
+    deleteModalContent: {
+      backgroundColor: theme2Colors.cream,
+      borderRadius: 20,
+      padding: spacing.lg,
+      width: "100%",
+      maxWidth: 400,
+      borderWidth: 1,
+      borderColor: theme2Colors.text,
+    },
+    deleteModalTitle: {
+      ...typography.bodyBold,
+      fontSize: 24,
+      color: theme2Colors.text,
+      marginBottom: spacing.sm,
+      textAlign: "center",
+    },
+    deleteModalSubtitle: {
+      ...typography.body,
+      fontSize: 16,
+      color: theme2Colors.textSecondary,
+      marginBottom: spacing.md,
+      textAlign: "center",
+    },
+    deleteModalInstruction: {
+      ...typography.body,
+      fontSize: 16,
+      color: theme2Colors.text,
+      marginBottom: spacing.xs,
+      fontWeight: "600",
+    },
+    deleteModalInput: {
+      backgroundColor: theme2Colors.white,
+      borderRadius: 12,
+      padding: spacing.md,
+      borderWidth: 1,
+      borderColor: theme2Colors.textSecondary,
+      fontSize: 16,
+      color: "#000000", // Always black for visibility in white/beige input field
+      marginBottom: spacing.lg,
+    },
+    deleteModalButtons: {
+      flexDirection: "row",
+      gap: spacing.md,
+    },
+    deleteModalButton: {
+      flex: 1,
+      borderRadius: 12,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.lg,
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 48,
+    },
+    deleteModalButtonCancel: {
+      backgroundColor: theme2Colors.textSecondary,
+    },
+    deleteModalButtonDelete: {
+      backgroundColor: theme2Colors.red,
+    },
+    deleteModalButtonDisabled: {
+      opacity: 0.5,
+    },
+    deleteModalButtonCancelText: {
+      ...typography.bodyBold,
+      fontSize: 16,
+      color: theme2Colors.white,
+    },
+    deleteModalButtonDeleteText: {
+      ...typography.bodyBold,
+      fontSize: 16,
+      color: theme2Colors.white,
     },
   }), [colors, isDark, theme2Colors])
 
@@ -1146,6 +1313,9 @@ export default function SettingsScreen() {
           <TouchableOpacity onPress={handleSignOut} style={styles.logoutLink}>
             <Text style={styles.logoutText}>Log out</Text>
           </TouchableOpacity>
+          <TouchableOpacity onPress={handleDeleteAccountPress} style={styles.deleteAccountLink}>
+            <Text style={styles.deleteAccountText}>Delete my account</Text>
+          </TouchableOpacity>
           <Text style={styles.memorialText}>
             Made in memory of our mom, Amelia.{"\n"}We do remember all the good times.
           </Text>
@@ -1173,6 +1343,81 @@ export default function SettingsScreen() {
         ]}
         onComplete={() => setOnboardingGalleryVisible(false)}
       />
+
+      {/* Delete Account Confirmation Modal */}
+      <Modal
+        visible={deleteAccountModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!isDeletingAccount) {
+            setDeleteAccountModalVisible(false)
+            setDeleteConfirmationText("")
+          }
+        }}
+      >
+        <KeyboardAvoidingView
+          style={styles.deleteModalBackdrop}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => {
+              if (!isDeletingAccount) {
+                setDeleteAccountModalVisible(false)
+                setDeleteConfirmationText("")
+              }
+            }}
+          />
+          <View style={styles.deleteModalContent}>
+            <Text style={styles.deleteModalTitle}>Confirm Account Deletion</Text>
+            <Text style={styles.deleteModalSubtitle}>
+              This action cannot be undone. All your data will be permanently deleted.
+            </Text>
+            <Text style={styles.deleteModalInstruction}>
+              Type "goodbye" to confirm:
+            </Text>
+            <TextInput
+              value={deleteConfirmationText}
+              onChangeText={setDeleteConfirmationText}
+              placeholder="goodbye"
+              placeholderTextColor={theme2Colors.textSecondary}
+              style={styles.deleteModalInput}
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!isDeletingAccount}
+            />
+            <View style={styles.deleteModalButtons}>
+              <TouchableOpacity
+                style={[styles.deleteModalButton, styles.deleteModalButtonCancel]}
+                onPress={() => {
+                  setDeleteAccountModalVisible(false)
+                  setDeleteConfirmationText("")
+                }}
+                disabled={isDeletingAccount}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.deleteModalButtonCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.deleteModalButton,
+                  styles.deleteModalButtonDelete,
+                  (deleteConfirmationText.toLowerCase().trim() !== "goodbye" || isDeletingAccount) && styles.deleteModalButtonDisabled,
+                ]}
+                onPress={handleDeleteAccountConfirm}
+                disabled={deleteConfirmationText.toLowerCase().trim() !== "goodbye" || isDeletingAccount}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.deleteModalButtonDeleteText}>
+                  {isDeletingAccount ? "Deleting..." : "Delete"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   )
 }

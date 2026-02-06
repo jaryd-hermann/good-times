@@ -2727,6 +2727,29 @@ export default function OnboardingAuth() {
                   </>
                 )}
               </TouchableOpacity>
+
+              {/* Terms and Privacy Policy - Only show in registration flow */}
+              {isRegistrationFlow && (
+                <View style={styles.termsContainer}>
+                  <Text style={styles.termsText}>
+                    By continuing, I confirm that I am 13 or older and agree to the{" "}
+                    <Text
+                      style={styles.termsLink}
+                      onPress={() => Linking.openURL("https://www.getgoodtimes.app/terms")}
+                    >
+                      Terms
+                    </Text>
+                    {" "}and{" "}
+                    <Text
+                      style={styles.termsLink}
+                      onPress={() => Linking.openURL("https://www.getgoodtimes.app/privacy")}
+                    >
+                      Privacy Policy
+                    </Text>
+                    .
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
         </ScrollView>
@@ -3160,6 +3183,23 @@ const styles = StyleSheet.create({
     shadowRadius: 0,
     shadowOffset: { width: 0, height: 0 },
     elevation: 0,
+  },
+  termsContainer: {
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.xs,
+  },
+  termsText: {
+    fontFamily: "Roboto-Regular",
+    fontSize: 12,
+    lineHeight: 18,
+    color: theme2Colors.textSecondary,
+    textAlign: "center",
+  },
+  termsLink: {
+    fontFamily: "Roboto-Regular",
+    fontSize: 12,
+    color: theme2Colors.blue,
+    textDecorationLine: "underline",
   },
 })
 

@@ -4446,3 +4446,165 @@ export async function deleteUserStatus(
     throw error
   }
 }
+
+/**
+ * Delete a user account and all associated data.
+ * This permanently removes:
+ * - User's entries (answers)
+ * - User's reactions
+ * - User's comments
+ * - User's group memberships
+ * - User's statuses
+ * - User's songs
+ * - User's birthday card entries
+ * - User's custom questions
+ * - User's interests
+ * - User profile
+ * 
+ * Note: This does NOT delete the auth user - that should be handled separately via Supabase Auth Admin API
+ * or the user can delete their auth account through Supabase dashboard.
+ */
+export async function deleteUserAccount(userId: string): Promise<void> {
+  console.log(`[db] Starting account deletion for user ${userId}`)
+
+  try {
+    // Delete in order to respect foreign key constraints
+    
+    // 1. Delete user's reactions (entry reactions and comment reactions)
+    const { error: reactionsError } = await supabase
+      .from("reactions")
+      .delete()
+      .eq("user_id", userId)
+    
+    if (reactionsError) {
+      console.error("[db] Error deleting reactions:", reactionsError)
+      throw new Error(`Failed to delete reactions: ${reactionsError.message}`)
+    }
+    console.log("[db] ✓ Deleted user reactions")
+
+    // 2. Delete user's comments
+    const { error: commentsError } = await supabase
+      .from("comments")
+      .delete()
+      .eq("user_id", userId)
+    
+    if (commentsError) {
+      console.error("[db] Error deleting comments:", commentsError)
+      throw new Error(`Failed to delete comments: ${commentsError.message}`)
+    }
+    console.log("[db] ✓ Deleted user comments")
+
+    // 3. Delete user's entries (answers)
+    const { error: entriesError } = await supabase
+      .from("entries")
+      .delete()
+      .eq("user_id", userId)
+    
+    if (entriesError) {
+      console.error("[db] Error deleting entries:", entriesError)
+      throw new Error(`Failed to delete entries: ${entriesError.message}`)
+    }
+    console.log("[db] ✓ Deleted user entries")
+
+    // 4. Delete user's birthday card entries
+    const { error: birthdayCardEntriesError } = await supabase
+      .from("birthday_card_entries")
+      .delete()
+      .eq("contributor_user_id", userId)
+    
+    if (birthdayCardEntriesError) {
+      console.error("[db] Error deleting birthday card entries:", birthdayCardEntriesError)
+      throw new Error(`Failed to delete birthday card entries: ${birthdayCardEntriesError.message}`)
+    }
+    console.log("[db] ✓ Deleted user birthday card entries")
+
+    // 5. Delete user's statuses
+    const { error: statusesError } = await supabase
+      .from("user_statuses")
+      .delete()
+      .eq("user_id", userId)
+    
+    if (statusesError) {
+      console.error("[db] Error deleting user statuses:", statusesError)
+      throw new Error(`Failed to delete user statuses: ${statusesError.message}`)
+    }
+    console.log("[db] ✓ Deleted user statuses")
+
+    // 6. Delete user's songs
+    const { error: userSongsError } = await supabase
+      .from("user_songs")
+      .delete()
+      .eq("user_id", userId)
+    
+    if (userSongsError) {
+      console.error("[db] Error deleting user songs:", userSongsError)
+      throw new Error(`Failed to delete user songs: ${userSongsError.message}`)
+    }
+    console.log("[db] ✓ Deleted user songs")
+
+    // 7. Delete user's group songs (contributions)
+    const { error: groupSongsError } = await supabase
+      .from("group_songs")
+      .delete()
+      .eq("user_id", userId)
+    
+    if (groupSongsError) {
+      console.error("[db] Error deleting group songs:", groupSongsError)
+      throw new Error(`Failed to delete group songs: ${groupSongsError.message}`)
+    }
+    console.log("[db] ✓ Deleted user group songs")
+
+    // 8. Delete user's custom questions
+    const { error: customQuestionsError } = await supabase
+      .from("custom_questions")
+      .delete()
+      .eq("user_id", userId)
+    
+    if (customQuestionsError) {
+      console.error("[db] Error deleting custom questions:", customQuestionsError)
+      throw new Error(`Failed to delete custom questions: ${customQuestionsError.message}`)
+    }
+    console.log("[db] ✓ Deleted user custom questions")
+
+    // 9. Delete user's interests
+    const { error: userInterestsError } = await supabase
+      .from("user_interests")
+      .delete()
+      .eq("user_id", userId)
+    
+    if (userInterestsError) {
+      console.error("[db] Error deleting user interests:", userInterestsError)
+      throw new Error(`Failed to delete user interests: ${userInterestsError.message}`)
+    }
+    console.log("[db] ✓ Deleted user interests")
+
+    // 10. Delete user's group memberships
+    const { error: groupMembersError } = await supabase
+      .from("group_members")
+      .delete()
+      .eq("user_id", userId)
+    
+    if (groupMembersError) {
+      console.error("[db] Error deleting group memberships:", groupMembersError)
+      throw new Error(`Failed to delete group memberships: ${groupMembersError.message}`)
+    }
+    console.log("[db] ✓ Deleted user group memberships")
+
+    // 11. Delete user profile
+    const { error: userError } = await supabase
+      .from("users")
+      .delete()
+      .eq("id", userId)
+    
+    if (userError) {
+      console.error("[db] Error deleting user profile:", userError)
+      throw new Error(`Failed to delete user profile: ${userError.message}`)
+    }
+    console.log("[db] ✓ Deleted user profile")
+
+    console.log(`[db] ✅ Successfully deleted all data for user ${userId}`)
+  } catch (error: any) {
+    console.error(`[db] ❌ Failed to delete user account:`, error)
+    throw error
+  }
+}
