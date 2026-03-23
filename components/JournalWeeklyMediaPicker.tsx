@@ -29,13 +29,13 @@ type PhotoAsset = {
   id: string
   uri: string
   creationTime: number
-  dayOfWeek: string // "Monday", "Tuesday", etc.
-  dayIndex: number // 0-6 for Mon-Sun
+  dayOfWeek: string // "Sunday", "Monday", etc.
+  dayIndex: number // 0-7 for prior Sun through this Sun
 }
 
 type DayMedia = {
-  dayName: string // "Monday", "Tuesday", etc.
-  dayIndex: number // 0-6 for Mon-Sun
+  dayName: string // "Sunday", "Monday", etc.
+  dayIndex: number // 0-7 for prior Sun through this Sun
   photos: PhotoAsset[]
 }
 
@@ -49,41 +49,36 @@ type JournalWeeklyMediaPickerProps = {
   onEditCaptions?: () => void // Callback to open captions editor
 }
 
-// Calculate the date range for the Journal week (previous Monday to previous Sunday)
-// Journal is asked on Sunday, so we want photos from the previous week: Monday (6 days ago) to Sunday (today)
-function getJournalWeekRange(journalDate: string): { startDate: Date; endDate: Date; mondayDate: Date } {
-  // Parse journal date (Sunday when question is asked)
-  // Use local timezone to avoid issues
-  const journalDateStr = journalDate.split('T')[0] // Get just the date part (YYYY-MM-DD)
+// Calculate the date range for the Journal week (previous Sunday to this Sunday, inclusive)
+// Journal is asked on Sunday, so we want photos from the prior Sunday through today's Sunday (8 days)
+// This lets users who answer early Sunday morning include photos from the previous Sunday.
+function getJournalWeekRange(journalDate: string): { startDate: Date; endDate: Date; priorSundayDate: Date } {
+  const journalDateStr = journalDate.split('T')[0]
   const [year, month, day] = journalDateStr.split('-').map(Number)
-  const journalDateObj = new Date(year, month - 1, day) // Month is 0-indexed
+  const journalDateObj = new Date(year, month - 1, day)
   
-  // Journal is asked on Sunday, so the journalDate is a Sunday
-  // We want photos from the previous week: Monday (6 days before Sunday) to Sunday (the journal date itself)
-  const dayOfWeek = journalDateObj.getDay() // 0 = Sunday, 1 = Monday, etc.
+  const dayOfWeek = journalDateObj.getDay() // 0 = Sunday
   
   // If journalDate is not Sunday, find the most recent Sunday
   let targetSunday = new Date(journalDateObj)
   if (dayOfWeek !== 0) {
-    // Go back to the most recent Sunday
     targetSunday.setDate(targetSunday.getDate() - dayOfWeek)
   }
   
-  // Calculate Monday of that week (6 days before Sunday)
-  const mondayDate = new Date(targetSunday)
-  mondayDate.setDate(mondayDate.getDate() - 6)
+  // Previous Sunday = 7 days before this Sunday
+  const priorSundayDate = new Date(targetSunday)
+  priorSundayDate.setDate(priorSundayDate.getDate() - 7)
   
-  // Set to start/end of day in local timezone
-  mondayDate.setHours(0, 0, 0, 0)
+  priorSundayDate.setHours(0, 0, 0, 0)
   targetSunday.setHours(23, 59, 59, 999)
   
   console.log(`[getJournalWeekRange] journalDate: ${journalDate}, parsed: ${journalDateObj.toISOString()}, dayOfWeek: ${dayOfWeek}`)
-  console.log(`[getJournalWeekRange] Week range: ${mondayDate.toISOString()} to ${targetSunday.toISOString()}`)
+  console.log(`[getJournalWeekRange] Week range: ${priorSundayDate.toISOString()} to ${targetSunday.toISOString()}`)
   
   return {
-    startDate: mondayDate,
+    startDate: priorSundayDate,
     endDate: targetSunday,
-    mondayDate: mondayDate,
+    priorSundayDate: priorSundayDate,
   }
 }
 
@@ -92,10 +87,12 @@ function getDayName(date: Date): string {
   return format(date, "EEEE") // "Monday", "Tuesday", etc.
 }
 
-// Get day index (0 = Monday, 6 = Sunday)
-function getDayIndex(date: Date): number {
-  const day = date.getDay() // 0 = Sunday, 1 = Monday, etc.
-  return day === 0 ? 6 : day - 1 // Convert to 0 = Monday, 6 = Sunday
+// Get day index within the 8-day journal range (prior Sunday=0 .. this Sunday=7)
+// Requires the prior Sunday date to distinguish the two Sundays.
+function getDayIndex(date: Date, priorSunday: Date): number {
+  const diffMs = date.getTime() - priorSunday.getTime()
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+  return Math.max(0, Math.min(7, diffDays))
 }
 
 export function JournalWeeklyMediaPicker({
@@ -113,12 +110,12 @@ export function JournalWeeklyMediaPicker({
   const [selectedDayMedia, setSelectedDayMedia] = useState<Record<number, DayMedia>>({})
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<Set<string>>(new Set())
 
-  // Initialize day placeholders (Mon-Sun)
-  const dayLabels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+  // Initialize day placeholders (Sun-Sat-Sun, 8 days inclusive)
+  const dayLabels = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
   // Calculate week range - memoize to avoid recalculating
   const weekRange = useMemo(() => getJournalWeekRange(journalDate), [journalDate])
-  const mondayDate = weekRange.mondayDate
+  const priorSundayDate = weekRange.priorSundayDate
 
   // Track cancellation for async operations (must be declared before AppState handler)
   const cancelledRef = useRef(false)
@@ -166,7 +163,7 @@ export function JournalWeeklyMediaPicker({
       // For now, assign them chronologically to days
       existingMedia.forEach((media, index) => {
         if (media.type === "photo" || media.type === "video") {
-          const dayIndex = index % 7
+          const dayIndex = index % 8
           if (!initialDayMedia[dayIndex]) {
             initialDayMedia[dayIndex] = {
               dayName: dayLabels[dayIndex],
@@ -180,7 +177,7 @@ export function JournalWeeklyMediaPicker({
           const photoAsset: PhotoAsset = {
             id: `existing-${media.uri}-${index}`, // Unique ID based on URI and index
             uri: media.uri,
-            creationTime: mondayDate.getTime() + (dayIndex * 24 * 60 * 60 * 1000), // Approximate
+            creationTime: priorSundayDate.getTime() + (dayIndex * 24 * 60 * 60 * 1000), // Approximate
             dayOfWeek: dayLabels[dayIndex],
             dayIndex,
           }
@@ -197,7 +194,7 @@ export function JournalWeeklyMediaPicker({
       setSelectedDayMedia({})
       setSelectedPhotoIds(new Set())
     }
-  }, [visible, existingMedia, mondayDate])
+  }, [visible, existingMedia, priorSundayDate])
 
   // Fetch photos from media library
   useEffect(() => {
@@ -361,7 +358,7 @@ export function JournalWeeklyMediaPicker({
               uri: asset.uri,
               creationTime: fakeCreationTime,
               dayOfWeek: getDayName(fakeDate),
-              dayIndex: getDayIndex(fakeDate),
+              dayIndex: getDayIndex(fakeDate, weekRange.startDate),
             }
           }).sort((a, b) => b.creationTime - a.creationTime) // Sort descending: newest first
           
@@ -407,7 +404,7 @@ export function JournalWeeklyMediaPicker({
                 uri: asset.uri,
                 creationTime,
                 dayOfWeek: getDayName(creationDate),
-                dayIndex: getDayIndex(creationDate),
+                dayIndex: getDayIndex(creationDate, weekRange.startDate),
               }
             }).sort((a, b) => b.creationTime - a.creationTime)) // Sort descending: newest first
             setLoading(false)
@@ -465,7 +462,7 @@ export function JournalWeeklyMediaPicker({
                     uri: asset.uri,
                     creationTime,
                     dayOfWeek: getDayName(creationDate),
-                    dayIndex: getDayIndex(creationDate),
+                    dayIndex: getDayIndex(creationDate, weekRange.startDate),
                   }
                 }).sort((a, b) => b.creationTime - a.creationTime) // Sort descending: newest first
                 setAvailablePhotos(updatedPhotos)
@@ -486,7 +483,7 @@ export function JournalWeeklyMediaPicker({
               uri: asset.uri,
               creationTime,
               dayOfWeek: getDayName(creationDate),
-              dayIndex: getDayIndex(creationDate),
+              dayIndex: getDayIndex(creationDate, weekRange.startDate),
             }
           })
           // Sort by creation time (newest first) for consistent display
@@ -844,8 +841,7 @@ export function JournalWeeklyMediaPicker({
     },
   })
 
-  // Format Monday date for display
-  const mondayDateFormatted = format(mondayDate, "MMMM d")
+  const priorSundayFormatted = format(priorSundayDate, "MMMM d")
 
   // Calculate total selected photos count
   const totalSelectedPhotos = useMemo(() => {
@@ -911,7 +907,7 @@ export function JournalWeeklyMediaPicker({
 
           {/* Filter Label */}
           <View style={styles.filterLabel}>
-            <Text style={styles.filterLabelText}>Photos taken since {mondayDateFormatted}</Text>
+            <Text style={styles.filterLabelText}>Photos taken since {priorSundayFormatted}</Text>
             <TouchableOpacity 
               style={styles.cameraButton}
               onPress={() => {

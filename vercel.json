@@ -3,6 +3,10 @@
     {
       "source": "/join/:path*",
       "destination": "/api/proxy-join/:path*"
+    },
+    {
+      "source": "/share/:path*",
+      "destination": "/api/proxy-share/:path*"
     }
   ],
   "redirects": [

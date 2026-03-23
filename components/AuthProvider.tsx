@@ -349,15 +349,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (!user) {
               console.log("[AuthProvider] App came to foreground - session exists but no user, loading user now")
               await loadUser(session.user.id)
-            } else {
-              // User is already loaded - update timezone in case they traveled
-              // This ensures notifications adjust to their current location
-              try {
-                const { ensureUserTimezone } = await import("../lib/db")
-                await ensureUserTimezone(session.user.id)
-              } catch (timezoneError) {
-                console.warn("[AuthProvider] Failed to update timezone on foreground:", timezoneError)
-              }
             }
           }
         } catch (error) {
@@ -428,25 +419,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false) // CRITICAL: Always set loading to false
         return // Skip user load if app is backgrounded
       }
-      
-      // Ensure user has timezone set (for existing users who don't have it)
-      // Add timeout to prevent hanging - run in parallel, don't block
-      Promise.race([
-        (async () => {
-          try {
-            const { ensureUserTimezone } = await import("../lib/db")
-            await ensureUserTimezone(userId)
-          } catch (timezoneError: any) {
-            if (!timezoneError?.message?.includes('timeout')) {
-              console.warn("[AuthProvider] Failed to ensure user timezone:", timezoneError)
-            }
-          }
-        })(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
-      ]).catch(() => {
-        // Timeout or error - ignore, non-critical
-        console.warn("[AuthProvider] Timezone check timed out - continuing without it")
-      })
       
       // Add timeout to prevent hanging (3 seconds for faster failure)
       // Reduced timeout to fail faster and prevent blank screens

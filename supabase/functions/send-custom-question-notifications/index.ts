@@ -6,20 +6,10 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 }
 
-// Get user's local time for a specific hour
-function getUserLocalTime(userTimezone: string = "America/New_York", hour: number): Date {
+// EST hour check: convert current UTC hour to EST (UTC-5)
+function getCurrentEstHour(): number {
   const now = new Date()
-  const userTime = new Date(now.toLocaleString("en-US", { timeZone: userTimezone }))
-  const utcTime = new Date(now.toLocaleString("en-US", { timeZone: "UTC" }))
-  const offset = userTime.getTime() - utcTime.getTime()
-  
-  // Set to specified hour local time
-  const localTime = new Date(userTime)
-  localTime.setHours(hour, 0, 0, 0)
-  
-  // Convert back to UTC
-  const utcTimeAtHour = new Date(localTime.getTime() - offset)
-  return utcTimeAtHour
+  return (now.getUTCHours() - 5 + 24) % 24
 }
 
 serve(async (req) => {
@@ -65,22 +55,13 @@ serve(async (req) => {
 
       if (!user || !group) continue
 
-      // Get user's timezone (default to America/New_York)
-      // TODO: Store user timezone preference in users table
-      const userTimezone = "America/New_York"
-
-      // Calculate time since assignment
       const assignedAt = new Date(opportunity.created_at)
       const hoursSinceAssignment = (now.getTime() - assignedAt.getTime()) / (1000 * 60 * 60)
 
-      // Get user's local time
-      const userLocal8AM = getUserLocalTime(userTimezone, 8)
-      const userLocal4PM = getUserLocalTime(userTimezone, 16)
-      const userLocalNow = new Date(now.toLocaleString("en-US", { timeZone: userTimezone }))
-      const userLocalHour = userLocalNow.getHours()
+      const estHour = getCurrentEstHour()
 
-      // Send initial notification at 8 AM user's local time
-      if (userLocalHour === 8 && hoursSinceAssignment < 1) {
+      // Send initial notification at 8 AM EST
+      if (estHour === 8 && hoursSinceAssignment < 1) {
         // Get push token for user
         const { data: pushTokens } = await supabaseClient
           .from("push_tokens")
@@ -104,8 +85,8 @@ serve(async (req) => {
         }
       }
 
-      // Send reminder notification at 4 PM user's local time if question not created
-      if (userLocalHour === 16 && hoursSinceAssignment >= 6) {
+      // Send reminder notification at 4 PM EST if question not created
+      if (estHour === 16 && hoursSinceAssignment >= 6) {
         // Get push token for user
         const { data: pushTokens } = await supabaseClient
           .from("push_tokens")

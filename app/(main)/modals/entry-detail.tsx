@@ -25,6 +25,7 @@ import { updateBadgeCount } from "../../../lib/notifications-badge"
 import { UserProfileModal } from "../../../components/UserProfileModal"
 import { MentionableText } from "../../../components/MentionableText"
 import { EmojiPicker } from "../../../components/EmojiPicker"
+import { ShareModal } from "../../../components/ShareModal"
 import * as ImagePicker from "expo-image-picker"
 // Lazy load CommentVideoModal only when needed to prevent crashes at app launch
 // Don't import it at module level - import it dynamically when the modal is actually opened
@@ -124,6 +125,7 @@ export default function EntryDetail() {
   const [isCommentInputFocused, setIsCommentInputFocused] = useState(false)
   const [isUploadingComment, setIsUploadingComment] = useState(false)
   const [showNavHeader, setShowNavHeader] = useState(true)
+  const [shareModalVisible, setShareModalVisible] = useState(false)
   
   // Comment editing state
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
@@ -638,6 +640,20 @@ export default function EntryDetail() {
       setCommentMediaUri(null)
       setCommentMediaType(null)
       setCommentAudioDuration(0)
+
+      // Dismiss keyboard and navigate back to Home so the user lands on the
+      // same day / entry they just commented on (scroll-restoration in home.tsx
+      // uses lastViewedEntryDateRef which was set before navigating here).
+      Keyboard.dismiss()
+      setTimeout(() => {
+        if (router.canGoBack()) {
+          router.back()
+        } else if (returnTo) {
+          router.replace(returnTo)
+        } else {
+          router.replace("/(main)/home")
+        }
+      }, 150)
     },
   })
 
@@ -1801,18 +1817,27 @@ export default function EntryDetail() {
                   <TouchableOpacity onPress={handleBack} style={styles.navAction} activeOpacity={0.7}>
                     <FontAwesome name="angle-left" size={18} color={isDark ? "#000000" : theme2Colors.text} />
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={handleNext}
-                    disabled={!effectiveNextEntryId}
-                    style={[
-                      styles.navAction,
-                      styles.navActionNext,
-                      !effectiveNextEntryId && styles.navActionDisabled
-                    ]}
-                    activeOpacity={0.7}
-                  >
-                    <FontAwesome name="angle-right" size={18} color={theme2Colors.text} />
-                  </TouchableOpacity>
+                  <View style={{ flexDirection: "row", gap: spacing.sm }}>
+                    <TouchableOpacity
+                      onPress={() => setShareModalVisible(true)}
+                      style={styles.navAction}
+                      activeOpacity={0.7}
+                    >
+                      <FontAwesome name="share" size={16} color={isDark ? "#000000" : theme2Colors.text} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={handleNext}
+                      disabled={!effectiveNextEntryId}
+                      style={[
+                        styles.navAction,
+                        styles.navActionNext,
+                        !effectiveNextEntryId && styles.navActionDisabled
+                      ]}
+                      activeOpacity={0.7}
+                    >
+                      <FontAwesome name="angle-right" size={18} color={theme2Colors.text} />
+                    </TouchableOpacity>
+                  </View>
                 </View>
               )}
               <View style={styles.entryHeader}>
@@ -2582,6 +2607,24 @@ export default function EntryDetail() {
           onClose={() => setCommentEmojiPickerCommentId(null)}
           onSelectEmoji={(emoji) => handleSelectCommentEmoji(commentEmojiPickerCommentId, emoji)}
           currentReactions={commentReactionsMap[commentEmojiPickerCommentId]?.filter((r: any) => r.user_id === userId).map((r: any) => r.type || "❤️") || []}
+        />
+      )}
+
+      {/* Share Modal */}
+      {entry && (
+        <ShareModal
+          visible={shareModalVisible}
+          onClose={() => setShareModalVisible(false)}
+          entryId={entry.id}
+          groupId={entry.group_id}
+          date={entry.date}
+          questionText={personalizedQuestion || entry.prompt?.question || ""}
+          answerPreview={entry.text_response || ""}
+          mediaUrl={
+            entry.media_urls && entry.media_types
+              ? entry.media_urls.find((_: string, i: number) => entry.media_types?.[i] === "photo") || null
+              : null
+          }
         />
       )}
     </KeyboardAvoidingView>

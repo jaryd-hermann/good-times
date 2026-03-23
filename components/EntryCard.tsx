@@ -34,9 +34,10 @@ interface EntryCardProps {
   fuzzyOverlayDate?: string // Date to navigate to entry-composer when fuzzy overlay is tapped
   fuzzyOverlayGroupId?: string // Group ID to navigate to entry-composer when fuzzy overlay is tapped
   hideCommentsAndReactions?: boolean // Hide comment and reaction options (for birthday card entries)
+  onShare?: () => void
 }
 
-export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home", showFuzzyOverlay = false, onEntryPress, fuzzyOverlayPromptId, fuzzyOverlayDate, fuzzyOverlayGroupId, hideCommentsAndReactions = false }: EntryCardProps) {
+export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home", showFuzzyOverlay = false, onEntryPress, fuzzyOverlayPromptId, fuzzyOverlayDate, fuzzyOverlayGroupId, hideCommentsAndReactions = false, onShare }: EntryCardProps) {
   const router = useRouter()
   const { colors, isDark } = useTheme()
   const audioRefs = useRef<Record<string, Audio.Sound>>({})
@@ -1528,7 +1529,14 @@ export function EntryCard({ entry, entryIds, index = 0, returnTo = "/(main)/home
               })()}
             </View>
           </View>
-          <FontAwesome name="chevron-right" size={14} color={theme2Colors.textSecondary} style={styles.arrowIcon} />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+            {onShare && (
+              <TouchableOpacity onPress={onShare} activeOpacity={0.7} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <FontAwesome name="share" size={14} color={theme2Colors.textSecondary} style={styles.arrowIcon} />
+              </TouchableOpacity>
+            )}
+            <FontAwesome name="chevron-right" size={14} color={theme2Colors.textSecondary} style={styles.arrowIcon} />
+          </View>
         </View>
 
         {/* Question */}

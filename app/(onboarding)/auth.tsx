@@ -140,12 +140,45 @@ async function ensureProfileAndJoinGroup(
       throw new Error("Cannot create profile: no email available")
     }
 
-    // Check if profile already exists
-    const { data: existingProfile } = await supabase
+    // Check if profile already exists by user ID first
+    // Supabase may have linked accounts automatically, so userId might be the linked account
+    let existingProfile = (await supabase
       .from("users")
       .select("id, email, name, birthday, avatar_url")
       .eq("id", userId)
-      .maybeSingle()
+      .maybeSingle()).data
+
+    // CRITICAL: If no profile found by userId, check by email
+    // This handles cases where Supabase linked accounts but we need to find the profile
+    // This ensures Google and Apple OAuth work identically with account linking
+    if (!existingProfile && emailFromSession) {
+      console.log(`[ensureProfileAndJoinGroup] No profile found by userId, checking by email: ${emailFromSession}`)
+      const { data: profileByEmail } = await supabase
+        .from("users")
+        .select("id, email, name, birthday, avatar_url")
+        .eq("email", emailFromSession)
+        .maybeSingle()
+      
+      if (profileByEmail) {
+        console.log(`[ensureProfileAndJoinGroup] ✅ Found existing profile by email - account linking detected`)
+        console.log(`[ensureProfileAndJoinGroup] Email-based user ID: ${profileByEmail.id}, OAuth user ID: ${userId}`)
+        
+        // If user IDs don't match, Supabase hasn't linked accounts yet
+        // In this case, we should use the email-based profile's user ID
+        // But we can't change the userId parameter, so we'll work with what we have
+        // The profile lookup will work correctly since we found it by email
+        existingProfile = profileByEmail
+        
+        // Note: If userId !== profileByEmail.id, Supabase hasn't auto-linked accounts
+        // This might happen if "Confirm email" is disabled or account linking failed
+        // For now, we'll use the email-based profile, but ideally Supabase should link them
+        if (profileByEmail.id !== userId) {
+          console.warn(`[ensureProfileAndJoinGroup] ⚠️ User ID mismatch - Supabase may not have linked accounts`)
+          console.warn(`[ensureProfileAndJoinGroup] OAuth user ID: ${userId}, Profile user ID: ${profileByEmail.id}`)
+          // Continue with email-based profile - this ensures user can access their account
+        }
+      }
+    }
 
     // Only update profile if:
     // 1. Profile doesn't exist (new user), OR
@@ -199,16 +232,6 @@ async function ensureProfileAndJoinGroup(
         }
       }
 
-      // Get device timezone for new user
-      const deviceTimezone = (() => {
-        try {
-          return Intl.DateTimeFormat().resolvedOptions().timeZone
-        } catch (error) {
-          console.error("[ensureProfileAndJoinGroup] Failed to get device timezone:", error)
-          return "America/New_York" // Fallback
-        }
-      })()
-
       const { error: profileError } = await supabase
         .from("users")
         .insert({
@@ -216,8 +239,7 @@ async function ensureProfileAndJoinGroup(
           email: emailFromSession,
           name: profileData?.userName?.trim() || null,
           birthday: birthday,
-          avatar_url: finalAvatarUrl, // Use uploaded URL if available, null otherwise
-          timezone: deviceTimezone, // Set timezone from device
+          avatar_url: finalAvatarUrl,
         } as any)
 
       if (profileError) {
@@ -1200,7 +1222,32 @@ export default function OnboardingAuth() {
             return
           }
         } else {
-          console.error("[OAuth] No hash fragment in URL")
+          // No hash fragment — check for PKCE authorization code in query string
+          const codeMatch = url.match(/[?&]code=([^&#]+)/)
+          if (codeMatch) {
+            const code = decodeURIComponent(codeMatch[1])
+            console.log("[OAuth] Found PKCE code in deep link, exchanging for session...")
+            try {
+              const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
+              if (exchangeError) {
+                console.error("[OAuth] PKCE code exchange failed:", exchangeError)
+                oauthProcessingRef.current = false
+                setOauthLoading(null)
+                setErrorMessage(exchangeError.message || "Failed to complete sign-in. Please try again.")
+                return
+              }
+              if (data?.session?.user) {
+                console.log("[OAuth] PKCE code exchange succeeded! User ID:", data.session.user.id)
+                oauthProcessingRef.current = false
+                await handleOAuthSuccess(data.session)
+                return
+              }
+            } catch (exchangeErr: any) {
+              console.error("[OAuth] PKCE exchange error:", exchangeErr)
+            }
+          }
+
+          console.error("[OAuth] No hash fragment or PKCE code in URL")
           oauthProcessingRef.current = false
           setOauthLoading(null)
           setErrorMessage("Failed to complete sign-in. Invalid redirect URL.")
@@ -1578,14 +1625,33 @@ export default function OnboardingAuth() {
           redirectTo,
           skipBrowserRedirect: true, // Important: we'll open browser manually
           // Force fresh OAuth flow to prevent cached sessions (especially on simulator)
-          queryParams: {
-            prompt: 'select_account', // Forces Google to show account selection, prevents auto-login
-            access_type: 'offline',
-          },
+          // Google-specific query params - only apply to Google
+          ...(provider === "google" && {
+            queryParams: {
+              prompt: 'select_account', // Forces Google to show account selection, prevents auto-login
+              access_type: 'offline',
+            },
+          }),
         },
       })
 
       console.log(`[OAuth] Supabase response:`, { data, error })
+      console.log(`[OAuth] Provider: ${provider}`)
+      console.log(`[OAuth] Redirect URL: ${redirectTo}`)
+      if (data?.url) {
+        console.log(`[OAuth] OAuth URL: ${data.url}`)
+        // Parse and log OAuth URL parameters for debugging
+        try {
+          const urlObj = new URL(data.url)
+          console.log(`[OAuth] OAuth URL params:`, {
+            provider: urlObj.searchParams.get('provider'),
+            redirect_to: urlObj.searchParams.get('redirect_to'),
+            fullPath: urlObj.pathname + urlObj.search
+          })
+        } catch (e) {
+          console.warn(`[OAuth] Could not parse OAuth URL:`, e)
+        }
+      }
 
       if (error) {
         if (oauthTimeoutRef.current) {
@@ -1596,7 +1662,8 @@ export default function OnboardingAuth() {
         setOauthLoading(null)
         setShowOAuthLoadingScreen(false)
         oauthProcessingRef.current = false
-        setErrorMessage(error.message || `Failed to start Google sign-in. Please try again.`)
+        const providerName = provider === "google" ? "Google" : "Apple"
+        setErrorMessage(error.message || `Failed to start ${providerName} sign-in. Please try again.`)
         return
       }
 
@@ -1609,26 +1676,30 @@ export default function OnboardingAuth() {
         setOauthLoading(null)
         setShowOAuthLoadingScreen(false)
         oauthProcessingRef.current = false
-        setErrorMessage(`Failed to get Google sign-in URL. Please try again.`)
+        const providerName = provider === "google" ? "Google" : "Apple"
+        setErrorMessage(`Failed to get ${providerName} sign-in URL. Please try again.`)
         return
       }
 
       // Add prompt=select_account to force fresh login (prevents cached session auto-login on simulator)
-      // This ensures users see the Google account selection screen
-      const oauthUrl = new URL(data.url)
-      oauthUrl.searchParams.set('prompt', 'select_account')
-      const finalUrl = oauthUrl.toString()
+      // This ensures users see the account selection screen (Google-specific)
+      let finalUrl = data.url
+      if (provider === "google") {
+        const oauthUrl = new URL(data.url)
+        oauthUrl.searchParams.set('prompt', 'select_account')
+        finalUrl = oauthUrl.toString()
+      }
       
       console.log(`[OAuth] Opening browser with URL: ${finalUrl}`)
       console.log(`[OAuth] Original URL: ${data.url}`)
 
       // Open the OAuth URL in a browser/webview
       // WebBrowser will handle the redirect back to the app automatically
-      // preferEphemeralSession: true prevents sharing cookies/sessions (iOS only)
+      // preferEphemeralSession: Google=true (forces account selection), Apple=false (needs iCloud cookies)
       const result = await WebBrowser.openAuthSessionAsync(
         finalUrl,
         redirectTo,
-        Platform.OS === 'ios' ? { preferEphemeralSession: true } : undefined
+        Platform.OS === 'ios' ? { preferEphemeralSession: provider === 'google' } : undefined
       )
 
       console.log(`[OAuth] Browser session result:`, {
@@ -1664,7 +1735,36 @@ export default function OnboardingAuth() {
           // Provide helpful error messages
           let userMessage = errorDesc || error
           if (error === "server_error" && errorDesc.includes("Unable to exchange external code")) {
-            userMessage = "OAuth configuration error. Please check your Supabase OAuth settings. See OAUTH_TROUBLESHOOTING.md for help."
+            const providerName = provider === "google" ? "Google" : "Apple"
+            
+            // Log detailed debugging info
+            console.error(`[OAuth] ${providerName} OAuth Exchange Failed:`)
+            console.error(`[OAuth] Error: ${error}`)
+            console.error(`[OAuth] Error Description: ${errorDesc}`)
+            console.error(`[OAuth] Provider: ${provider}`)
+            console.error(`[OAuth] Redirect URL used: ${redirectTo}`)
+            console.error(`[OAuth] Full error URL: ${url}`)
+            
+            // Extract error code if present
+            const errorCodeMatch = url.match(/error_code=([^&#]+)/)
+            const errorCode = errorCodeMatch ? decodeURIComponent(errorCodeMatch[1]) : null
+            if (errorCode) {
+              console.error(`[OAuth] Error Code: ${errorCode}`)
+            }
+            
+            userMessage = `${providerName} sign-in failed: "invalid_client" error.\n\nThis means Apple rejected your credentials. Check:\n\n` +
+              `1. Secret Key (JWT) in Supabase:\n` +
+              `   • Must be the FULL JWT string (starts with "eyJ...")\n` +
+              `   • Not expired (check expiration date)\n` +
+              `   • No extra spaces or line breaks\n` +
+              `   • Matches the Key ID: XJVD7Z4V23\n\n` +
+              `2. Service ID in Supabase:\n` +
+              `   • Must exactly match: com.jarydhermann.goodtimes.signin\n` +
+              `   • Case-sensitive, no spaces\n\n` +
+              `3. Apple Developer Console:\n` +
+              `   • Service ID is active\n` +
+              `   • Return URLs include: https://ytnnsykbgohiscfgomfe.supabase.co/auth/v1/callback\n\n` +
+              `FIX: Regenerate Secret Key in Apple Developer Console and update Supabase.`
           } else if (error === "access_denied") {
             userMessage = "Sign-in was cancelled. Please try again."
           }
@@ -1953,7 +2053,44 @@ export default function OnboardingAuth() {
             return
           }
         } else {
-          console.error(`[OAuth] No hash fragment in URL`)
+          // No hash fragment — check for PKCE authorization code in query string
+          const codeMatch = url.match(/[?&]code=([^&#]+)/)
+          if (codeMatch) {
+            const code = decodeURIComponent(codeMatch[1])
+            console.log(`[OAuth] Found PKCE code in query string, exchanging for session...`)
+            try {
+              const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
+              if (exchangeError) {
+                console.error(`[OAuth] PKCE code exchange failed:`, exchangeError)
+                setOauthLoading(null)
+                setShowOAuthLoadingScreen(false)
+                oauthProcessingRef.current = false
+                setErrorMessage(exchangeError.message || "Failed to complete sign-in. Please try again.")
+                return
+              }
+              if (data?.session?.user) {
+                console.log(`[OAuth] PKCE code exchange succeeded! User ID:`, data.session.user.id)
+                oauthProcessingRef.current = false
+                await handleOAuthSuccess(data.session)
+                return
+              }
+              console.error(`[OAuth] PKCE exchange returned no session`)
+              setOauthLoading(null)
+              setShowOAuthLoadingScreen(false)
+              oauthProcessingRef.current = false
+              setErrorMessage("Failed to complete sign-in. Please try again.")
+              return
+            } catch (exchangeErr: any) {
+              console.error(`[OAuth] PKCE exchange error:`, exchangeErr)
+              setOauthLoading(null)
+              setShowOAuthLoadingScreen(false)
+              oauthProcessingRef.current = false
+              setErrorMessage(exchangeErr?.message || "Failed to complete sign-in. Please try again.")
+              return
+            }
+          }
+
+          console.error(`[OAuth] No hash fragment or PKCE code in URL`)
           setOauthLoading(null)
           setShowOAuthLoadingScreen(false)
           oauthProcessingRef.current = false
@@ -1984,7 +2121,8 @@ export default function OnboardingAuth() {
       setShowOAuthLoadingScreen(false)
 
       // Extract error message safely
-      let errorMsg = `Failed to sign in with Google. Please try again.`
+      const providerName = provider === "google" ? "Google" : "Apple"
+      let errorMsg = `Failed to sign in with ${providerName}. Please try again.`
       if (error && typeof error === 'object') {
         if (error.message) {
           errorMsg = error.message
@@ -2728,6 +2866,35 @@ export default function OnboardingAuth() {
                 )}
               </TouchableOpacity>
 
+              {/* Apple Sign-In Button */}
+              <TouchableOpacity
+                onPress={() => {
+                  setErrorMessage(null) // Clear any previous errors
+                  handleOAuthSignIn("apple")
+                }}
+                disabled={oauthLoading === "apple" || persisting || continueLoading}
+                style={[
+                  styles.appleButton,
+                  (oauthLoading === "apple" || persisting || continueLoading) && styles.appleButtonDisabled
+                ]}
+                activeOpacity={0.8}
+              >
+                {oauthLoading === "apple" ? (
+                  <Text style={styles.appleButtonText}>Loading...</Text>
+                ) : (
+                  <>
+                    {/* Apple Logo */}
+                    <FontAwesome
+                      name="apple"
+                      size={20}
+                      color={theme2Colors.white}
+                      style={styles.appleIcon}
+                    />
+                    <Text style={styles.appleButtonText}>Continue with Apple</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
               {/* Terms and Privacy Policy - Only show in registration flow */}
               {isRegistrationFlow && (
                 <View style={styles.termsContainer}>
@@ -2865,9 +3032,10 @@ const styles = StyleSheet.create({
     maxWidth: 460,
   },
   wordmark: {
-    width: 180,
-    height: 180,
+    width: 140,
+    height: 140,
     marginBottom: spacing.xs,
+    marginTop: spacing.lg, // Add top margin to prevent overlap with back button
     alignSelf: "flex-start",
     // Remove any shadow or outline effects
     shadowOpacity: 0,
@@ -3158,6 +3326,31 @@ const styles = StyleSheet.create({
   googleLogo: {
     width: 20,
     height: 20,
+  },
+  appleButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme2Colors.text, // Black background for Apple Sign-In
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: theme2Colors.text,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    minHeight: 56,
+    gap: spacing.sm,
+    marginTop: spacing.sm, // Add spacing between Google and Apple buttons
+  },
+  appleButtonDisabled: {
+    opacity: 0.6,
+  },
+  appleButtonText: {
+    fontFamily: "Roboto-Bold",
+    fontSize: 18,
+    color: theme2Colors.white, // White text for Apple Sign-In
+  },
+  appleIcon: {
+    marginRight: 0, // Gap handles spacing
   },
   oauthLoadingContainer: {
     position: "absolute",

@@ -1,7 +1,7 @@
 -- Create cron jobs for daily notification system
 -- This schedules two functions:
--- 1. send-daily-notifications: Runs daily at midnight UTC to queue notifications for 8am local time
--- 2. process-notification-queue: Runs every 5 minutes to process queued notifications
+-- 1. send-daily-notifications: Runs daily at 00:05 UTC to queue notifications for 8 AM EST (13:00 UTC)
+-- 2. process-notification-queue: Runs every 5 minutes to deliver queued notifications when scheduled_time <= now()
 
 -- First, ensure pg_cron extension is enabled
 CREATE EXTENSION IF NOT EXISTS pg_cron;
@@ -29,8 +29,7 @@ SELECT cron.unschedule('process-notification-queue') WHERE EXISTS (
 );
 
 -- Schedule send-daily-notifications to run daily at 00:05 UTC
--- This runs early enough to queue notifications for 8am local time in all timezones
--- (8am in the latest timezone is around 20:00 UTC the previous day, so midnight UTC covers all)
+-- Queues all daily prompt notifications with scheduled_time = 13:00 UTC (8 AM EST)
 SELECT cron.schedule(
   'send-daily-notifications',
   '5 0 * * *', -- Daily at 00:05 UTC

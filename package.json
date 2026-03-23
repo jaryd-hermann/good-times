@@ -10,7 +10,10 @@
     "seed-decks": "tsx scripts/seed-decks.ts",
     "preview-emails": "tsx scripts/preview-emails.ts",
     "setup-email-migrations": "tsx scripts/setup-email-migrations.ts",
-    "test-email-onboarding": "tsx scripts/test-email-onboarding.ts"
+    "test-email-onboarding": "tsx scripts/test-email-onboarding.ts",
+    "deploy-custom-questions": "tsx scripts/deploy-and-invoke-custom-question-assignment.ts",
+    "invoke-custom-questions": "tsx scripts/invoke-custom-question-assignment.ts",
+    "setup-custom-question-cron": "tsx scripts/setup-custom-question-cron-simple.ts"
   },
   "dependencies": {
     "@babel/runtime": "^7.28.4",

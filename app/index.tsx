@@ -1082,6 +1082,31 @@ export default function Index() {
           return;
         }
 
+        // Handle pending share entry (from share deep link before auth)
+        const pendingShareEntryId = await AsyncStorage.getItem("pending_share_entry");
+        if (pendingShareEntryId) {
+          await AsyncStorage.removeItem("pending_share_entry");
+          try {
+            const { supabase: sb } = require("../lib/supabase");
+            const { data: shareEntry } = await sb
+              .from("entries")
+              .select("group_id, date")
+              .eq("id", pendingShareEntryId)
+              .maybeSingle();
+            if (shareEntry && !hasNavigatedRef.current) {
+              hasNavigatedRef.current = true;
+              router.replace({
+                pathname: "/(main)/home",
+                params: { shareGroupId: shareEntry.group_id, shareDate: shareEntry.date },
+              });
+              await recordSuccessfulNavigation("/(main)/home");
+              return;
+            }
+          } catch (err) {
+            console.error("[boot] Error handling pending share entry:", err);
+          }
+        }
+
         // Handle pending notification (from notification click)
         const pendingNotificationStr = await AsyncStorage.getItem("pending_notification");
         if (pendingNotificationStr) {

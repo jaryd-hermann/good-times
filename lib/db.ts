@@ -142,60 +142,6 @@ export async function updateUser(userId: string, updates: Partial<User>) {
   return data
 }
 
-// Get device timezone (e.g., "America/New_York", "Europe/London")
-export function getDeviceTimezone(): string {
-  try {
-    // Use Intl API to get IANA timezone identifier
-    return Intl.DateTimeFormat().resolvedOptions().timeZone
-  } catch (error) {
-    console.error("[db] Failed to get device timezone:", error)
-    // Fallback to America/New_York if detection fails
-    return "America/New_York"
-  }
-}
-
-// Ensure user has timezone set and update it if it has changed (e.g., user traveled)
-// This updates the timezone whenever called, so notifications adjust to user's current location
-export async function ensureUserTimezone(userId: string): Promise<void> {
-  try {
-    const deviceTimezone = getDeviceTimezone()
-    
-    // Get current user data
-    const { data: user, error: fetchError } = await supabase
-      .from("users")
-      .select("timezone")
-      .eq("id", userId)
-      .single()
-
-    if (fetchError) {
-      console.error("[db] Failed to fetch user for timezone check:", fetchError)
-      return
-    }
-
-    // Update timezone if:
-    // 1. It's not set, OR
-    // 2. It has changed (user traveled to different timezone)
-    if (!user?.timezone || user.timezone !== deviceTimezone) {
-      const { error: updateError } = await supabase
-        .from("users")
-        .update({ timezone: deviceTimezone })
-        .eq("id", userId)
-
-      if (updateError) {
-        console.error("[db] Failed to update user timezone:", updateError)
-      } else {
-        if (!user?.timezone) {
-          console.log(`[db] Set timezone for user ${userId}: ${deviceTimezone}`)
-        } else {
-          console.log(`[db] Updated timezone for user ${userId}: ${user.timezone} -> ${deviceTimezone}`)
-        }
-      }
-    }
-  } catch (error) {
-    console.error("[db] Error ensuring user timezone:", error)
-  }
-}
-
 export async function markAppTutorialSeen(userId: string) {
   const { data, error } = await supabase
     .from("users")

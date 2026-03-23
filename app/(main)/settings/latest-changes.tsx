@@ -19,6 +19,20 @@ interface ChangeEntry {
 
 const CHANGES: ChangeEntry[] = [
   {
+    date: "2026-03-23",
+    title: "Monday, March 23rd",
+    subtitle: "Release notes",
+    timestamp: "8:30am",
+    items: [
+      "Hey friends. I realize I haven't been sharing updates here since I've just been texting most of you changes. But as we close out the closed beta (app testing is hard!), I'll start sharing here again. So, here's what's new with this latest update.",
+      "You can login with Apple now",
+      "Updated the weekly photo journal to allow you to pick photos from previous Sunday — thanks Elliot",
+      "You can now share answers to your group in Messages or Whatsapp, helping you nudge your friends to answer",
+      "Daily notifications for questions should now come in the AM — annoying bug fixed",
+      "Some other bugs and improvements",
+    ],
+  },
+  {
     date: "2025-12-24",
     title: "Wednesday, December 24th",
     subtitle: "Release notes",

@@ -52,6 +52,7 @@ import { CategoryTag } from "../../components/CategoryTag"
 import { PromptSkeleton } from "../../components/PromptSkeleton"
 import { EntryCardSkeleton } from "../../components/EntryCardSkeleton"
 import { MarketingCarousel } from "../../components/MarketingCarousel"
+import { ShareModal } from "../../components/ShareModal"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { FontAwesome } from "@expo/vector-icons"
 import { registerForPushNotifications, savePushToken } from "../../lib/notifications"
@@ -470,8 +471,10 @@ function JournalInspirationGalleryWithHeader({ theme2Colors, spacing, typography
 export default function Home() {
   const router = useRouter()
   const params = useLocalSearchParams()
-  const focusGroupId = params.focusGroupId as string | undefined
-  const dateParam = params.date as string | undefined
+  const shareGroupId = params.shareGroupId as string | undefined
+  const shareDate = params.shareDate as string | undefined
+  const focusGroupId = (shareGroupId || params.focusGroupId) as string | undefined
+  const dateParam = (shareDate || params.date) as string | undefined
   const queryClient = useQueryClient()
   const pathname = usePathname()
   const previousPathnameRef = useRef<string | null>(null)
@@ -487,6 +490,11 @@ export default function Home() {
   const insets = useSafeAreaInsets()
   const [groupPickerVisible, setGroupPickerVisible] = useState(false)
   const [isGroupSwitching, setIsGroupSwitching] = useState(false)
+  const [shareModalVisible, setShareModalVisible] = useState(false)
+  const [shareModalData, setShareModalData] = useState<{
+    entryId: string; groupId: string; date: string;
+    questionText: string; answerPreview: string; mediaUrl?: string | null;
+  } | null>(null)
   const [notificationModalVisible, setNotificationModalVisible] = useState(false)
   const [userProfileModalVisible, setUserProfileModalVisible] = useState(false)
   const [selectedMember, setSelectedMember] = useState<{ id: string; name: string; avatar_url?: string } | null>(null)
@@ -6651,6 +6659,19 @@ export default function Home() {
                         fuzzyOverlayPromptId={shouldShowFuzzy ? promptIdForNavigation : undefined}
                         fuzzyOverlayDate={shouldShowFuzzy ? date : undefined}
                         fuzzyOverlayGroupId={shouldShowFuzzy ? currentGroupId : undefined}
+                        onShare={() => {
+                          const questionText = entry.prompt?.question || personalizedPromptQuestion || ""
+                          const firstPhotoUrl = entry.media_urls?.find((_: string, i: number) => entry.media_types?.[i] === "photo") || null
+                          setShareModalData({
+                            entryId: entry.id,
+                            groupId: entry.group_id,
+                            date: entry.date,
+                            questionText,
+                            answerPreview: entry.text_response || "",
+                            mediaUrl: firstPhotoUrl,
+                          })
+                          setShareModalVisible(true)
+                        }}
                       />
                     )
                   })}
@@ -6692,6 +6713,19 @@ export default function Home() {
                       ]}
                       hideSeen={true}
                     />
+                  )}
+
+                  {/* Feedback link - only show on today */}
+                  {isDateToday && (
+                    <TouchableOpacity
+                      onPress={() => router.push("/(main)/feedback")}
+                      style={{ paddingVertical: spacing.lg, alignItems: "center" }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={{ ...typography.body, color: theme2Colors.textSecondary, textDecorationLine: "underline" }}>
+                        Share feedback with Jaryd
+                      </Text>
+                    </TouchableOpacity>
                   )}
           </View>
             )
@@ -7033,6 +7067,23 @@ export default function Home() {
           })
         }}
       />
+
+      {/* Share Modal */}
+      {shareModalData && (
+        <ShareModal
+          visible={shareModalVisible}
+          onClose={() => {
+            setShareModalVisible(false)
+            setShareModalData(null)
+          }}
+          entryId={shareModalData.entryId}
+          groupId={shareModalData.groupId}
+          date={shareModalData.date}
+          questionText={shareModalData.questionText}
+          answerPreview={shareModalData.answerPreview}
+          mediaUrl={shareModalData.mediaUrl}
+        />
+      )}
 
       {/* Onboarding Gallery Modal */}
       <OnboardingGallery

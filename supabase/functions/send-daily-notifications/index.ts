@@ -6,75 +6,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 }
 
-// Helper function to calculate day index (group-specific randomization)
-function getDayIndex(dateString: string, groupId: string): number {
-  const base = new Date(dateString)
-  const start = new Date("2020-01-01")
-  const diff = Math.floor((base.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
-  const groupOffset = groupId.length
-  return diff + groupOffset
-}
-
-// Calculate 8 AM Eastern Time (EST/EDT) for a given date, converted to UTC
-// dateOrDateStr: Either a Date object or a date string (YYYY-MM-DD)
-// Returns UTC time that represents 8 AM Eastern Time on the given date
-// All users receive notifications at 8 AM EST regardless of their timezone
-function get8AMEasternTimeUTC(dateOrDateStr: Date | string = new Date()): Date {
-  // Determine the target date string
-  let targetDateStr: string
-  
-  if (typeof dateOrDateStr === 'string') {
-    // Date string provided - use it directly
-    targetDateStr = dateOrDateStr
-  } else {
-    // Date object provided - format it as YYYY-MM-DD
-    const year = dateOrDateStr.getFullYear()
-    const month = String(dateOrDateStr.getMonth() + 1).padStart(2, '0')
-    const day = String(dateOrDateStr.getDate()).padStart(2, '0')
-    targetDateStr = `${year}-${month}-${day}`
-  }
-  
-  // Parse the date components
-  const [year, month, day] = targetDateStr.split('-').map(Number)
-  
-  // Create a date formatter for Eastern Time
-  const easternFormatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  })
-  
-  // We need to find the UTC time that equals 8:00 AM Eastern Time on the target date
-  // Start testing from 11:00 UTC (covers both EST and EDT cases)
-  // 8 AM EST = 1 PM UTC (UTC-5), 8 AM EDT = 12 PM UTC (UTC-4)
-  for (let utcHour = 11; utcHour <= 14; utcHour++) {
-    const testUTC = new Date(Date.UTC(year, month - 1, day, utcHour, 0, 0))
-    
-    // Format this UTC time in Eastern Time to see what time it represents
-    const parts = easternFormatter.formatToParts(testUTC)
-    const etYear = parts.find(p => p.type === "year")?.value
-    const etMonth = parts.find(p => p.type === "month")?.value
-    const etDay = parts.find(p => p.type === "day")?.value
-    const etHour = parseInt(parts.find(p => p.type === "hour")?.value || "0")
-    const etMinute = parseInt(parts.find(p => p.type === "minute")?.value || "0")
-    
-    if (!etYear || !etMonth || !etDay) continue
-    
-    const etDateStr = `${etYear}-${etMonth.padStart(2, '0')}-${etDay.padStart(2, '0')}`
-    
-    // Check if this UTC time equals 8:00 AM Eastern Time on the target date
-    if (etDateStr === targetDateStr && etHour === 8 && etMinute === 0) {
-      return testUTC
-    }
-  }
-  
-  // Fallback: calculate manually
-  // 8 AM EST = 1 PM UTC (UTC-5), 8 AM EDT = 12 PM UTC (UTC-4)
-  // Default to 13:00 UTC (1 PM) which covers EST
+// 8 AM EST = 13:00 UTC (fixed offset, no DST handling)
+function get8AMEstUTC(dateStr: string): Date {
+  const [year, month, day] = dateStr.split('-').map(Number)
   return new Date(Date.UTC(year, month - 1, day, 13, 0, 0))
 }
 
@@ -89,17 +23,9 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
     )
 
-    // Get "today" in Eastern Time, not UTC
-    // The cron runs at 00:05 UTC, which might still be "yesterday" in EST
-    // We want to schedule notifications for 8 AM EST on the Eastern "today"
+    // Use UTC date to match what schedule-daily-prompts stores in daily_prompts.date
     const now = new Date()
-    const easternFormatter = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "America/New_York",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    })
-    const today = easternFormatter.format(now) // Returns YYYY-MM-DD in Eastern Time
+    const today = now.toISOString().split("T")[0]
 
     // Get all daily prompts for today (both general and user-specific)
     const { data: dailyPrompts, error: promptsError } = await supabaseClient
@@ -168,18 +94,6 @@ serve(async (req) => {
       }
 
       for (const targetUser of targetUsers) {
-        // Get user info (timezone no longer needed - all notifications sent at 8 AM EST)
-        const { data: userData, error: userError } = await supabaseClient
-          .from("users")
-          .select("id, name, email")
-          .eq("id", targetUser.user_id)
-          .single()
-
-        if (userError || !userData) {
-          console.log(`[send-daily-notifications] User not found: ${targetUser.user_id}`)
-          continue
-        }
-        
         // Check if user has push token
         const { data: pushTokens, error: tokenError } = await supabaseClient
           .from("push_tokens")
@@ -348,11 +262,8 @@ serve(async (req) => {
           )
         }
 
-        // Calculate 8 AM Eastern Time (EST/EDT) for today, converted to UTC
-        // All users receive notifications at the same time: 8 AM Eastern Time
-        const scheduledTime = get8AMEasternTimeUTC(today)
+        const scheduledTime = get8AMEstUTC(today)
         
-        // Queue notification for 8 AM Eastern Time
         const notificationTitle = `Answer today's question in ${group.name}`
         const notificationBody = "Take a minute to answer so you can see what the others said"
         
@@ -374,12 +285,11 @@ serve(async (req) => {
         if (queueError) {
           console.error(`[send-daily-notifications] Error queueing notification for user ${targetUser.user_id}:`, queueError)
         } else {
-          console.log(`[send-daily-notifications] Queued notification for user ${targetUser.user_id} at ${scheduledTime.toISOString()} (8 AM Eastern Time)`)
+          console.log(`[send-daily-notifications] Queued notification for user ${targetUser.user_id} at ${scheduledTime.toISOString()} (8 AM EST)`)
           notifications.push({ 
             user_id: targetUser.user_id, 
             status: "queued",
             scheduled_time: scheduledTime.toISOString(),
-            timezone: "America/New_York"
           })
         }
       }

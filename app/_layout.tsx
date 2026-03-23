@@ -1044,6 +1044,37 @@ export default function RootLayout() {
             router.push(`/join/${groupId}`)
           }
         }
+        // Handle share links (both deep link and HTTPS)
+        else if (url.includes("goodtimes://share/") || url.includes("thegoodtimes.app/share/")) {
+          let entryId: string | undefined
+          if (url.includes("goodtimes://share/")) {
+            entryId = url.split("goodtimes://share/")[1]?.split("?")[0]?.split("/")[0]
+          } else {
+            entryId = url.split("thegoodtimes.app/share/")[1]?.split("?")[0]?.split("/")[0]
+          }
+          if (entryId) {
+            console.log("[_layout] Share link detected, entryId:", entryId)
+            await AsyncStorage.setItem("pending_share_entry", entryId)
+            const { data: { session } } = await supabase.auth.getSession()
+            if (session?.user) {
+              try {
+                const { data: entry } = await supabase
+                  .from("entries")
+                  .select("group_id, date")
+                  .eq("id", entryId)
+                  .maybeSingle()
+                if (entry) {
+                  await AsyncStorage.removeItem("pending_share_entry")
+                  router.push({ pathname: "/(main)/home", params: { shareGroupId: entry.group_id, shareDate: entry.date } })
+                }
+              } catch (err) {
+                console.error("[_layout] Error fetching share entry:", err)
+              }
+            } else {
+              router.replace("/(onboarding)/welcome-2")
+            }
+          }
+        }
         // Handle app store rating deep link
         else if (url.includes("goodtimes://rate")) {
           await openAppStoreReview()
