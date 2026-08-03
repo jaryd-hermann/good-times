@@ -7,24 +7,7 @@ function DownloadCTA() {
     <div className="download">
       <div className="dl-col">
         <DownloadButton />
-        <span className="store-hint">Free · iPhone · Android coming soon</span>
-      </div>
-    </div>
-  )
-}
-
-/** A phone frame. Drop a real screenshot into /public/screens to replace the placeholder. */
-function PhoneShot({ src, alt, placeholder }: { src?: string; alt: string; placeholder: string }) {
-  return (
-    <div className="shot">
-      <div className="phone">
-        {src ? (
-          <img src={src} alt={alt} />
-        ) : (
-          <div className="phone-placeholder">
-            <span>{placeholder}</span>
-          </div>
-        )}
+        <span className="store-hint">It&rsquo;s free</span>
       </div>
     </div>
   )
@@ -84,27 +67,41 @@ function Testimonials() {
   )
 }
 
-const PILLARS = [
+type Pillar = {
+  key: string
+  title: string
+  body: React.ReactNode
+  chips: string[]
+  image?: string
+}
+
+const PILLARS: Pillar[] = [
   {
-    n: "1",
+    key: "question",
     title: "One new question, every day",
-    body: "Every morning your group gets the same single question — thoughtful, silly, or somewhere in between. No feed to scroll, no blank page to stare at. Just one good prompt to spark the day.",
-    chips: ["Curated daily", "Same question for everyone", "Zero pressure"],
-    placeholder: "screens/question.png",
+    body: (
+      <>
+        Something new everyday.
+        <br />
+        Answer to see what everyone said.
+      </>
+    ),
+    chips: ["Human-curated for you, daily", "Everyone gets the same one", "Easy and fun"],
+    image: "/web-1.png",
   },
   {
-    n: "2",
+    key: "answer",
     title: "Answer it however you want",
     body: "Type a line, record a voice note, drop a photo, or send a video. Answer in whatever way fits the moment — the point is to be real, not polished.",
     chips: ["📝 Text", "🎙 Voice", "📸 Photo", "🎥 Video"],
-    placeholder: "screens/answer.png",
+    image: "/web-2.png",
   },
   {
-    n: "3",
+    key: "private",
     title: "Chat in private — your group space",
     body: "See everyone's answers side by side, then react and riff in a space that's just for your people. No likes, no followers, no strangers. Just your favorite humans.",
     chips: ["Private by default", "Your people only", "React & reply"],
-    placeholder: "screens/private.png",
+    image: "/web-3.png",
   },
 ]
 
@@ -117,7 +114,7 @@ export default function Home() {
           <div className="hero-copy">
             <Image className="hero-mark" src="/wordmark.png" alt="Good Times" width={640} height={188} priority />
             <h1>Answer one question a&nbsp;day with friends</h1>
-            <p className="hero-sub">The daily ritual that keeps your favorite people close.</p>
+            <p className="hero-sub">Private group social.</p>
             <ul className="nolist">
               <li><span className="x">✕</span> No AI</li>
               <li><span className="x">✕</span> No Algorithms</li>
@@ -170,9 +167,8 @@ export default function Home() {
         <div className="wrap">
           <div className="pillars">
             {PILLARS.map((p) => (
-              <article className="pillar" key={p.n}>
+              <article className="pillar" key={p.key}>
                 <div className="pillar-copy">
-                  <div className="pillar-num">{p.n}</div>
                   <h3>{p.title}</h3>
                   <p>{p.body}</p>
                   <div className="chiprow">
@@ -181,7 +177,9 @@ export default function Home() {
                     ))}
                   </div>
                 </div>
-                <PhoneShot alt={p.title} placeholder={p.placeholder} />
+                <div className="shot">
+                  <img className="shot-image" src={p.image} alt={p.title} />
+                </div>
               </article>
             ))}
           </div>

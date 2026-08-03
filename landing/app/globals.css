@@ -119,6 +119,8 @@ img { max-width: 100%; display: block; }
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--muted);
+  text-align: center;
+  align-self: stretch;
 }
 
 /* ============================================================
@@ -369,6 +371,14 @@ img { max-width: 100%; display: block; }
 
 /* screenshot frame (drop real screenshots into /public/screens) */
 .shot { position: relative; display: flex; justify-content: center; }
+
+/* frameless product image (already a composed device mockup, no stroke) */
+.shot-image {
+  width: 100%;
+  max-width: 460px;
+  height: auto;
+  filter: drop-shadow(0 20px 40px rgba(20, 17, 13, 0.12));
+}
 .phone {
   position: relative;
   width: 100%;
