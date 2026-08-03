@@ -55,14 +55,25 @@ export async function routeAfterAuth(
   invite?: string
 ): Promise<"/(v2)/today" | "/(onboarding-v2)/profile"> {
   const [{ data: profile }, { count }] = await Promise.all([
-    supabase.from("users").select("name, birthday").eq("id", userId).maybeSingle(),
+    supabase.from("users").select("name").eq("id", userId).maybeSingle(),
     supabase
       .from("group_members")
       .select("group_id", { count: "exact", head: true })
       .eq("user_id", userId),
   ])
 
-  const profileComplete = !!profile?.name && !!profile?.birthday
+  // Name only. This used to also require `birthday`, which the profile screen
+  // treats as optional — it validates the name and nothing else. Anyone who
+  // continued without picking a birthday was therefore written to the database
+  // as "incomplete" forever, and every later evaluation of this function bounced
+  // them back to profile: on mount, on auth-state change, and again when the user
+  // object's identity changed. That is the "I filled in my profile three times"
+  // report, and it also dragged them back through the notifications screen.
+  //
+  // Fixed here rather than by making the picker mandatory on purpose: a forced
+  // birthday field is what produced the existing run of default-value birthdays,
+  // and requiring it again would keep manufacturing them.
+  const profileComplete = !!profile?.name
   if (!profileComplete) return "/(onboarding-v2)/profile"
 
   if (invite) {

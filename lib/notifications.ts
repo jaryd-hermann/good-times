@@ -77,13 +77,19 @@ async function registerWithOneSignal(): Promise<string | null> {
   }
   const { OneSignal } = require("react-native-onesignal") as typeof import("react-native-onesignal")
 
-  const granted = await OneSignal.Notifications.requestPermission(false)
+  // requestPermission resolves false when it did not actually put a dialog on
+  // screen — including the case where permission is ALREADY granted. Trusting it
+  // meant returning null here, skipping optIn() and the subscription-id capture
+  // below, while OneSignal.login() further up the caller still ran. That is how a
+  // user ends up correctly linked in OneSignal by external_id with a live push
+  // subscription, yet with no row in push_tokens and therefore no welcome push.
+  //
+  // Ask for the real state afterwards and go by that.
+  const requested = await OneSignal.Notifications.requestPermission(false)
+  const granted = requested || (await OneSignal.Notifications.getPermissionAsync())
+
   try {
-    if (granted) {
-      captureEvent("notification_permission_granted")
-    } else {
-      captureEvent("notification_permission_denied")
-    }
+    captureEvent(granted ? "notification_permission_granted" : "notification_permission_denied")
   } catch (error) {
     if (__DEV__) console.error("[notifications] Failed to track permission event:", error)
   }
