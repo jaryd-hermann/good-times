@@ -260,8 +260,8 @@ export default function TodayScreen() {
                 the two next steps beats leaving them to infer both from cards. */}
             {noGroups && !answered ? (
               <Text style={s.welcomeLine}>
-                Welcome to Good Times{profile?.name ? `, ${profile.name}` : ""}! Start by answering
-                today&rsquo;s question and starting or joining your first group.
+                {profile?.name ? `${profile.name}! ` : ""}Hello and welcome to Good Times 👋 I&rsquo;m
+                Jaryd, start with today&rsquo;s question, or joining a group below.
               </Text>
             ) : null}
 

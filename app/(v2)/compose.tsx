@@ -31,6 +31,7 @@ import { useProfile } from "../../lib/v2/useProfile"
 import { VideoRecorder } from "../../components/v2/VideoRecorder"
 import { VoiceRecorder } from "../../components/v2/VoiceRecorder"
 import { AudioPlayer } from "../../components/v2/AudioPlayer"
+import { TexturedCard } from "../../components/v2/Texture"
 import { transcribeAudioFromUri } from "../../lib/openai-transcribe"
 import { uploadMedia } from "../../lib/storage"
 import * as haptics from "../../lib/v2/haptics"
@@ -460,10 +461,13 @@ export default function ComposeScreen() {
 
   // ---- 3A: pick how you answer -------------------------------------------
   if (step === "mode") {
+    // Write first: it is the familiar one, and leading with a camera makes the
+    // whole screen feel like more work than it is. The two that are new to people
+    // carry a tag rather than being pushed to the top.
     const doors = [
-      { m: "video" as Mode, icon: "video-outline", title: "Talking head", sub: "Up to 60 seconds.", tint: c.red, go: "video" as Step },
-      { m: "voice" as Mode, icon: "waveform", title: "Voice note", sub: "Talk while you walk.", tint: c.green, go: "voice" as Step },
-      { m: "text" as Mode, icon: "format-text", title: "Write it", sub: "Text, photos, video.", tint: c.blue, go: "write" as Step },
+      { m: "text" as Mode, icon: "format-text", title: "Write it", sub: "Text, photos, video.", tint: c.blue, go: "write" as Step, isNew: false },
+      { m: "video" as Mode, icon: "video-outline", title: "Talking head", sub: "Up to 60 seconds.", tint: c.red, go: "video" as Step, isNew: true },
+      { m: "voice" as Mode, icon: "waveform", title: "Voice note", sub: "Talk while you walk.", tint: c.green, go: "voice" as Step, isNew: true },
     ]
     return (
       <SafeAreaView style={s.screen} edges={["top", "bottom"]}>
@@ -476,9 +480,14 @@ export default function ComposeScreen() {
           </Text>
         </View>
         <ScrollView contentContainerStyle={{ padding: sp.lg }}>
-          <View style={s.questionBanner}>
-            <Text style={s.questionBannerText}>{question}</Text>
-          </View>
+          {/* TexturedCard, not a plain View: the texture has to sit in a clipped
+              wrapper inside the shadow-casting view, which is exactly what this
+              splits. Putting overflow:hidden on the card itself would clip the
+              hard-offset bevel away. */}
+          <TexturedCard style={s.modeBanner} radius={14} bevel={0}>
+            <Image source={require("../../assets/images/logo.png")} style={s.modeBannerLogo} />
+            <Text style={s.modeBannerText}>{question}</Text>
+          </TexturedCard>
           <Text style={s.sectionLabel}>HOW DO YOU WANT TO ANSWER?</Text>
           {doors.map((d) => (
             <Pressable
@@ -493,7 +502,14 @@ export default function ComposeScreen() {
                 <MaterialCommunityIcons name={d.icon as any} size={22} color="#fff" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={s.doorTitle}>{d.title}</Text>
+                <View style={s.doorTitleRow}>
+                  <Text style={s.doorTitle}>{d.title}</Text>
+                  {d.isNew ? (
+                    <View style={s.newTag}>
+                      <Text style={s.newTagText}>NEW, TRY ME</Text>
+                    </View>
+                  ) : null}
+                </View>
                 <Text style={s.doorSub}>{d.sub}</Text>
               </View>
               <Text style={s.doorChevron}>›</Text>
@@ -806,6 +822,42 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"], isDark: boolean) {
       marginBottom: sp.lg,
     },
     questionBannerText: { fontSize: 20, fontWeight: "800", color: c.accentInk, lineHeight: 25 },
+    // The mode step's own banner. Kept separate from questionBanner because the
+    // Sunday journal screen shares that one and is not centred or logo'd.
+    modeBanner: {
+      backgroundColor: c.accent,
+      borderWidth: 2,
+      borderColor: c.border,
+      borderRadius: 14,
+      padding: sp.lg,
+      marginBottom: sp.lg,
+      alignItems: "center",
+    },
+    modeBannerLogo: {
+      width: 44,
+      height: 44,
+      resizeMode: "contain",
+      marginBottom: sp.sm,
+    },
+    modeBannerText: {
+      fontSize: 20,
+      fontWeight: "800",
+      color: c.accentInk,
+      lineHeight: 25,
+      textAlign: "center",
+    },
+    doorTitleRow: { flexDirection: "row", alignItems: "center", gap: sp.sm },
+    newTag: {
+      backgroundColor: "#F0D7FF",
+      borderWidth: 1.5,
+      borderColor: "#000000",
+      borderRadius: 999,
+      paddingHorizontal: 7,
+      paddingVertical: 2,
+    },
+    // Black on violet in both themes: the tint is a light violet either way, so
+    // c.text (near-white in dark) would vanish on it.
+    newTagText: { color: "#000000", fontWeight: "800", fontSize: 10, letterSpacing: 0.4 },
     journalFallback: { marginTop: sp.lg, alignItems: "center" },
     journalFallbackText: {
       fontSize: 13,

@@ -67,6 +67,9 @@ export function DaySelector({
         {/* Backdrop closes — a dropdown you can only dismiss by choosing is a trap. */}
         <Pressable style={s.backdrop} onPress={() => setOpen(false)}>
           <Pressable style={s.sheet} onPress={(e) => e.stopPropagation()}>
+            {/* Names what the list is. Without it the sheet is a bare column of
+                weekdays with no statement of what picking one does. */}
+            <Text style={s.sheetTitle}>Recent questions</Text>
             {days.map((d) => {
               const q = questions[d]
               const isSel = d === selectedDate
@@ -133,6 +136,16 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
       borderColor: c.border,
       borderRadius: 16,
       overflow: "hidden",
+    },
+    sheetTitle: {
+      fontSize: 13,
+      fontWeight: "800",
+      letterSpacing: 0.8,
+      textTransform: "uppercase",
+      color: c.textSecondary,
+      paddingHorizontal: sp.md,
+      paddingTop: sp.md,
+      paddingBottom: sp.sm,
     },
     row: {
       flexDirection: "row",
