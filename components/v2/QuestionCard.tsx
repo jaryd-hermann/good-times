@@ -149,7 +149,7 @@ export const QuestionCard = memo(function QuestionCard({
         }}
         style={({ pressed }) => [s.cta, pressed ? s.ctaPressed : null]}
       >
-        <Text style={s.ctaText}>Answer to unlock</Text>
+        <Text style={s.ctaText}>Answer and unlock chat</Text>
       </Pressable>
     </View>
   )

@@ -485,7 +485,6 @@ export default function ComposeScreen() {
               splits. Putting overflow:hidden on the card itself would clip the
               hard-offset bevel away. */}
           <TexturedCard style={s.modeBanner} radius={14} bevel={0}>
-            <Image source={require("../../assets/images/logo.png")} style={s.modeBannerLogo} />
             <Text style={s.modeBannerText}>{question}</Text>
           </TexturedCard>
           <Text style={s.sectionLabel}>HOW DO YOU WANT TO ANSWER?</Text>
@@ -832,12 +831,6 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"], isDark: boolean) {
       padding: sp.lg,
       marginBottom: sp.lg,
       alignItems: "flex-start",
-    },
-    modeBannerLogo: {
-      width: 44,
-      height: 44,
-      resizeMode: "contain",
-      marginBottom: sp.sm,
     },
     modeBannerText: {
       fontSize: 20,
