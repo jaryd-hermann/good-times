@@ -47,6 +47,12 @@
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        // Without this, `eas submit` has to look the app up interactively and a
+        // --non-interactive run fails after the build has already been queued.
+        "ascAppId": "6755366013"
+      }
+    }
   }
 }
