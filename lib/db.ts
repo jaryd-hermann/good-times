@@ -3120,6 +3120,7 @@ async function sendDeckVoteNotifications(groupId: string, deckId: string, reques
         .from("push_tokens")
         .select("token")
         .eq("user_id", member.user_id)
+        .like("token", "ExponentPushToken%")
         .limit(1)
 
       // Send push notification if token exists

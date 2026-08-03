@@ -215,6 +215,7 @@ serve(async (req: Request) => {
         .from("push_tokens")
         .select("token")
         .eq("user_id", userId)
+        .like("token", "ExponentPushToken%")
         .limit(1)
 
       if (tokenError || !pushTokens || pushTokens.length === 0) {

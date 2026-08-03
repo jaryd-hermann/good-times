@@ -21,3 +21,6 @@ web-build/
 
 # Email previews (generated files)
 email-previews/
+
+# macOS
+.DS_Store

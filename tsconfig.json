@@ -14,6 +14,13 @@
     "typeRoots": ["./node_modules/@types", "./types"]
   },
   "extends": "expo/tsconfig.base",
+  "exclude": [
+    "node_modules",
+    // The curation portal is a separate Next.js app with its own tsconfig,
+    // React types and "@/*" paths. Typechecking it from here reports false
+    // errors; run `npm run typecheck` inside admin/ instead.
+    "admin"
+  ],
   "ts-node": {
     "compilerOptions": {
       "module": "commonjs"

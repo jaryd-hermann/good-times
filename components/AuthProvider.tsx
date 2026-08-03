@@ -123,14 +123,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (session?.user) {
-        // CRITICAL: Only load user if app is in foreground
-        // When app is backgrounded, Supabase can still refresh tokens, but network requests are throttled
-        // Attempting to load user data while backgrounded will timeout and create noise in logs
+        // Only DEFER a background load when it's a silent token refresh.
+        // When the app is backgrounded, network requests are throttled, so loading
+        // user data would just time out and spam the logs.
+        //
+        // This must NOT apply to SIGNED_IN. OAuth returns through
+        // ASWebAuthenticationSession, which leaves AppState at "inactive" while the
+        // sheet dismisses — so a real Apple/Google sign-in arrived here, got skipped,
+        // and left `user` null. Every guard downstream then read that as signed-out
+        // and bounced the user back to the splash screen mid-login.
         const currentAppState = AppState.currentState
         const isAppActive = currentAppState === 'active'
-        
-        if (isAppActive) {
-          // App is active - safe to load user data
+        const isSilentRefresh = event === "TOKEN_REFRESHED"
+
+        if (isAppActive || !isSilentRefresh) {
+          // Active, or an explicit sign-in we must not drop on the floor.
           await loadUser(session.user.id)
         } else {
           // App is backgrounded - skip user load, but mark token as refreshed
@@ -406,6 +413,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function loadUser(userId: string) {
     let userData: any = null
+
+    /**
+     * A valid session with no profile row loaded is still a signed-in user.
+     *
+     * Every failure path below used to `setLoading(false)` and return WITHOUT
+     * setting a user, so the app settled into loading:false + user:null. Screens
+     * then mounted with their queries disabled by `enabled: !!userId` and spun
+     * forever — a blank Capture with a "U" avatar that only a refresh fixed.
+     *
+     * The session id alone is enough for v2: profile fields come from
+     * useProfile(user.id), not from this object.
+     */
+    const fallbackToSessionUser = () => {
+      // Never downgrade a fully loaded row back to a stub.
+      setUser((prev: any) => prev ?? ({ id: userId } as any))
+    }
+
     try {
       console.log('[AuthProvider] Loading user:', userId)
       
@@ -416,6 +440,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       if (!isAppActive) {
         console.log('[AuthProvider] App is not active - skipping user load (will load on foreground)')
+        fallbackToSessionUser()
         setLoading(false) // CRITICAL: Always set loading to false
         return // Skip user load if app is backgrounded
       }
@@ -438,7 +463,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // CRITICAL: Handle timeout gracefully - don't throw, just log warning
         // This prevents errors when app is sitting open and network is slow
         if (timeoutError?.message?.includes('timeout')) {
-          console.warn('[AuthProvider] User load timeout after 3 seconds - setting loading to false and continuing')
+          console.warn('[AuthProvider] User load timeout after 3 seconds - falling back to session user')
+          fallbackToSessionUser()
           // Set loading to false so app can continue
           setLoading(false)
           // Don't set user - will be loaded on next foreground or when network recovers
@@ -446,6 +472,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         // Re-throw non-timeout errors
         console.error('[AuthProvider] Non-timeout error during user load:', timeoutError)
+        fallbackToSessionUser()
         setLoading(false) // Ensure loading is set to false even on error
         throw timeoutError
       }
@@ -454,6 +481,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       if (error) {
         console.error('[AuthProvider] Error loading user:', error)
+        fallbackToSessionUser()
         // Even on error, set loading to false so app can continue
         setLoading(false)
         return
@@ -462,7 +490,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.log('[AuthProvider] User data loaded:', data ? 'success' : 'null', error ? `error: ${error.message}` : '')
       
       userData = data
-      setUser(data)
+      // data can be NULL with no error: maybeSingle() returns null when the row
+      // isn't there yet. On a brand-new account the users row is still being
+      // written when SIGNED_IN fires, so this set `user` to null on the success
+      // path — the same blank Capture, reached a different way.
+      setUser(data ?? ({ id: userId } as any))
+
+      // A stub keeps the app usable, but loadUser only runs on auth events — so
+      // without this the real row (email, name) would not arrive until the next
+      // token refresh. One delayed retry covers the new-account race, where the
+      // row appears moments later.
+      if (!data) {
+        setTimeout(async () => {
+          try {
+            const { data: retry } = await supabase
+              .from("users")
+              .select("*")
+              .eq("id", userId)
+              .maybeSingle()
+            if (retry) setUser(retry)
+          } catch {
+            /* the stub stands; nothing here is worth surfacing */
+          }
+        }, 1500)
+      }
       
       // CRITICAL: Set loading to false immediately after user data is set
       // Don't wait for PostHog identification - it can happen in background

@@ -7,7 +7,10 @@ const corsHeaders = {
 }
 
 const APP_STORE_URL = "https://apps.apple.com/app/good-times/id6743445632"
+const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.goodtimes.app"
 const SUPABASE_FUNCTIONS_URL = "https://ytnnsykbgohiscfgomfe.supabase.co/functions/v1"
+/** Shown in og:image / link previews; served from thegoodtimes.app (see public/loading.png). */
+const DEFAULT_OG_IMAGE_URL = "https://thegoodtimes.app/loading.png"
 
 function escapeHtml(str: string): string {
   return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
@@ -110,30 +113,104 @@ serve(async (req: Request) => {
         })
       }
 
-      // Redirect to deep link
       const deepLink = `goodtimes://join/${groupId}`
-      
-      // Return HTML redirect page (works better than HTTP redirect for app links)
+      const canonicalUrl = `https://thegoodtimes.app/join/${groupId}`
+
+      let ogTitle = "You’re invited on Good Times"
+      let ogDescription =
+        "Answer one question a day with your group. Download the app to join."
+
+      try {
+        const supabase = createClient(
+          Deno.env.get("SUPABASE_URL") ?? "",
+          Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+        )
+        const { data: group } = await supabase.from("groups").select("name").eq("id", groupId).maybeSingle()
+        const rawName = (group as { name?: string } | null)?.name?.trim()
+        if (rawName) {
+          ogTitle = `Join "${rawName}" on Good Times`
+          ogDescription = `You're invited to ${rawName} on Good Times — download the app to join your group.`
+        }
+      } catch (e) {
+        console.warn("[join-redirect] optional group lookup failed:", e)
+      }
+
+      const ogTitleAttr = escapeHtml(ogTitle)
+      const ogDescriptionAttr = escapeHtml(ogDescription)
+
+      // Do NOT use meta refresh to goodtimes:// — without the app installed, Safari immediately
+      // follows the custom scheme, fails, and shows a generic "Something went wrong" page
+      // before users see any fallback. Match /share/: Open Graph for crawlers + delayed deep
+      // link + store fallback when the app does not open (visibility still "visible").
       const html = `<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>Redirecting...</title>
-  <meta http-equiv="refresh" content="0;url=${deepLink}">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${ogTitleAttr}</title>
+  <meta name="description" content="${ogDescriptionAttr}" />
+  <meta name="apple-itunes-app" content="app-id=6743445632, app-argument=${escapeHtml(canonicalUrl)}" />
+  <meta property="og:site_name" content="Good Times" />
+  <meta property="og:title" content="${ogTitleAttr}" />
+  <meta property="og:description" content="${ogDescriptionAttr}" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="${escapeHtml(canonicalUrl)}" />
+  <meta property="og:image" content="${escapeHtml(DEFAULT_OG_IMAGE_URL)}" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="${ogTitleAttr}" />
+  <meta name="twitter:description" content="${ogDescriptionAttr}" />
+  <meta name="twitter:image" content="${escapeHtml(DEFAULT_OG_IMAGE_URL)}" />
   <script>
-    window.location.href = "${deepLink}";
+    (function () {
+      var deepLink = ${JSON.stringify(deepLink)};
+      var appStoreUrl = ${JSON.stringify(APP_STORE_URL)};
+      var playStoreUrl = ${JSON.stringify(PLAY_STORE_URL)};
+      var isAndroid = /Android/i.test(navigator.userAgent || "");
+      var storeUrl = isAndroid ? playStoreUrl : appStoreUrl;
+
+      var navigatedAway = false;
+      function markAway() {
+        navigatedAway = true;
+      }
+      document.addEventListener("visibilitychange", function () {
+        if (document.visibilityState === "hidden") markAway();
+      });
+      window.addEventListener("pagehide", markAway);
+
+      // Brief delay so crawlers and Safari see real HTML/OG tags (not only "Redirecting...").
+      window.setTimeout(function () {
+        window.location.href = deepLink;
+      }, 400);
+
+      window.setTimeout(function () {
+        if (navigatedAway) return;
+        window.location.href = storeUrl;
+      }, 2800);
+    })();
   </script>
 </head>
-<body>
-  <p>Redirecting to app...</p>
-  <p>If you're not redirected, <a href="${deepLink}">click here</a>.</p>
+<body style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #E8E0D5; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0;">
+  <div style="text-align: center; padding: 40px; max-width: 420px;">
+    <h1 style="color: #000; font-size: 22px; margin: 0 0 12px;">Good Times</h1>
+    <p style="color: #404040; margin: 0 0 8px;">Opening the app…</p>
+    <p style="color: #404040; font-size: 15px; line-height: 1.45; margin: 0 0 20px;">${ogDescriptionAttr}</p>
+    <p style="margin: 0 0 12px;">
+      <a href="${escapeHtml(deepLink)}" style="color: #3A5F8C; font-weight: 600;">Open in app</a>
+    </p>
+    <p style="color: #404040; font-size: 14px; margin: 0;">
+      Don’t have the app?
+      <a href="${escapeHtml(APP_STORE_URL)}" style="color: #3A5F8C;">iPhone / iPad</a>
+      ·
+      <a href="${escapeHtml(PLAY_STORE_URL)}" style="color: #3A5F8C;">Android</a>
+    </p>
+  </div>
 </body>
 </html>`
 
       return new Response(html, {
         headers: {
           ...corsHeaders,
-          "Content-Type": "text/html",
+          "Content-Type": "text/html; charset=utf-8",
         },
       })
     }

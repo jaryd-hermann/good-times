@@ -99,6 +99,7 @@ serve(async (req) => {
           .from("push_tokens")
           .select("token")
           .eq("user_id", member.user_id)
+          .like("token", "ExponentPushToken%")
           .limit(1)
 
         if (tokenError || !pushTokens || pushTokens.length === 0) {

@@ -11,8 +11,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Join them in case there are multiple segments, then take first UUID
     const fullPath = path.join('/')
     const uuidMatch = fullPath.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i)
+    const tokenMatch = fullPath.match(/(GT-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{4,})/i)
     if (uuidMatch) {
       groupId = uuidMatch[1]
+    } else if (tokenMatch) {
+      groupId = tokenMatch[1].toUpperCase()
     } else {
       // Fallback: just take first segment
       groupId = path[0]
@@ -54,20 +57,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   console.log('[proxy-join] Extracted groupId:', groupId)
 
-  // Validate groupId format (UUID)
-  if (!groupId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(groupId)) {
-    console.error('[proxy-join] Invalid groupId format:', { groupId, path, url: req.url, query: req.query })
-    // Temporarily return debug info to see what's happening
-    return res.status(400).json({ 
-      error: 'Invalid group ID',
-      debug: {
-        groupId: groupId || 'undefined',
-        path: path || 'undefined',
-        url: req.url || 'undefined',
-        query: req.query,
-        queryKeys: Object.keys(req.query)
-      }
-    })
+  // Accept BOTH invite shapes:
+  //   v1 — a group UUID
+  //   v2 — an invite token like GT-97DP
+  // Requiring a UUID meant every v2 invite link 400'd before it ever reached the
+  // app. Charset matches the token generator (no I/O/0/1).
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  const V2_TOKEN = /^GT-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{4,}$/i
+
+  if (!groupId || !(UUID.test(groupId) || V2_TOKEN.test(groupId))) {
+    console.error('[proxy-join] Unrecognised invite id:', { groupId, url: req.url })
+    // No debug payload in the response — this endpoint is public, and echoing the
+    // raw request back to an anonymous caller is not something to ship.
+    return res.status(404).send('Invite not found')
   }
 
   // Get Supabase anon key from environment variable

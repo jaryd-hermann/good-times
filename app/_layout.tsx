@@ -5,7 +5,7 @@
 import { Stack } from "expo-router"
 import { useFonts } from "expo-font"
 import * as SplashScreen from "expo-splash-screen"
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useLayoutEffect, useState, useRef } from "react"
 
 // Import Updates conditionally - only available in production builds
 let Updates: typeof import("expo-updates") | null = null
@@ -18,9 +18,13 @@ try {
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query"
 import { SafeAreaProvider } from "react-native-safe-area-context"
 import { AuthProvider, useAuth } from "../components/AuthProvider"
+import { NotificationPermissionResumeHandler } from "../components/NotificationPermissionResumeHandler"
 import { ErrorBoundary } from "../components/ErrorBoundary"
 import * as Linking from "expo-linking"
 import * as Notifications from "expo-notifications"
+import type { NotificationClickEvent, NotificationWillDisplayEvent } from "react-native-onesignal"
+import { ensureOneSignalInitialized, getOneSignalAppId, isOneSignalNativeModuleCompatible } from "../lib/onesignal"
+import { handlePushNotificationOpen } from "../lib/notifications"
 import { router, usePathname } from "expo-router"
 import { PostHogProvider } from "posthog-react-native"
 import { TabBarProvider } from "../lib/tab-bar-context"
@@ -586,7 +590,7 @@ export default function RootLayout() {
             // Navigate immediately - don't wait for boot flow
             // Use setTimeout to ensure router is ready
             setTimeout(() => {
-              router.replace("/(onboarding)/forgot-password")
+              router.replace("/(onboarding-v2)/forgot")
             }, 100)
             return
           }
@@ -622,7 +626,7 @@ export default function RootLayout() {
                 if (error) {
                   console.error("[_layout] Failed to set recovery session on app start:", error)
                   setTimeout(() => {
-                    router.replace("/(onboarding)/forgot-password")
+                    router.replace("/(onboarding-v2)/forgot")
                   }, 100)
                   return
                 }
@@ -631,14 +635,14 @@ export default function RootLayout() {
                   // Navigate to reset password screen
                   // Use setTimeout to ensure router is ready
                   setTimeout(() => {
-                    router.replace("/(onboarding)/reset-password")
+                    router.replace("/(onboarding-v2)/new-password")
                   }, 100)
                   return
                 }
               } else if (hasError) {
                 console.log("[_layout] Password reset link has error, navigating to forgot-password")
                 setTimeout(() => {
-                  router.replace("/(onboarding)/forgot-password")
+                  router.replace("/(onboarding-v2)/forgot")
                 }, 100)
                 return
               }
@@ -713,110 +717,54 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, fontsTimedOut])
 
-  // Handle notification clicks
+  useLayoutEffect(() => {
+    const ok = ensureOneSignalInitialized()
+    console.log("[ONESIGNAL] root layout init attempt", {
+      success: ok,
+      hasAppId: !!getOneSignalAppId(),
+      nativeModuleCompatible: isOneSignalNativeModuleCompatible(),
+    })
+  }, [])
+
+  // Handle notification taps (Expo local/legacy + OneSignal remote)
   useEffect(() => {
     const subscription = Notifications.addNotificationResponseReceivedListener(async (response) => {
       const data = response.notification.request.content.data
-      if (!data) return
-
-      const { type, group_id, entry_id, prompt_id } = data
-
-      // CRITICAL: Always store notification data and force boot screen to show
-      // Boot screen will ensure session is valid before navigating
-      // This prevents black screens and ensures smooth experience
-      console.log("[_layout] Notification clicked - storing for boot screen to handle")
-      
-      let shouldNavigateDirectly = false
-      
-      try {
-        const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default
-        
-        // Store notification data for boot screen to process
-        await AsyncStorage.setItem("pending_notification", JSON.stringify({
-          type,
-          group_id,
-          entry_id,
-          prompt_id,
-          timestamp: Date.now(),
-        }))
-        
-        // CRITICAL: Set flag to force boot screen to show when app opens from notification
-        // This ensures session refresh happens before navigation
-        await AsyncStorage.setItem("notification_clicked", "true")
-        console.log("[_layout] Notification stored, boot screen will be forced to show")
-        
-        // CRITICAL: Check if app is already initialized (user is logged in and app is running)
-        // Only navigate directly if app is already running and initialized
-        // Otherwise, let boot screen handle it (prevents black screen on cold start)
-        try {
-          const { data: { session } } = await supabase.auth.getSession()
-          const isAppInitialized = !!session
-          
-          if (isAppInitialized) {
-            // App is already running - navigate directly (user clicked notification while app was open)
-            console.log("[_layout] App already initialized - will navigate directly")
-            shouldNavigateDirectly = true
-          } else {
-            // App is NOT initialized (cold start) - let boot screen handle navigation
-            // This prevents black screen when app opens from closed state
-            console.log("[_layout] App not initialized (cold start) - boot screen will handle navigation")
-            return // Exit early - boot screen will handle navigation
-          }
-        } catch (sessionError) {
-          // If we can't check session, assume cold start and let boot screen handle it
-          console.log("[_layout] Could not check session - boot screen will handle navigation")
-          return // Exit early - boot screen will handle navigation
-        }
-      } catch (error) {
-        console.error("[_layout] Error storing notification:", error)
-        // If storage fails, don't navigate - better to show boot screen than black screen
-        return // Exit early - don't navigate if storage fails
-      }
-
-      // Only navigate if app is already initialized (user clicked notification while app was open)
-      if (shouldNavigateDirectly) {
-        setTimeout(() => {
-          if (type === "daily_prompt" && group_id && prompt_id) {
-            router.push({
-              pathname: "/(main)/modals/entry-composer",
-              params: {
-                promptId: prompt_id,
-                date: new Date().toISOString().split("T")[0],
-                returnTo: "/(main)/home",
-              },
-            })
-          } else if (type === "new_entry" && group_id && entry_id) {
-            router.push({
-              pathname: "/(main)/modals/entry-detail",
-              params: {
-                entryId: entry_id,
-                returnTo: "/(main)/home",
-              },
-            })
-          } else if (type === "new_comment" && entry_id) {
-            router.push({
-              pathname: "/(main)/modals/entry-detail",
-              params: {
-                entryId: entry_id,
-                returnTo: "/(main)/home",
-              },
-            })
-          } else if (type === "member_joined" && group_id) {
-            router.push({
-              pathname: "/(main)/home",
-              params: { focusGroupId: group_id },
-            })
-          } else if (type === "inactivity_reminder" && group_id) {
-            router.push({
-              pathname: "/(main)/home",
-              params: { focusGroupId: group_id },
-            })
-          }
-        }, 300) // Small delay to ensure app state is ready
+      if (data && typeof data === "object") {
+        await handlePushNotificationOpen(data as Record<string, unknown>)
       }
     })
 
-    return () => subscription.remove()
+    let removeForeground: (() => void) | undefined
+    let removeClick: (() => void) | undefined
+
+    if (getOneSignalAppId() && isOneSignalNativeModuleCompatible()) {
+      try {
+        const { OneSignal } = require("react-native-onesignal") as typeof import("react-native-onesignal")
+        const onForeground = (event: NotificationWillDisplayEvent) => {
+          event.getNotification().display()
+        }
+        const onClick = (event: NotificationClickEvent) => {
+          const addl = event.notification.additionalData
+          if (addl && typeof addl === "object") {
+            void handlePushNotificationOpen(addl as Record<string, unknown>)
+          }
+        }
+        OneSignal.Notifications.addEventListener("foregroundWillDisplay", onForeground)
+        OneSignal.Notifications.addEventListener("click", onClick)
+        removeForeground = () =>
+          OneSignal.Notifications.removeEventListener("foregroundWillDisplay", onForeground)
+        removeClick = () => OneSignal.Notifications.removeEventListener("click", onClick)
+      } catch {
+        // e.g. Expo Go — no native OneSignal module
+      }
+    }
+
+    return () => {
+      subscription.remove()
+      removeForeground?.()
+      removeClick?.()
+    }
   }, [])
 
   // Handle OAuth redirects and deep links
@@ -877,7 +825,7 @@ export default function RootLayout() {
             console.log("[_layout] Navigating to forgot-password screen due to expired/invalid link")
             setTimeout(() => {
               console.log("[_layout] Executing navigation to forgot-password")
-              router.replace("/(onboarding)/forgot-password")
+              router.replace("/(onboarding-v2)/forgot")
             }, 100)
             return // Exit early - don't process as OAuth
           }
@@ -934,7 +882,7 @@ export default function RootLayout() {
             // This prevents "Invalid Refresh Token" errors
             if (!supabase?.auth) {
               console.warn("[_layout] Supabase auth not available")
-              router.push("/(onboarding)/forgot-password")
+              router.push("/(onboarding-v2)/forgot")
               return
             }
             
@@ -947,7 +895,7 @@ export default function RootLayout() {
             if (error) {
               console.error("[_layout] Failed to set recovery session:", error)
               setTimeout(() => {
-                router.replace("/(onboarding)/forgot-password")
+                router.replace("/(onboarding-v2)/forgot")
               }, 100)
               return
             }
@@ -986,17 +934,17 @@ export default function RootLayout() {
               }
               
               // Navigate to reset password screen
-              router.replace("/(onboarding)/reset-password")
+              router.replace("/(onboarding-v2)/new-password")
               return // Exit early - don't process as OAuth
             } else {
               console.warn("[_layout] No session after setting recovery token")
-              router.push("/(onboarding)/forgot-password")
+              router.push("/(onboarding-v2)/forgot")
               return
             }
           } else {
             console.log("[_layout] No tokens in URL yet, navigating to reset-password screen (it will handle URL parsing)")
             // Navigate to reset password screen - it will handle extracting tokens from URL
-            router.push("/(onboarding)/reset-password")
+            router.push("/(onboarding-v2)/new-password")
             return // Exit early - don't process as OAuth
           }
         }
@@ -1032,16 +980,19 @@ export default function RootLayout() {
           }
         }
         // Handle join links (both deep link and HTTPS)
-        else if (url.includes("goodtimes://join/")) {
-          const groupId = url.split("goodtimes://join/")[1]?.split("?")[0]?.split("/")[0]
-          if (groupId) {
-            router.push(`/join/${groupId}`)
-          }
-        }
-        else if (url.includes("thegoodtimes.app/join/")) {
-          const groupId = url.split("thegoodtimes.app/join/")[1]?.split("?")[0]?.split("/")[0]
-          if (groupId) {
-            router.push(`/join/${groupId}`)
+        else if (url.includes("goodtimes://join/") || url.includes("thegoodtimes.app/join/")) {
+          const marker = url.includes("goodtimes://join/") ? "goodtimes://join/" : "thegoodtimes.app/join/"
+          const token = url.split(marker)[1]?.split("?")[0]?.split("/")[0]
+          if (token) {
+            // Confirm, never auto-join: routeAfterAuth() REDEEMS the token, so
+            // calling it here put people in a group before they saw whose it was.
+            // Signed out → splash, which peeks the invite first.
+            const { data: { session } } = await supabase.auth.getSession()
+            if (session?.user) {
+              router.replace({ pathname: "/(onboarding-v2)/invite", params: { token } })
+            } else {
+              router.replace({ pathname: "/(onboarding-v2)/splash", params: { invite: token } })
+            }
           }
         }
         // Handle share links (both deep link and HTTPS)
@@ -1065,13 +1016,13 @@ export default function RootLayout() {
                   .maybeSingle()
                 if (entry) {
                   await AsyncStorage.removeItem("pending_share_entry")
-                  router.push({ pathname: "/(main)/home", params: { shareGroupId: entry.group_id, shareDate: entry.date } })
+                  router.replace("/(v2)/today")
                 }
               } catch (err) {
                 console.error("[_layout] Error fetching share entry:", err)
               }
             } else {
-              router.replace("/(onboarding)/welcome-2")
+              router.replace("/(onboarding-v2)/splash")
             }
           }
         }
@@ -1168,6 +1119,7 @@ export default function RootLayout() {
         <SafeAreaProvider>
           <AuthProvider>
             <BootRecheckHandler />
+            <NotificationPermissionResumeHandler />
             <RefreshingOverlay />
             <BootScreenOverlay />
             <ThemeProvider>

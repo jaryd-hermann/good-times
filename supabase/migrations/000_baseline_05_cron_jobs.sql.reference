@@ -1,0 +1,195 @@
+-- =============================================================================
+-- BASELINE 05 — Scheduled jobs (pg_cron)  ** REFERENCE ONLY — DO NOT AUTO-APPLY **
+-- =============================================================================
+-- Captured from cron.job on the live project (ytnnsykbgohiscfgomfe), 2026-08-01.
+-- Deliberately named *.reference so the Supabase CLI does NOT pick it up as a
+-- migration. Running it as-is would fail or double-schedule.
+--
+-- Two reasons it is reference-only:
+--   1. Bearer tokens are REDACTED. Jobs 14-50 embed a JWT directly in the cron
+--      command. Those values must never be committed, so they are stubbed as
+--      <REDACTED_JWT>. Recreating a job requires substituting the real key.
+--   2. cron.schedule() with an existing jobname updates it, but the URLs here are
+--      hardcoded to the production project ref and would be wrong elsewhere.
+--
+-- NOTE the two patterns in use. Jobs 54 and 55 are the good one: they read
+-- credentials at runtime via get_app_setting() from the app_settings table
+-- instead of embedding a key in the job definition. Every job recreated during
+-- the v2 rewrite should follow that pattern so this file can become a real,
+-- committable migration with no secrets in it.
+--
+-- 19 active jobs. Many of these disappear in v2 — see docs/V2_PLAN.md section 9
+-- (kill list). Specifically: schedule-daily-prompts, send-daily-notifications,
+-- all birthday-card jobs, all custom-question jobs, and the interest/discovery
+-- personalization jobs.
+-- =============================================================================
+
+-- job 14  (schedule-daily-prompts)          -- v2: DELETE
+SELECT cron.schedule('schedule-daily-prompts', '1 0 * * *', $cron$
+  SELECT
+    net.http_post(
+      url:='https://ytnnsykbgohiscfgomfe.supabase.co/functions/v1/schedule-daily-prompts',
+      headers:='{"Content-Type": "application/json", "Authorization": "Bearer <REDACTED_JWT>"}'::jsonb
+    ) AS request_id;
+  $cron$);
+
+-- job 16  (process-notification-queue)      -- v2: KEEP (worker rewritten for OneSignal)
+SELECT cron.schedule('process-notification-queue', '*/5 * * * *', $cron$
+  SELECT
+    net.http_post(
+      url:='https://ytnnsykbgohiscfgomfe.supabase.co/functions/v1/process-notification-queue',
+      headers:='{"Content-Type": "application/json", "Authorization": "Bearer <REDACTED_JWT>"}'::jsonb
+    ) AS request_id;
+  $cron$);
+
+-- job 20  (check-custom-question-eligibility)   -- v2: DELETE
+SELECT cron.schedule('check-custom-question-eligibility', '0 1 * * *', $cron$
+  SELECT
+    net.http_post(
+      url:='https://ytnnsykbgohiscfgomfe.supabase.co/functions/v1/check-custom-question-eligibility',
+      headers:='{"Content-Type": "application/json", "Authorization": "Bearer <REDACTED_JWT>"}'::jsonb
+    ) AS request_id;
+  $cron$);
+
+-- job 22  (send-custom-question-notifications-8am)   -- v2: DELETE
+SELECT cron.schedule('send-custom-question-notifications-8am', '0 8 * * *', $cron$
+  SELECT
+    net.http_post(
+      url:='https://ytnnsykbgohiscfgomfe.supabase.co/functions/v1/send-custom-question-notifications',
+      headers:='{"Content-Type": "application/json", "Authorization": "Bearer <REDACTED_JWT>"}'::jsonb
+    ) AS request_id;
+  $cron$);
+
+-- job 23  (send-custom-question-notifications-4pm)   -- v2: DELETE
+SELECT cron.schedule('send-custom-question-notifications-4pm', '0 16 * * *', $cron$
+  SELECT
+    net.http_post(
+      url:='https://ytnnsykbgohiscfgomfe.supabase.co/functions/v1/send-custom-question-notifications',
+      headers:='{"Content-Type": "application/json", "Authorization": "Bearer <REDACTED_JWT>"}'::jsonb
+    ) AS request_id;
+  $cron$);
+
+-- job 24  (process-skipped-custom-questions)   -- v2: DELETE
+SELECT cron.schedule('process-skipped-custom-questions', '59 23 * * *', $cron$
+  SELECT
+    net.http_post(
+      url:='https://ytnnsykbgohiscfgomfe.supabase.co/functions/v1/process-skipped-custom-questions',
+      headers:='{"Content-Type": "application/json", "Authorization": "Bearer <REDACTED_JWT>"}'::jsonb
+    ) AS request_id;
+  $cron$);
+
+-- job 33  (send-inactivity-notifications)   -- v2: KEEP
+SELECT cron.schedule('send-inactivity-notifications', '30 21 * * *', $cron$
+  SELECT
+    net.http_post(
+      url:='https://ytnnsykbgohiscfgomfe.supabase.co/functions/v1/send-inactivity-notifications',
+      headers:='{"Content-Type": "application/json", "Authorization": "Bearer <REDACTED_JWT>"}'::jsonb
+    ) AS request_id;
+  $cron$);
+
+-- job 34  (create-birthday-cards)   -- v2: DELETE
+SELECT cron.schedule('create-birthday-cards', '0 1 * * *', $cron$
+  SELECT
+    net.http_post(
+      url:='https://ytnnsykbgohiscfgomfe.supabase.co/functions/v1/create-birthday-cards',
+      headers:='{"Content-Type": "application/json", "Authorization": "Bearer <REDACTED_JWT>"}'::jsonb
+    ) AS request_id;
+  $cron$);
+
+-- job 35  (send-birthday-card-notifications)   -- v2: DELETE
+SELECT cron.schedule('send-birthday-card-notifications', '0 8 * * *', $cron$
+  SELECT
+    net.http_post(
+      url:='https://ytnnsykbgohiscfgomfe.supabase.co/functions/v1/send-birthday-card-notifications',
+      headers:='{"Content-Type": "application/json", "Authorization": "Bearer <REDACTED_JWT>"}'::jsonb
+    ) AS request_id;
+  $cron$);
+
+-- job 36  (send-birthday-card-reminders)   -- v2: DELETE
+SELECT cron.schedule('send-birthday-card-reminders', '0 8 * * *', $cron$
+  SELECT
+    net.http_post(
+      url:='https://ytnnsykbgohiscfgomfe.supabase.co/functions/v1/send-birthday-card-reminders',
+      headers:='{"Content-Type": "application/json", "Authorization": "Bearer <REDACTED_JWT>"}'::jsonb
+    ) AS request_id;
+  $cron$);
+
+-- job 37  (publish-birthday-cards)   -- v2: DELETE
+SELECT cron.schedule('publish-birthday-cards', '0 * * * *', $cron$
+  SELECT
+    net.http_post(
+      url:='https://ytnnsykbgohiscfgomfe.supabase.co/functions/v1/publish-birthday-cards',
+      headers:='{"Content-Type": "application/json", "Authorization": "Bearer <REDACTED_JWT>"}'::jsonb
+    ) AS request_id;
+  $cron$);
+
+-- job 38  (send-birthday-card-ready-notification)   -- v2: DELETE
+SELECT cron.schedule('send-birthday-card-ready-notification', '0 8 * * *', $cron$
+  SELECT
+    net.http_post(
+      url:='https://ytnnsykbgohiscfgomfe.supabase.co/functions/v1/send-birthday-card-ready-notification',
+      headers:='{"Content-Type": "application/json", "Authorization": "Bearer <REDACTED_JWT>"}'::jsonb
+    ) AS request_id;
+  $cron$);
+
+-- job 44  (batch-update-prompt-answer-counts)   -- v2: REVIEW (prompt_usage_stats feeds curation)
+SELECT cron.schedule('batch-update-prompt-answer-counts', '0 * * * *', $cron$
+  SELECT batch_update_prompt_answer_counts();
+  $cron$);
+
+-- job 45  (run-daily-personalization-tasks)   -- v2: DELETE (interests/decks)
+SELECT cron.schedule('run-daily-personalization-tasks', '5 0 * * *', $cron$
+  SELECT run_daily_personalization_tasks();
+  $cron$);
+
+-- job 46  (populate-personalized-queue-weekly)   -- v2: DELETE
+SELECT cron.schedule('populate-personalized-queue-weekly', '0 23 * * 0', $cron$
+  SELECT populate_personalized_queue();
+  $cron$);
+
+-- job 50  (send-daily-notifications)   -- v2: DELETE (replaced by OneSignal timezone campaign)
+SELECT cron.schedule('send-daily-notifications', '5 0 * * *', $cron$
+  SELECT
+    net.http_post(
+      url:='https://ytnnsykbgohiscfgomfe.supabase.co/functions/v1/send-daily-notifications',
+      headers:='{"Content-Type": "application/json", "Authorization": "Bearer <REDACTED_JWT>"}'::jsonb
+    ) AS request_id;
+  $cron$);
+
+-- job 51  (analyze-discovery-engagement)   -- v2: DELETE
+SELECT cron.schedule('analyze-discovery-engagement', '0 2 * * *', $cron$
+  SELECT analyze_discovery_engagement();
+  $cron$);
+
+-- job 52  (recalculate-interest-similarities)   -- v2: DELETE
+SELECT cron.schedule('recalculate-interest-similarities', '0 3 * * 0', $cron$
+  SELECT calculate_interest_similarities();
+  $cron$);
+
+-- job 54  (process-onboarding-emails)   -- v2: KEEP
+-- GOOD PATTERN: credentials resolved at runtime, nothing secret in the definition.
+SELECT cron.schedule('process-onboarding-emails', '*/15 * * * *', $cron$
+  SELECT
+    net.http_post(
+      url := get_app_setting('supabase_url') || '/functions/v1/process-onboarding-emails',
+      headers := jsonb_build_object(
+        'Content-Type', 'application/json',
+        'Authorization', 'Bearer ' || get_app_setting('supabase_anon_key')
+      ),
+      body := '{}'::jsonb
+    ) AS request_id;
+  $cron$);
+
+-- job 55  (assign-custom-question-opportunity)   -- v2: DELETE
+-- GOOD PATTERN: same runtime credential lookup as job 54.
+SELECT cron.schedule('assign-custom-question-opportunity', '1 0 * * 1,4', $cron$
+  SELECT
+    net.http_post(
+      url := get_app_setting('supabase_url') || '/functions/v1/assign-custom-question-opportunity',
+      headers := jsonb_build_object(
+        'Content-Type', 'application/json',
+        'Authorization', 'Bearer ' || get_app_setting('supabase_service_role_key')
+      ),
+      body := '{}'::jsonb
+    ) AS request_id;
+  $cron$);

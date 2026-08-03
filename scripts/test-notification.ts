@@ -49,6 +49,7 @@ async function testNotification(userId?: string) {
     const { data: pushTokens, error: tokenError } = await supabase
       .from("push_tokens")
       .select("user_id")
+      .like("token", "ExponentPushToken%")
       .limit(1)
       .maybeSingle()
 

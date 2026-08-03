@@ -67,6 +67,7 @@ serve(async (req) => {
           .from("push_tokens")
           .select("token")
           .eq("user_id", opportunity.user_id)
+          .like("token", "ExponentPushToken%")
 
         if (pushTokens && pushTokens.length > 0) {
           for (const tokenData of pushTokens) {
@@ -92,6 +93,7 @@ serve(async (req) => {
           .from("push_tokens")
           .select("token")
           .eq("user_id", opportunity.user_id)
+          .like("token", "ExponentPushToken%")
 
         if (pushTokens && pushTokens.length > 0) {
           const hoursRemaining = Math.max(0, 24 - hoursSinceAssignment)

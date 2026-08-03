@@ -94,6 +94,7 @@ serve(async (req) => {
         .from("push_tokens")
         .select("token")
         .eq("user_id", card.birthday_user_id)
+        .like("token", "ExponentPushToken%")
         .limit(1)
 
       const pushToken = pushTokens?.[0]?.token

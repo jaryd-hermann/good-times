@@ -94,11 +94,36 @@ serve(async (req) => {
       }
 
       for (const targetUser of targetUsers) {
+        const { data: userPrefs, error: userPrefsError } = await supabaseClient
+          .from("users")
+          .select("notifications_enabled, daily_question_notifications_enabled")
+          .eq("id", targetUser.user_id)
+          .maybeSingle()
+
+        if (userPrefsError) {
+          console.error(
+            `[send-daily-notifications] Error loading notification prefs for user ${targetUser.user_id}:`,
+            userPrefsError,
+          )
+          continue
+        }
+
+        if (
+          userPrefs?.notifications_enabled === false ||
+          userPrefs?.daily_question_notifications_enabled === false
+        ) {
+          console.log(
+            `[send-daily-notifications] Skipping user ${targetUser.user_id} (daily notifications disabled)`,
+          )
+          continue
+        }
+
         // Check if user has push token
         const { data: pushTokens, error: tokenError } = await supabaseClient
           .from("push_tokens")
           .select("token")
           .eq("user_id", targetUser.user_id)
+          .like("token", "ExponentPushToken%")
           .limit(1)
 
         if (tokenError || !pushTokens || pushTokens.length === 0) {

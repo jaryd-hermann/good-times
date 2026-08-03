@@ -14,7 +14,8 @@
         "buildType": "apk"
       },
       "env": {
-        "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
+        "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
+        "ONESIGNAL_APS_MODE": "development"
       }
     },
     "preview": {
@@ -24,6 +25,9 @@
       },
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "ONESIGNAL_APS_MODE": "development"
       }
     },
     "production": {
@@ -37,7 +41,8 @@
       },
       "autoIncrement": true,
       "env": {
-        "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
+        "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
+        "ONESIGNAL_APS_MODE": "production"
       }
     }
   },
