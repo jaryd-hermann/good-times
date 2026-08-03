@@ -1,0 +1,19 @@
+-- =============================================================================
+-- Faster engagement pushes  (applied via MCP as v2_faster_engagement_pushes)
+-- =============================================================================
+-- Two delays stacked to 10-15 minutes:
+--   1. v2_flush_digests held a digest until 10 minutes of silence (or 5 events),
+--      so a lone reply sat the full 10 before it was even queued.
+--   2. process-notification-queue then ran on a 5-minute cron.
+--
+-- Digest window 10m -> 2m, and the queue drains every 2 minutes instead of 5.
+--
+-- Deliberately 2 and not 1 for the queue: process-notification-queue SELECTs
+-- unprocessed rows, sends, and only then marks them processed. There is no atomic
+-- claim, so two overlapping runs would both pick up the same rows and double-send.
+-- Runs are milliseconds against a handful of rows today, so 2 minutes carries ample
+-- headroom — going to 1 should wait until the claim is atomic.
+--
+-- Full function body is in the applied migration; only the interval changed:
+--   last_event_at < now() - interval '10 minutes'  ->  '2 minutes'
+SELECT cron.alter_job(16, schedule := '*/2 * * * *');

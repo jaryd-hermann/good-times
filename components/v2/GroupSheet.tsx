@@ -124,7 +124,8 @@ export function GroupSheet({
             <AvatarStack members={group.members} size={34} max={group.members.length} />
           <Text style={s.memberNames} numberOfLines={1}>
             {group.members
-              .map((m) => (m.id === userId ? `${m.name ?? "You"} (you)` : m.name ?? "Someone"))
+              // "You", not "Jaryd (you)" — nobody needs their own name read back.
+                .map((m) => (m.id === userId ? "You" : (m.name ?? "Someone")))
               .join(", ")}
           </Text>
         </View>

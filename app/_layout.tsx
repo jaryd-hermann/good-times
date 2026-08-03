@@ -19,6 +19,7 @@ import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/reac
 import { SafeAreaProvider } from "react-native-safe-area-context"
 import { AuthProvider, useAuth } from "../components/AuthProvider"
 import { NotificationPermissionResumeHandler } from "../components/NotificationPermissionResumeHandler"
+import { TimezoneSync } from "../components/TimezoneSync"
 import { ErrorBoundary } from "../components/ErrorBoundary"
 import * as Linking from "expo-linking"
 import * as Notifications from "expo-notifications"
@@ -1126,6 +1127,7 @@ export default function RootLayout() {
           <AuthProvider>
             <BootRecheckHandler />
             <NotificationPermissionResumeHandler />
+            <TimezoneSync />
             <RefreshingOverlay />
             <BootScreenOverlay />
             <ThemeProvider>
