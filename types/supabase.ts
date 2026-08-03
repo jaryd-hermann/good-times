@@ -1412,6 +1412,7 @@ export type Database = {
           group_id: string
           id: string
           joined_at: string | null
+          muted: boolean
           role: string
           user_id: string
         }
@@ -1419,6 +1420,7 @@ export type Database = {
           group_id: string
           id?: string
           joined_at?: string | null
+          muted?: boolean
           role?: string
           user_id: string
         }
@@ -1426,6 +1428,7 @@ export type Database = {
           group_id?: string
           id?: string
           joined_at?: string | null
+          muted?: boolean
           role?: string
           user_id?: string
         }

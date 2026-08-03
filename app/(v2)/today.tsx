@@ -265,6 +265,17 @@ export default function TodayScreen() {
                 answer it stays on top, because nothing else is unlocked yet. */}
             {answered ? null : questionCard}
 
+            {/* Once answered, the threads move to the top and the full question
+                card drops below them — which left the chats sitting under nothing,
+                with no statement of what everyone was talking about. This is the
+                compact banner from the composer: the question text and nothing
+                else, purely to anchor the conversations beneath it. */}
+            {answered && !noGroups ? (
+              <TexturedCard style={s.anchorBanner} radius={14} bevel={0}>
+                <Text style={s.anchorBannerText}>{data.question.text}</Text>
+              </TexturedCard>
+            ) : null}
+
             {/* Said once, to the only people who need it: a brand new user with
                 nothing answered and nobody to share with. Naming them and naming
                 the two next steps beats leaving them to infer both from cards. */}
@@ -361,6 +372,20 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"], isDark: boolean) {
       color: c.text,
       marginTop: sp.lg,
       marginBottom: sp.sm,
+    },
+    anchorBanner: {
+      backgroundColor: c.accent,
+      borderWidth: 2,
+      borderColor: c.border,
+      borderRadius: 14,
+      padding: sp.md,
+      marginBottom: sp.sm,
+    },
+    anchorBannerText: {
+      fontSize: 15,
+      fontWeight: "800",
+      color: c.accentInk,
+      lineHeight: 20,
     },
     welcomeLine: {
       fontSize: 15,

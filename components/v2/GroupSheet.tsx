@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   View,
   Text,
@@ -40,12 +40,47 @@ export function GroupSheet({
 }) {
   const router = useRouter()
   const { c } = useV2Colors()
+  // Was local useState that nothing read or persisted — the toggle did nothing at
+  // all. It now reflects group_members.muted for THIS member; muting is per
+  // membership, so one person silencing a group cannot silence it for everyone.
   const [muted, setMuted] = useState(false)
+  const [explainMute, setExplainMute] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [showInvite, setShowInvite] = useState(false)
   const [newName, setNewName] = useState(group.name)
   const [busy, setBusy] = useState(false)
   const s = makeStyles(c)
+
+  useEffect(() => {
+    if (!visible || !userId || !group.id) return
+    let cancelled = false
+    ;(async () => {
+      const { data } = await supabase
+        .from("group_members")
+        .select("muted")
+        .eq("group_id", group.id)
+        .eq("user_id", userId)
+        .maybeSingle()
+      if (!cancelled) setMuted(!!(data as { muted?: boolean } | null)?.muted)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [visible, userId, group.id])
+
+  async function applyMute(next: boolean) {
+    if (!userId) return
+    setMuted(next) // optimistic — the switch must not lag the thumb
+    const { error } = await supabase
+      .from("group_members")
+      .update({ muted: next })
+      .eq("group_id", group.id)
+      .eq("user_id", userId)
+    if (error) {
+      setMuted(!next)
+      Alert.alert("Couldn't change that", error.message)
+    }
+  }
 
   const allAnswered = group.answered_count >= group.member_count
 
@@ -175,7 +210,14 @@ export function GroupSheet({
             right={
               <Switch
                 value={muted}
-                onValueChange={setMuted}
+                // Turning it ON explains itself first: this changes WHEN you hear
+                // from the group, not just whether. Turning it OFF restores the
+                // default and needs no dialog.
+                onValueChange={(next) => {
+                  haptics.tap()
+                  if (next) setExplainMute(true)
+                  else void applyMute(false)
+                }}
                 trackColor={{ true: c.green, false: c.textSecondary }}
               />
             }
@@ -203,6 +245,41 @@ export function GroupSheet({
         userId={userId}
         onClose={() => setShowInvite(false)}
       />
+
+      {/* Muting is not "no notifications" — it swaps a live stream for one summary
+          a day. Said before it happens, because a toggle labelled "Mute" that
+          still sends you something in the evening would otherwise read as broken. */}
+      <Modal visible={explainMute} transparent animationType="fade" onRequestClose={() => setExplainMute(false)}>
+        <Pressable style={s.backdrop} onPress={() => setExplainMute(false)} />
+        <View style={s.explainCard}>
+          <Text style={s.explainTitle}>Mute {group.name}?</Text>
+          <Text style={s.explainBody}>
+            You&rsquo;ll stop getting notifications as things happen — answers, messages and
+            reactions.
+          </Text>
+          <Text style={s.explainBody}>
+            Instead you&rsquo;ll get one summary at 7pm on days there was activity, like
+            &ldquo;3 answers, 8 messages&rdquo;. Quiet days stay quiet.
+          </Text>
+          <Text style={s.explainNote}>
+            Today&rsquo;s question still arrives as normal. You can turn this off any time.
+          </Text>
+
+          <Pressable
+            onPress={() => {
+              haptics.commit()
+              setExplainMute(false)
+              void applyMute(true)
+            }}
+            style={({ pressed }) => [s.primary, pressed ? s.primaryPressed : null]}
+          >
+            <Text style={s.primaryText}>Mute this group</Text>
+          </Pressable>
+          <Pressable onPress={() => setExplainMute(false)} style={s.explainCancel} hitSlop={8}>
+            <Text style={s.explainCancelText}>Keep notifications on</Text>
+          </Pressable>
+        </View>
+      </Modal>
     </Modal>
   )
 }
@@ -328,6 +405,29 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
       elevation: 0,
     },
     primaryText: { color: "#fff", fontWeight: "800", fontSize: 16 },
+    explainCard: {
+      position: "absolute",
+      left: sp.lg,
+      right: sp.lg,
+      top: "26%",
+      backgroundColor: c.bg,
+      borderWidth: 2,
+      borderColor: c.border,
+      borderRadius: 18,
+      padding: sp.xl,
+      gap: sp.sm,
+    },
+    explainTitle: { fontSize: 20, fontWeight: "800", color: c.text, marginBottom: 2 },
+    explainBody: { fontSize: 15, color: c.text, lineHeight: 21 },
+    explainNote: {
+      fontSize: 13,
+      color: c.textSecondary,
+      lineHeight: 19,
+      marginTop: 2,
+      marginBottom: sp.sm,
+    },
+    explainCancel: { alignSelf: "center", marginTop: sp.md },
+    explainCancelText: { color: c.textSecondary, fontWeight: "700", fontSize: 15 },
     grid: { flexDirection: "row", gap: sp.md },
     tile: {
       flex: 1,
