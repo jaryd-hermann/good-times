@@ -32,6 +32,42 @@ export function NotificationPermissionResumeHandler() {
   const userId = user?.id
   const appStateRef = useRef<AppStateStatus>(AppState.currentState)
   const lastOpenSettingsAlertAtRef = useRef(0)
+  const linkedRef = useRef<string | null>(null)
+
+  // Link already-permitted users to OneSignal on launch.
+  //
+  // Sends target external_id, which is only set by OneSignal.login() inside
+  // registerForPushNotifications. Boot calls ensureOneSignalInitialized() but never
+  // logs in, and routeAfterAuth sends anyone with a completed profile straight to
+  // /(v2)/today — so a v1 user upgrading to v2 never passes the onboarding
+  // notifications screen and never gets linked. Before this, the only path left was
+  // the background→active listener below, meaning an upgraded user stayed invisible
+  // to OneSignal until they happened to background and re-foreground the app.
+  //
+  // Safe to run unprompted: it only proceeds when permission is ALREADY granted, so
+  // it can never put a dialog in front of someone. Users who have not granted are
+  // left to the onboarding CTA.
+  useEffect(() => {
+    if (!userId) return
+    if (linkedRef.current === userId) return
+
+    let cancelled = false
+    const run = async () => {
+      const { status } = await Notifications.getPermissionsAsync()
+      if (status !== "granted" || cancelled) return
+      try {
+        await syncPushRegistration(userId)
+        linkedRef.current = userId
+      } catch (e) {
+        if (__DEV__) console.warn("[NotificationPermissionResumeHandler] launch link failed:", e)
+      }
+    }
+    void run()
+
+    return () => {
+      cancelled = true
+    }
+  }, [userId])
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextAppState) => {
