@@ -1,5 +1,5 @@
 import Constants from "expo-constants"
-import { TurboModuleRegistry } from "react-native"
+import { NativeModules } from "react-native"
 
 let initialized = false
 
@@ -17,19 +17,41 @@ export function getOneSignalAppId(): string | undefined {
 }
 
 /**
- * The JS SDK loads native listeners as soon as the package is required. If the dev client
- * was built with an older OneSignal native layer, `onPermissionChanged` is missing and the
- * app crashes. Probe the TurboModule first and skip loading JS until native matches.
+ * The JS SDK wires up its listeners as soon as the package is required, so a native
+ * layer that does not match the JS package crashes inside `require()`. Probe first
+ * and skip loading the SDK unless the two agree.
+ *
+ * This check is version-shaped, and getting it wrong fails silently — the app runs
+ * fine and simply never registers anyone for push.
+ *
+ * react-native-onesignal >= 5.4.0 declares its events as codegen `EventEmitter`
+ * properties, which only exist under the New Architecture. This app runs the old
+ * architecture (`newArchEnabled: false`), so 5.4.x can never work here: the probe
+ * that used to look for `onPermissionChanged` / `onSubscriptionChanged` always
+ * returned false and OneSignal was disabled on every single build.
+ *
+ * We are pinned to 5.3.6, the last release with a legacy path. It resolves the
+ * module through `NativeModules.OneSignal` (iOS registers `RCTOneSignal`; React
+ * Native strips the `RCT` prefix) and delivers events over `NativeEventEmitter`,
+ * so there are no `onXxx` methods to look for — checking for them is exactly the
+ * bug. Only the imperative methods exist.
+ *
+ * If you ever bump react-native-onesignal, re-check this function against the new
+ * package's `dist/` rather than assuming it still holds.
  */
 export function isOneSignalNativeModuleCompatible(): boolean {
   try {
-    const mod = TurboModuleRegistry.get("OneSignal") as Record<string, unknown> | null | undefined
+    const mod = (NativeModules as Record<string, unknown>)?.OneSignal as
+      | Record<string, unknown>
+      | null
+      | undefined
     if (!mod || typeof mod !== "object") return false
+    // The imperative surface the SDK calls into. `addPermissionObserver` is what
+    // 5.3.x uses to back its permission events, so its presence is what tells us
+    // the native layer is the matching generation.
     if (typeof mod.initialize !== "function") return false
-    // `react-native-onesignal` registers listeners at require() time via these callables.
-    // `addPermissionObserver` alone is NOT enough — missing `onPermissionChanged` crashes inside require().
-    if (typeof mod.onPermissionChanged !== "function") return false
-    if (typeof mod.onSubscriptionChanged !== "function") return false
+    if (typeof mod.addPermissionObserver !== "function") return false
+    if (typeof mod.login !== "function") return false
     return true
   } catch {
     return false
@@ -48,7 +70,7 @@ export function ensureOneSignalInitialized(): boolean {
   if (initialized) return true
   if (!isOneSignalNativeModuleCompatible()) {
     console.warn(
-      "[onesignal] Native OneSignal is missing TurboModule APIs (e.g. onPermissionChanged). The JS SDK was not loaded. Rebuild the dev client after `pod install` / EAS iOS build so native matches react-native-onesignal in package.json. Simulator needs the same native build as device."
+      "[onesignal] NativeModules.OneSignal is absent or does not expose the expected 5.3.x API, so the JS SDK was not loaded and nobody will be registered for push. Rebuild after `pod install` / an EAS iOS build so native matches react-native-onesignal in package.json.",
     )
     return false
   }
