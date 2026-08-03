@@ -37,6 +37,7 @@ import { GroupSheet } from "../../components/v2/GroupSheet"
 import { InviteSheet } from "../../components/v2/InviteSheet"
 import { LockedThread } from "../../components/v2/LockedThread"
 import { uploadMedia } from "../../lib/storage"
+import { v2Analytics } from "../../lib/v2/analytics"
 import type { ThreadMessage } from "../../lib/v2/types"
 
 /**
@@ -92,9 +93,20 @@ export default function ThreadScreen() {
   const s = useMemo(() => makeStyles(c), [c])
 
   // Mark read on open, but only once the thread is actually visible/unlocked.
+  const openTracked = useRef<string | null>(null)
   useEffect(() => {
     if (data && !data.locked && groupId && date) {
+      // Read the unseen state BEFORE marking read, or hadUnseen is always false.
+      const hadUnseen = liveFirstUnreadIndex >= 0
       markRead.mutate({ groupId, threadDate: date })
+
+      // Once per group+date: this effect re-runs as `data` settles, and an open
+      // counted three times would make thread engagement look triple what it is.
+      const key = `${groupId}:${date}`
+      if (openTracked.current !== key) {
+        openTracked.current = key
+        v2Analytics.threadOpened({ groupId, hadUnseen })
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.locked, groupId, date])
@@ -190,6 +202,11 @@ export default function ThreadScreen() {
       mediaTypes: mediaUrls?.map(() => "photo" as const),
       replyToMessageId: target?.id ?? null,
     })
+    v2Analytics.messageSent({
+      groupId,
+      kind: target ? "reply" : "open",
+      hasMedia: !!mediaUrls?.length,
+    })
   }, [draft, pending, groupId, date, replyTo, sendMessage])
 
   /**
@@ -241,6 +258,11 @@ export default function ThreadScreen() {
           mediaUrls: [url],
           mediaTypes: [type],
           replyToMessageId: target?.id ?? null,
+        })
+        v2Analytics.messageSent({
+          groupId,
+          kind: target ? "reply" : "open",
+          hasMedia: true,
         })
       } catch (e) {
         console.warn("[thread] media send failed:", (e as Error).message)

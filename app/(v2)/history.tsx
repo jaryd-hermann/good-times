@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
 } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { SafeAreaView } from "react-native-safe-area-context"
+import { v2Analytics } from "../../lib/v2/analytics"
 import { useAuth } from "../../components/AuthProvider"
 import { useHistory, useChatList, useMarkAllRead } from "../../lib/v2/queries"
 import { NoGroupsCard } from "../../components/v2/NoGroupsCard"
@@ -31,6 +32,10 @@ import type { HistoryRow } from "../../lib/v2/types"
  * counts, and the last message as "Name: text".
  */
 export default function HistoryScreen() {
+  useEffect(() => {
+    v2Analytics.historyViewed()
+  }, [])
+
   const router = useRouter()
   const { user } = useAuth()
   const { c } = useV2Colors()

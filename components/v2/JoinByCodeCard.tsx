@@ -74,7 +74,7 @@ export function JoinByCodeCard({
         )
         return
       }
-      router.push({ pathname: "/(onboarding-v2)/invite", params: { token: t } })
+      router.push({ pathname: "/(onboarding-v2)/invite", params: { token: t, via: "code" } })
     } catch (e) {
       haptics.warn()
       Alert.alert("Couldn't join", (e as Error).message)

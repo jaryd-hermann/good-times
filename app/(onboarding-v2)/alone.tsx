@@ -22,6 +22,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons"
 import { Avatar } from "../../components/Avatar"
 import { useAuth } from "../../components/AuthProvider"
 import { useProfile } from "../../lib/v2/useProfile"
+import { v2Analytics } from "../../lib/v2/analytics"
 
 /**
  * Screen 5 of 5 — "You're alone here".
@@ -53,6 +54,7 @@ export default function AloneScreen() {
       const uid = data.user?.id
       if (!uid) throw new Error("Not signed in")
       const res = await createGroup(name.trim(), uid)
+      v2Analytics.groupCreated({ groupId: res.group_id, from: "onboarding" })
       setCreated({ id: res.group_id, name: res.group_name, token: res.invite?.token })
     } catch (e) {
       Alert.alert("Couldn't create the group", (e as Error).message)

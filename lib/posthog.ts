@@ -34,22 +34,33 @@ export const initializePostHog = (): PostHog | null => {
   }
 
   try {
-    // Initialize PostHog with privacy-first options
+    // Most of what used to be passed here was not real. `sessionReplay`,
+    // `captureApplicationLifecycleEvents`, `captureScreens`, `captureScreenViews`,
+    // `anonymizeIP` and `enableFeatureFlags` are not options on this SDK — they
+    // were silently ignored, so the "Disabled for privacy" comment described a
+    // setting that never existed and replay was simply off by default.
+    //
+    // The real names: captureAppLifecycleEvents, enableSessionReplay. Screen and
+    // touch autocapture live on PostHogProvider's `autocapture` prop instead, and
+    // are set in _layout.tsx.
     const client = new PostHog(posthogApiKey, {
       host: posthogHost,
-      // Privacy settings
-      captureApplicationLifecycleEvents: true, // Track app open/close
-      captureDeepLinks: true, // Track deep link opens
-      captureScreens: true, // Track screen views (autocapture)
-      captureScreenViews: true, // Additional screen view tracking
-      // Disable session replay for privacy
-      sessionReplay: false,
-      // Enable IP anonymization
-      anonymizeIP: true,
-      // Feature flags disabled initially (can enable later)
-      enableFeatureFlags: false,
-      // Development mode detection
-      debug: __DEV__,
+      captureAppLifecycleEvents: true,
+
+      // Session replay. Also has to be switched on in PostHog project settings
+      // ("Record user sessions") — the client flag alone records nothing.
+      enableSessionReplay: true,
+      sessionReplayConfig: {
+        // People write their answers into this app. Text stays masked.
+        maskAllTextInputs: true,
+        // Images unmasked: the whole product is photos, and a replay of grey
+        // rectangles tells you nothing about how the composer is being used.
+        maskAllImages: false,
+      },
+
+      // Keep one session across an app restart rather than starting a new one, so
+      // an onboarding funnel that spans a relaunch stays a single session.
+      enablePersistSessionIdAcrossRestart: true,
     })
 
     posthogClient = client

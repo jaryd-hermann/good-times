@@ -9,6 +9,7 @@ import { peekInvite, redeemInvite, type InvitePeek } from "../../lib/v2/onboardi
 import * as haptics from "../../lib/v2/haptics"
 import { Confetti } from "../../components/v2/Confetti"
 import { getTodayDate } from "../../lib/utils"
+import { v2Analytics } from "../../lib/v2/analytics"
 
 /**
  * Invite confirmation for a signed-in user.
@@ -22,7 +23,7 @@ export default function InviteScreen() {
   const router = useRouter()
   const { user } = useAuth()
   const { c } = useV2Colors()
-  const params = useLocalSearchParams<{ token?: string }>()
+  const params = useLocalSearchParams<{ token?: string; via?: string }>()
   const s = makeStyles(c)
 
   const [peek, setPeek] = useState<InvitePeek | null>(null)
@@ -44,6 +45,12 @@ export default function InviteScreen() {
     setBusy(true)
     try {
       const res = await redeemInvite(params.token, user.id)
+      // `via` is set by whoever sent us here: the inline paste card passes
+      // "code", a tapped invite link leaves it unset.
+      v2Analytics.groupJoined({
+        groupId: res.group_id,
+        via: params.via === "code" ? "code" : "link",
+      })
       haptics.celebrate()
       setCelebrating(true)
 

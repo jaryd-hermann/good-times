@@ -27,6 +27,7 @@ import { ensureOneSignalInitialized, getOneSignalAppId, isOneSignalNativeModuleC
 import { handlePushNotificationOpen } from "../lib/notifications"
 import { router, usePathname } from "expo-router"
 import { PostHogProvider } from "posthog-react-native"
+import { getPostHog } from "../lib/posthog"
 import { TabBarProvider } from "../lib/tab-bar-context"
 import { ThemeProvider } from "../lib/theme-context"
 import { View, ActivityIndicator, StyleSheet, Text, AppState, AppStateStatus, Animated, Image } from "react-native"
@@ -1084,7 +1085,9 @@ export default function RootLayout() {
   // PostHog configuration
   const posthogApiKey = process.env.EXPO_PUBLIC_POSTHOG_API_KEY || ''
   const posthogHost = process.env.EXPO_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com'
-  const isPostHogConfigured = posthogApiKey && posthogApiKey.startsWith('phc_')
+  const isPostHogConfigured = !!posthogApiKey && posthogApiKey.startsWith('phc_')
+  // The same instance captureEvent() writes to — see the note on the provider.
+  const sharedPostHog = getPostHog()
 
   if (__DEV__ && isPostHogConfigured) {
     console.log('[PostHog] Configuration:', {
@@ -1099,21 +1102,24 @@ export default function RootLayout() {
   // ErrorBoundary will catch any initialization errors
   return (
     <ErrorBoundary>
+      {/* One client, shared.
+          This used to instantiate its OWN client from apiKey/options while
+          lib/posthog.ts lazily built a SECOND one for captureEvent. AuthProvider
+          identifies through usePostHog (this one), so every custom event went to
+          the other, permanently-anonymous client — the identified user and their
+          events were literally different people, which breaks every funnel.
+          Passing the shared instance makes identify, custom events, autocapture
+          and session replay all one session.
+
+          Most of the old `options` were also not real option names; see the note
+          in lib/posthog.ts, which is now the single place they are set. */}
       <PostHogProvider
-        apiKey={isPostHogConfigured ? posthogApiKey : 'phc_dummy_key_for_unconfigured'}
-        options={{
-          host: posthogHost,
-          // Privacy-first settings - always enable when configured (autocapture may not work in simulator)
-          captureApplicationLifecycleEvents: isPostHogConfigured,
-          captureDeepLinks: isPostHogConfigured,
-          captureScreens: isPostHogConfigured, // Autocapture screen views
-          captureScreenViews: isPostHogConfigured, // Additional screen view tracking
-          sessionReplay: false, // Disabled for privacy
-          anonymizeIP: true,
-          enableFeatureFlags: false, // Disabled initially
-          debug: __DEV__ && isPostHogConfigured, // Enable debug logging in dev
-          flushAt: 1, // Send events immediately (good for testing)
-          flushInterval: 0, // Don't batch events
+        client={sharedPostHog ?? undefined}
+        apiKey={sharedPostHog ? undefined : 'phc_dummy_key_for_unconfigured'}
+        autocapture={{
+          // Screen views come from expo-router through this, not a client option.
+          captureScreens: isPostHogConfigured,
+          captureTouches: isPostHogConfigured,
         }}
       >
         <SafeAreaProvider>

@@ -32,7 +32,9 @@ import { VideoRecorder } from "../../components/v2/VideoRecorder"
 import { VoiceRecorder } from "../../components/v2/VoiceRecorder"
 import { AudioPlayer } from "../../components/v2/AudioPlayer"
 import { TexturedCard } from "../../components/v2/Texture"
+import { v2Analytics } from "../../lib/v2/analytics"
 import { transcribeAudioFromUri } from "../../lib/openai-transcribe"
+import { getTodayDate } from "../../lib/utils"
 import { uploadMedia } from "../../lib/storage"
 import * as haptics from "../../lib/v2/haptics"
 import type { MediaType } from "../../lib/v2/types"
@@ -323,6 +325,19 @@ export default function ComposeScreen() {
         captions: isJournal ? captions : undefined,
         mediaDays: isJournal ? attachments.filter((a) => a.type === "photo").map((a) => a.day ?? null) : undefined,
         groupIds: selected.map((g) => g.id),
+      })
+      v2Analytics.questionAnswered({
+        method: mode,
+        hasMedia: uploaded.length > 0,
+        isEdit: !!hub?.my_answer,
+        // 0 today, 1 yesterday, … — surfaces how much back-filling of missed days
+        // actually happens, which the day picker exists to allow.
+        dayOffset: Math.round(
+          (new Date(getTodayDate() + "T00:00:00").getTime() -
+            new Date(composeDate + "T00:00:00").getTime()) /
+            86400000,
+        ),
+        groupCount: selected.length,
       })
       haptics.success()
       // The notification ask belongs right after the FIRST answer — not after a

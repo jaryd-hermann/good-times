@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   View,
   Text,
@@ -22,6 +22,7 @@ import { BirthdayField } from "../../components/v2/BirthdayField"
 import { useV2Colors, v2Spacing as sp } from "../../lib/v2/theme"
 import { saveProfile, redeemInvite } from "../../lib/v2/onboarding"
 import * as haptics from "../../lib/v2/haptics"
+import { v2Analytics } from "../../lib/v2/analytics"
 
 /**
  * Screen 3 of 5 — Profile.
@@ -38,6 +39,10 @@ export default function ProfileScreen() {
   const { c } = useV2Colors()
   const params = useLocalSearchParams<{ invite?: string }>()
   const qc = useQueryClient()
+
+  useEffect(() => {
+    v2Analytics.profileViewed()
+  }, [])
   const [name, setName] = useState("")
   const [bday, setBday] = useState<Date | null>(null)
   const [avatar, setAvatar] = useState<string | null>(null)
@@ -98,6 +103,13 @@ export default function ProfileScreen() {
       // here just marks an inactive query stale — Today then mounts, declines to
       // refetch, and renders the pre-save row as "You" with a "U" avatar.
       if (saved) qc.setQueryData(["v2", "profile", uid], saved)
+
+      // Both fields are optional here, so record which were actually filled —
+      // that is the number that says whether the step is worth its friction.
+      v2Analytics.profileCreated({
+        hasPhoto: !!avatarUrl,
+        hasBirthday: !!normalisedBirthday(),
+      })
 
       // Redeeming here (not later) means the group exists before the first answer,
       // so the answer fans out immediately instead of relying on retro-share.

@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   View,
   Text,
@@ -20,6 +20,7 @@ import Svg, { Path } from "react-native-svg"
 import { supabase } from "../../lib/supabase"
 import * as haptics from "../../lib/v2/haptics"
 import { routeAfterAuth } from "../../lib/v2/onboarding"
+import { v2Analytics } from "../../lib/v2/analytics"
 
 const COLORS = {
   beige: "#E8E0D5",
@@ -52,6 +53,11 @@ export default function AuthScreen() {
   const params = useLocalSearchParams<{ invite?: string }>()
   const [busy, setBusy] = useState<string | null>(null)
   const [emailMode, setEmailMode] = useState(false)
+
+  useEffect(() => {
+    v2Analytics.authViewed()
+  }, [])
+
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
 
@@ -69,8 +75,22 @@ export default function AuthScreen() {
     )
   }
 
+  /**
+   * Returns whether this was a first-ever sign-in.
+   *
+   * OAuth gives no reliable "new account" flag — Supabase returns a session either
+   * way — and the upsert alone cannot tell us. Checking for the row first is the
+   * one honest signal, and it is the difference between signed_up and signed_in
+   * being meaningful for Apple and Google.
+   */
   async function ensureUserRow(id: string, mail?: string | null) {
+    const { data: existing } = await supabase
+      .from("users")
+      .select("id")
+      .eq("id", id)
+      .maybeSingle()
     await supabase.from("users").upsert({ id, email: mail ?? "" }, { onConflict: "id" })
+    return { isNew: !existing }
   }
 
   /**
@@ -112,7 +132,7 @@ export default function AuthScreen() {
         .filter(Boolean)
         .join(" ")
         .trim()
-      await ensureUserRow(data.user.id, data.user.email)
+      const { isNew } = await ensureUserRow(data.user.id, data.user.email)
       if (appleName) {
         await supabase
           .from("users")
@@ -121,6 +141,8 @@ export default function AuthScreen() {
           .is("name", null)
       }
 
+      if (isNew) v2Analytics.signedUp("apple")
+      else v2Analytics.signedIn("apple")
       haptics.success()
       await next(data.user.id)
     } catch (e) {
@@ -191,7 +213,10 @@ export default function AuthScreen() {
       }
 
       if (!session?.user) throw new Error("No session after sign-in")
-      await ensureUserRow(session.user.id, session.user.email)
+      const { isNew } = await ensureUserRow(session.user.id, session.user.email)
+      const method = provider === "google" ? "google" : "apple"
+      if (isNew) v2Analytics.signedUp(method)
+      else v2Analytics.signedIn(method)
       haptics.success()
       await next(session.user.id)
     } catch (e) {
@@ -229,6 +254,7 @@ export default function AuthScreen() {
 
       if (!signIn.error && signIn.data.user) {
         await ensureUserRow(signIn.data.user.id, signIn.data.user.email)
+        v2Analytics.signedIn("email")
         haptics.success()
         return next(signIn.data.user.id)
       }
@@ -247,6 +273,9 @@ export default function AuthScreen() {
         throw new Error("Check your email to confirm your account, then come back.")
       }
       await ensureUserRow(signUp.data.user.id, signUp.data.user.email)
+      // Only reached by falling through "invalid login credentials", which is the
+      // one unambiguous signal this SDK gives that the account did not exist.
+      v2Analytics.signedUp("email")
       haptics.success()
       await next(signUp.data.user.id)
     } catch (e) {

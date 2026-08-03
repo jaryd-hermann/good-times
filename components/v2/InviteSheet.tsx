@@ -5,6 +5,7 @@ import * as Clipboard from "expo-clipboard"
 import { useV2Colors, v2Spacing as sp } from "../../lib/v2/theme"
 import { getInviteCode, inviteUrl } from "../../lib/v2/onboarding"
 import * as haptics from "../../lib/v2/haptics"
+import { v2Analytics } from "../../lib/v2/analytics"
 
 /**
  * Invite sheet — one component for every "get people in here" entry point.
@@ -52,6 +53,7 @@ export function InviteSheet({
     if (!token) return
     haptics.tap()
     await Clipboard.setStringAsync(token)
+    if (groupId) v2Analytics.groupMemberInvited({ groupId, channel: "copy" })
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -62,6 +64,7 @@ export function InviteSheet({
     await Share.share({
       message: `Join ${groupName} on Good Times — one question a day. ${inviteUrl(token)}`,
     })
+    if (groupId) v2Analytics.groupMemberInvited({ groupId, channel: "share" })
   }
 
   return (

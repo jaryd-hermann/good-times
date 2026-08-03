@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { View, Text, Image, StyleSheet, Pressable, ActivityIndicator } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { SafeAreaView } from "react-native-safe-area-context"
@@ -11,6 +11,7 @@ import {
 import { markOnboarded } from "../../lib/v2/onboarding"
 import { supabase } from "../../lib/supabase"
 import * as haptics from "../../lib/v2/haptics"
+import { v2Analytics } from "../../lib/v2/analytics"
 
 const COLORS = {
   blue: "#4A6D9E",
@@ -63,6 +64,10 @@ export default function NotificationsScreen() {
   const preAnswer = params.stage === "pre"
   const [busy, setBusy] = useState(false)
 
+  useEffect(() => {
+    v2Analytics.notificationsViewed(preAnswer ? "pre" : "post")
+  }, [preAnswer])
+
   /**
    * They have a profile and a first answer — that is "onboarded", whether or not
    * they take the group step next. Only people with nobody to share with get sent
@@ -98,6 +103,7 @@ export default function NotificationsScreen() {
         // was ever written to push_tokens.
         await savePushRegistrationToSupabase(user.id, reg)
       }
+      v2Analytics.notificationsChoice(true)
       haptics.success()
     } catch (e) {
       // A denied or failed registration is not an error worth blocking on — they

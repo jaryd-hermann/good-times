@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { v2Analytics } from "../../lib/v2/analytics"
 import {
   View,
   Text,
@@ -37,6 +38,12 @@ const COLORS = {
 }
 
 export default function SplashScreen() {
+  // Top of the funnel. Explicit rather than left to screen autocapture, so a
+  // route rename cannot silently break the funnel it anchors.
+  useEffect(() => {
+    v2Analytics.splashViewed()
+  }, [])
+
   const router = useRouter()
   const params = useLocalSearchParams<{ invite?: string }>()
   const [peek, setPeek] = useState<InvitePeek | null>(null)
