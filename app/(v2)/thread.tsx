@@ -12,6 +12,9 @@ import {
   Alert,
   ActionSheetIOS,
   Modal,
+  Keyboard,
+  type NativeSyntheticEvent,
+  type NativeScrollEvent,
 } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { Image } from "react-native"
@@ -92,6 +95,18 @@ export default function ThreadScreen() {
   const [showGroupSheet, setShowGroupSheet] = useState(false)
   const [showMembers, setShowMembers] = useState(false)
   const listRef = useRef<FlatList<ThreadMessage>>(null)
+  /**
+   * Whether the newest message is currently in view.
+   *
+   * The list lives inside a KeyboardAvoidingView using "padding", so opening the
+   * keyboard SHRINKS the viewport from the bottom while the list keeps its scroll
+   * offset — the newest messages slide out of sight behind the keyboard and there
+   * is no remaining scroll range to bring them back. Following the keyboard fixes
+   * that, but only for someone already at the bottom: yanking a person who has
+   * scrolled up to read history down to the newest message just because they
+   * tapped the composer would be worse than the bug.
+   */
+  const nearBottomRef = useRef(true)
   const s = useMemo(() => makeStyles(c), [c])
 
   // Mark read on open, but only once the thread is actually visible/unlocked.
@@ -142,6 +157,25 @@ export default function ThreadScreen() {
     const t = setTimeout(() => setShowDivider(false), 10000)
     return () => clearTimeout(t)
   }, [firstUnreadIndex])
+
+  const onListScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent
+    // 120px of slack: "near enough the bottom that you are following the
+    // conversation" rather than requiring a pixel-perfect rest position.
+    nearBottomRef.current =
+      contentSize.height - (contentOffset.y + layoutMeasurement.height) < 120
+  }, [])
+
+  useEffect(() => {
+    // willShow on iOS so the scroll runs alongside the keyboard animation rather
+    // than snapping after it; Android only emits didShow reliably.
+    const evt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow"
+    const sub = Keyboard.addListener(evt, () => {
+      if (!nearBottomRef.current) return
+      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }))
+    })
+    return () => sub.remove()
+  }, [])
 
   const onReply = useCallback((m: ThreadMessage) => setReplyTo(m), [])
   /**
@@ -483,6 +517,8 @@ export default function ThreadScreen() {
           maxToRenderPerBatch={10}
           windowSize={11}
           removeClippedSubviews
+          onScroll={onListScroll}
+          scrollEventThrottle={32}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           ListHeaderComponent={
