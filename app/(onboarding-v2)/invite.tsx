@@ -9,6 +9,7 @@ import { peekInvite, redeemInvite, type InvitePeek } from "../../lib/v2/onboardi
 import * as haptics from "../../lib/v2/haptics"
 import { Confetti } from "../../components/v2/Confetti"
 import { getTodayDate } from "../../lib/utils"
+import { useQueryClient } from "@tanstack/react-query"
 import { v2Analytics } from "../../lib/v2/analytics"
 
 /**
@@ -22,6 +23,7 @@ import { v2Analytics } from "../../lib/v2/analytics"
 export default function InviteScreen() {
   const router = useRouter()
   const { user } = useAuth()
+  const qc = useQueryClient()
   const { c } = useV2Colors()
   const params = useLocalSearchParams<{ token?: string; via?: string }>()
   const s = makeStyles(c)
@@ -51,6 +53,12 @@ export default function InviteScreen() {
         groupId: res.group_id,
         via: params.via === "code" ? "code" : "link",
       })
+      // The hub caches for 30s and nothing invalidated it on join, so answering
+      // within that window read groups:[] — the composer showed "you'll add a
+      // group soon" and, worse, posted with groupIds:[] so the answer was saved
+      // with no shares and never reached the group just joined.
+      await qc.invalidateQueries({ queryKey: ["v2"] })
+
       haptics.celebrate()
       setCelebrating(true)
 

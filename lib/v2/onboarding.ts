@@ -130,15 +130,27 @@ export function inviteUrl(token: string) {
  * Note `textContentType="oneTimeCode"` does NOT help here — that mechanism is
  * SMS-driven and our code arrives via a web page.
  */
+function parseInviteCode(raw: string | undefined | null): string | null {
+  const t = raw?.trim()
+  if (!t) return null
+  const code = t.match(/GT-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{4,}/i)
+  if (code) return code[0].toUpperCase()
+  const url = t.match(/thegoodtimes\.app\/join\/([A-Za-z0-9-]+)/i)
+  if (url) return url[1]
+  return null
+}
+
 export async function readInviteCodeFromClipboard(): Promise<string | null> {
   try {
-    const raw = (await Clipboard.getStringAsync())?.trim()
-    if (!raw) return null
-    const code = raw.match(/GT-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{4,}/i)
-    if (code) return code[0].toUpperCase()
-    const url = raw.match(/thegoodtimes\.app\/join\/([A-Za-z0-9-]+)/i)
-    if (url) return url[1]
-    return null
+    const first = parseInviteCode(await Clipboard.getStringAsync())
+    if (first) return first
+
+    // Read once more before giving up. On iOS the first read of a session raises
+    // the system "Allow Paste" prompt, and the initial call can come back empty
+    // around it — which showed "Nothing to paste" for a clipboard that plainly had
+    // the code in it, and only worked on a second tap.
+    await new Promise((r) => setTimeout(r, 350))
+    return parseInviteCode(await Clipboard.getStringAsync())
   } catch {
     return null
   }

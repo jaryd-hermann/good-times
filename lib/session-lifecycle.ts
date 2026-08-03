@@ -174,8 +174,14 @@ export async function wasInactiveTooLong(): Promise<boolean> {
   try {
     const lastActiveTime = await getLastAppActiveTime()
     if (!lastActiveTime) {
-      // Never recorded - assume inactive too long to be safe
-      return true
+      // No record means this install has never backgrounded — a first run, which is
+      // the opposite of "away for hours". Returning true was NOT the safe choice:
+      // the caller responds by clearing the React Query cache and calling
+      // router.replace("/"), so during onboarding anything that briefly backgrounds
+      // the app — the image picker on the profile screen — came back to a full
+      // boot, re-ran routeAfterAuth against a profile that had no name saved yet,
+      // and bounced the user to the start of the profile step.
+      return false
     }
     
     const timeSinceActive = Date.now() - lastActiveTime

@@ -17,6 +17,7 @@ import {
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router"
 import { SafeAreaView } from "react-native-safe-area-context"
 import * as ImagePicker from "expo-image-picker"
+import * as Notifications from "expo-notifications"
 import { MaterialCommunityIcons } from "@expo/vector-icons"
 import { useAuth } from "../../components/AuthProvider"
 import { useTodayHub, usePostAnswer } from "../../lib/v2/queries"
@@ -347,15 +348,18 @@ export default function ComposeScreen() {
       const firstRun = user?.id ? !(await isOnboarded(user.id)) : false
 
       // Second chance only. They already saw this screen after creating their
-      // profile; asking again once they've turned notifications ON would be
-      // nagging, so skip anyone who already has a push token registered.
+      // profile; asking again once they've said yes is nagging.
+      //
+      // Gate on the OS permission, not on push_tokens. The token row is written
+      // after OneSignal hands back a subscription id, which can lag the permission
+      // grant by longer than it takes to answer the first question — so a user who
+      // had just accepted notifications was asked a second time, with the row
+      // arriving only afterwards. The permission itself is immediate and is the
+      // thing the screen is actually asking for.
       let alreadySubscribed = false
-      if (firstRun && user?.id) {
-        const { count } = await supabase
-          .from("push_tokens")
-          .select("token", { count: "exact", head: true })
-          .eq("user_id", user.id)
-        alreadySubscribed = (count ?? 0) > 0
+      if (firstRun) {
+        const { status } = await Notifications.getPermissionsAsync()
+        alreadySubscribed = status === "granted"
       }
 
       if (firstRun && !alreadySubscribed) {

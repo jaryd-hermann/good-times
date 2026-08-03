@@ -22,6 +22,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons"
 import { Avatar } from "../../components/Avatar"
 import { useAuth } from "../../components/AuthProvider"
 import { useProfile } from "../../lib/v2/useProfile"
+import { useQueryClient } from "@tanstack/react-query"
 import { v2Analytics } from "../../lib/v2/analytics"
 
 /**
@@ -35,6 +36,7 @@ export default function AloneScreen() {
   const { c } = useV2Colors()
   const insets = useSafeAreaInsets()
   const { user } = useAuth()
+  const qc = useQueryClient()
   const { data: profile } = useProfile(user?.id)
   const firstName = (profile?.name ?? "").trim().split(" ")[0]
   const [name, setName] = useState("")
@@ -55,6 +57,9 @@ export default function AloneScreen() {
       if (!uid) throw new Error("Not signed in")
       const res = await createGroup(name.trim(), uid)
       v2Analytics.groupCreated({ groupId: res.group_id, from: "onboarding" })
+      // Same reason as the join path: without this the hub keeps saying the user
+      // has no groups for 30s, and an answer in that window is posted unshared.
+      await qc.invalidateQueries({ queryKey: ["v2"] })
       setCreated({ id: res.group_id, name: res.group_name, token: res.invite?.token })
     } catch (e) {
       Alert.alert("Couldn't create the group", (e as Error).message)
