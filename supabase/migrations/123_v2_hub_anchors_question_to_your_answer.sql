@@ -1,0 +1,27 @@
+-- =============================================================================
+-- Today must show the question the answer was actually given to
+-- (applied via MCP as v2_hub_anchors_question_to_your_answer)
+-- =============================================================================
+-- Today and the thread resolved the day's question through different functions:
+--
+--   thread -> v2_question_for_thread : what was answered in that group, THEN the
+--             schedule, then the fallback.
+--   hub    -> resolve_question_for_date : the schedule, then a deterministic pick
+--             from the evergreen pool — abs(hashtext(date)) % pool_size.
+--
+-- question_schedule only starts at 2026-08-01, so for any earlier date the hub
+-- took the hash branch. A user who had answered "The recipe I keep saving is ___"
+-- on 31 July saw their answer filed under an unrelated evergreen question on
+-- Today, while the thread showed it correctly. Same answer, two questions.
+--
+-- The hub now anchors to the user's own answer first, exactly as the thread
+-- anchors to the group's. An answer's question is a fact; the schedule and the
+-- hash are only ever guesses about a day nobody has answered yet.
+--
+-- Also raises the members LIMIT from 4 to 20: the Today cards are meant to show
+-- the whole group and no client change could get past a server-side cap of four.
+--
+-- Verified: for the reported date the hub and the answer now report the same
+-- question text.
+--
+-- Full body in the applied migration.
