@@ -31,7 +31,14 @@ import * as haptics from "../../lib/v2/haptics"
  * code above the keyboard with no permission prompt and no paste banner, because
  * we never touch the clipboard unless the user taps "Paste".
  */
-export function JoinByCodeCard({ style }: { style?: ViewStyle }) {
+export function JoinByCodeCard({
+  style,
+  onFocus,
+}: {
+  style?: ViewStyle
+  /** Lets the host list bring this card above the keyboard when the field opens. */
+  onFocus?: () => void
+}) {
   const router = useRouter()
   const { c } = useV2Colors()
   const [code, setCode] = useState("")
@@ -94,6 +101,7 @@ export function JoinByCodeCard({ style }: { style?: ViewStyle }) {
           autoCorrect={false}
           returnKeyType="go"
           onSubmitEditing={join}
+          onFocus={onFocus}
         />
         <Pressable
           onPress={join}

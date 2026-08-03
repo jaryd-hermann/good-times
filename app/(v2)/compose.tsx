@@ -465,9 +465,9 @@ export default function ComposeScreen() {
     // whole screen feel like more work than it is. The two that are new to people
     // carry a tag rather than being pushed to the top.
     const doors = [
-      { m: "text" as Mode, icon: "format-text", title: "Write it", sub: "Text, photos, video.", tint: c.blue, go: "write" as Step, isNew: false },
-      { m: "video" as Mode, icon: "video-outline", title: "Talking head", sub: "Up to 60 seconds.", tint: c.red, go: "video" as Step, isNew: true },
-      { m: "voice" as Mode, icon: "waveform", title: "Voice note", sub: "Talk while you walk.", tint: c.green, go: "voice" as Step, isNew: true },
+      { m: "text" as Mode, icon: "format-text", title: "Write it", sub: "Type your answer, add pics and stuff", tint: c.blue, go: "write" as Step, isNew: false },
+      { m: "video" as Mode, icon: "video-outline", title: "Talking head", sub: "Answer with no-pressure video", tint: c.red, go: "video" as Step, isNew: true },
+      { m: "voice" as Mode, icon: "waveform", title: "Voice note", sub: "Everyone gets to hear you!", tint: c.green, go: "voice" as Step, isNew: true },
     ]
     return (
       <SafeAreaView style={s.screen} edges={["top", "bottom"]}>
@@ -831,7 +831,7 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"], isDark: boolean) {
       borderRadius: 14,
       padding: sp.lg,
       marginBottom: sp.lg,
-      alignItems: "center",
+      alignItems: "flex-start",
     },
     modeBannerLogo: {
       width: 44,
@@ -844,7 +844,6 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"], isDark: boolean) {
       fontWeight: "800",
       color: c.accentInk,
       lineHeight: 25,
-      textAlign: "center",
     },
     doorTitleRow: { flexDirection: "row", alignItems: "center", gap: sp.sm },
     newTag: {

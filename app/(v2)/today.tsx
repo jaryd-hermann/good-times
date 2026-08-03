@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   FlatList,
   ActivityIndicator,
   RefreshControl,
+  Platform,
 } from "react-native"
 import { useRouter } from "expo-router"
 import { SafeAreaView } from "react-native-safe-area-context"
@@ -53,6 +54,7 @@ function timeAgo(iso: string) {
 export default function TodayScreen() {
   const router = useRouter()
   const { user } = useAuth()
+  const listRef = useRef<FlatList<HubGroup>>(null)
   const { c, isDark } = useV2Colors()
   const today = getTodayDate()
   const { data: profile } = useProfile(user?.id)
@@ -241,6 +243,7 @@ export default function TodayScreen() {
         }
       />
       <FlatList
+        ref={listRef}
         data={data.groups}
         keyExtractor={(g) => g.id}
         renderItem={renderGroup}
@@ -248,6 +251,13 @@ export default function TodayScreen() {
         refreshControl={
           <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={c.text} />
         }
+        // The invite-code field lives in this list's header, near the bottom of a
+        // groupless user's screen, so the keyboard opened straight over it. This
+        // insets the scroll content by the keyboard height and lets the list keep
+        // the focused field visible — same approach as the auth screen.
+        automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
         ListHeaderComponent={
           <View>
             {/* Once you have answered, the threads are the live thing and the
@@ -260,8 +270,8 @@ export default function TodayScreen() {
                 the two next steps beats leaving them to infer both from cards. */}
             {noGroups && !answered ? (
               <Text style={s.welcomeLine}>
-                {profile?.name ? `${profile.name}! ` : ""}Hello and welcome to Good Times 👋 I&rsquo;m
-                Jaryd, start with today&rsquo;s question, or joining a group below.
+                {profile?.name ? `${profile.name}! ` : ""}Hi and welcome to GT! 👋. I&rsquo;m Jaryd,
+                start with today&rsquo;s question ☝️, or joining/starting a group 👇.
               </Text>
             ) : null}
 
@@ -281,7 +291,16 @@ export default function TodayScreen() {
                 {/* Under it, not inside it: far more people arrive holding
                     somebody's code than set out to found a group, and that path
                     was two taps and a screen away. */}
-                <JoinByCodeCard style={{ marginTop: sp.md }} />
+                <JoinByCodeCard
+                  style={{ marginTop: sp.md }}
+                  // This card only renders when the user has no groups, so the
+                  // list has no items and the card IS the bottom of it. Scrolling
+                  // to the end therefore lands exactly on the field, above the
+                  // keyboard inset. The delay lets that inset apply first.
+                  onFocus={() =>
+                    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 120)
+                  }
+                />
               </>
             ) : (
               <Text style={[s.sectionHeading, answered ? { marginTop: 0 } : null]}>
