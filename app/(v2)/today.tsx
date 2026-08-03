@@ -20,6 +20,7 @@ import { AvatarStack } from "../../components/v2/AvatarStack"
 import { AppHeader } from "../../components/v2/AppHeader"
 import { TexturedCard } from "../../components/v2/Texture"
 import { NoGroupsCard } from "../../components/v2/NoGroupsCard"
+import { JoinByCodeCard } from "../../components/v2/JoinByCodeCard"
 import * as haptics from "../../lib/v2/haptics"
 import { QuestionCard } from "../../components/v2/QuestionCard"
 import { DaySelector, DAY_WINDOW, shiftDate } from "../../components/v2/DaySelector"
@@ -254,18 +255,34 @@ export default function TodayScreen() {
                 answer it stays on top, because nothing else is unlocked yet. */}
             {answered ? null : questionCard}
 
+            {/* Said once, to the only people who need it: a brand new user with
+                nothing answered and nobody to share with. Naming them and naming
+                the two next steps beats leaving them to infer both from cards. */}
+            {noGroups && !answered ? (
+              <Text style={s.welcomeLine}>
+                Welcome to Good Times{profile?.name ? `, ${profile.name}` : ""}! Start by answering
+                today&rsquo;s question and starting or joining your first group.
+              </Text>
+            ) : null}
+
             {/* With no groups there is no list to head — so the create/join card
                 takes that slot instead of a heading pointing at nothing. */}
             {noGroups ? (
-              <NoGroupsCard
-                style={{ marginTop: sp.lg }}
-                title={answered ? "Add your people. Start the chat" : "No one to share with yet"}
-                body={
-                  answered
-                    ? "Your answer is saved. Start a group or join one with a link and it shows up there."
-                    : "Start a group or join one with a link — your answers go to everyone in it."
-                }
-              />
+              <>
+                <NoGroupsCard
+                  style={{ marginTop: sp.lg }}
+                  title={answered ? "Add your people. Start the chat" : "No one to share with yet"}
+                  body={
+                    answered
+                      ? "Your answer is saved. Start a group or join one with a link and it shows up there."
+                      : "Start a group or join one with a link — your answers go to everyone in it."
+                  }
+                />
+                {/* Under it, not inside it: far more people arrive holding
+                    somebody's code than set out to found a group, and that path
+                    was two taps and a screen away. */}
+                <JoinByCodeCard style={{ marginTop: sp.md }} />
+              </>
             ) : (
               <Text style={[s.sectionHeading, answered ? { marginTop: 0 } : null]}>
                 {answered ? "Today's answers" : "Waiting for you"}
@@ -325,6 +342,13 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"], isDark: boolean) {
       color: c.text,
       marginTop: sp.lg,
       marginBottom: sp.sm,
+    },
+    welcomeLine: {
+      fontSize: 15,
+      lineHeight: 22,
+      color: c.textSecondary,
+      marginTop: sp.lg,
+      marginBottom: -sp.xs,
     },
 
     groupRow: {

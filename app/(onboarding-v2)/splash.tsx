@@ -62,7 +62,16 @@ export default function SplashScreen() {
 
   return (
     <SafeAreaView style={s.screen} edges={["top"]}>
-      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+      {/* bounces={false} rather than scrollEnabled={false}: the content still has
+          to be reachable on a short screen, but on a normal one there is nothing
+          to scroll and the rubber-band just made a fixed marketing screen wobble. */}
+      <ScrollView
+        contentContainerStyle={s.scroll}
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+        alwaysBounceVertical={false}
+        overScrollMode="never"
+      >
         {/* v1's hero: welcome-home.png in a bordered 0.8-aspect frame with the
             paper texture over it. (v1 could swap this for a WebView video; the
             still is what shipped by default.) */}

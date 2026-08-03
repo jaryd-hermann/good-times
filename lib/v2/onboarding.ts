@@ -144,11 +144,16 @@ export async function readInviteCodeFromClipboard(): Promise<string | null> {
   }
 }
 
+/**
+ * Returns the saved row so the caller can put it straight into the useProfile
+ * cache. That query is staleTime 5m / refetchOnMount false, so a screen mounting
+ * after this runs would otherwise render the pre-save values.
+ */
 export async function saveProfile(
   userId: string,
   profile: { name: string; birthday?: string | null; avatar_url?: string | null }
 ) {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("users")
     .update({
       name: profile.name,
@@ -159,7 +164,10 @@ export async function saveProfile(
       avatar_url: profile.avatar_url ?? null,
     })
     .eq("id", userId)
+    .select("id, name, avatar_url, birthday, onboarded_at")
+    .single()
   if (error) throw new Error(`saveProfile: ${error.message}`)
+  return data
 }
 
 export async function markOnboarded(userId: string) {

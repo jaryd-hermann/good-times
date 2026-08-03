@@ -14,6 +14,7 @@ import {
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { SafeAreaView } from "react-native-safe-area-context"
 import * as ImagePicker from "expo-image-picker"
+import { useQueryClient } from "@tanstack/react-query"
 import { supabase } from "../../lib/supabase"
 import { uploadAvatar } from "../../lib/storage"
 import { Avatar } from "../../components/Avatar"
@@ -36,6 +37,7 @@ export default function ProfileScreen() {
   const router = useRouter()
   const { c } = useV2Colors()
   const params = useLocalSearchParams<{ invite?: string }>()
+  const qc = useQueryClient()
   const [name, setName] = useState("")
   const [bday, setBday] = useState<Date | null>(null)
   const [avatar, setAvatar] = useState<string | null>(null)
@@ -85,11 +87,17 @@ export default function ProfileScreen() {
         }
       }
 
-      await saveProfile(uid, {
+      const saved = await saveProfile(uid, {
         name: name.trim(),
         birthday: normalisedBirthday(),
         avatar_url: avatarUrl,
       })
+
+      // Seed the cache rather than invalidate. useProfile is staleTime 5m with
+      // refetchOnMount false, and Today is not mounted yet, so an invalidation
+      // here just marks an inactive query stale — Today then mounts, declines to
+      // refetch, and renders the pre-save row as "You" with a "U" avatar.
+      if (saved) qc.setQueryData(["v2", "profile", uid], saved)
 
       // Redeeming here (not later) means the group exists before the first answer,
       // so the answer fans out immediately instead of relying on retro-share.
@@ -125,8 +133,10 @@ export default function ProfileScreen() {
           <Text style={s.title}>Add your profile</Text>
           <Text style={s.sub}>This is what your groups will see.</Text>
 
+          {/* Stroked so it reads as a control rather than decoration — without the
+              outline an empty avatar looks like a placeholder nobody would tap. */}
           <Pressable onPress={pickAvatar} style={s.avatarWrap}>
-            <Avatar uri={avatar ?? undefined} name={name} size={96} />
+            <Avatar uri={avatar ?? undefined} name={name} size={96} borderColor={c.border} />
             <Text style={s.changePhoto}>{avatar ? "Change photo" : "Add a photo"}</Text>
           </Pressable>
 
