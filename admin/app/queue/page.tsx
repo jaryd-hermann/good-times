@@ -2,19 +2,18 @@ import Link from "next/link"
 import { revalidatePath } from "next/cache"
 import {
   getCurrentQuestion,
-  getUpcoming,
+  getSchedule,
   getPast,
   moveQuestion,
   addQuestion,
   assignQuestion,
   clearDate,
-  seedRange,
-  refreshEngagement,
 } from "@/lib/db"
 
 export const dynamic = "force-dynamic"
 
 const iso = (d: Date) => d.toISOString().slice(0, 10)
+const addDays = (n: number) => iso(new Date(Date.now() + n * 864e5))
 const day = (d: string) =>
   new Date(d + "T00:00:00").toLocaleDateString("en-GB", {
     weekday: "short",
@@ -22,12 +21,15 @@ const day = (d: string) =>
     month: "short",
   })
 
+const WINDOW_DAYS = 14
+
 // ---- server actions --------------------------------------------------------
 
 async function doAdd(formData: FormData) {
   "use server"
   const q = String(formData.get("question") || "").trim()
-  if (q) await addQuestion(q, true)
+  const date = String(formData.get("date") || "").trim()
+  if (q) await addQuestion(q, date || undefined)
   revalidatePath("/queue")
 }
 
@@ -51,13 +53,6 @@ async function doClear(formData: FormData) {
   revalidatePath("/queue")
 }
 
-async function doSeed() {
-  "use server"
-  await refreshEngagement()
-  await seedRange(iso(new Date()), iso(new Date(Date.now() + 90 * 864e5)))
-  revalidatePath("/queue")
-}
-
 // ---- page ------------------------------------------------------------------
 
 export default async function Queue({
@@ -72,7 +67,9 @@ export default async function Queue({
   try {
     ;[current, upcoming, past] = await Promise.all([
       getCurrentQuestion(),
-      view === "upcoming" ? getUpcoming(60) : Promise.resolve([]),
+      view === "upcoming"
+        ? getSchedule(addDays(1), addDays(WINDOW_DAYS))
+        : Promise.resolve([]),
       view === "past" ? getPast(90) : Promise.resolve([]),
     ])
   } catch (e) {
@@ -84,14 +81,16 @@ export default async function Queue({
     )
   }
 
-  const gaps = upcoming.filter((r) => r.is_gap).length
+  const isAuto = (n: string | null) => (n ?? "").startsWith("auto")
+  const curated = upcoming.filter((r) => !r.is_sunday && r.prompt_id && !isAuto(r.notes))
+  const empties = upcoming.filter((r) => !r.is_sunday && (!r.prompt_id || isAuto(r.notes)))
 
   return (
     <>
       <h1>Question queue</h1>
       <p className="sub">
-        One global question per day. Sundays are pinned to the weekly photo dump and cannot
-        be moved.
+        One curated question per day for the next two weeks. Empty days send an
+        automatic fallback until you add one. Sundays are the weekly photo dump.
       </p>
 
       {/* ================= LIVE NOW ================= */}
@@ -134,23 +133,29 @@ export default async function Queue({
           <input
             type="text"
             name="question"
-            placeholder="Type a new question and press Add — it goes to the next free slot"
+            placeholder="Type a new question…"
             autoComplete="off"
             required
             minLength={5}
           />
-          <button type="submit">Add to queue</button>
+          <input
+            type="date"
+            name="date"
+            min={addDays(0)}
+            title="Pick a date, or leave blank for the next open slot"
+          />
+          <button type="submit">Add</button>
         </form>
         <p className="addhint">
-          Creates the question and drops it on the next free non-Sunday date. Reorder it
-          below.
+          Leave the date blank to drop it on the next open weekday, or pick a date
+          (holidays, themed days, etc.). Sundays stay reserved for the photo dump.
         </p>
       </section>
 
       {/* ================= TABS ================= */}
       <div className="tabs">
         <Link href="/queue?view=upcoming" className={view === "upcoming" ? "tab on" : "tab"}>
-          Upcoming
+          Next 2 weeks
         </Link>
         <Link href="/queue?view=past" className={view === "past" ? "tab on" : "tab"}>
           Past &amp; results
@@ -159,41 +164,81 @@ export default async function Queue({
 
       {view === "upcoming" ? (
         <>
-          {gaps > 0 ? (
+          {empties.length > 0 ? (
             <div className="banner warn">
-              {gaps} upcoming date{gaps === 1 ? " has" : "s have"} no question assigned — they
-              fall back to the engagement pool.{" "}
-              <form action={doSeed} style={{ display: "inline" }}>
-                <button type="submit" className="linkbtn">
-                  Fill the gaps
-                </button>
-              </form>
+              {curated.length} curated · {empties.length} open day
+              {empties.length === 1 ? "" : "s"} in the next two weeks. Open days send a
+              fallback — fill them below.
             </div>
           ) : (
-            <div className="banner ok">✓ Every upcoming date has a question assigned.</div>
+            <div className="banner ok">✓ Every day in the next two weeks has a curated question.</div>
           )}
 
           <ol className="board">
-            {upcoming.map((r) => (
-              <li key={r.date} className={`boardrow${r.is_gap ? " gap" : ""}${r.is_sunday ? " sun" : ""}`}>
-                <div className="rank">{r.position}</div>
+            {upcoming.map((r) => {
+              const auto = isAuto(r.notes)
+              const empty = !r.is_sunday && (!r.prompt_id || auto)
 
-                <div className="boardmain">
-                  <div className="boarddate">
-                    {day(r.date)}
-                    {r.is_sunday ? <span className="pill sunday">SUN · pinned</span> : null}
-                    {r.notes === "manual" ? <span className="pill manual">manual</span> : null}
-                    {r.answer_rate != null ? (
-                      <span className="pill auto">
-                        {(Number(r.answer_rate) * 100).toFixed(0)}% historic
-                      </span>
-                    ) : null}
+              // --- Sunday: pinned photo dump ---
+              if (r.is_sunday) {
+                return (
+                  <li key={r.date} className="boardrow sun">
+                    <div className="boardmain">
+                      <div className="boarddate">
+                        {day(r.date)}
+                        <span className="pill sunday">SUN · photo dump</span>
+                      </div>
+                      <div className="boardq">Weekly photo dump</div>
+                    </div>
+                    <div className="boardactions">
+                      <div className="movecol locked" title="Sundays are pinned">
+                        🔒
+                      </div>
+                    </div>
+                  </li>
+                )
+              }
+
+              // --- empty day: add inline ---
+              if (empty) {
+                return (
+                  <li key={r.date} className="boardrow gap">
+                    <div className="boardmain">
+                      <div className="boarddate">{day(r.date)}</div>
+                      <form action={doAdd} className="emptyadd">
+                        <input type="hidden" name="date" value={r.date} />
+                        <input
+                          type="text"
+                          name="question"
+                          placeholder="No question yet — a fallback will be sent. Type one to curate this day…"
+                          autoComplete="off"
+                          required
+                          minLength={5}
+                        />
+                        <button type="submit" className="secondary">
+                          Add
+                        </button>
+                      </form>
+                    </div>
+                  </li>
+                )
+              }
+
+              // --- curated (human) question ---
+              return (
+                <li key={r.date} className="boardrow">
+                  <div className="boardmain">
+                    <div className="boarddate">
+                      {day(r.date)}
+                      <span className="pill manual">curated</span>
+                      {r.answer_count > 0 ? (
+                        <span className="pill auto">{r.answer_count} answered</span>
+                      ) : null}
+                    </div>
+                    <div className="boardq">{r.question}</div>
                   </div>
-                  <div className="boardq">{r.question}</div>
-                </div>
 
-                <div className="boardactions">
-                  {!r.is_sunday ? (
+                  <div className="boardactions">
                     <div className="movecol">
                       <form action={doMove}>
                         <input type="hidden" name="date" value={r.date} />
@@ -210,32 +255,26 @@ export default async function Queue({
                         </button>
                       </form>
                     </div>
-                  ) : (
-                    <div className="movecol locked" title="Sundays are pinned">
-                      🔒
-                    </div>
-                  )}
 
-                  <div className="editcol">
-                    <form action={doAssign} className="inline" style={{ margin: 0 }}>
-                      <input type="hidden" name="date" value={r.date} />
-                      <input type="text" name="prompt_id" placeholder="prompt id" size={10} />
-                      <button type="submit" className="secondary">
-                        Set
-                      </button>
-                    </form>
-                    {r.prompt_id && !r.is_sunday ? (
+                    <div className="editcol">
+                      <form action={doAssign} className="inline" style={{ margin: 0 }}>
+                        <input type="hidden" name="date" value={r.date} />
+                        <input type="text" name="prompt_id" placeholder="prompt id" size={10} />
+                        <button type="submit" className="secondary">
+                          Set
+                        </button>
+                      </form>
                       <form action={doClear}>
                         <input type="hidden" name="date" value={r.date} />
                         <button type="submit" className="linkbtn danger">
                           clear
                         </button>
                       </form>
-                    ) : null}
+                    </div>
                   </div>
-                </div>
-              </li>
-            ))}
+                </li>
+              )
+            })}
           </ol>
         </>
       ) : (

@@ -119,7 +119,9 @@ export function GroupSheet({
         </Text>
 
         <View style={s.membersRow}>
-          <AvatarStack members={group.members} size={34} max={4} />
+          {/* Every member, not four. This is the screen you open to see who is in
+                the group, so cropping it is the one thing it must not do. */}
+            <AvatarStack members={group.members} size={34} max={group.members.length} />
           <Text style={s.memberNames} numberOfLines={1}>
             {group.members
               .map((m) => (m.id === userId ? `${m.name ?? "You"} (you)` : m.name ?? "Someone"))
@@ -143,7 +145,7 @@ export function GroupSheet({
           </View>
         ) : (
           <Pressable
-            style={({ pressed }) => [s.primary, pressed ? { transform: [{ translateY: 2 }] } : null]}
+            style={({ pressed }) => [s.primary, pressed ? s.primaryPressed : null]}
             onPress={invite}
             disabled={busy}
           >
@@ -310,6 +312,19 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
       borderRadius: 26,
       paddingVertical: 15,
       alignItems: "center",
+      // Same hard-offset bevel as every other primary CTA. shadowRadius 0 is what
+      // makes it a solid block rather than a blur.
+      shadowColor: c.border,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 1,
+      shadowRadius: 0,
+      elevation: 4,
+    },
+    primaryPressed: {
+      transform: [{ translateY: 4 }],
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0,
+      elevation: 0,
     },
     primaryText: { color: "#fff", fontWeight: "800", fontSize: 16 },
     grid: { flexDirection: "row", gap: sp.md },

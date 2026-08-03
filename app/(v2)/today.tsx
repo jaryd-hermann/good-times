@@ -156,7 +156,7 @@ export default function TodayScreen() {
           {/* Whole group above the name, as History does it — and the full member
               list, not "everyone except me", so the two screens show the same faces. */}
           <View style={s.groupFaces}>
-            <AvatarStack members={item.members} size={26} max={4} />
+            <AvatarStack members={item.members} size={26} max={item.members.length} />
           </View>
           <View style={s.groupTitleRow}>
             <Text style={[s.groupName, ink]} numberOfLines={1}>

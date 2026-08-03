@@ -70,6 +70,8 @@
 	<string>Good Times uses your contacts so you can invite friends and family to your group.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Good Times uses FaceID to securely log you in quickly.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Good Times does not use your location. This appears only because our notifications provider includes location code we do not enable.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Good Times needs access to your microphone to record voice notes.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

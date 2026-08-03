@@ -35,6 +35,7 @@ import { VoiceRecorder } from "../../components/v2/VoiceRecorder"
 import { EmojiPicker } from "../../components/EmojiPicker"
 import { GroupSheet } from "../../components/v2/GroupSheet"
 import { InviteSheet } from "../../components/v2/InviteSheet"
+import { MembersSheet } from "../../components/v2/MembersSheet"
 import { LockedThread } from "../../components/v2/LockedThread"
 import { uploadMedia } from "../../lib/storage"
 import { v2Analytics } from "../../lib/v2/analytics"
@@ -89,6 +90,7 @@ export default function ThreadScreen() {
   const [emojiTarget, setEmojiTarget] = useState<ThreadMessage | null>(null)
   const [sendingMedia, setSendingMedia] = useState(false)
   const [showGroupSheet, setShowGroupSheet] = useState(false)
+  const [showMembers, setShowMembers] = useState(false)
   const listRef = useRef<FlatList<ThreadMessage>>(null)
   const s = useMemo(() => makeStyles(c), [c])
 
@@ -305,14 +307,43 @@ export default function ThreadScreen() {
           <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
             <Text style={s.back}>‹</Text>
           </TouchableOpacity>
-          <AvatarStack members={data.group.members} size={30} />
+          <AvatarStack
+            members={data.group.members}
+            size={30}
+            max={3}
+            overflow
+            onPress={() => setShowMembers(true)}
+          />
           <View style={{ flex: 1 }}>
-            <Text style={s.groupName} numberOfLines={1}>
-              {data.group.name}
-            </Text>
+            <View style={s.groupNameRow}>
+              <Text style={s.groupName} numberOfLines={1}>
+                {data.group.name}
+              </Text>
+              {/* Invite and settings stay available while locked. Answering is not
+                  a prerequisite for adding people or checking the group — and a
+                  locked thread is exactly where someone realises it is too empty. */}
+              <TouchableOpacity
+                onPress={() => {
+                  haptics.tap()
+                  setShowInvite(true)
+                }}
+                hitSlop={8}
+                style={s.invitePlus}
+                accessibilityLabel="Invite to group"
+              >
+                <MaterialCommunityIcons name="plus" size={15} color="#fff" />
+              </TouchableOpacity>
+            </View>
             <Text style={s.groupSub}>Locked</Text>
           </View>
-          {/* no history / menu while locked — nothing here to act on yet */}
+          <TouchableOpacity
+            onPress={() => setShowGroupSheet(true)}
+            hitSlop={10}
+            accessibilityLabel="Group info"
+            style={{ marginLeft: sp.md }}
+          >
+            <MaterialCommunityIcons name="dots-horizontal" size={24} color={c.text} />
+          </TouchableOpacity>
         </View>
         <LockedThread
           answeredCount={answeredCount}
@@ -323,6 +354,31 @@ export default function ThreadScreen() {
               params: { promptId: data.question.prompt_id, date },
             })
           }
+        />
+
+        {/* The locked branch returns early, so these must be mounted here as well
+            as in the unlocked tree — otherwise the header's + and menu open
+            nothing at all. */}
+        <InviteSheet
+          visible={showInvite}
+          groupId={groupId!}
+          groupName={data.group.name}
+          userId={user?.id}
+          onClose={() => setShowInvite(false)}
+        />
+        <GroupSheet
+          visible={showGroupSheet}
+          group={data.group}
+          userId={user?.id}
+          threadDate={date}
+          onClose={() => setShowGroupSheet(false)}
+        />
+        <MembersSheet
+          visible={showMembers}
+          groupId={groupId!}
+          groupName={data.group.name}
+          currentUserId={user?.id}
+          onClose={() => setShowMembers(false)}
         />
       </SafeAreaView>
     )
@@ -335,7 +391,13 @@ export default function ThreadScreen() {
         <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
           <Text style={s.back}>‹</Text>
         </TouchableOpacity>
-        <AvatarStack members={data.group.members} size={30} />
+        <AvatarStack
+          members={data.group.members}
+          size={30}
+          max={3}
+          overflow
+          onPress={() => setShowMembers(true)}
+        />
         <View style={{ flex: 1 }}>
           <View style={s.groupNameRow}>
             <Text style={s.groupName} numberOfLines={1}>
@@ -600,6 +662,14 @@ export default function ThreadScreen() {
         groupName={data.group.name}
         userId={user?.id}
         onClose={() => setShowInvite(false)}
+      />
+
+      <MembersSheet
+        visible={showMembers}
+        groupId={groupId!}
+        groupName={data.group.name}
+        currentUserId={user?.id}
+        onClose={() => setShowMembers(false)}
       />
 
       <GroupSheet

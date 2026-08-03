@@ -22,7 +22,7 @@ function admin() {
 
 export type ScheduleRow = {
   date: string
-  prompt_id: string
+  prompt_id: string | null
   question: string
   category: string
   notes: string | null
@@ -166,11 +166,15 @@ export async function moveQuestion(date: string, dir: -1 | 1) {
   return data as { error?: string; moved?: string; swapped_with?: string }
 }
 
-export async function addQuestion(question: string, assign = true) {
+/**
+ * Create a curated question and schedule it. With no date it goes to the soonest
+ * free weekday (the next slot); with a date it's pinned to that exact day.
+ */
+export async function addQuestion(question: string, date?: string) {
   const db = admin()
-  const { data, error } = await db.rpc("v2_add_question", {
+  const { data, error } = await db.rpc("v2_admin_add_question", {
     p_question: question,
-    p_assign: assign,
+    p_date: date || null,
   })
   if (error) throw new Error(`add: ${error.message}`)
   return data as { error?: string; prompt_id?: string; date?: string; assigned?: boolean }

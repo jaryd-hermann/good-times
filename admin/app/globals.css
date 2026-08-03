@@ -148,9 +148,20 @@ button:hover { transform: translate(1px, 1px); box-shadow: 1px 1px 0 var(--ink);
   flex: 1; padding: 13px 15px; font-size: 15px;
   border: 2px solid var(--ink); border-radius: 12px; background: #fff;
 }
+.addform input[type="text"] { flex: 1; }
+.addform input[type="date"] { flex: 0 0 auto; padding: 13px 12px; }
 .addform input:focus { outline: 3px solid var(--accent); outline-offset: 1px; }
 .addform button { padding: 13px 22px; border-radius: 12px; font-size: 15px; white-space: nowrap; }
 .addhint { font-size: 12px; color: var(--muted); margin: 7px 2px 0; }
+
+/* inline add on an empty queue day */
+.emptyadd { display: flex; gap: 8px; margin-top: 5px; }
+.emptyadd input[type="text"] {
+  flex: 1; padding: 8px 10px; border: 2px solid var(--ink);
+  border-radius: 8px; background: #fff; font: inherit;
+}
+.emptyadd input[type="text"]:focus { outline: 3px solid var(--accent); outline-offset: 1px; }
+.boardrow.gap { align-items: stretch; }
 
 /* ---------- queue: tabs ---------- */
 .tabs { display: flex; gap: 8px; margin: 0 0 16px; }

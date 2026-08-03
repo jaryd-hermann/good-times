@@ -64,6 +64,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       NSMicrophoneUsageDescription: "Good Times needs access to your microphone to record voice notes.",
       NSContactsUsageDescription: "Good Times uses your contacts so you can invite friends and family to your group.",
       NSFaceIDUsageDescription: "Good Times uses FaceID to securely log you in quickly.",
+      // Required by App Store validation (ITMS-90683), not by the app.
+      // OneSignal's pod pulls in OneSignalXCFramework/OneSignalLocation, so the
+      // binary references CoreLocation even though Good Times never asks for a
+      // location and no code path requests one. Apple requires a purpose string
+      // whenever the API is merely referenced. The user will not see this prompt.
+      NSLocationWhenInUseUsageDescription:
+        "Good Times does not use your location. This appears only because our notifications provider includes location code we do not enable.",
       UIBackgroundModes: ["remote-notification"],
       // Export compliance: App only uses standard HTTPS/TLS and Apple's built-in encryption APIs
       ITSAppUsesNonExemptEncryption: false,

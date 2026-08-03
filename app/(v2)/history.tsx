@@ -106,7 +106,7 @@ export default function HistoryScreen() {
           style={[s.row, item.unread_count > 0 ? s.rowUnseen : null]}
         >
         <View style={s.rowHead}>
-          <AvatarStack members={members?.members ?? []} size={26} max={3} />
+          <AvatarStack members={members?.members ?? []} size={26} max={3} overflow />
           <Text style={[s.rowGroup, ink]} numberOfLines={1}>
             {item.group_name} · {relativeDay(item.thread_date)}
           </Text>
