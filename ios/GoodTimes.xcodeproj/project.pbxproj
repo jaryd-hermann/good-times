@@ -7,39 +7,74 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		04551044F12326FF7563CE2D /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96C9FC65FCF48CC96B673A3B /* ExpoModulesProvider.swift */; };
+		06A13740C610402F992A2F1C /* Roboto-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = F14B5FCAD790460DA7074DD8 /* Roboto-Medium.ttf */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
-		26346636178A768A9FD7C9AE /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 69BDA6814D8901078A40FDFD /* PrivacyInfo.xcprivacy */; };
+		166B45C7F5D64836A8E61401 /* NotificationService.m in Sources */ = {isa = PBXBuildFile; fileRef = C8DCBA6A97BE4D37B7169F01 /* NotificationService.m */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
-		4D23E8D9C901D7113F8E489D /* libPods-GoodTimes.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9BC1CFD5BD97D2489191D189 /* libPods-GoodTimes.a */; };
-		524EBAD93AC249C7AB42C9FC /* LibreBaskerville-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 59AFBA7979EB4A0894D15061 /* LibreBaskerville-Regular.ttf */; };
-		6A15C199A23D47C59BDF314C /* Roboto-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = AF1F3D0E5AC046B2A04BA6DF /* Roboto-Bold.ttf */; };
-		7E425AFA55F94C1BBB645B96 /* Roboto-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 7EECA234C2C949E1A2052BA5 /* Roboto-Regular.ttf */; };
-		86CF55885F254E2C960B67BB /* Roboto-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 19D66EA1142B491CB88423A7 /* Roboto-Medium.ttf */; };
-		AB22EE4815554DB9970EC532 /* LibreBaskerville-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 77ACA3C1C72C4E928C5A6D06 /* LibreBaskerville-Bold.ttf */; };
-		B84B34EE1482FE5328385EA3 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80F3992EE48C50A6F0263419 /* ExpoModulesProvider.swift */; };
+		4A80A2390D4F4714B46A6E3B /* LibreBaskerville-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 3F00071FB5EF4A9CB25CBDCC /* LibreBaskerville-Regular.ttf */; };
+		7616125AA2EF4E44B5B477E0 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 222C65B03CD64E9DAF652F20 /* PrivacyInfo.xcprivacy */; };
+		7A372C90919D9906690F1351 /* libPods-OneSignalNotificationServiceExtension.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5431DA46996AFE8F2031C9C1 /* libPods-OneSignalNotificationServiceExtension.a */; };
+		85DC366DEF4A42F6AED8CE22 /* LibreBaskerville-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2CB65609977748F1B9339E65 /* LibreBaskerville-Bold.ttf */; };
+		910E07E99B354D02AF878BDC /* OneSignalNotificationServiceExtension.appex in Copy Files */ = {isa = PBXBuildFile; fileRef = 643CA2FCA893412792A54CA6 /* OneSignalNotificationServiceExtension.appex */; };
+		AFE9322DDFFE4499B58EF50C /* Roboto-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 858B11F3BE2B4CCDBF6984F5 /* Roboto-Regular.ttf */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
+		BE949ECA9CF5CE32A84E0CA4 /* libPods-GoodTimes.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A74BB0AC126B0B60C5BE6355 /* libPods-GoodTimes.a */; };
+		CF767C86BC1B410B8D2F746E /* Roboto-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 0CA62ABF716342018BF042DD /* Roboto-Bold.ttf */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		260A588002CB44358BF23E7C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3648466DB62B4779BBD49890;
+			remoteInfo = OneSignalNotificationServiceExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		28DFF070E2724A67A953B5BD /* Copy Files */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				910E07E99B354D02AF878BDC /* OneSignalNotificationServiceExtension.appex in Copy Files */,
+			);
+			name = "Copy Files";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		0CA62ABF716342018BF042DD /* Roboto-Bold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Roboto-Bold.ttf"; path = "../assets/fonts/Roboto-Bold.ttf"; sourceTree = "<group>"; };
 		13B07F961A680F5B00A75B9A /* GoodTimes.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GoodTimes.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = GoodTimes/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = GoodTimes/Info.plist; sourceTree = "<group>"; };
-		19D66EA1142B491CB88423A7 /* Roboto-Medium.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Roboto-Medium.ttf"; path = "../assets/fonts/Roboto-Medium.ttf"; sourceTree = "<group>"; };
-		59AFBA7979EB4A0894D15061 /* LibreBaskerville-Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "LibreBaskerville-Regular.ttf"; path = "../assets/fonts/LibreBaskerville-Regular.ttf"; sourceTree = "<group>"; };
-		69BDA6814D8901078A40FDFD /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = GoodTimes/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		77ACA3C1C72C4E928C5A6D06 /* LibreBaskerville-Bold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "LibreBaskerville-Bold.ttf"; path = "../assets/fonts/LibreBaskerville-Bold.ttf"; sourceTree = "<group>"; };
-		7930E07D319356C75964232E /* Pods-GoodTimes.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-GoodTimes.release.xcconfig"; path = "Target Support Files/Pods-GoodTimes/Pods-GoodTimes.release.xcconfig"; sourceTree = "<group>"; };
-		7EECA234C2C949E1A2052BA5 /* Roboto-Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Roboto-Regular.ttf"; path = "../assets/fonts/Roboto-Regular.ttf"; sourceTree = "<group>"; };
-		80F3992EE48C50A6F0263419 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-GoodTimes/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
-		9BC1CFD5BD97D2489191D189 /* libPods-GoodTimes.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-GoodTimes.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		1BC9F845D3C448D89E008BC2 /* OneSignalNotificationServiceExtension.entitlements */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = OneSignalNotificationServiceExtension.entitlements; path = OneSignalNotificationServiceExtension.entitlements; sourceTree = "<group>"; };
+		213F4C0E5DF94312A33FF914 /* OneSignalNotificationServiceExtension-Info.plist */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = text.plist.xml; name = "OneSignalNotificationServiceExtension-Info.plist"; path = "OneSignalNotificationServiceExtension-Info.plist"; sourceTree = "<group>"; };
+		222C65B03CD64E9DAF652F20 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = PrivacyInfo.xcprivacy; path = GoodTimes/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		2CB65609977748F1B9339E65 /* LibreBaskerville-Bold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "LibreBaskerville-Bold.ttf"; path = "../assets/fonts/LibreBaskerville-Bold.ttf"; sourceTree = "<group>"; };
+		2E2102D66F18D3FC76957A97 /* Pods-OneSignalNotificationServiceExtension.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-OneSignalNotificationServiceExtension.debug.xcconfig"; path = "Target Support Files/Pods-OneSignalNotificationServiceExtension/Pods-OneSignalNotificationServiceExtension.debug.xcconfig"; sourceTree = "<group>"; };
+		3F00071FB5EF4A9CB25CBDCC /* LibreBaskerville-Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "LibreBaskerville-Regular.ttf"; path = "../assets/fonts/LibreBaskerville-Regular.ttf"; sourceTree = "<group>"; };
+		5431DA46996AFE8F2031C9C1 /* libPods-OneSignalNotificationServiceExtension.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-OneSignalNotificationServiceExtension.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		5447CA4E71594F64AEA1FB77 /* NotificationService.h */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.c.h; name = NotificationService.h; path = NotificationService.h; sourceTree = "<group>"; };
+		643CA2FCA893412792A54CA6 /* OneSignalNotificationServiceExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = undefined; name = OneSignalNotificationServiceExtension.appex; path = OneSignalNotificationServiceExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		858B11F3BE2B4CCDBF6984F5 /* Roboto-Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Roboto-Regular.ttf"; path = "../assets/fonts/Roboto-Regular.ttf"; sourceTree = "<group>"; };
+		8B66EEAD7D7F3F05B2ECB9DB /* Pods-OneSignalNotificationServiceExtension.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-OneSignalNotificationServiceExtension.release.xcconfig"; path = "Target Support Files/Pods-OneSignalNotificationServiceExtension/Pods-OneSignalNotificationServiceExtension.release.xcconfig"; sourceTree = "<group>"; };
+		8D9ACD6F057C94384D4A5815 /* Pods-GoodTimes.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-GoodTimes.release.xcconfig"; path = "Target Support Files/Pods-GoodTimes/Pods-GoodTimes.release.xcconfig"; sourceTree = "<group>"; };
+		96C9FC65FCF48CC96B673A3B /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-GoodTimes/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
+		A74BB0AC126B0B60C5BE6355 /* libPods-GoodTimes.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-GoodTimes.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = GoodTimes/SplashScreen.storyboard; sourceTree = "<group>"; };
-		AF1F3D0E5AC046B2A04BA6DF /* Roboto-Bold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Roboto-Bold.ttf"; path = "../assets/fonts/Roboto-Bold.ttf"; sourceTree = "<group>"; };
-		B7C76A883892DA82C0FA1A1B /* Pods-GoodTimes.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-GoodTimes.debug.xcconfig"; path = "Target Support Files/Pods-GoodTimes/Pods-GoodTimes.debug.xcconfig"; sourceTree = "<group>"; };
+		B3EF304489EFF19667171940 /* Pods-GoodTimes.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-GoodTimes.debug.xcconfig"; path = "Target Support Files/Pods-GoodTimes/Pods-GoodTimes.debug.xcconfig"; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
+		C8DCBA6A97BE4D37B7169F01 /* NotificationService.m */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.c.objc; name = NotificationService.m; path = NotificationService.m; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = GoodTimes/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* GoodTimes-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "GoodTimes-Bridging-Header.h"; path = "GoodTimes/GoodTimes-Bridging-Header.h"; sourceTree = "<group>"; };
+		F14B5FCAD790460DA7074DD8 /* Roboto-Medium.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Roboto-Medium.ttf"; path = "../assets/fonts/Roboto-Medium.ttf"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -47,13 +82,33 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				4D23E8D9C901D7113F8E489D /* libPods-GoodTimes.a in Frameworks */,
+				BE949ECA9CF5CE32A84E0CA4 /* libPods-GoodTimes.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DF85680EF5E64100800105AB /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7A372C90919D9906690F1351 /* libPods-OneSignalNotificationServiceExtension.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		132C9CA96D064BAEE8C7A52A /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				B3EF304489EFF19667171940 /* Pods-GoodTimes.debug.xcconfig */,
+				8D9ACD6F057C94384D4A5815 /* Pods-GoodTimes.release.xcconfig */,
+				2E2102D66F18D3FC76957A97 /* Pods-OneSignalNotificationServiceExtension.debug.xcconfig */,
+				8B66EEAD7D7F3F05B2ECB9DB /* Pods-OneSignalNotificationServiceExtension.release.xcconfig */,
+			);
+			name = Pods;
+			path = Pods;
+			sourceTree = "<group>";
+		};
 		13B07FAE1A68108700A75B9A /* GoodTimes */ = {
 			isa = PBXGroup;
 			children = (
@@ -63,15 +118,28 @@
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
-				69BDA6814D8901078A40FDFD /* PrivacyInfo.xcprivacy */,
+				222C65B03CD64E9DAF652F20 /* PrivacyInfo.xcprivacy */,
 			);
 			name = GoodTimes;
 			sourceTree = "<group>";
 		};
-		232F2A0CD0ACC661718B540A /* GoodTimes */ = {
+		1C08E69AE78E4C20B1BAFD01 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				80F3992EE48C50A6F0263419 /* ExpoModulesProvider.swift */,
+				3F00071FB5EF4A9CB25CBDCC /* LibreBaskerville-Regular.ttf */,
+				2CB65609977748F1B9339E65 /* LibreBaskerville-Bold.ttf */,
+				858B11F3BE2B4CCDBF6984F5 /* Roboto-Regular.ttf */,
+				F14B5FCAD790460DA7074DD8 /* Roboto-Medium.ttf */,
+				0CA62ABF716342018BF042DD /* Roboto-Bold.ttf */,
+			);
+			name = Resources;
+			path = "";
+			sourceTree = "<group>";
+		};
+		254334BB1C9C390ED179E239 /* GoodTimes */ = {
+			isa = PBXGroup;
+			children = (
+				96C9FC65FCF48CC96B673A3B /* ExpoModulesProvider.swift */,
 			);
 			name = GoodTimes;
 			sourceTree = "<group>";
@@ -80,22 +148,18 @@
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				9BC1CFD5BD97D2489191D189 /* libPods-GoodTimes.a */,
+				A74BB0AC126B0B60C5BE6355 /* libPods-GoodTimes.a */,
+				5431DA46996AFE8F2031C9C1 /* libPods-OneSignalNotificationServiceExtension.a */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
-		4FA837427F674181B45A0A8D /* Resources */ = {
+		6DA6AF924005C020ABC8E135 /* ExpoModulesProviders */ = {
 			isa = PBXGroup;
 			children = (
-				59AFBA7979EB4A0894D15061 /* LibreBaskerville-Regular.ttf */,
-				77ACA3C1C72C4E928C5A6D06 /* LibreBaskerville-Bold.ttf */,
-				7EECA234C2C949E1A2052BA5 /* Roboto-Regular.ttf */,
-				19D66EA1142B491CB88423A7 /* Roboto-Medium.ttf */,
-				AF1F3D0E5AC046B2A04BA6DF /* Roboto-Bold.ttf */,
+				254334BB1C9C390ED179E239 /* GoodTimes */,
 			);
-			name = Resources;
-			path = "";
+			name = ExpoModulesProviders;
 			sourceTree = "<group>";
 		};
 		832341AE1AAA6A7D00B99B32 /* Libraries */ = {
@@ -112,9 +176,10 @@
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
-				4FA837427F674181B45A0A8D /* Resources */,
-				AB883CE09C36951F152D0A65 /* Pods */,
-				F12CA4D66882E272FB8BD706 /* ExpoModulesProviders */,
+				1C08E69AE78E4C20B1BAFD01 /* Resources */,
+				D0458333D699479FAAF4B7E0 /* OneSignalNotificationServiceExtension */,
+				132C9CA96D064BAEE8C7A52A /* Pods */,
+				6DA6AF924005C020ABC8E135 /* ExpoModulesProviders */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -125,18 +190,9 @@
 			isa = PBXGroup;
 			children = (
 				13B07F961A680F5B00A75B9A /* GoodTimes.app */,
+				643CA2FCA893412792A54CA6 /* OneSignalNotificationServiceExtension.appex */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		AB883CE09C36951F152D0A65 /* Pods */ = {
-			isa = PBXGroup;
-			children = (
-				B7C76A883892DA82C0FA1A1B /* Pods-GoodTimes.debug.xcconfig */,
-				7930E07D319356C75964232E /* Pods-GoodTimes.release.xcconfig */,
-			);
-			name = Pods;
-			path = Pods;
 			sourceTree = "<group>";
 		};
 		BB2F792B24A3F905000567C9 /* Supporting */ = {
@@ -148,12 +204,16 @@
 			path = GoodTimes/Supporting;
 			sourceTree = "<group>";
 		};
-		F12CA4D66882E272FB8BD706 /* ExpoModulesProviders */ = {
+		D0458333D699479FAAF4B7E0 /* OneSignalNotificationServiceExtension */ = {
 			isa = PBXGroup;
 			children = (
-				232F2A0CD0ACC661718B540A /* GoodTimes */,
+				5447CA4E71594F64AEA1FB77 /* NotificationService.h */,
+				1BC9F845D3C448D89E008BC2 /* OneSignalNotificationServiceExtension.entitlements */,
+				213F4C0E5DF94312A33FF914 /* OneSignalNotificationServiceExtension-Info.plist */,
+				C8DCBA6A97BE4D37B7169F01 /* NotificationService.m */,
 			);
-			name = ExpoModulesProviders;
+			name = OneSignalNotificationServiceExtension;
+			path = OneSignalNotificationServiceExtension;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -164,22 +224,42 @@
 			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "GoodTimes" */;
 			buildPhases = (
 				08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */,
-				D1A79953B99ADFE15ED4EB24 /* [Expo] Configure project */,
+				209CB358B46E5A6D1CB52403 /* [Expo] Configure project */,
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
-				D6202691990D786A6BC41725 /* [CP] Embed Pods Frameworks */,
+				28DFF070E2724A67A953B5BD /* Copy Files */,
+				8CF14FC1D802019D8E28D64E /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				2D64247F2E89428497B900AF /* PBXTargetDependency */,
 			);
 			name = GoodTimes;
 			productName = GoodTimes;
 			productReference = 13B07F961A680F5B00A75B9A /* GoodTimes.app */;
 			productType = "com.apple.product-type.application";
+		};
+		3648466DB62B4779BBD49890 /* OneSignalNotificationServiceExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 70905B9F9D1D4BAF807218DA /* Build configuration list for PBXNativeTarget "OneSignalNotificationServiceExtension" */;
+			buildPhases = (
+				789C540175AE1D13935FC9DC /* [CP] Check Pods Manifest.lock */,
+				8208E5E79DDE47F9AC2C7F54 /* Sources */,
+				F03AC38C6EAF4B0BAE7CA2F5 /* Resources */,
+				DF85680EF5E64100800105AB /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = OneSignalNotificationServiceExtension;
+			productName = OneSignalNotificationServiceExtension;
+			productReference = 643CA2FCA893412792A54CA6 /* OneSignalNotificationServiceExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -190,7 +270,11 @@
 				LastUpgradeCheck = 1130;
 				TargetAttributes = {
 					13B07F861A680F5B00A75B9A = {
+						DevelopmentTeam = undefined;
 						LastSwiftMigration = 1250;
+					};
+					3648466DB62B4779BBD49890 = {
+						DevelopmentTeam = undefined;
 					};
 				};
 			};
@@ -208,6 +292,7 @@
 			projectRoot = "";
 			targets = (
 				13B07F861A680F5B00A75B9A /* GoodTimes */,
+				3648466DB62B4779BBD49890 /* OneSignalNotificationServiceExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -220,12 +305,19 @@
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
-				524EBAD93AC249C7AB42C9FC /* LibreBaskerville-Regular.ttf in Resources */,
-				AB22EE4815554DB9970EC532 /* LibreBaskerville-Bold.ttf in Resources */,
-				7E425AFA55F94C1BBB645B96 /* Roboto-Regular.ttf in Resources */,
-				86CF55885F254E2C960B67BB /* Roboto-Medium.ttf in Resources */,
-				6A15C199A23D47C59BDF314C /* Roboto-Bold.ttf in Resources */,
-				26346636178A768A9FD7C9AE /* PrivacyInfo.xcprivacy in Resources */,
+				7616125AA2EF4E44B5B477E0 /* PrivacyInfo.xcprivacy in Resources */,
+				4A80A2390D4F4714B46A6E3B /* LibreBaskerville-Regular.ttf in Resources */,
+				85DC366DEF4A42F6AED8CE22 /* LibreBaskerville-Bold.ttf in Resources */,
+				AFE9322DDFFE4499B58EF50C /* Roboto-Regular.ttf in Resources */,
+				06A13740C610402F992A2F1C /* Roboto-Medium.ttf in Resources */,
+				CF767C86BC1B410B8D2F746E /* Roboto-Bold.ttf in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F03AC38C6EAF4B0BAE7CA2F5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -265,6 +357,52 @@
 			);
 			outputPaths = (
 				"$(DERIVED_FILE_DIR)/Pods-GoodTimes-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+		209CB358B46E5A6D1CB52403 /* [Expo] Configure project */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/.xcode.env",
+				"$(SRCROOT)/.xcode.env.local",
+				"$(SRCROOT)/GoodTimes/GoodTimes.entitlements",
+				"$(SRCROOT)/Pods/Target Support Files/Pods-GoodTimes/expo-configure-project.sh",
+			);
+			name = "[Expo] Configure project";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/Pods/Target Support Files/Pods-GoodTimes/ExpoModulesProvider.swift",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-GoodTimes/expo-configure-project.sh\"\n";
+		};
+		789C540175AE1D13935FC9DC /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-OneSignalNotificationServiceExtension-checkManifestLockResult.txt",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -325,31 +463,7 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-GoodTimes/Pods-GoodTimes-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
-		D1A79953B99ADFE15ED4EB24 /* [Expo] Configure project */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"$(SRCROOT)/.xcode.env",
-				"$(SRCROOT)/.xcode.env.local",
-				"$(SRCROOT)/GoodTimes/GoodTimes.entitlements",
-				"$(SRCROOT)/Pods/Target Support Files/Pods-GoodTimes/expo-configure-project.sh",
-			);
-			name = "[Expo] Configure project";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(SRCROOT)/Pods/Target Support Files/Pods-GoodTimes/ExpoModulesProvider.swift",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-GoodTimes/expo-configure-project.sh\"\n";
-		};
-		D6202691990D786A6BC41725 /* [CP] Embed Pods Frameworks */ = {
+		8CF14FC1D802019D8E28D64E /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -395,21 +509,37 @@
 			buildActionMask = 2147483647;
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
-				B84B34EE1482FE5328385EA3 /* ExpoModulesProvider.swift in Sources */,
+				04551044F12326FF7563CE2D /* ExpoModulesProvider.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8208E5E79DDE47F9AC2C7F54 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				166B45C7F5D64836A8E61401 /* NotificationService.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		2D64247F2E89428497B900AF /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3648466DB62B4779BBD49890 /* OneSignalNotificationServiceExtension */;
+			targetProxy = 260A588002CB44358BF23E7C /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = B7C76A883892DA82C0FA1A1B /* Pods-GoodTimes.debug.xcconfig */;
+			baseConfigurationReference = B3EF304489EFF19667171940 /* Pods-GoodTimes.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = GoodTimes/GoodTimes.entitlements;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
@@ -421,7 +551,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.0.0;
+				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -440,19 +570,19 @@
 		};
 		13B07F951A680F5B00A75B9A /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 7930E07D319356C75964232E /* Pods-GoodTimes.release.xcconfig */;
+			baseConfigurationReference = 8D9ACD6F057C94384D4A5815 /* Pods-GoodTimes.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = GoodTimes/GoodTimes.entitlements;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = GoodTimes/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.0.0;
+				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -465,6 +595,28 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
 				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Release;
+		};
+		3479523A67D74DACB21D2CDA /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 8B66EEAD7D7F3F05B2ECB9DB /* Pods-OneSignalNotificationServiceExtension.release.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = OneSignalNotificationServiceExtension/OneSignalNotificationServiceExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = undefined;
+				INFOPLIST_FILE = "OneSignalNotificationServiceExtension/OneSignalNotificationServiceExtension-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 11.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
+				PRODUCT_BUNDLE_IDENTIFIER = com.jarydhermann.goodtimes.OneSignalNotificationServiceExtension;
+				PRODUCT_NAME = OneSignalNotificationServiceExtension;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -584,6 +736,32 @@
 			};
 			name = Release;
 		};
+		8E9F39D1CDC945EEAA9FF98F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 2E2102D66F18D3FC76957A97 /* Pods-OneSignalNotificationServiceExtension.debug.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = OneSignalNotificationServiceExtension/OneSignalNotificationServiceExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = undefined;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				INFOPLIST_FILE = "OneSignalNotificationServiceExtension/OneSignalNotificationServiceExtension-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 11.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
+				PRODUCT_BUNDLE_IDENTIFIER = com.jarydhermann.goodtimes.OneSignalNotificationServiceExtension;
+				PRODUCT_NAME = OneSignalNotificationServiceExtension;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -592,6 +770,15 @@
 			buildConfigurations = (
 				13B07F941A680F5B00A75B9A /* Debug */,
 				13B07F951A680F5B00A75B9A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		70905B9F9D1D4BAF807218DA /* Build configuration list for PBXNativeTarget "OneSignalNotificationServiceExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8E9F39D1CDC945EEAA9FF98F /* Debug */,
+				3479523A67D74DACB21D2CDA /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

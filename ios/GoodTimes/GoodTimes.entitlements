@@ -12,5 +12,9 @@
     <array>
       <string>applinks:thegoodtimes.app</string>
     </array>
+    <key>com.apple.security.application-groups</key>
+    <array>
+      <string>group.com.jarydhermann.goodtimes.onesignal</string>
+    </array>
   </dict>
 </plist>

@@ -30,6 +30,33 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     entitlements: {
       "com.apple.security.application-groups": ["group.com.jarydhermann.goodtimes.onesignal"],
     },
+    // Apple's required privacy manifest. This used to live as a checked-in
+    // ios/GoodTimes/PrivacyInfo.xcprivacy, which meant `expo prebuild` silently
+    // dropped it (prebuild only emits the manifest when it is declared here) and
+    // the next submission would fail ITMS-91053. Declared in config it survives
+    // any regeneration of the native project.
+    privacyManifests: {
+      NSPrivacyAccessedAPITypes: [
+        {
+          NSPrivacyAccessedAPIType: "NSPrivacyAccessedAPICategoryFileTimestamp",
+          NSPrivacyAccessedAPITypeReasons: ["C617.1", "0A2A.1", "3B52.1"],
+        },
+        {
+          NSPrivacyAccessedAPIType: "NSPrivacyAccessedAPICategoryUserDefaults",
+          NSPrivacyAccessedAPITypeReasons: ["CA92.1"],
+        },
+        {
+          NSPrivacyAccessedAPIType: "NSPrivacyAccessedAPICategorySystemBootTime",
+          NSPrivacyAccessedAPITypeReasons: ["35F9.1"],
+        },
+        {
+          NSPrivacyAccessedAPIType: "NSPrivacyAccessedAPICategoryDiskSpace",
+          NSPrivacyAccessedAPITypeReasons: ["E174.1", "85F4.1"],
+        },
+      ],
+      NSPrivacyCollectedDataTypes: [],
+      NSPrivacyTracking: false,
+    },
     // deploymentTarget is set in ios/Podfile.properties.json (not a valid property here in Expo SDK 54)
     infoPlist: {
       NSCameraUsageDescription: "Good Times needs access to your camera to capture photos and videos for your entries.",

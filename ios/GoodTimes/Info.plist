@@ -90,6 +90,10 @@
 		<string>Roboto-Medium.ttf</string>
 		<string>Roboto-Bold.ttf</string>
 	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>SplashScreen</string>
 	<key>UIRequiredDeviceCapabilities</key>
