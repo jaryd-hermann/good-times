@@ -4,7 +4,11 @@ import { useEffect, useRef } from "react"
 import { AppState, type AppStateStatus, Alert, Linking } from "react-native"
 import * as Notifications from "expo-notifications"
 import { useAuth } from "./AuthProvider"
-import { registerForPushNotifications, savePushRegistrationToSupabase } from "../lib/notifications"
+import {
+  registerForPushNotifications,
+  savePushRegistrationToSupabase,
+  hasRequestedPushOptIn,
+} from "../lib/notifications"
 
 /** iOS may not reflect Settings changes until shortly after returning to the app. */
 const PERMISSION_RECHECK_DELAY_MS = 450
@@ -44,7 +48,7 @@ export function NotificationPermissionResumeHandler() {
       const run = async () => {
         await new Promise((r) => setTimeout(r, PERMISSION_RECHECK_DELAY_MS))
 
-        let { status } = await Notifications.getPermissionsAsync()
+        const { status } = await Notifications.getPermissionsAsync()
         if (status === "granted") {
           if (userId) {
             try {
@@ -56,17 +60,17 @@ export function NotificationPermissionResumeHandler() {
           return
         }
 
-        const requested = await Notifications.requestPermissionsAsync()
-        status = requested.status
-
-        if (status === "granted") {
-          if (userId) {
-            try {
-              await syncPushRegistration(userId)
-            } catch (e) {
-              if (__DEV__) console.warn("[NotificationPermissionResumeHandler] sync after request grant failed:", e)
-            }
-          }
+        // Never raise the system prompt from here. This runs on every
+        // inactive→active transition, and iOS passes through that during launch,
+        // so requesting here put the OS dialog over the splash screen of a fresh
+        // install — before the user had seen the screen explaining what the
+        // notifications are for, and before they were even signed in, so there
+        // was no user id to persist the registration against.
+        //
+        // iOS grants exactly one system prompt per install. It belongs to the
+        // onboarding CTA. All this handler does is pick up the result when
+        // someone comes back from Settings having already opted in.
+        if (!(await hasRequestedPushOptIn())) {
           return
         }
 

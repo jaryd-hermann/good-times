@@ -3,7 +3,11 @@ import { View, Text, Image, StyleSheet, Pressable, ActivityIndicator } from "rea
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { useAuth } from "../../components/AuthProvider"
-import { registerForPushNotifications, savePushRegistrationToSupabase } from "../../lib/notifications"
+import {
+  registerForPushNotifications,
+  savePushRegistrationToSupabase,
+  markPushOptInRequested,
+} from "../../lib/notifications"
 import { markOnboarded } from "../../lib/v2/onboarding"
 import { supabase } from "../../lib/supabase"
 import * as haptics from "../../lib/v2/haptics"
@@ -82,6 +86,11 @@ export default function NotificationsScreen() {
     haptics.commit()
     setBusy(true)
     try {
+      // Record the intent before asking, so that if they deny here and later
+      // enable notifications from iOS Settings, the resume handler knows this
+      // was something they wanted and picks the registration up.
+      await markPushOptInRequested()
+
       if (user?.id) {
         const reg = await registerForPushNotifications({ linkSupabaseUserId: user.id })
         // registerForPushNotifications only RETURNS the tokens — persisting them is

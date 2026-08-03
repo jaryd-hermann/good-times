@@ -11,6 +11,26 @@ export const PUSH_CHANNELS_REGISTERED_KEY = "push_channels_registered"
 export const PUSH_CHANNELS_DONE_VALUE = "expo_onesignal_v1"
 
 /**
+ * Set only when the user has actually asked for notifications — i.e. tapped the
+ * CTA on the onboarding notifications screen.
+ *
+ * iOS gives an app exactly one shot at the system permission dialog, so it must
+ * be spent on a screen that has explained what the notifications are for. The
+ * resume handler used to fire the prompt on any inactive→active transition,
+ * which on a fresh install happens during launch — so the OS dialog appeared
+ * over the splash screen before the user had seen anything at all.
+ */
+const PUSH_OPT_IN_REQUESTED_KEY = "push_opt_in_requested"
+
+export async function markPushOptInRequested(): Promise<void> {
+  await AsyncStorage.setItem(PUSH_OPT_IN_REQUESTED_KEY, "true")
+}
+
+export async function hasRequestedPushOptIn(): Promise<boolean> {
+  return (await AsyncStorage.getItem(PUSH_OPT_IN_REQUESTED_KEY)) === "true"
+}
+
+/**
  * Whether home/history should call `registerForPushNotifications`.
  * iOS only shows Settings → Notifications for the app after the first permission request.
  * If `push_channels_registered` was restored from a device backup but this install never
