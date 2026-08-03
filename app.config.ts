@@ -88,7 +88,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     permissions: ["CAMERA", "READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "RECORD_AUDIO", "READ_CONTACTS"],
   },
   plugins: [
-    ["onesignal-expo-plugin", { mode: onesignalApsMode }],
+    // iPhoneDeploymentTarget must be set explicitly: the plugin otherwise gives the
+    // Notification Service Extension target a deployment target of 11.0, which the
+    // Xcode 26 toolchain on EAS will not build. 15.1 matches the app target.
+    ["onesignal-expo-plugin", { mode: onesignalApsMode, iPhoneDeploymentTarget: "15.1" }],
     "expo-router",
     "expo-dev-client",
     "expo-local-authentication",

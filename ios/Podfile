@@ -56,6 +56,67 @@ target 'GoodTimes' do
       :mac_catalyst_enabled => false,
       :ccache_enabled => ccache_enabled?(podfile_properties),
     )
+
+    # ------------------------------------------------------------------
+    # fmt + Xcode 26 / Clang 17+ : disable consteval
+    # ------------------------------------------------------------------
+    # React Native 0.81.5 vendors fmt 11.0.2. Its FMT_STRING macro builds a
+    # basic_format_string through a `consteval` constructor, and the Clang that
+    # ships with Xcode 26.5 rejects those calls as "not a constant expression",
+    # failing every build in fmt/format-inl.h:
+    #
+    #   call to consteval function 'fmt::basic_format_string<...>' is not a
+    #   constant expression
+    #
+    # NOTE: a -DFMT_USE_CONSTEVAL=0 preprocessor define does NOT work here. Unlike
+    # FMT_USE_NONTYPE_TEMPLATE_ARGS directly below it, fmt's base.h does not guard
+    # FMT_USE_CONSTEVAL with an "#if defined(...) // use the provided definition"
+    # branch — the chain opens with
+    #     #if !defined(__cpp_lib_is_constant_evaluated)
+    # and unconditionally redefines the macro, so the command-line value is
+    # overwritten (with a -Wmacro-redefined warning) and consteval stays on.
+    #
+    # So patch the header instead. There are exactly two `#define FMT_USE_CONSTEVAL 1`
+    # lines; flipping them to 0 makes base.h define FMT_CONSTEVAL to nothing, which
+    # is fmt's own supported "compiler can't do consteval" path. Format strings are
+    # still validated, just at run time rather than compile time.
+    #
+    # This surfaced because eas.json pins "image": "latest" and EAS rolled its macOS
+    # image forward to Xcode 26.5. Pinning an older image fixes it too; this keeps
+    # builds green as images move.
+    #
+    # Remove once React Native vendors a fmt that compiles clean on Clang 17+.
+    #
+    # NOTE: this block lives in a generated file. `expo prebuild` rewrites the
+    # Podfile and drops it — which is exactly how it was lost once already. If you
+    # regenerate the native project, restore this hook or EAS builds fail.
+    fmt_base_h = File.join(installer.sandbox.root, 'fmt', 'include', 'fmt', 'base.h')
+    if File.exist?(fmt_base_h)
+      src = File.read(fmt_base_h)
+      patched = src.gsub(/^#  define FMT_USE_CONSTEVAL 1$/, '#  define FMT_USE_CONSTEVAL 0')
+      if patched != src
+        # The pod ships base.h as mode 444, so a bare File.write raises EACCES and
+        # aborts the whole `pod install`. Restore write permission first, and put
+        # it back afterwards so the sandbox looks untouched to CocoaPods.
+        mode = File.stat(fmt_base_h).mode & 0o7777
+        File.chmod(0o644, fmt_base_h)
+        File.write(fmt_base_h, patched)
+        File.chmod(mode, fmt_base_h)
+        Pod::UI.puts "[fmt] disabled consteval for Clang 17+ compatibility".green
+      end
+    end
+
+    # Pods that declare an ancient deployment target trip the
+    # "iOS@9.0 deployment version mismatch, expected >= 2.0 <= 26.5.99" warning on
+    # the Xcode 26 toolchain. Normalise anything below the project's own minimum.
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        current = config.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
+        if current.nil? || current.to_f < 15.1
+          config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.1'
+        end
+      end
+    end
   end
 end
 
