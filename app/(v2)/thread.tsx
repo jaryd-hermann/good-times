@@ -316,6 +316,7 @@ export default function ThreadScreen() {
         </View>
         <LockedThread
           answeredCount={answeredCount}
+          question={data.question.text}
           onAnswer={() =>
             router.push({
               pathname: "/(v2)/compose",

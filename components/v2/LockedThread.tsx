@@ -15,9 +15,12 @@ import * as haptics from "../../lib/v2/haptics"
  */
 export function LockedThread({
   answeredCount,
+  question,
   onAnswer,
 }: {
   answeredCount: number
+  /** Today's question. Safe to show while locked — it is what everyone answered. */
+  question?: string
   onAnswer: () => void
 }) {
   const { c, isDark } = useV2Colors()
@@ -66,6 +69,17 @@ export function LockedThread({
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
+
+      {/* The question, crisp, over the blur.
+          Rendered AFTER the BlurView and gradient so it sits on top of them
+          rather than being blurred with the skeleton underneath. The bottom
+          padding biases it up out of the footer's space instead of centring on
+          the raw screen, where the CTA block would crowd it. */}
+      {question ? (
+        <View style={s.questionOverlay} pointerEvents="none">
+          <Text style={s.questionText}>{question}</Text>
+        </View>
+      ) : null}
 
       <View style={s.footer}>
         <Text style={s.padlock}>🔒</Text>
@@ -120,6 +134,23 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
     },
     bubbleMine: { alignSelf: "flex-end", backgroundColor: c.blue, opacity: 0.75, width: "55%" },
 
+    questionOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: sp.xl,
+      // Clears the footer block below, so "centred" reads as centred in the space
+      // actually available rather than sitting behind the CTA.
+      paddingBottom: 220,
+    },
+    questionText: {
+      fontSize: 22,
+      fontWeight: "800",
+      color: c.text,
+      textAlign: "center",
+      lineHeight: 29,
+      letterSpacing: -0.3,
+    },
     footer: {
       position: "absolute",
       left: 0,
