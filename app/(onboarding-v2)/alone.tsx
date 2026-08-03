@@ -150,9 +150,8 @@ export default function AloneScreen() {
             {firstName ? `${firstName}, let’s add your people` : "Let’s add your people"}
           </Text>
           <Text style={s.sub}>
-            Good Times is one question a day with the people you like and love — it only works
-            in private groups. Create one and forward them, it&rsquo;s free and super easy for
-            them to join.
+            Good Times works with big or small groups. Friends, family, colleagues, community.
+            Create a new one, or join one.
           </Text>
 
           <TextInput
