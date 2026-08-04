@@ -62,17 +62,18 @@ serve(async (req) => {
     )
   }
 
-  const now = new Date().toISOString()
-
-  const { data: rows, error } = await supabase
-    .from("notification_queue")
-    .select("id, user_id, type, title, body, data, attempts")
-    .eq("processed", false)
-    .lt("attempts", MAX_ATTEMPTS)
-    .or(`next_attempt_at.is.null,next_attempt_at.lte.${now}`)
-    .or(`scheduled_time.is.null,scheduled_time.lte.${now}`)
-    .order("created_at", { ascending: true })
-    .limit(BATCH)
+  // Claim atomically instead of SELECT-then-UPDATE.
+  //
+  // Reading unprocessed rows and only marking them processed AFTER sending leaves
+  // a window in which they still look unprocessed, so an overlapping run picks up
+  // the same rows and sends them twice. v2_claim_notifications marks them claimed
+  // in a single statement using FOR UPDATE SKIP LOCKED, so concurrent runs take
+  // DIFFERENT rows rather than fighting over the same ones. The date filters that
+  // used to live here moved into that function.
+  const { data: rows, error } = await supabase.rpc("v2_claim_notifications", {
+    p_limit: BATCH,
+    p_max_attempts: MAX_ATTEMPTS,
+  })
 
   if (error) {
     return new Response(JSON.stringify({ error: error.message }), {
@@ -223,6 +224,9 @@ serve(async (req) => {
         last_error: f.error,
         next_attempt_at: nextAttemptAt(f.attempts),
         processed: f.attempts >= MAX_ATTEMPTS,
+        // Release the claim so the retry is governed by next_attempt_at rather
+        // than having to wait out the stale-claim window first.
+        claimed_at: null,
       })
       .eq("id", f.id)
   }
