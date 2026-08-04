@@ -17,7 +17,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import * as Clipboard from "expo-clipboard"
 import { supabase } from "../../lib/supabase"
 import { useV2Colors, v2Spacing as sp } from "../../lib/v2/theme"
-import { createGroup, inviteUrl } from "../../lib/v2/onboarding"
+import { createGroup, inviteMessage } from "../../lib/v2/onboarding"
 import { MaterialCommunityIcons } from "@expo/vector-icons"
 import { Avatar } from "../../components/Avatar"
 import { useAuth } from "../../components/AuthProvider"
@@ -70,12 +70,13 @@ export default function AloneScreen() {
 
   async function shareInvite() {
     if (!created) return
-    const url = inviteUrl(created.token)
     await Share.share({
-      // The URL must be the LAST thing in the message. iMessage only renders a
-      // rich preview card when the link ends the text — putting the code after it
-      // downgraded the whole thing to a plain blue hyperlink and lost the image.
-      message: `Join your group, "${created.name}". Answer one question a day with friends. No AI. No Algorithms. No Ads.\n\n\u2192 download + use your code: ${created.token}\n\n${url}`,
+      // They just created this group, so they ARE the admin — no lookup needed.
+      message: inviteMessage({
+        groupName: created.name,
+        token: created.token,
+        adminName: profile?.name,
+      }),
     })
   }
 

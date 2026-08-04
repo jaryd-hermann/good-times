@@ -3,7 +3,8 @@ import { View, Text, StyleSheet, Pressable, Modal, Share, ActivityIndicator } fr
 import { MaterialCommunityIcons } from "@expo/vector-icons"
 import * as Clipboard from "expo-clipboard"
 import { useV2Colors, v2Spacing as sp } from "../../lib/v2/theme"
-import { getInviteCode, inviteUrl } from "../../lib/v2/onboarding"
+import { getInviteCode, inviteMessage } from "../../lib/v2/onboarding"
+import { supabase } from "../../lib/supabase"
 import * as haptics from "../../lib/v2/haptics"
 import { v2Analytics } from "../../lib/v2/analytics"
 
@@ -33,6 +34,8 @@ export function InviteSheet({
   const [token, setToken] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** Whoever created the group — named in the share text so the invite has a face. */
+  const [adminName, setAdminName] = useState<string | null>(null)
 
   useEffect(() => {
     if (!visible || !userId || token) return
@@ -49,6 +52,27 @@ export function InviteSheet({
     }
   }, [visible, userId, groupId, token])
 
+  useEffect(() => {
+    if (!visible || !groupId) return
+    let cancelled = false
+    ;(async () => {
+      // There is no groups.created_by — the creator is the member holding the
+      // admin role, so ask group_members rather than inventing a column.
+      const { data } = await supabase
+        .from("group_members")
+        .select("users ( name )")
+        .eq("group_id", groupId)
+        .eq("role", "admin")
+        .limit(1)
+        .maybeSingle()
+      if (cancelled) return
+      setAdminName((data as { users?: { name?: string | null } | null } | null)?.users?.name ?? null)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [visible, groupId])
+
   async function copy() {
     if (!token) return
     haptics.tap()
@@ -62,10 +86,7 @@ export function InviteSheet({
     if (!token) return
     haptics.commit()
     await Share.share({
-      // The URL must be the LAST thing in the message. iMessage only renders a
-      // rich preview card when the link ends the text — putting the code after it
-      // downgraded the whole thing to a plain blue hyperlink and lost the image.
-      message: `Join your group, "${groupName}". Answer one question a day with friends. No AI. No Algorithms. No Ads.\n\n\u2192 download + use your code: ${token}\n\n${inviteUrl(token)}`,
+      message: inviteMessage({ groupName, token, adminName }),
     })
     if (groupId) v2Analytics.groupMemberInvited({ groupId, channel: "share" })
   }

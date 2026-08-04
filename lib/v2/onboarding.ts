@@ -114,6 +114,42 @@ export async function getInviteCode(groupId: string, userId: string) {
   return data as { token?: string; error?: string }
 }
 
+/**
+ * The invite message, in one place.
+ *
+ * Both the in-app invite sheet and the onboarding "you made a group" screen send
+ * this, and keeping two copies in sync by hand has already failed repeatedly.
+ *
+ * Two things about the shape are load-bearing:
+ *  - the URL is LAST. iMessage only renders a rich preview card when the link
+ *    ends the message; any text after it downgrades to a plain hyperlink and the
+ *    image disappears.
+ *  - the code is stated as text as well as being inside the URL, because that
+ *    preview card hides the href — and the code is the fallback for exactly the
+ *    case where the link fails to open the app.
+ */
+export function inviteMessage(opts: {
+  groupName: string
+  token: string
+  /** Whoever created the group. Omitted when we cannot resolve a name. */
+  adminName?: string | null
+}) {
+  const admin = opts.adminName?.trim()
+  const opener = admin
+    ? `Join the group ${admin} made, "${opts.groupName}".`
+    : `Join your group, "${opts.groupName}".`
+
+  return [
+    `${opener} Answer one question a day with friends.`,
+    "",
+    "No AI. No Algorithms. No Ads.",
+    "",
+    `\u2192 download + use your code: ${opts.token}`,
+    "",
+    inviteUrl(opts.token),
+  ].join("\n")
+}
+
 export function inviteUrl(token: string) {
   return `https://thegoodtimes.app/join/${token}`
 }
