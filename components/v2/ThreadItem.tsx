@@ -4,6 +4,8 @@ import { Image, useWindowDimensions } from "react-native"
 import { useV2Colors, v2Spacing as sp } from "../../lib/v2/theme"
 import { AvatarStack } from "./AvatarStack"
 import { MediaCarousel } from "./MediaCarousel"
+import { segmentMentions } from "../../lib/v2/mentions"
+import type { Author } from "../../lib/v2/types"
 import type { ThreadMessage } from "../../lib/v2/types"
 
 /** Lines of body text shown before the Show more fold (design 4A). */
@@ -19,12 +21,19 @@ function time(iso: string) {
 export const ThreadItem = memo(function ThreadItem({
   message: m,
   isMine,
+  members,
   onReply,
   onToggleReaction,
   onAddReaction,
 }: {
   message: ThreadMessage
   isMine: boolean
+  /**
+   * Needed to render @-mentions. Must be a STABLE reference — this component is
+   * memo()'d, and a fresh array each render would defeat that and bring back the
+   * image flashing that the callback refs above were added to stop.
+   */
+  members?: Author[]
   onReply: (m: ThreadMessage) => void
   onToggleReaction: (messageId: string, emoji: string) => void
   onAddReaction: (m: ThreadMessage) => void
@@ -181,7 +190,21 @@ export const ThreadItem = memo(function ThreadItem({
           />
         ) : null}
 
-        {m.text ? <Text style={s.bubbleText}>{m.text}</Text> : null}
+        {m.text ? (
+          <Text style={s.bubbleText}>
+            {/* Mentions render as the bare name in bold — no "@" — so the message
+                reads as a sentence rather than as markup. */}
+            {segmentMentions(m.text, members ?? []).map((seg, i) =>
+              seg.mention ? (
+                <Text key={i} style={s.mention}>
+                  {seg.text}
+                </Text>
+              ) : (
+                <Text key={i}>{seg.text}</Text>
+              ),
+            )}
+          </Text>
+        ) : null}
 
         {/* Inside the card, bottom-right. Floating underneath left them ambiguous
             about which message they belonged to in a dense thread. */}
@@ -281,6 +304,7 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
     bubbleAuthor: { fontWeight: "800", fontSize: 12, color: c.text },
     bubbleFoot: { flexDirection: "row", alignItems: "center", marginTop: sp.sm },
     bubbleText: { color: c.text, fontSize: 15, lineHeight: 20 },
+    mention: { fontWeight: "800" },
     bubbleReply: { paddingTop: 3, paddingHorizontal: 4 },
 
     quoteThumb: {

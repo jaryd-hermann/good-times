@@ -43,6 +43,13 @@ import { MembersSheet } from "../../components/v2/MembersSheet"
 import { LockedThread } from "../../components/v2/LockedThread"
 import { uploadMedia } from "../../lib/storage"
 import { v2Analytics } from "../../lib/v2/analytics"
+import { MentionBar } from "../../components/v2/MentionBar"
+import {
+  activeMentionQuery,
+  applyMention,
+  matchMembers,
+  resolveMentions,
+} from "../../lib/v2/mentions"
 import type { ThreadMessage } from "../../lib/v2/types"
 
 /**
@@ -95,6 +102,8 @@ export default function ThreadScreen() {
   const [sendingMedia, setSendingMedia] = useState(false)
   const [showGroupSheet, setShowGroupSheet] = useState(false)
   const [showMembers, setShowMembers] = useState(false)
+  /** Caret position, so we know which "@query" the user is actually inside. */
+  const [selection, setSelection] = useState({ start: 0, end: 0 })
   const listRef = useRef<FlatList<ThreadMessage>>(null)
   /**
    * Whether the newest message is currently in view.
@@ -202,6 +211,37 @@ export default function ThreadScreen() {
     return () => subs.forEach((sub) => sub.remove())
   }, [scrollToLatest])
 
+  /**
+   * Mentions are resolved from the text at send time, not tracked as the user
+   * types — someone can delete half a name, and a mention list that still
+   * claimed them would notify a person whose name is no longer in the message.
+   */
+  const mentionCtx = useMemo(
+    () => activeMentionQuery(draft, selection.start),
+    [draft, selection.start],
+  )
+  const mentionCandidates = useMemo(
+    () =>
+      mentionCtx
+        ? matchMembers(
+            (data?.group.members ?? []).filter((m) => m.id !== user?.id),
+            mentionCtx.query,
+          )
+        : [],
+    [mentionCtx, data?.group.members, user?.id],
+  )
+
+  const pickMention = useCallback(
+    (m: ThreadMessage["author"]) => {
+      if (!mentionCtx || !m?.name) return
+      haptics.tap()
+      const next = applyMention(draft, mentionCtx.at, selection.start, m.name)
+      setDraft(next.text)
+      setSelection({ start: next.cursor, end: next.cursor })
+    },
+    [draft, mentionCtx, selection.start],
+  )
+
   const onReply = useCallback((m: ThreadMessage) => setReplyTo(m), [])
   /**
    * Stable identities, or ThreadItem's memo() is worthless.
@@ -261,6 +301,7 @@ export default function ThreadScreen() {
       text: text || null,
       mediaUrls,
       mediaTypes: mediaUrls?.map(() => "photo" as const),
+      mentions: resolveMentions(text, data?.group.members ?? []),
       replyToMessageId: target?.id ?? null,
     })
     v2Analytics.messageSent({
@@ -570,6 +611,7 @@ export default function ThreadScreen() {
               <ThreadItem
                 message={item}
                 isMine={item.author?.id === user?.id}
+                members={data.group.members}
                 onReply={onReply}
                 onToggleReaction={onToggleReaction}
                 onAddReaction={onAddReaction}
@@ -642,6 +684,12 @@ export default function ThreadScreen() {
               </View>
             ) : null}
 
+            {/* Directly above the field, so the faces sit between the thread and
+                the keyboard where the eye already is. */}
+            {mentionCandidates.length > 0 ? (
+              <MentionBar members={mentionCandidates} onPick={pickMention} />
+            ) : null}
+
             <View style={s.composerRow}>
               {/* One "+" instead of three icons — the row was eating the width the
                   message field needed. Options fan up on tap. */}
@@ -663,6 +711,8 @@ export default function ThreadScreen() {
                 style={s.input}
                 value={draft}
                 onChangeText={setDraft}
+                selection={selection}
+                onSelectionChange={(e) => setSelection(e.nativeEvent.selection)}
                 placeholder="Message…"
                 placeholderTextColor={c.textSecondary}
                 multiline
