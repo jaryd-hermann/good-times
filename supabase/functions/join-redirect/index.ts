@@ -10,7 +10,11 @@ const APP_STORE_URL = "https://apps.apple.com/app/good-times/id6743445632"
 const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.goodtimes.app"
 const SUPABASE_FUNCTIONS_URL = "https://ytnnsykbgohiscfgomfe.supabase.co/functions/v1"
 /** Shown in og:image / link previews; served from thegoodtimes.app (see public/loading.png). */
-const DEFAULT_OG_IMAGE_URL = "https://thegoodtimes.app/loading.png"
+// New filename rather than overwriting loading.png on purpose: iMessage,
+// WhatsApp, Slack, Facebook and Twitter all cache OG images BY URL for days,
+// so replacing a file in place leaves everyone looking at the old preview
+// with no way to force a refresh. A new path busts every cache at once.
+const DEFAULT_OG_IMAGE_URL = "https://thegoodtimes.app/shareog.png"
 
 function escapeHtml(str: string): string {
   return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
