@@ -62,7 +62,7 @@ export function InviteSheet({
     if (!token) return
     haptics.commit()
     await Share.share({
-      message: `Join ${groupName} on Good Times — one question a day. ${inviteUrl(token)}`,
+      message: `Join "${groupName}". Answer one question a day with friends. No AI. No Algorithms. No Ads. ${inviteUrl(token)}`,
     })
     if (groupId) v2Analytics.groupMemberInvited({ groupId, channel: "share" })
   }

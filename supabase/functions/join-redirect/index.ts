@@ -116,20 +116,37 @@ serve(async (req: Request) => {
       const deepLink = `goodtimes://join/${groupId}`
       const canonicalUrl = `https://thegoodtimes.app/join/${groupId}`
 
-      let ogTitle = "You’re invited on Good Times"
-      let ogDescription =
-        "Answer one question a day with your group. Download the app to join."
+      let ogTitle = "You’ve been invited to join a group on Good Times"
+      let ogDescription = "Join your people. Answer today’s question"
 
       try {
         const supabase = createClient(
           Deno.env.get("SUPABASE_URL") ?? "",
           Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
         )
-        const { data: group } = await supabase.from("groups").select("name").eq("id", groupId).maybeSingle()
-        const rawName = (group as { name?: string } | null)?.name?.trim()
-        if (rawName) {
-          ogTitle = `Join "${rawName}" on Good Times`
-          ogDescription = `You're invited to ${rawName} on Good Times — download the app to join your group.`
+
+        // The path segment is an INVITE TOKEN ("GT-FX6G"), not a group id. This
+        // looked it up as groups.id — a uuid column — so every v2 link raised
+        // "invalid input syntax for type uuid", the catch swallowed it, and the
+        // page silently fell back to generic copy. No invite has ever shown a
+        // group name.
+        const { data: invite } = await supabase
+          .from("invite_tokens")
+          .select("group_id")
+          .eq("token", groupId)
+          .maybeSingle()
+
+        const resolvedGroupId = (invite as { group_id?: string } | null)?.group_id
+        if (resolvedGroupId) {
+          const { data: group } = await supabase
+            .from("groups")
+            .select("name")
+            .eq("id", resolvedGroupId)
+            .maybeSingle()
+          const rawName = (group as { name?: string } | null)?.name?.trim()
+          if (rawName) {
+            ogTitle = `You’ve been invited to join “${rawName}” on Good Times`
+          }
         }
       } catch (e) {
         console.warn("[join-redirect] optional group lookup failed:", e)

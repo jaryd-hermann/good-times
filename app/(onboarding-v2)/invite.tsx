@@ -8,6 +8,7 @@ import { useV2Colors, v2Spacing as sp } from "../../lib/v2/theme"
 import { peekInvite, redeemInvite, type InvitePeek } from "../../lib/v2/onboarding"
 import * as haptics from "../../lib/v2/haptics"
 import { Confetti } from "../../components/v2/Confetti"
+import { supabase } from "../../lib/supabase"
 import { getTodayDate } from "../../lib/utils"
 import { useQueryClient } from "@tanstack/react-query"
 import { v2Analytics } from "../../lib/v2/analytics"
@@ -34,10 +35,60 @@ export default function InviteScreen() {
 
   useEffect(() => {
     if (!params.token) return
-    peekInvite(params.token)
-      .then(setPeek)
-      .catch(() => setPeek({ error: "not_found" }))
-  }, [params.token])
+    let cancelled = false
+
+    ;(async () => {
+      let result: InvitePeek
+      try {
+        result = await peekInvite(params.token!)
+      } catch {
+        if (!cancelled) setPeek({ error: "not_found" })
+        return
+      }
+      if (cancelled) return
+
+      // Already in this group? Then there is nothing to accept or decline, and
+      // offering the choice implies they might not be in it. Open the
+      // conversation instead — which is what they were trying to reach by
+      // tapping the link.
+      if (!("error" in result) && user?.id) {
+        const { data: membership } = await supabase
+          .from("group_members")
+          .select("group_id")
+          .eq("group_id", result.group_id)
+          .eq("user_id", user.id)
+          .maybeSingle()
+
+        if (cancelled) return
+        if (membership) {
+          // The latest day that actually has messages, not today — a group whose
+          // last activity was Friday should open on Friday, not on an empty
+          // thread for a day nobody has posted in.
+          const { data: latest } = await supabase
+            .from("messages")
+            .select("thread_date")
+            .eq("group_id", result.group_id)
+            .order("thread_date", { ascending: false })
+            .limit(1)
+            .maybeSingle()
+
+          const date =
+            (latest as { thread_date?: string } | null)?.thread_date ?? getTodayDate()
+          router.replace({
+            pathname: "/(v2)/thread",
+            params: { groupId: result.group_id, date },
+          })
+          return
+        }
+      }
+
+      if (!cancelled) setPeek(result)
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [params.token, user?.id, router])
 
   const invite = peek && !("error" in peek) ? peek : null
 

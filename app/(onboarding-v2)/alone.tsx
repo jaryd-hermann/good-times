@@ -72,7 +72,7 @@ export default function AloneScreen() {
     if (!created) return
     const url = inviteUrl(created.token)
     await Share.share({
-      message: `Join ${created.name} on Good Times — one question a day. ${url}\n\nOr enter code ${created.token} in the app.`,
+      message: `Join "${created.name}". Answer one question a day with friends. No AI. No Algorithms. No Ads. ${url}\n\nOr enter code ${created.token} in the app.`,
     })
   }
 
