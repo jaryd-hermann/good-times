@@ -744,8 +744,13 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
       borderBottomColor: c.border,
     },
     back: { fontSize: 30, color: c.text, marginRight: 2, lineHeight: 32 },
+    // flexShrink on the name is the fix. Yoga defaults flexShrink to 0 (unlike the
+    // web's 1), so a long name held its full intrinsic width and pushed the invite
+    // + rightward into the history and menu icons. numberOfLines only clips the
+    // rendered text; it does not stop the element claiming the space.
     groupNameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
     invitePlus: {
+      flexShrink: 0,
       width: 22,
       height: 22,
       borderRadius: 11,
@@ -755,7 +760,7 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
       alignItems: "center",
       justifyContent: "center",
     },
-    groupName: { fontSize: 16, fontWeight: "800", color: c.text },
+    groupName: { fontSize: 16, fontWeight: "800", color: c.text, flexShrink: 1, minWidth: 0 },
     groupSub: { fontSize: 12, color: c.textSecondary },
     headerIcon: { width: 24, height: 24 },
 
