@@ -142,7 +142,7 @@ export function inviteMessage(opts: {
   return [
     `${opener} Answer one question a day with friends.`,
     "",
-    "No AI. No Algorithms. No Ads.",
+    "No AI. No Algorithms. No Ads. No Strangers.",
     "",
     `\u2192 download + use your code: ${opts.token}`,
     "",

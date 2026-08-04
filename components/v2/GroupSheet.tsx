@@ -254,12 +254,18 @@ export function GroupSheet({
         <View style={s.explainCard}>
           <Text style={s.explainTitle}>Mute {group.name}?</Text>
           <Text style={s.explainBody}>
-            You&rsquo;ll stop getting notifications as things happen — answers, messages and
+            You&rsquo;ll stop getting notified as things happen — answers, messages and
             reactions.
           </Text>
           <Text style={s.explainBody}>
             Instead you&rsquo;ll get one summary at 7pm on days there was activity, like
             &ldquo;3 answers, 8 messages&rdquo;. Quiet days stay quiet.
+          </Text>
+          {/* Stated plainly, because a screen that promised total silence and then
+              buzzed on a reply would read as broken rather than as considerate. */}
+          <Text style={s.explainBody}>
+            You&rsquo;ll still hear straight away if someone replies to you or mentions you
+            by name.
           </Text>
           <Text style={s.explainNote}>
             Today&rsquo;s question still arrives as normal. You can turn this off any time.

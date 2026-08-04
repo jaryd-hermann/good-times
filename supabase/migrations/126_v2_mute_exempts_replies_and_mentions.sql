@@ -1,0 +1,19 @@
+-- =============================================================================
+-- Muting silences the room, not someone talking directly TO you
+-- (applied via MCP as v2_mute_exempts_replies_and_mentions)
+-- =============================================================================
+-- The first cut of mute suppressed everything group-scoped, including replies to
+-- your own message and @mentions. That was defensible when mentions did not exist
+-- yet; now that they do, being silenced on a message addressed to you by name is
+-- the wrong default. Mute means "I do not need every message in this group", not
+-- "do not contact me".
+--
+-- reply_to_you and mention now stream even when the group is muted. Everything
+-- ambient stays muted and is summarised by the 7pm roundup:
+--   new_answer / thread_message / reaction  (gated inside v2_digest_add)
+--   birthday                                 (a group event, not addressed to you)
+--
+-- Verified in a rolled-back transaction against a MUTED membership: a reply
+-- queued 1, a mention queued 1, and ordinary chatter added 0 to the digest.
+--
+-- Full body in the applied migration.
