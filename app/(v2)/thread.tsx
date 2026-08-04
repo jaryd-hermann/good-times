@@ -15,6 +15,7 @@ import {
   Keyboard,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
+  type LayoutChangeEvent,
 } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { Image } from "react-native"
@@ -158,6 +159,28 @@ export default function ThreadScreen() {
     return () => clearTimeout(t)
   }, [firstUnreadIndex])
 
+  const scrollToLatest = useCallback(() => {
+    if (!nearBottomRef.current) return
+    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }))
+  }, [])
+
+  /**
+   * The list getting SHORTER is the actual event that hides the newest messages —
+   * the KeyboardAvoidingView shrinks it, the scroll offset stays put, and the
+   * bottom slides out of view. Reacting to the height change catches it whatever
+   * the cause and whatever order the keyboard events arrive in.
+   */
+  const listHeightRef = useRef(0)
+  const onListLayout = useCallback(
+    (e: LayoutChangeEvent) => {
+      const h = e.nativeEvent.layout.height
+      const shrank = listHeightRef.current > 0 && h < listHeightRef.current - 1
+      listHeightRef.current = h
+      if (shrank) scrollToLatest()
+    },
+    [scrollToLatest],
+  )
+
   const onListScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent
     // 120px of slack: "near enough the bottom that you are following the
@@ -167,15 +190,17 @@ export default function ThreadScreen() {
   }, [])
 
   useEffect(() => {
-    // willShow on iOS so the scroll runs alongside the keyboard animation rather
-    // than snapping after it; Android only emits didShow reliably.
-    const evt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow"
-    const sub = Keyboard.addListener(evt, () => {
-      if (!nearBottomRef.current) return
-      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }))
-    })
-    return () => sub.remove()
-  }, [])
+    // Both events, deliberately. willShow fires BEFORE the KeyboardAvoidingView
+    // applies its padding, so scrolling there alone lands against the still
+    // full-height viewport and the view then shrinks underneath it — putting the
+    // newest messages straight back behind the keyboard. willShow gives the scroll
+    // something to animate with; didShow corrects it once the layout has settled.
+    const subs = [
+      Keyboard.addListener("keyboardWillShow", scrollToLatest),
+      Keyboard.addListener("keyboardDidShow", scrollToLatest),
+    ]
+    return () => subs.forEach((sub) => sub.remove())
+  }, [scrollToLatest])
 
   const onReply = useCallback((m: ThreadMessage) => setReplyTo(m), [])
   /**
@@ -517,6 +542,7 @@ export default function ThreadScreen() {
           maxToRenderPerBatch={10}
           windowSize={11}
           removeClippedSubviews
+          onLayout={onListLayout}
           onScroll={onListScroll}
           scrollEventThrottle={32}
           keyboardShouldPersistTaps="handled"
