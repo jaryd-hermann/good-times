@@ -62,7 +62,10 @@ export function InviteSheet({
     if (!token) return
     haptics.commit()
     await Share.share({
-      message: `Join your group, "${groupName}". Answer one question a day with friends. No AI. No Algorithms. No Ads.\n\n${inviteUrl(token)}\n\n\u2192 download + use your code: ${token}`,
+      // The URL must be the LAST thing in the message. iMessage only renders a
+      // rich preview card when the link ends the text — putting the code after it
+      // downgraded the whole thing to a plain blue hyperlink and lost the image.
+      message: `Join your group, "${groupName}". Answer one question a day with friends. No AI. No Algorithms. No Ads.\n\n\u2192 download + use your code: ${token}\n\n${inviteUrl(token)}`,
     })
     if (groupId) v2Analytics.groupMemberInvited({ groupId, channel: "share" })
   }
