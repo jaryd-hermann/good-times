@@ -16,6 +16,7 @@ import {
   type NativeSyntheticEvent,
   type NativeScrollEvent,
   type LayoutChangeEvent,
+  type TextInputSelectionChangeEventData,
 } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { Image } from "react-native"
@@ -231,13 +232,42 @@ export default function ThreadScreen() {
     [mentionCtx, data?.group.members, user?.id],
   )
 
+  /**
+   * Where we have just asked the caret to go, while native catches up.
+   *
+   * `selection` is a controlled prop, so changing the text makes the input emit
+   * onSelectionChange with its PRE-insert caret position. Writing that back into
+   * state yanked the caret to where the "@" had been, and the user had to tap
+   * past the inserted name to carry on typing. Ignore native's reports until it
+   * reports the position we asked for.
+   */
+  const wantedCaret = useRef<number | null>(null)
+
+  const onSelectionChange = useCallback(
+    (e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
+      const sel = e.nativeEvent.selection
+      if (wantedCaret.current !== null) {
+        if (sel.start === wantedCaret.current) wantedCaret.current = null
+        return
+      }
+      setSelection(sel)
+    },
+    [],
+  )
+
   const pickMention = useCallback(
     (m: ThreadMessage["author"]) => {
       if (!mentionCtx || !m?.name) return
       haptics.tap()
       const next = applyMention(draft, mentionCtx.at, selection.start, m.name)
+      wantedCaret.current = next.cursor
       setDraft(next.text)
       setSelection({ start: next.cursor, end: next.cursor })
+      // Safety net: if native never reports the position we asked for, clearing
+      // the guard keeps caret tracking alive rather than freezing it forever.
+      setTimeout(() => {
+        wantedCaret.current = null
+      }, 400)
     },
     [draft, mentionCtx, selection.start],
   )
@@ -712,7 +742,7 @@ export default function ThreadScreen() {
                 value={draft}
                 onChangeText={setDraft}
                 selection={selection}
-                onSelectionChange={(e) => setSelection(e.nativeEvent.selection)}
+                onSelectionChange={onSelectionChange}
                 placeholder="Message…"
                 placeholderTextColor={c.textSecondary}
                 multiline
