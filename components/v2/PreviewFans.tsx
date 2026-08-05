@@ -3,6 +3,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons"
 import { useV2Colors, v2Spacing as sp } from "../../lib/v2/theme"
 import { isVideoUrl, isAudioUrl } from "../../lib/v2/media"
 import { VideoThumb } from "./VideoThumb"
+import { Avatar } from "../Avatar"
 import type { PreviewPerson } from "../../lib/v2/types"
 
 const THUMB = 52
@@ -13,6 +14,12 @@ const THUMB = 52
  * A flat strip of everyone's photos side by side hid WHO posted what, and one
  * heavy uploader could fill the whole row. Fanning per person keeps each
  * contributor visible at a glance and caps them at three.
+ *
+ * Voice notes are deliberately NOT part of the fan. Audio has no frame to show,
+ * and a square tile of someone's face reads as a broken photo rather than as a
+ * recording. It gets its own pill — round avatar plus a waveform, the same shape
+ * as the mention chips — so the three media kinds are distinguishable at a
+ * glance: photos and video fan as cards, voice is a pill.
  */
 export function PreviewFans({ people }: { people: PreviewPerson[] }) {
   const { c } = useV2Colors()
@@ -23,50 +30,48 @@ export function PreviewFans({ people }: { people: PreviewPerson[] }) {
     <View style={s.row}>
       {people.slice(0, 4).map((p) => {
         const urls = (p.urls ?? []).slice(0, 3)
+        const hasAudio = urls.some(isAudioUrl)
+        const visual = urls.filter((u) => !isAudioUrl(u))
         // Fan width: first card full, each extra peeking out.
-        const width = THUMB + (urls.length - 1) * 14
+        const width = THUMB + (Math.max(visual.length, 1) - 1) * 14
+
         return (
           <View key={p.user_id} style={s.person}>
-            <View style={[s.fan, { width }]}>
-              {urls.map((u, i) => {
-                const tile = [
-                  s.thumb,
-                  {
-                    left: i * 14,
-                    // back cards tilt and sit slightly lower, front card is straight
-                    transform: [{ rotate: `${(i - (urls.length - 1)) * 5}deg` }],
-                    zIndex: i,
-                  },
-                ]
-                // A video URI in <Image> renders nothing at all — that is the
-                // blank white square on History cards for video answers.
-                // Audio has no frame to show at all, so the person IS the
-                // thumbnail: their face with a waveform over it, which reads as
-                // "they recorded something" rather than as a broken image.
-                if (isAudioUrl(u)) {
-                  return (
-                    <View key={`${u}-${i}`} style={tile}>
-                      {p.avatar_url ? (
-                        <Image source={{ uri: p.avatar_url }} style={StyleSheet.absoluteFill} />
-                      ) : null}
-                      <View style={s.audioScrim}>
-                        <MaterialCommunityIcons name="waveform" size={22} color="#fff" />
-                      </View>
-                    </View>
+            {hasAudio ? (
+              <View style={s.audioPill}>
+                <Avatar uri={p.avatar_url ?? undefined} name={p.name} size={24} />
+                <MaterialCommunityIcons name="waveform" size={18} color={c.text} />
+              </View>
+            ) : null}
+
+            {visual.length > 0 ? (
+              <View style={[s.fan, { width }]}>
+                {visual.map((u, i) => {
+                  const tile = [
+                    s.thumb,
+                    {
+                      left: i * 14,
+                      // back cards tilt and sit slightly lower, front card is straight
+                      transform: [{ rotate: `${(i - (visual.length - 1)) * 5}deg` }],
+                      zIndex: i,
+                    },
+                  ]
+                  // A video URI in <Image> renders nothing at all — that is the
+                  // blank white square History cards showed for video answers.
+                  return isVideoUrl(u) ? (
+                    <VideoThumb key={`${u}-${i}`} uri={u} style={tile} glyphSize={16} />
+                  ) : (
+                    <Image key={`${u}-${i}`} source={{ uri: u }} style={tile} />
                   )
-                }
-                return isVideoUrl(u) ? (
-                  <VideoThumb key={`${u}-${i}`} uri={u} style={tile} glyphSize={16} />
-                ) : (
-                  <Image key={`${u}-${i}`} source={{ uri: u }} style={tile} />
-                )
-              })}
-              {p.total > 3 ? (
-                <View style={s.moreBadge}>
-                  <Text style={s.moreText}>+{p.total - 3}</Text>
-                </View>
-              ) : null}
-            </View>
+                })}
+                {p.total > 3 ? (
+                  <View style={s.moreBadge}>
+                    <Text style={s.moreText}>+{p.total - 3}</Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+
             <Text style={s.name} numberOfLines={1}>
               {p.name?.split(" ")[0]}
             </Text>
@@ -84,6 +89,21 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
   return StyleSheet.create({
     row: { flexDirection: "row", alignItems: "flex-start", gap: sp.md, marginTop: sp.sm },
     person: { alignItems: "center", gap: 4 },
+
+    /** Mirrors the mention chips: fully rounded, avatar left, bordered. */
+    audioPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      backgroundColor: c.surfaceAlt,
+      borderWidth: 1.5,
+      borderColor: c.border,
+      borderRadius: 999,
+      paddingLeft: 3,
+      paddingRight: 9,
+      paddingVertical: 3,
+    },
+
     fan: { height: THUMB + 6 },
     thumb: {
       position: "absolute",
@@ -94,12 +114,6 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
       borderWidth: 2,
       borderColor: c.surfaceAlt,
       backgroundColor: c.surface,
-    },
-    audioScrim: {
-      ...StyleSheet.absoluteFillObject,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: "rgba(0,0,0,0.45)",
     },
     moreBadge: {
       position: "absolute",

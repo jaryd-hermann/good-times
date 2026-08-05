@@ -555,6 +555,12 @@ export default function ComposeScreen() {
         onComplete={(uri) => {
           setAttachments([{ uri, type: "video" }])
           setMode("video")
+          // A new take replaces the old one entirely. Editing hydrates `text`
+          // from the saved answer, so without this a stale body — such as the
+          // "you" Whisper produces from a silent clip — followed the
+          // re-recording through review and got posted all over again.
+          setText("")
+          setTranscript(null)
           setStep("review")
           void runTranscription(uri)
         }}
@@ -572,6 +578,10 @@ export default function ComposeScreen() {
           setAudioSeconds(secs)
           setAttachments([{ uri, type: "audio" }])
           setMode("voice")
+          // As above: the previous take's text and transcript do not describe
+          // this recording.
+          setText("")
+          setTranscript(null)
           setStep("review")
           void runTranscription(uri)
         }}
@@ -725,6 +735,12 @@ export default function ComposeScreen() {
           ) : null}
 
           {text ? <Text style={s.previewBody}>{text}</Text> : null}
+
+          {/* The toggle existed but nothing ever rendered the transcript, so
+              switching it on appeared to do nothing at all. */}
+          {includeTranscript && transcript && mode !== "text" ? (
+            <Text style={s.previewTranscript}>{transcript}</Text>
+          ) : null}
         </View>
 
         {transcript && mode !== "text" ? (
@@ -1108,6 +1124,13 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"], isDark: boolean) {
     transcribingRow: { flexDirection: "row", alignItems: "center", gap: sp.sm, marginBottom: sp.sm },
     transcribingText: { color: c.textSecondary, fontSize: 13, fontStyle: "italic" },
 
+    previewTranscript: {
+      fontSize: 14,
+      lineHeight: 20,
+      color: c.textSecondary,
+      fontStyle: "italic",
+      marginTop: sp.sm,
+    },
     transcriptRow: {
       flexDirection: "row",
       alignItems: "center",
