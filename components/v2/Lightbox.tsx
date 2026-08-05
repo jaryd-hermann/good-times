@@ -25,12 +25,15 @@ export function Lightbox({
   types,
   captions,
   startIndex = 0,
+  startPositionMillis = 0,
   onClose,
 }: {
   urls: string[]
   types?: MediaType[] | null
   captions?: (string | null)[] | null
   startIndex?: number
+  /** Resume point handed over by the inline player, so expanding continues. */
+  startPositionMillis?: number
   onClose: () => void
 }) {
   const win = useWindowDimensions()
@@ -64,6 +67,8 @@ export function Lightbox({
                   width={win.width}
                   height={win.height * 0.72}
                   autoPlay
+                  // Only the page we opened on resumes; the rest start at 0.
+                  startPositionMillis={i === startIndex ? startPositionMillis : 0}
                 />
               ) : (
                 <Pressable onPress={onClose}>

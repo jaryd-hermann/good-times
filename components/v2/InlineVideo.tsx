@@ -25,12 +25,16 @@ export function InlineVideo({
   height,
   onExpand,
   autoPlay = false,
+  startPositionMillis = 0,
 }: {
   uri: string
   width: number
   height: number
-  onExpand?: () => void
+  /** Receives the current position so the full-screen copy can carry on from it. */
+  onExpand?: (positionMillis: number) => void
   autoPlay?: boolean
+  /** Resume point when opening full screen, so expanding does not restart. */
+  startPositionMillis?: number
 }) {
   const ref = useRef<Video>(null)
   const [playing, setPlaying] = useState(false)
@@ -92,6 +96,10 @@ export function InlineVideo({
         onLoad={(st) => {
           setLoaded(true)
           if ("durationMillis" in st && st.durationMillis) setDuration(st.durationMillis)
+          // Pick up where the inline copy left off rather than restarting.
+          if (startPositionMillis > 0) {
+            void ref.current?.setPositionAsync(startPositionMillis)
+          }
         }}
         onPlaybackStatusUpdate={(st: AVPlaybackStatus) => {
           if (!st.isLoaded) return
@@ -145,7 +153,13 @@ export function InlineVideo({
             </Pressable>
             {onExpand ? (
               <Pressable
-                onPress={onExpand}
+                onPress={async () => {
+                  // Pause first. Without this the inline player keeps going behind
+                  // the full-screen one and you hear both at once, half a second
+                  // out of step.
+                  await ref.current?.pauseAsync()
+                  onExpand(position)
+                }}
                 hitSlop={10}
                 style={s.ctrlBtn}
                 accessibilityLabel="Open full screen"

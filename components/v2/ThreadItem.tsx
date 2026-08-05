@@ -4,6 +4,7 @@ import { Image, useWindowDimensions } from "react-native"
 import { useV2Colors, v2Spacing as sp } from "../../lib/v2/theme"
 import { AvatarStack } from "./AvatarStack"
 import { MediaCarousel } from "./MediaCarousel"
+import { VideoThumb } from "./VideoThumb"
 import { segmentMentions } from "../../lib/v2/mentions"
 import type { Author } from "../../lib/v2/types"
 import type { ThreadMessage } from "../../lib/v2/types"
@@ -172,9 +173,7 @@ export const ThreadItem = memo(function ThreadItem({
                 square in replies to video. Videos get a play tile instead; only
                 photos are actually an image. */}
             {m.reply_to.reply_media && m.reply_to.reply_media_type === "video" ? (
-              <View style={[s.quoteThumb, s.quoteThumbVideo]}>
-                <Text style={s.quoteThumbGlyph}>▶</Text>
-              </View>
+              <VideoThumb uri={m.reply_to.reply_media} style={s.quoteThumb} glyphSize={12} />
             ) : m.reply_to.reply_media && m.reply_to.reply_media_type !== "audio" ? (
               <Image source={{ uri: m.reply_to.reply_media }} style={s.quoteThumb} />
             ) : null}
@@ -340,8 +339,6 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
       // to fit the quote instead. The bubble's own 86% maxWidth still caps it.
       minWidth: 190,
     },
-    quoteThumbVideo: { alignItems: "center", justifyContent: "center", backgroundColor: c.bubble },
-    quoteThumbGlyph: { color: "#fff", fontSize: 13 },
     quoteAuthor: { fontSize: 11, fontWeight: "800", color: c.red },
     quoteText: { fontSize: 12, color: c.textSecondary },
 

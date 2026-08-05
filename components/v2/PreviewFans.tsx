@@ -1,6 +1,7 @@
 import { View, Text, Image, StyleSheet } from "react-native"
 import { useV2Colors, v2Spacing as sp } from "../../lib/v2/theme"
 import { isVideoUrl } from "../../lib/v2/media"
+import { VideoThumb } from "./VideoThumb"
 import type { PreviewPerson } from "../../lib/v2/types"
 
 const THUMB = 52
@@ -39,9 +40,7 @@ export function PreviewFans({ people }: { people: PreviewPerson[] }) {
                 // A video URI in <Image> renders nothing at all — that is the
                 // blank white square on History cards for video answers.
                 return isVideoUrl(u) ? (
-                  <View key={`${u}-${i}`} style={[...tile, s.videoTile]}>
-                    <Text style={s.videoGlyph}>▶</Text>
-                  </View>
+                  <VideoThumb key={`${u}-${i}`} uri={u} style={tile} glyphSize={16} />
                 ) : (
                   <Image key={`${u}-${i}`} source={{ uri: u }} style={tile} />
                 )
@@ -80,8 +79,6 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
       borderColor: c.surfaceAlt,
       backgroundColor: c.surface,
     },
-    videoTile: { alignItems: "center", justifyContent: "center", backgroundColor: c.bubble },
-    videoGlyph: { color: "#fff", fontSize: 16 },
     moreBadge: {
       position: "absolute",
       right: -6,

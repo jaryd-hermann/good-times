@@ -29,6 +29,8 @@ export function MediaCarousel({
   const win = useWindowDimensions()
   const [index, setIndex] = useState(0)
   const [lightbox, setLightbox] = useState<number | null>(null)
+  /** Where the inline player had got to, so full screen continues from there. */
+  const [resumeAt, setResumeAt] = useState(0)
   const w = width ?? win.width - sp.lg * 2 - sp.md * 2 - 4
   // Square, matching the journal composer. A photo must not reframe itself
   // between composing and appearing in the thread.
@@ -82,7 +84,15 @@ export function MediaCarousel({
           {/* Video needs a player, not an <Image>: feeding an mp4 to Image is what
               rendered an empty card with a play badge over nothing. */}
           {isVideo ? (
-            <InlineVideo uri={url} width={w} height={h} onExpand={() => setLightbox(i)} />
+            <InlineVideo
+              uri={url}
+              width={w}
+              height={h}
+              onExpand={(pos) => {
+                setResumeAt(pos)
+                setLightbox(i)
+              }}
+            />
           ) : (
             <Image
               source={{ uri: url }}
@@ -181,7 +191,11 @@ export function MediaCarousel({
           types={visual.map((v) => types?.[v.i] ?? "photo")}
           captions={visual.map((v) => captions?.[v.i] ?? null)}
           startIndex={visual.findIndex((v) => v.i === lightbox)}
-          onClose={() => setLightbox(null)}
+          startPositionMillis={resumeAt}
+          onClose={() => {
+            setLightbox(null)
+            setResumeAt(0)
+          }}
         />
       ) : null}
     </View>
