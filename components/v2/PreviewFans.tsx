@@ -9,17 +9,21 @@ import type { PreviewPerson } from "../../lib/v2/types"
 const THUMB = 52
 
 /**
- * Photo-journal preview: one small fanned stack per person.
+ * Media preview on a History card: one small stack per person.
  *
- * A flat strip of everyone's photos side by side hid WHO posted what, and one
- * heavy uploader could fill the whole row. Fanning per person keeps each
- * contributor visible at a glance and caps them at three.
+ * A flat strip of everyone's media side by side let one heavy uploader fill the
+ * whole row, so it is grouped per person and capped at three each.
+ *
+ * No name label. These sit under a card that already names the group and shows
+ * the member avatars, and a row of tiny captions made it noisy; the card is a
+ * glance at WHAT is in the day, not a per-item byline. Voice pills still carry a
+ * face because the avatar IS the thumbnail there.
  *
  * Voice notes are deliberately NOT part of the fan. Audio has no frame to show,
  * and a square tile of someone's face reads as a broken photo rather than as a
  * recording. It gets its own pill — round avatar plus a waveform, the same shape
- * as the mention chips — so the three media kinds are distinguishable at a
- * glance: photos and video fan as cards, voice is a pill.
+ * as the mention chips — so the media kinds are distinguishable at a glance:
+ * photos and video fan as cards, voice is a pill.
  */
 export function PreviewFans({ people }: { people: PreviewPerson[] }) {
   const { c } = useV2Colors()
@@ -71,10 +75,6 @@ export function PreviewFans({ people }: { people: PreviewPerson[] }) {
                 ) : null}
               </View>
             ) : null}
-
-            <Text style={s.name} numberOfLines={1}>
-              {p.name?.split(" ")[0]}
-            </Text>
           </View>
         )
       })}
@@ -126,7 +126,6 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
       zIndex: 10,
     },
     moreText: { color: c.bg, fontSize: 10, fontWeight: "800" },
-    name: { fontSize: 10, fontWeight: "700", color: c.textSecondary, maxWidth: THUMB + 16 },
     overflowText: { fontSize: 11, color: c.textSecondary, alignSelf: "center", fontWeight: "600" },
   })
 }
