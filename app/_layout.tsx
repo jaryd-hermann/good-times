@@ -1032,6 +1032,16 @@ export default function RootLayout() {
         else if (url.includes("goodtimes://rate")) {
           await openAppStoreReview()
         }
+        // Handle feedback deep link. Every onboarding email links here, so
+        // without this branch the app opens and goes nowhere.
+        else if (url.includes("goodtimes://feedback")) {
+          const { data: { session } } = await supabase.auth.getSession()
+          if (session?.user) {
+            router.replace("/(v2)/feedback")
+          } else {
+            router.replace("/(onboarding-v2)/splash")
+          }
+        }
       } catch (error) {
         console.error("[_layout] Error handling URL:", error)
       }

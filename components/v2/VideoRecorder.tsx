@@ -287,6 +287,7 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 1,
     shadowRadius: 0,
+    elevation: 4,
   },
   answeringLabel: { fontSize: 10, fontWeight: "800", letterSpacing: 1, color: "#000", opacity: 0.7 },
   questionText: { fontSize: 19, fontWeight: "800", color: "#000", lineHeight: 24, marginTop: 5 },

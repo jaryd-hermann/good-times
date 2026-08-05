@@ -93,12 +93,50 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
     package: "com.goodtimes.app",
     permissions: ["CAMERA", "READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "RECORD_AUDIO", "READ_CONTACTS"],
+    // Android App Links, the counterpart to the iOS associatedDomains above.
+    // Without these, https://thegoodtimes.app/join and /share links open the
+    // browser instead of the app. Verification is against the fingerprints in
+    // public/.well-known/assetlinks.json, which must list both the EAS upload
+    // key and (once published) the Play App Signing key.
+    intentFilters: [
+      {
+        action: "VIEW",
+        autoVerify: true,
+        data: [
+          { scheme: "https", host: "thegoodtimes.app", pathPrefix: "/join" },
+          { scheme: "https", host: "thegoodtimes.app", pathPrefix: "/share" },
+        ],
+        category: ["BROWSABLE", "DEFAULT"],
+      },
+    ],
+  },
+  // Android tints the small icon and renders it as an alpha mask, so this must be
+  // a white-on-transparent silhouette or the status bar shows a solid white square.
+  // Read by expo-notifications and by onesignal-expo-plugin, which copies it to
+  // ic_stat_onesignal_default. Both Android-only; iOS ignores this block.
+  notification: {
+    icon: "./assets/images/notification-icon.png",
+    color: "#E5A13C",
+  },
+  androidStatusBar: {
+    barStyle: "dark-content",
+    backgroundColor: "#E8E0D5",
   },
   plugins: [
     // iPhoneDeploymentTarget must be set explicitly: the plugin otherwise gives the
     // Notification Service Extension target a deployment target of 11.0, which the
     // Xcode 26 toolchain on EAS will not build. 15.1 matches the app target.
-    ["onesignal-expo-plugin", { mode: onesignalApsMode, iPhoneDeploymentTarget: "15.1" }],
+    // smallIconAccentColor is applied by withOneSignalAndroid only; the notification
+    // block above sets the color for expo-notifications but OneSignal reads its own
+    // com.onesignal.NotificationAccentColor.DEFAULT meta-data.
+    [
+      "onesignal-expo-plugin",
+      {
+        mode: onesignalApsMode,
+        iPhoneDeploymentTarget: "15.1",
+        smallIconAccentColor: "#E5A13C",
+      },
+    ],
     "expo-router",
     "expo-dev-client",
     "expo-local-authentication",
