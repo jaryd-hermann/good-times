@@ -38,6 +38,15 @@ export function InlineVideo({
   const [loaded, setLoaded] = useState(false)
   const [position, setPosition] = useState(0)
   const [duration, setDuration] = useState(0)
+  /**
+   * Whether playback ran to the end.
+   *
+   * playAsync() on a player already sitting at its final frame does nothing, so
+   * once a clip finished the play button stopped working and it could not be
+   * rewatched. The restart badge did not cover it either — it required
+   * progress < 0.99, which is false precisely when the video has ended.
+   */
+  const [finished, setFinished] = useState(false)
 
   async function toggle() {
     if (!ref.current) return
@@ -50,18 +59,25 @@ export function InlineVideo({
     // the earpiece — video then plays at a volume you can only hear by holding
     // the phone to your ear, and stays that way for the rest of the session.
     await enterPlaybackMode()
+    if (finished) {
+      await ref.current.setPositionAsync(0)
+      setFinished(false)
+    }
     await ref.current.playAsync()
   }
 
   async function restart() {
     if (!ref.current) return
+    await enterPlaybackMode()
     await ref.current.setPositionAsync(0)
+    setFinished(false)
     await ref.current.playAsync()
   }
 
   const progress = duration > 0 ? position / duration : 0
-  // Only offer restart when there is something to rewind past.
-  const midway = !playing && position > 1000 && progress < 0.99
+  // Offer restart whenever there is something to rewind past — including at the
+  // very end, which the old progress < 0.99 test excluded.
+  const midway = !playing && (finished || position > 1000)
 
   return (
     <Pressable style={{ width, height }} onPress={toggle}>
@@ -82,6 +98,7 @@ export function InlineVideo({
           setPlaying(st.isPlaying)
           setPosition(st.positionMillis ?? 0)
           if (st.durationMillis) setDuration(st.durationMillis)
+          if (st.didJustFinish) setFinished(true)
         }}
       />
 

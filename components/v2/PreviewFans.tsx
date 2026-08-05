@@ -1,5 +1,6 @@
 import { View, Text, Image, StyleSheet } from "react-native"
 import { useV2Colors, v2Spacing as sp } from "../../lib/v2/theme"
+import { isVideoUrl } from "../../lib/v2/media"
 import type { PreviewPerson } from "../../lib/v2/types"
 
 const THUMB = 52
@@ -25,21 +26,26 @@ export function PreviewFans({ people }: { people: PreviewPerson[] }) {
         return (
           <View key={p.user_id} style={s.person}>
             <View style={[s.fan, { width }]}>
-              {urls.map((u, i) => (
-                <Image
-                  key={`${u}-${i}`}
-                  source={{ uri: u }}
-                  style={[
-                    s.thumb,
-                    {
-                      left: i * 14,
-                      // back cards tilt and sit slightly lower, front card is straight
-                      transform: [{ rotate: `${(i - (urls.length - 1)) * 5}deg` }],
-                      zIndex: i,
-                    },
-                  ]}
-                />
-              ))}
+              {urls.map((u, i) => {
+                const tile = [
+                  s.thumb,
+                  {
+                    left: i * 14,
+                    // back cards tilt and sit slightly lower, front card is straight
+                    transform: [{ rotate: `${(i - (urls.length - 1)) * 5}deg` }],
+                    zIndex: i,
+                  },
+                ]
+                // A video URI in <Image> renders nothing at all — that is the
+                // blank white square on History cards for video answers.
+                return isVideoUrl(u) ? (
+                  <View key={`${u}-${i}`} style={[...tile, s.videoTile]}>
+                    <Text style={s.videoGlyph}>▶</Text>
+                  </View>
+                ) : (
+                  <Image key={`${u}-${i}`} source={{ uri: u }} style={tile} />
+                )
+              })}
               {p.total > 3 ? (
                 <View style={s.moreBadge}>
                   <Text style={s.moreText}>+{p.total - 3}</Text>
@@ -74,6 +80,8 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
       borderColor: c.surfaceAlt,
       backgroundColor: c.surface,
     },
+    videoTile: { alignItems: "center", justifyContent: "center", backgroundColor: c.bubble },
+    videoGlyph: { color: "#fff", fontSize: 16 },
     moreBadge: {
       position: "absolute",
       right: -6,

@@ -181,7 +181,7 @@ export const ThreadItem = memo(function ThreadItem({
             <View style={{ flex: 1, minWidth: 0 }}>
               {/* numberOfLines, or a short name still wrapped mid-word ("Jar/yd")
                   once the thumbnail took its share of a narrow bubble. */}
-              <Text style={s.quoteAuthor} numberOfLines={1}>
+              <Text style={s.quoteAuthor} numberOfLines={1} ellipsizeMode="tail">
                 {m.reply_to.author}
               </Text>
               <Text style={s.quoteText} numberOfLines={1}>
@@ -334,6 +334,11 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
       paddingLeft: sp.sm,
       marginBottom: 6,
       opacity: 0.9,
+      // The bubble sizes itself to its widest child, and for a short reply ("Ur
+      // on mute") that width came from the message text — squeezing the quote
+      // until the author truncated to "J...". A floor here makes the bubble grow
+      // to fit the quote instead. The bubble's own 86% maxWidth still caps it.
+      minWidth: 190,
     },
     quoteThumbVideo: { alignItems: "center", justifyContent: "center", backgroundColor: c.bubble },
     quoteThumbGlyph: { color: "#fff", fontSize: 13 },
