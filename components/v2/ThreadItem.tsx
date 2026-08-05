@@ -168,11 +168,22 @@ export const ThreadItem = memo(function ThreadItem({
           <View style={s.quote}>
             {/* Thumbnail of what was replied to. A media-only message produced an
                 empty quote before, so the reply lost all context. */}
-            {m.reply_to.reply_media && m.reply_to.reply_media_type !== "audio" ? (
+            {/* A video URI in <Image> renders nothing — that is the blank white
+                square in replies to video. Videos get a play tile instead; only
+                photos are actually an image. */}
+            {m.reply_to.reply_media && m.reply_to.reply_media_type === "video" ? (
+              <View style={[s.quoteThumb, s.quoteThumbVideo]}>
+                <Text style={s.quoteThumbGlyph}>▶</Text>
+              </View>
+            ) : m.reply_to.reply_media && m.reply_to.reply_media_type !== "audio" ? (
               <Image source={{ uri: m.reply_to.reply_media }} style={s.quoteThumb} />
             ) : null}
-            <View style={{ flex: 1 }}>
-              <Text style={s.quoteAuthor}>{m.reply_to.author}</Text>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              {/* numberOfLines, or a short name still wrapped mid-word ("Jar/yd")
+                  once the thumbnail took its share of a narrow bubble. */}
+              <Text style={s.quoteAuthor} numberOfLines={1}>
+                {m.reply_to.author}
+              </Text>
               <Text style={s.quoteText} numberOfLines={1}>
                 {m.reply_to.excerpt}
               </Text>
@@ -308,6 +319,7 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
     bubbleReply: { paddingTop: 3, paddingHorizontal: 4 },
 
     quoteThumb: {
+      flexShrink: 0,
       width: 34,
       height: 34,
       borderRadius: 6,
@@ -323,6 +335,8 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
       marginBottom: 6,
       opacity: 0.9,
     },
+    quoteThumbVideo: { alignItems: "center", justifyContent: "center", backgroundColor: c.bubble },
+    quoteThumbGlyph: { color: "#fff", fontSize: 13 },
     quoteAuthor: { fontSize: 11, fontWeight: "800", color: c.red },
     quoteText: { fontSize: 12, color: c.textSecondary },
 

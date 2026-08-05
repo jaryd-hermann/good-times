@@ -1,6 +1,7 @@
 import { useRef, useState } from "react"
 import { View, Text, StyleSheet, Pressable, ActivityIndicator } from "react-native"
 import { Video, ResizeMode, type AVPlaybackStatus } from "expo-av"
+import { enterPlaybackMode } from "../../lib/v2/audio-session"
 import { MaterialCommunityIcons } from "@expo/vector-icons"
 
 function clock(ms: number) {
@@ -40,8 +41,16 @@ export function InlineVideo({
 
   async function toggle() {
     if (!ref.current) return
-    if (playing) await ref.current.pauseAsync()
-    else await ref.current.playAsync()
+    if (playing) {
+      await ref.current.pauseAsync()
+      return
+    }
+    // Claim the speaker rather than inheriting whatever the last recorder left.
+    // A voice note leaves the session in PlayAndRecord, which routes output to
+    // the earpiece — video then plays at a volume you can only hear by holding
+    // the phone to your ear, and stays that way for the rest of the session.
+    await enterPlaybackMode()
+    await ref.current.playAsync()
   }
 
   async function restart() {

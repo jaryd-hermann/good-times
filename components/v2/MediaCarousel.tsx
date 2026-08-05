@@ -52,12 +52,26 @@ export function MediaCarousel({
     .filter(({ i }) => types?.[i] !== "audio")
   const many = visual.length > 1
 
-  const Tile = ({ url, i }: { url: string; i: number }) => {
+  /**
+   * A plain function returning JSX, NOT a component.
+   *
+   * This was `const Tile = ({ url, i }) => …` declared in the render body, which
+   * creates a NEW component type on every render. React cannot reconcile a changed
+   * type, so it unmounted and remounted the whole tile — the <Image> was destroyed
+   * and reloaded from scratch. Swiping calls setIndex from onMomentumScrollEnd,
+   * which re-rendered and blanked every image: the white flash roughly half a
+   * second after each swipe settled, exactly when momentum ended.
+   *
+   * Returning elements directly leaves no component boundary to remount; React
+   * reconciles by position and key, and the images stay mounted.
+   */
+  const renderTile = (url: string, i: number) => {
     const caption = captions?.[i]
     const day = days?.[i]
     const isVideo = types?.[i] === "video"
     return (
       <Pressable
+        key={`${url}-${i}`}
         style={{ width: w, height: h, marginRight: sp.sm }}
         // Video owns its taps (play/pause) and offers an expand control instead.
         // Leaving this handler on would swallow the play tap and jump to the
@@ -70,7 +84,14 @@ export function MediaCarousel({
           {isVideo ? (
             <InlineVideo uri={url} width={w} height={h} onExpand={() => setLightbox(i)} />
           ) : (
-            <Image source={{ uri: url }} style={styles.image} resizeMode="cover" />
+            <Image
+              source={{ uri: url }}
+              style={styles.image}
+              resizeMode="cover"
+              // Android fades new images in by default, which reads as a flicker
+              // inside a pager the user is actively swiping.
+              fadeDuration={0}
+            />
           )}
           {day ? (
             <View style={[styles.dayTag, { backgroundColor: c.accent }]}>
@@ -105,7 +126,7 @@ export function MediaCarousel({
       {visual.length === 0 ? null : visual.length === 1 ? (
         /* One photo needs no pager. Dropping the ScrollView here removes the
            cross-axis stretch that was inflating chat bubbles to full height. */
-        <Tile url={visual[0].url} i={visual[0].i} />
+        renderTile(visual[0].url, visual[0].i)
       ) : (
         <>
           {/* Height lives on this wrapper, not on the ScrollView. Setting it on the
@@ -127,9 +148,7 @@ export function MediaCarousel({
               setIndex(Math.round(e.nativeEvent.contentOffset.x / (w + sp.sm)))
             }
           >
-            {visual.map(({ url, i }) => (
-              <Tile key={`${url}-${i}`} url={url} i={i} />
-            ))}
+            {visual.map(({ url, i }) => renderTile(url, i))}
           </ScrollView>
           </View>
 

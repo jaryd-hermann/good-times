@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { View, Text, StyleSheet, Pressable, Alert } from "react-native"
 import { Audio } from "expo-av"
+import { enterPlaybackMode } from "../../lib/v2/audio-session"
 import { MaterialCommunityIcons } from "@expo/vector-icons"
 import { useV2Colors, v2Spacing as sp } from "../../lib/v2/theme"
 
@@ -30,7 +31,7 @@ export function AudioPlayer({ uri, seconds }: { uri: string; seconds?: number })
   )
 
   async function load() {
-    await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true })
+    await enterPlaybackMode()
     const { sound, status } = await Audio.Sound.createAsync({ uri }, { progressUpdateIntervalMillis: 120 })
     soundRef.current = sound
     if (status.isLoaded && status.durationMillis) setDuration(status.durationMillis)

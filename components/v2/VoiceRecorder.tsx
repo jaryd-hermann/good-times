@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { View, Text, StyleSheet, Pressable, Alert, Animated } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { Audio } from "expo-av"
+import { enterPlaybackMode, enterRecordingMode } from "../../lib/v2/audio-session"
 import { AudioPlayer } from "./AudioPlayer"
 import * as haptics from "../../lib/v2/haptics"
 import { MaterialCommunityIcons } from "@expo/vector-icons"
@@ -47,6 +48,10 @@ export function VoiceRecorder({
       recordingRef.current?.stopAndUnloadAsync().catch(() => {})
       if (clockRef.current) clearInterval(clockRef.current)
       if (waveRef.current) clearInterval(waveRef.current)
+      // Hand the session back however this screen is left — cancelled, swiped
+      // away, or crashed out of. Leaving it in PlayAndRecord routes every later
+      // video to the earpiece for the rest of the session.
+      void enterPlaybackMode()
     },
     []
   )
@@ -92,7 +97,7 @@ export function VoiceRecorder({
         Alert.alert("Microphone needed", "Allow microphone access to record a voice note.")
         return
       }
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true })
+      await enterRecordingMode()
       const { recording } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       )
@@ -127,6 +132,9 @@ export function VoiceRecorder({
     stopTickers()
     const r = recordingRef.current
     if (r) await r.stopAndUnloadAsync().catch(() => {})
+    // Discarding a take ends the capture just as much as finishing one does, so
+    // the session goes back to playback here too.
+    await enterPlaybackMode()
     recordingRef.current = null
     setSeconds(0)
     setPhase("idle")
@@ -138,6 +146,7 @@ export function VoiceRecorder({
     stopTickers()
     try {
       await r.stopAndUnloadAsync()
+      await enterPlaybackMode()
       const uri = r.getURI()
       recordingRef.current = null
       if (uri) {

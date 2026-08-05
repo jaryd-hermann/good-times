@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { View, Text, StyleSheet, Pressable, Alert, ActivityIndicator } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from "expo-camera"
+import { enterPlaybackMode, enterRecordingMode } from "../../lib/v2/audio-session"
 import { MaterialCommunityIcons } from "@expo/vector-icons"
 import { Video, ResizeMode } from "expo-av"
 import * as haptics from "../../lib/v2/haptics"
@@ -55,6 +56,8 @@ export function VideoRecorder({
 
   useEffect(() => () => {
     if (timerRef.current) clearInterval(timerRef.current)
+    // However this screen is left, hand the session back to playback.
+    void enterPlaybackMode()
   }, [])
 
   async function start() {
@@ -63,9 +66,14 @@ export function VideoRecorder({
     setSeconds(0)
     timerRef.current = setInterval(() => setSeconds((v) => v + 1), 1000)
     try {
+      // Without this the camera inherits whatever the last component left. If
+      // that was AudioPlayer (allowsRecordingIOS:false, category Playback) the
+      // clip records with NO AUDIO TRACK — the "they couldn't hear me" reports.
+      await enterRecordingMode()
       const res = await cameraRef.current.recordAsync({ maxDuration: HARD_CAP })
       if (timerRef.current) clearInterval(timerRef.current)
       setRecording(false)
+      await enterPlaybackMode()
       if (res?.uri) {
         if (reviewBeforeSend) setReviewUri(res.uri)
         else onComplete(res.uri)
@@ -73,6 +81,7 @@ export function VideoRecorder({
     } catch (e) {
       if (timerRef.current) clearInterval(timerRef.current)
       setRecording(false)
+      await enterPlaybackMode()
       Alert.alert("Couldn't record", (e as Error).message)
     }
   }
