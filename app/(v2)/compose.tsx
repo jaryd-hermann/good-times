@@ -100,7 +100,15 @@ export default function ComposeScreen() {
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [captions, setCaptions] = useState<(string | null)[]>([])
   const [transcript, setTranscript] = useState<string | null>(null)
-  const [includeTranscript, setIncludeTranscript] = useState(true)
+  /**
+   * Off by default.
+   *
+   * A voice note is the thing being sent; the transcript is an accessibility
+   * extra. Whisper also hallucinates on near-silence — it emits "you" or "Thank
+   * you." for a quiet clip — so defaulting to ON published machine guesses under
+   * people's recordings without them asking.
+   */
+  const [includeTranscript, setIncludeTranscript] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
   const [audioSeconds, setAudioSeconds] = useState(0)
   const [excluded, setExcluded] = useState<Set<string>>(new Set())

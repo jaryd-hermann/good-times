@@ -1,6 +1,7 @@
 import { View, Text, Image, StyleSheet } from "react-native"
+import { MaterialCommunityIcons } from "@expo/vector-icons"
 import { useV2Colors, v2Spacing as sp } from "../../lib/v2/theme"
-import { isVideoUrl } from "../../lib/v2/media"
+import { isVideoUrl, isAudioUrl } from "../../lib/v2/media"
 import { VideoThumb } from "./VideoThumb"
 import type { PreviewPerson } from "../../lib/v2/types"
 
@@ -39,6 +40,21 @@ export function PreviewFans({ people }: { people: PreviewPerson[] }) {
                 ]
                 // A video URI in <Image> renders nothing at all — that is the
                 // blank white square on History cards for video answers.
+                // Audio has no frame to show at all, so the person IS the
+                // thumbnail: their face with a waveform over it, which reads as
+                // "they recorded something" rather than as a broken image.
+                if (isAudioUrl(u)) {
+                  return (
+                    <View key={`${u}-${i}`} style={tile}>
+                      {p.avatar_url ? (
+                        <Image source={{ uri: p.avatar_url }} style={StyleSheet.absoluteFill} />
+                      ) : null}
+                      <View style={s.audioScrim}>
+                        <MaterialCommunityIcons name="waveform" size={22} color="#fff" />
+                      </View>
+                    </View>
+                  )
+                }
                 return isVideoUrl(u) ? (
                   <VideoThumb key={`${u}-${i}`} uri={u} style={tile} glyphSize={16} />
                 ) : (
@@ -78,6 +94,12 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
       borderWidth: 2,
       borderColor: c.surfaceAlt,
       backgroundColor: c.surface,
+    },
+    audioScrim: {
+      ...StyleSheet.absoluteFillObject,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(0,0,0,0.45)",
     },
     moreBadge: {
       position: "absolute",

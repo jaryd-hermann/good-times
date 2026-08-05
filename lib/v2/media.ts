@@ -25,3 +25,12 @@ export function isVideoUrl(url: string | null | undefined): boolean {
   const ext = path.split(".").pop()?.toLowerCase()
   return !!ext && VIDEO_EXTENSIONS.includes(ext)
 }
+
+const AUDIO_EXTENSIONS = ["m4a", "mp3", "aac", "wav", "caf", "aiff", "ogg", "opus"]
+
+export function isAudioUrl(url: string | null | undefined): boolean {
+  if (!url) return false
+  const path = url.split("?")[0].split("#")[0]
+  const ext = path.split(".").pop()?.toLowerCase()
+  return !!ext && AUDIO_EXTENSIONS.includes(ext)
+}
