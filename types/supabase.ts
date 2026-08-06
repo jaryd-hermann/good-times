@@ -3255,6 +3255,19 @@ export type Database = {
         Args: { p_from: string; p_to: string; p_user_id: string }
         Returns: Json
       }
+      // Nullable rather than merely optional: the SQL defaults are NULL and the
+      // client sends explicit nulls to CLEAR text or media on an edit.
+      v2_edit_message: {
+        Args: {
+          p_media_types?: string[] | null
+          p_media_urls?: string[] | null
+          p_mentions?: string[] | null
+          p_message_id: string
+          p_text?: string | null
+          p_user_id: string
+        }
+        Returns: Json
+      }
       v2_get_thread: {
         Args: { p_date: string; p_group_id: string; p_user_id: string }
         Returns: Json

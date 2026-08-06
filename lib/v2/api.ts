@@ -244,6 +244,36 @@ export async function sendMessage(input: {
   return (data as { id: string }).id
 }
 
+/**
+ * Rewrites a chat message in place, keeping its slot in the timeline.
+ *
+ * Goes through an RPC rather than a PostgREST .update() because RLS is off on
+ * this database: the function's author check is the only thing stopping a client
+ * from editing someone else's message.
+ */
+export async function editMessage(input: {
+  messageId: string
+  userId: string
+  text?: string | null
+  mediaUrls?: string[] | null
+  mediaTypes?: MediaType[] | null
+  mentions?: string[]
+}): Promise<void> {
+  const { data, error } = await supabase.rpc("v2_edit_message", {
+    p_message_id: input.messageId,
+    p_user_id: input.userId,
+    p_text: input.text ?? null,
+    p_media_urls: input.mediaUrls ?? null,
+    p_media_types: input.mediaTypes ?? null,
+    p_mentions: input.mentions ?? [],
+  })
+  if (error) throw new Error(`editMessage: ${error.message}`)
+  const res = data as { ok?: boolean; error?: string } | null
+  // The RPC reports refusals in its payload, not as a Postgres error, so without
+  // this an edit that was rejected would look like it succeeded.
+  if (!res?.ok) throw new Error(`editMessage: ${res?.error ?? "failed"}`)
+}
+
 /** Toggles one emoji for one user on one message. Unlike v1, several emoji per user are allowed. */
 export async function toggleReaction(messageId: string, userId: string, emoji: string) {
   const { data: existing } = await supabase

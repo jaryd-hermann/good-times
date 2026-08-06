@@ -178,6 +178,25 @@ export function useSendMessage(userId: string | undefined) {
   })
 }
 
+export function useEditMessage(userId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    // groupId/threadDate are carried for cache invalidation only — the RPC
+    // locates the message by id, so they are stripped before the call.
+    mutationFn: ({
+      groupId: _g,
+      threadDate: _d,
+      ...rest
+    }: Omit<Parameters<typeof api.editMessage>[0], "userId"> & {
+      groupId: string
+      threadDate: string
+    }) => api.editMessage({ ...rest, userId: userId! }),
+    onSuccess: (_r, input) => {
+      if (userId) invalidateAfterWrite(qc, userId, [input.groupId], input.threadDate)
+    },
+  })
+}
+
 export function useToggleReaction(userId: string | undefined, groupId: string, date: string) {
   const qc = useQueryClient()
   return useMutation({

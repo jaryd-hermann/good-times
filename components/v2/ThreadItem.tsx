@@ -2,6 +2,8 @@ import { memo, useState } from "react"
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native"
 import { Image, useWindowDimensions } from "react-native"
 import { useV2Colors, v2Spacing as sp } from "../../lib/v2/theme"
+import * as haptics from "../../lib/v2/haptics"
+import { Avatar } from "../Avatar"
 import { AvatarStack } from "./AvatarStack"
 import { MediaCarousel } from "./MediaCarousel"
 import { VideoThumb } from "./VideoThumb"
@@ -26,6 +28,8 @@ export const ThreadItem = memo(function ThreadItem({
   onReply,
   onToggleReaction,
   onAddReaction,
+  onEdit,
+  onJumpToMessage,
 }: {
   message: ThreadMessage
   isMine: boolean
@@ -38,6 +42,10 @@ export const ThreadItem = memo(function ThreadItem({
   onReply: (m: ThreadMessage) => void
   onToggleReaction: (messageId: string, emoji: string) => void
   onAddReaction: (m: ThreadMessage) => void
+  /** Only passed for your own chat messages; absent means the affordance is hidden. */
+  onEdit?: (m: ThreadMessage) => void
+  /** Scrolls the thread to the quoted message. */
+  onJumpToMessage?: (messageId: string) => void
 }) {
   const { c } = useV2Colors()
   const win = useWindowDimensions()
@@ -45,8 +53,29 @@ export const ThreadItem = memo(function ThreadItem({
   const [overflows, setOverflows] = useState(false)
   const s = makeStyles(c)
 
-  // ---- system (birthday) -------------------------------------------------
+  // ---- system (birthday, joins) ------------------------------------------
   if (m.kind === "system") {
+    // A join is a lighter beat than a birthday: an inline line with the new
+    // person's face, sitting at the moment they actually arrived, rather than a
+    // full banner competing with the day's answers.
+    if (m.system_payload?.event === "member_joined") {
+      const who = m.system_payload?.name ?? "Someone"
+      return (
+        <View style={s.joinWrap}>
+          <View style={s.joinPill}>
+            <Avatar
+              uri={members?.find((x) => x.id === m.system_payload?.user_id)?.avatar_url ?? undefined}
+              name={who}
+              size={22}
+            />
+            <Text style={s.joinText}>
+              <Text style={s.joinName}>{who}</Text> is in!
+            </Text>
+          </View>
+        </View>
+      )
+    }
+
     return (
       <View style={s.systemWrap}>
         <TouchableOpacity style={s.systemBanner} onPress={() => onReply(m)} activeOpacity={0.85}>
@@ -79,26 +108,73 @@ export const ThreadItem = memo(function ThreadItem({
   // media IS the answer and a fabricated caption just looked like a bug.
   const body = m.answer ? m.answer.text_content || m.answer.transcript || "" : m.text || ""
 
+  /**
+   * Emoji + the faces of everyone who sent it.
+   *
+   * A count told you how many but not who, and who is the whole point — "Thomas
+   * hearted this" is the information, "2" is not. Faces overlap into a mini
+   * stack so a busy reaction still fits on one line; past four we fall back to
+   * a count so the pill cannot grow without bound.
+   */
   const ReactionRow = () =>
     reactions.length === 0 ? null : (
       <View style={s.reactionRow}>
-        {reactions.map((r) => (
-          <TouchableOpacity
-            key={r.emoji}
-            style={[s.reaction, r.mine ? s.reactionMine : null]}
-            onPress={() => onToggleReaction(m.id, r.emoji)}
-          >
-            <Text style={s.reactionEmoji}>{r.emoji}</Text>
-            {r.count > 1 ? <Text style={s.reactionCount}>{r.count}</Text> : null}
-          </TouchableOpacity>
-        ))}
+        {reactions.map((r) => {
+          const faces = (r.users ?? []).slice(0, 4)
+          return (
+            <TouchableOpacity
+              key={r.emoji}
+              style={[s.reaction, r.mine ? s.reactionMine : null]}
+              onPress={() => onToggleReaction(m.id, r.emoji)}
+              accessibilityLabel={
+                r.users?.length
+                  ? `${r.emoji} from ${r.users.map((u) => u.name ?? "Someone").join(", ")}`
+                  : `${r.emoji} ${r.count}`
+              }
+            >
+              <Text style={s.reactionEmoji}>{r.emoji}</Text>
+              {faces.length > 0 ? (
+                <View style={s.reactionFaces}>
+                  {faces.map((u, i) => (
+                    <View key={u.id ?? i} style={i > 0 ? s.faceOverlap : null}>
+                      <Avatar uri={u.avatar_url ?? undefined} name={u.name ?? "?"} size={16} />
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+              {/* Only when faces ran out — otherwise the count duplicates what
+                  the avatars already say. */}
+              {r.count > faces.length ? (
+                <Text style={s.reactionCount}>+{r.count - faces.length}</Text>
+              ) : null}
+            </TouchableOpacity>
+          )
+        })}
       </View>
     )
+
+  /**
+   * Press-and-hold anywhere on a message opens the emoji bar.
+   *
+   * The "React" link stays: long-press is a shortcut people expect from other
+   * chat apps, not a replacement for a visible affordance. delayLongPress is
+   * left at the platform default so it does not fight scrolling.
+   */
+  const longPress = {
+    onLongPress: () => {
+      haptics.tap()
+      onAddReaction(m)
+    },
+  }
 
   // ---- answer card -------------------------------------------------------
   if (m.kind === "answer" && m.answer) {
     return (
-      <View style={[s.card, isMine ? s.cardMine : null]}>
+      <TouchableOpacity
+        activeOpacity={1}
+        {...longPress}
+        style={[s.card, isMine ? s.cardMine : null]}
+      >
         <View style={s.headRow}>
           <AvatarStack members={m.author ? [m.author] : []} size={40} />
           <Text style={s.author}>{isMine ? "You" : m.author?.name ?? "Someone"}</Text>
@@ -150,14 +226,27 @@ export const ThreadItem = memo(function ThreadItem({
             <Text style={s.replyLink}>Reply ↩</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </TouchableOpacity>
     )
   }
 
   // ---- chat bubble -------------------------------------------------------
   return (
     <View style={[s.bubbleWrap, isMine ? s.bubbleWrapMine : null]}>
-      <View style={[s.bubble, isMine ? s.bubbleMine : null]}>
+      <TouchableOpacity activeOpacity={1} {...longPress} style={[s.bubble, isMine ? s.bubbleMine : null]}>
+        {/* Top-right of your own bubble, per the ask. Only your own, and only
+            chat — an answer is edited through the composer, which also has to
+            redo transcription and re-fan the shares. */}
+        {isMine && onEdit ? (
+          <TouchableOpacity
+            onPress={() => onEdit(m)}
+            hitSlop={10}
+            style={s.editBtn}
+            accessibilityLabel="Edit message"
+          >
+            <Text style={s.editText}>Edit</Text>
+          </TouchableOpacity>
+        ) : null}
         {!isMine ? (
           <View style={s.bubbleAuthorRow}>
             <AvatarStack members={m.author ? [m.author] : []} size={22} />
@@ -166,7 +255,14 @@ export const ThreadItem = memo(function ThreadItem({
         ) : null}
 
         {m.reply_to ? (
-          <View style={s.quote}>
+          /* Tapping the quote jumps to what was replied to. In a long thread the
+             alternative was scrolling by hand to find it, which nobody does. */
+          <TouchableOpacity
+            style={s.quote}
+            activeOpacity={0.7}
+            onPress={() => m.reply_to && onJumpToMessage?.(m.reply_to.id)}
+            accessibilityLabel={`Go to ${m.reply_to.author}'s message`}
+          >
             {/* Thumbnail of what was replied to. A media-only message produced an
                 empty quote before, so the reply lost all context. */}
             {/* A video URI in <Image> renders nothing — that is the blank white
@@ -187,7 +283,7 @@ export const ThreadItem = memo(function ThreadItem({
                 {m.reply_to.excerpt}
               </Text>
             </View>
-          </View>
+          </TouchableOpacity>
         ) : null}
 
         {m.media_urls?.length ? (
@@ -221,6 +317,7 @@ export const ThreadItem = memo(function ThreadItem({
         <View style={s.bubbleFoot}>
           <ReactionRow />
           <View style={{ flex: 1 }} />
+          {m.edited ? <Text style={s.editedTag}>edited</Text> : null}
           <TouchableOpacity onPress={() => onAddReaction(m)} hitSlop={8}>
             <Text style={s.replyLinkSmall}>React</Text>
           </TouchableOpacity>
@@ -228,7 +325,7 @@ export const ThreadItem = memo(function ThreadItem({
             <Text style={s.replyLinkSmall}>Reply</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </TouchableOpacity>
     </View>
   )
 })
@@ -288,6 +385,44 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
     reactionMine: { borderColor: c.blue, backgroundColor: c.surfaceAlt },
     reactionEmoji: { fontSize: 13 },
     reactionCount: { fontSize: 11, fontWeight: "800", color: c.text },
+    reactionFaces: { flexDirection: "row", alignItems: "center" },
+    /** Negative margin so several reactors read as one stack, not a list. */
+    faceOverlap: { marginLeft: -6 },
+
+    /** Bottom-right with the other meta, deliberately quieter than React/Reply. */
+    editedTag: {
+      fontSize: 10,
+      fontStyle: "italic",
+      color: c.textSecondary,
+      marginRight: sp.md,
+    },
+    // Absolute, so adding it cannot reflow a bubble that is already laid out
+    // around its text. zIndex keeps it above the text on a full-width message.
+    editBtn: {
+      position: "absolute",
+      top: 4,
+      right: 6,
+      zIndex: 2,
+      paddingHorizontal: 4,
+      paddingVertical: 1,
+    },
+    editText: { fontSize: 10, fontWeight: "700", color: c.textSecondary },
+
+    joinWrap: { alignItems: "center", marginVertical: sp.sm },
+    joinPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 7,
+      backgroundColor: c.surfaceAlt,
+      borderWidth: 1.5,
+      borderColor: c.border,
+      borderRadius: 999,
+      paddingLeft: 4,
+      paddingRight: 12,
+      paddingVertical: 4,
+    },
+    joinText: { fontSize: 13, color: c.text },
+    joinName: { fontWeight: "800" },
 
     blurLine: {
       height: 11,

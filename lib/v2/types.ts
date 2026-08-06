@@ -19,6 +19,12 @@ export type Reaction = {
   emoji: string
   count: number
   mine: boolean
+  /**
+   * Who reacted, oldest first. A bare count told you a thing happened but not
+   * who it mattered to, which is the part people actually read a reaction for.
+   * Optional so a payload from an older RPC still parses.
+   */
+  users?: Author[]
 }
 
 export type AnswerPayload = {
@@ -61,7 +67,14 @@ export type ThreadMessage = {
   answer: AnswerPayload | null
   reply_to: ReplyStub | null
   reactions: Reaction[]
-  system_payload: { event: string; user_id?: string; name?: string } | null
+  /** True once the author has edited it. Drives the "edited" label. */
+  edited?: boolean
+  system_payload: {
+    /** "birthday" | "member_joined" — see v2_on_message_insert, which pushes only for birthday. */
+    event: string
+    user_id?: string
+    name?: string
+  } | null
 }
 
 export type ThreadGroup = {

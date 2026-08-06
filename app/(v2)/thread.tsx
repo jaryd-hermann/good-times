@@ -29,6 +29,7 @@ import {
   useThread,
   useThreadRealtime,
   useSendMessage,
+  useEditMessage,
   useToggleReaction,
   useMarkThreadRead,
 } from "../../lib/v2/queries"
@@ -41,6 +42,7 @@ import { EmojiPicker } from "../../components/EmojiPicker"
 import { GroupSheet } from "../../components/v2/GroupSheet"
 import { InviteSheet } from "../../components/v2/InviteSheet"
 import { MembersSheet } from "../../components/v2/MembersSheet"
+import { JoinCelebration } from "../../components/v2/JoinCelebration"
 import { LockedThread } from "../../components/v2/LockedThread"
 import { uploadMedia } from "../../lib/storage"
 import { v2Analytics } from "../../lib/v2/analytics"
@@ -51,7 +53,7 @@ import {
   matchMembers,
   resolveMentions,
 } from "../../lib/v2/mentions"
-import type { ThreadMessage } from "../../lib/v2/types"
+import type { Author, ThreadMessage } from "../../lib/v2/types"
 
 /**
  * Thread — designs 2C / 2D / 4A.
@@ -74,11 +76,14 @@ export default function ThreadScreen() {
   const { data, isLoading } = useThread(groupId, date, user?.id)
   useThreadRealtime(groupId, date)
   const sendMessage = useSendMessage(user?.id)
+  const editMessage = useEditMessage(user?.id)
   const toggleReaction = useToggleReaction(user?.id, groupId, date)
   const markRead = useMarkThreadRead(user?.id)
 
   const [draft, setDraft] = useState("")
   const [replyTo, setReplyTo] = useState<ThreadMessage | null>(null)
+  /** Non-null while the composer is rewriting an existing message instead of sending a new one. */
+  const [editing, setEditing] = useState<ThreadMessage | null>(null)
   const [showVideo, setShowVideo] = useState(false)
   const [showVoice, setShowVoice] = useState(false)
   /**
@@ -106,6 +111,9 @@ export default function ThreadScreen() {
   /** Caret position, so we know which "@query" the user is actually inside. */
   const [selection, setSelection] = useState({ start: 0, end: 0 })
   const listRef = useRef<FlatList<ThreadMessage>>(null)
+  const inputRef = useRef<TextInput>(null)
+  /** Briefly tints the message a reply jumped to, so you can see where you landed. */
+  const [highlightId, setHighlightId] = useState<string | null>(null)
   /**
    * Whether the newest message is currently in view.
    *
@@ -168,6 +176,52 @@ export default function ThreadScreen() {
     const t = setTimeout(() => setShowDivider(false), 10000)
     return () => clearTimeout(t)
   }, [firstUnreadIndex])
+
+  /**
+   * Who joined this group since you last opened this thread.
+   *
+   * Derived entirely from the payload we already have — the join events are
+   * system messages and last_read_at ships with the thread — so celebrating a
+   * new member costs no extra request and no new "seen" table.
+   *
+   * Frozen on the first load for the same reason the unread divider is: opening
+   * the thread marks it read, which would move last_read_at past the join and
+   * make the modal vanish the instant it appeared.
+   */
+  const joinersRef = useRef<Author[] | null>(null)
+  const [showJoins, setShowJoins] = useState<Author[]>([])
+  useEffect(() => {
+    if (joinersRef.current !== null || !data?.messages) return
+    const cutoff = data.last_read_at ? new Date(data.last_read_at).getTime() : 0
+    const fresh = data.messages.filter(
+      (m) =>
+        m.kind === "system" &&
+        m.system_payload?.event === "member_joined" &&
+        m.system_payload.user_id !== user?.id &&
+        new Date(m.created_at).getTime() > cutoff
+    )
+    // Look the member up so the modal shows a real avatar; the system message
+    // itself only carries id + name.
+    const people: Author[] = fresh.map((m) => {
+      const id = m.system_payload?.user_id ?? ""
+      const member = data.group.members.find((x) => x.id === id)
+      return {
+        id,
+        name: member?.name ?? m.system_payload?.name ?? "Someone",
+        avatar_url: member?.avatar_url ?? null,
+      }
+    })
+    joinersRef.current = people
+    if (people.length > 0) setShowJoins(people)
+  }, [data?.messages, data?.last_read_at, data?.group.members, user?.id])
+
+  /**
+   * While editing, a message that already has media stays valid with empty text,
+   * so the plain "no text and nothing staged" test would wrongly disable Save.
+   */
+  const sendDisabled = editing
+    ? !draft.trim() && !editing.media_urls?.length && pending.length === 0
+    : !draft.trim() && pending.length === 0
 
   const scrollToLatest = useCallback(() => {
     if (!nearBottomRef.current) return
@@ -297,8 +351,117 @@ export default function ThreadScreen() {
   )
   const onAddReaction = useCallback((m: ThreadMessage) => setEmojiTarget(m), [])
 
+  /**
+   * Load an existing message back into the composer.
+   *
+   * Editing reuses the composer rather than opening a separate sheet, per the
+   * ask — the same box you wrote it in is where you fix it. Any reply draft in
+   * progress is cleared, because the edited message keeps ITS original
+   * reply_to; letting both exist at once would silently drop one of them.
+   */
+  const onEdit = useCallback((m: ThreadMessage) => {
+    haptics.tap()
+    setReplyTo(null)
+    setPending([])
+    setEditing(m)
+    setDraft(m.text ?? "")
+    // Existing media rides along untouched. It is not put into `pending`, which
+    // holds LOCAL uris waiting to upload — these are already-uploaded remote
+    // urls, and re-uploading them would duplicate the files.
+    inputRef.current?.focus()
+  }, [])
+
+  const cancelEdit = useCallback(() => {
+    setEditing(null)
+    setDraft("")
+  }, [])
+
+  /**
+   * Scroll to the message a reply is quoting.
+   *
+   * The quoted message can be missing from `data.messages` when the reply points
+   * at an earlier day's thread, so this no-ops rather than throwing on index -1.
+   */
+  const onJumpToMessage = useCallback(
+    (messageId: string) => {
+      const i = data?.messages?.findIndex((x) => x.id === messageId) ?? -1
+      if (i < 0) return
+      haptics.tap()
+      setHighlightId(messageId)
+      listRef.current?.scrollToIndex({ index: i, viewPosition: 0.3, animated: true })
+      // Long enough to catch the eye after the scroll settles, short enough not
+      // to look like selection state.
+      setTimeout(() => setHighlightId(null), 1600)
+    },
+    [data?.messages]
+  )
+
   const onSend = useCallback(async () => {
     const text = draft.trim()
+
+    // ---- editing an existing message ---------------------------------------
+    // Handled before the send path because the guard below differs: an edit can
+    // legitimately have no new photos staged and still be valid, since the
+    // message may already carry media.
+    if (editing) {
+      const kept = editing.media_urls ?? []
+      const keptTypes = editing.media_types ?? []
+      if (!text && kept.length === 0 && pending.length === 0) {
+        Alert.alert("Nothing to save", "A message can't be empty. Delete isn't available yet.")
+        return
+      }
+      haptics.commit()
+      const target = editing
+      const photos = pending
+      setEditing(null)
+      setDraft("")
+      setPending([])
+
+      // Photos staged during the edit are uploaded and APPENDED to what the
+      // message already had. Without this, tapping + mid-edit looked like it
+      // worked and then quietly dropped the picture on save.
+      let addedUrls: string[] = []
+      if (photos.length > 0 && groupId) {
+        setSendingMedia(true)
+        try {
+          addedUrls = await Promise.all(
+            photos.map((uri) => uploadMedia(groupId, `msg-${Date.now()}`, uri, "photo"))
+          )
+        } catch (e) {
+          console.warn("[thread] edit photo upload failed:", (e as Error).message)
+          Alert.alert("Couldn't send", "Those photos didn't upload. Try again.")
+          setSendingMedia(false)
+          setEditing(target)
+          setDraft(text)
+          setPending(photos)
+          return
+        }
+        setSendingMedia(false)
+      }
+
+      const nextUrls = [...kept, ...addedUrls]
+      try {
+        await editMessage.mutateAsync({
+          messageId: target.id,
+          groupId,
+          threadDate: date,
+          text: text || null,
+          mediaUrls: nextUrls.length ? nextUrls : null,
+          mediaTypes: nextUrls.length
+            ? [...keptTypes, ...addedUrls.map(() => "photo" as const)]
+            : null,
+          mentions: resolveMentions(text, data?.group.members ?? []),
+        })
+      } catch (e) {
+        console.warn("[thread] edit failed:", (e as Error).message)
+        Alert.alert("Couldn't save", "That edit didn't go through. Try again.")
+        // Put them back where they were rather than losing the rewrite.
+        setEditing(target)
+        setDraft(text)
+      }
+      return
+    }
+
     if ((!text && pending.length === 0) || !groupId) return
     haptics.commit()
     const photos = pending
@@ -339,7 +502,7 @@ export default function ThreadScreen() {
       kind: target ? "reply" : "open",
       hasMedia: !!mediaUrls?.length,
     })
-  }, [draft, pending, groupId, date, replyTo, sendMessage])
+  }, [draft, pending, groupId, date, replyTo, sendMessage, editing, editMessage, data?.group.members])
 
   /**
    * Photo into the thread: camera or library, the user's choice.
@@ -618,6 +781,10 @@ export default function ThreadScreen() {
             }, 250)
           }}
           data={data.messages}
+          // Both of these live in renderItem's closure but in neither `data` nor
+          // the item, so without extraData VirtualizedList is free to keep the
+          // cached cells and the jump highlight would never paint.
+          extraData={`${firstUnreadIndex}:${highlightId}`}
           keyExtractor={(m) => m.id}
           contentContainerStyle={{ padding: sp.lg, paddingBottom: sp.xl }}
           initialNumToRender={12}
@@ -649,14 +816,23 @@ export default function ThreadScreen() {
                   <View style={s.newLine} />
                 </View>
               ) : null}
-              <ThreadItem
-                message={item}
-                isMine={item.author?.id === user?.id}
-                members={data.group.members}
-                onReply={onReply}
-                onToggleReaction={onToggleReaction}
-                onAddReaction={onAddReaction}
-              />
+              <View style={item.id === highlightId ? s.highlight : null}>
+                <ThreadItem
+                  message={item}
+                  isMine={item.author?.id === user?.id}
+                  members={data.group.members}
+                  onReply={onReply}
+                  onToggleReaction={onToggleReaction}
+                  onAddReaction={onAddReaction}
+                  // Only your own chat messages are editable. Passing undefined
+                  // rather than branching inside ThreadItem keeps the rule in
+                  // one place and hides the affordance everywhere else.
+                  onEdit={
+                    item.author?.id === user?.id && item.kind === "chat" ? onEdit : undefined
+                  }
+                  onJumpToMessage={onJumpToMessage}
+                />
+              </View>
             </>
           )}
           ListEmptyComponent={
@@ -668,6 +844,25 @@ export default function ThreadScreen() {
 
         {(
           <View style={s.composerWrap}>
+            {/* Edit and reply are mutually exclusive (onEdit clears replyTo), so
+                these never stack. */}
+            {editing ? (
+              <View style={[s.replyBar, s.editBar]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.replyBarLabel}>Editing your message</Text>
+                  <Text style={s.replyBarText} numberOfLines={1}>
+                    {editing.media_urls?.length
+                      ? `${editing.media_urls.length} photo${
+                          editing.media_urls.length === 1 ? "" : "s"
+                        } kept`
+                      : "Change the text and send"}
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={cancelEdit} hitSlop={10}>
+                  <MaterialCommunityIcons name="close" size={18} color={c.textSecondary} />
+                </TouchableOpacity>
+              </View>
+            ) : null}
             {replyTo ? (
               <View style={s.replyBar}>
                 <View style={{ flex: 1 }}>
@@ -749,29 +944,33 @@ export default function ThreadScreen() {
                 />
               </TouchableOpacity>
               <TextInput
+                ref={inputRef}
                 style={s.input}
                 value={draft}
                 onChangeText={setDraft}
                 selection={selection}
                 onSelectionChange={onSelectionChange}
-                placeholder="Message…"
+                placeholder={editing ? "Edit your message…" : "Message…"}
                 placeholderTextColor={c.textSecondary}
                 multiline
               />
               <TouchableOpacity
-                style={[
-                  s.sendBtn,
-                  !draft.trim() && pending.length === 0 ? s.sendBtnDisabled : null,
-                ]}
+                style={[s.sendBtn, sendDisabled ? s.sendBtnDisabled : null]}
                 onPress={onSend}
-                disabled={!draft.trim() && pending.length === 0}
+                disabled={sendDisabled}
               >
-                <Text style={s.sendGlyph}>↑</Text>
+                {/* A checkmark while editing: ↑ reads as "post a new message",
+                    which is exactly what an edit must not look like. */}
+                <Text style={s.sendGlyph}>{editing ? "✓" : "↑"}</Text>
               </TouchableOpacity>
             </View>
           </View>
         )}
       </KeyboardAvoidingView>
+
+      {showJoins.length > 0 ? (
+        <JoinCelebration people={showJoins} onClose={() => setShowJoins([])} />
+      ) : null}
 
       {/* Same recorders as the answer flow, not v1's comment modals — replying with
           video or voice should look and behave exactly like answering with them. */}
@@ -962,8 +1161,22 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
       paddingLeft: sp.sm,
       marginBottom: sp.sm,
     },
+    /** Blue rather than the reply bar's red, so the two modes never look alike. */
+    editBar: { borderLeftColor: c.blue },
     replyBarLabel: { fontSize: 11, fontWeight: "800", color: c.red },
     replyBarText: { fontSize: 12, color: c.textSecondary },
+    /**
+     * Flash on the message a reply jumped to. A background tint on a wrapper
+     * rather than a style on the card itself: ThreadItem is memo()'d and pinning
+     * fixed white/black card colours, so tinting from the outside is the only
+     * way that works for both bubbles and answer cards in either theme.
+     */
+    highlight: {
+      backgroundColor: c.surfaceAlt,
+      borderRadius: 16,
+      marginHorizontal: -4,
+      paddingHorizontal: 4,
+    },
     replyBarClose: { fontSize: 16, color: c.textSecondary, paddingHorizontal: 4 },
     composerRow: { flexDirection: "row", alignItems: "flex-end", gap: 6 },
     attachFan: {
