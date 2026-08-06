@@ -8,7 +8,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   owner: "jarydhermann",
   name: "Good Times",
   slug: "good-times",
-  version: "2.0.4", // User-facing version (e.g., "1.1.0", "1.2.0")
+  version: "2.0.5", // User-facing version (e.g., "1.1.0", "1.2.0")
   orientation: "portrait",
   icon: "./assets/images/icon-ios.png",
   scheme: "goodtimes",
@@ -92,7 +92,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       backgroundColor: "#000000",
     },
     package: "com.goodtimes.app",
-    permissions: ["CAMERA", "READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "RECORD_AUDIO", "READ_CONTACTS"],
+    permissions: ["CAMERA", "READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "RECORD_AUDIO"],
     // Android App Links, the counterpart to the iOS associatedDomains above.
     // Without these, https://thegoodtimes.app/join and /share links open the
     // browser instead of the app. Verification is against the fingerprints in
@@ -165,7 +165,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   updates: {
     url: "https://u.expo.dev/ccd4fdb7-0126-46d1-a518-5839fae48a76",
   },
-  runtimeVersion: "2.0.4", // Must be a string in bare workflow, matches app version
+  runtimeVersion: "2.0.5", // Must be a string in bare workflow, matches app version
   extra: {
     router: { origin: false },
     eas: { projectId: "ccd4fdb7-0126-46d1-a518-5839fae48a76" }, // your real EAS project id
