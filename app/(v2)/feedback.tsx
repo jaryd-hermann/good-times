@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { View, Text, StyleSheet, Pressable, Linking, Alert, ScrollView } from "react-native"
+import { View, Text, StyleSheet, Pressable, Linking, Alert, ScrollView, Platform } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { MaterialCommunityIcons } from "@expo/vector-icons"
 import { useAuth } from "../../components/AuthProvider"
@@ -10,11 +10,35 @@ import { BackHeader } from "../../components/v2/AppHeader"
 import { openAppStoreReview } from "../../lib/app-store-review"
 
 const EMAIL = "hermannjaryd@gmail.com"
+/** Child-safety point of contact. Keep in sync with the published standards at
+ * getgoodtimes.app/child-safety and the contact declared in Play Console. */
+const SAFETY_EMAIL = "hermannjaryd@gmail.com"
 /** Digits only for the sms: URI; the pretty form is for display. */
 const PHONE = "+19143836826"
 const PHONE_DISPLAY = "+1 (914) 383-6826"
 
-type Kind = { id: string; icon: string; label: string; blurb: string; subject: string }
+type Kind = {
+  id: string
+  icon: string
+  label: string
+  blurb: string
+  subject: string
+  email?: string
+}
+
+/**
+ * Android-only in-app reporting path required by Google Play's Child Safety
+ * Standards policy (Social apps must offer a way to report CSAE/abuse from
+ * inside the app). Gated to Android so iOS keeps the lighter feedback list.
+ */
+const SAFETY: Kind = {
+  id: "safety",
+  icon: "shield-alert-outline",
+  label: "Report abuse or a safety concern",
+  blurb: "Harmful, illegal, or child-safety content. We review these first.",
+  subject: "Good Times: Safety report",
+  email: SAFETY_EMAIL,
+}
 
 const KINDS: Kind[] = [
   {
@@ -63,18 +87,19 @@ export default function FeedbackScreen() {
 
   async function send(kind: Kind) {
     setSending(kind.id)
+    const to = kind.email ?? EMAIL
     const subject = encodeURIComponent(kind.subject)
     const body = encodeURIComponent(
       `\n\n\n---\nFrom: ${profile?.name ?? "a user"} (${user?.email ?? "no email"})`
     )
-    const gmail = `googlegmail://co?to=${EMAIL}&subject=${subject}&body=${body}`
-    const mailto = `mailto:${EMAIL}?subject=${subject}&body=${body}`
+    const gmail = `googlegmail://co?to=${to}&subject=${subject}&body=${body}`
+    const mailto = `mailto:${to}?subject=${subject}&body=${body}`
     try {
       if (await Linking.canOpenURL(gmail)) await Linking.openURL(gmail)
       else if (await Linking.canOpenURL(mailto)) await Linking.openURL(mailto)
-      else Alert.alert("No mail app found", `Email us directly at ${EMAIL}`)
+      else Alert.alert("No mail app found", `Email us directly at ${to}`)
     } catch {
-      Alert.alert("No mail app found", `Email us directly at ${EMAIL}`)
+      Alert.alert("No mail app found", `Email us directly at ${to}`)
     } finally {
       setSending(null)
     }
@@ -89,6 +114,27 @@ export default function FeedbackScreen() {
           Good Times is small and we read everything. Pick what fits and it opens your mail
           app.
         </Text>
+
+        {Platform.OS === "android" && (
+          <Pressable
+            onPress={() => send(SAFETY)}
+            disabled={!!sending}
+            style={({ pressed }) => [s.card, s.safetyCard, pressed ? s.cardPressed : null]}
+          >
+            <View style={[s.icon, s.safetyIcon]}>
+              <MaterialCommunityIcons
+                name={SAFETY.icon as any}
+                size={22}
+                color={c.accentInk}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.cardTitle}>{SAFETY.label}</Text>
+              <Text style={s.cardBlurb}>{SAFETY.blurb}</Text>
+            </View>
+            <Text style={s.chev}>›</Text>
+          </Pressable>
+        )}
 
         {KINDS.map((k) => (
           <Pressable
@@ -191,6 +237,8 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
     chev: { fontSize: 22, color: c.textSecondary },
     rateCard: { marginTop: sp.md },
     rateIcon: { backgroundColor: c.pink },
+    safetyCard: { borderColor: c.pink },
+    safetyIcon: { backgroundColor: c.pink },
     directBox: {
       borderWidth: 2,
       borderStyle: "dashed",
