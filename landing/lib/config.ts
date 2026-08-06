@@ -9,3 +9,7 @@ export const APP_STORE_URL =
   "https://apps.apple.com/us/app/good-times-one-group-question/id6755366013"
 
 export const CONTACT_EMAIL = "hello@getgoodtimes.app"
+
+// Child safety point of contact for Google Play's Child Safety Standards policy.
+export const CHILD_SAFETY_EMAIL = "hermannjaryd@gmail.com"
+export const CHILD_SAFETY_CONTACT_NAME = "Jaryd Hermann"
