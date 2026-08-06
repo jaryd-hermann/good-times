@@ -1,4 +1,5 @@
 import { useEffect } from "react"
+import { AppState } from "react-native"
 import { useQuery, useQueryClient, useMutation, type QueryClient } from "@tanstack/react-query"
 import { supabase } from "../supabase"
 import { getTodayDate } from "../utils"
@@ -55,8 +56,16 @@ export function useThread(groupId: string | undefined, date: string, userId: str
     queryFn: () => api.getThread(groupId!, date, userId!),
     enabled: !!groupId && !!userId,
     staleTime: V2_STALE.thread,
-    refetchOnMount: true,
-    refetchOnWindowFocus: false, // Realtime keeps this fresh
+    // "always", not true. Realtime only runs while the thread screen is MOUNTED,
+    // so a message that arrives while you sit on Today never invalidates this
+    // key — and `true` refetches only when STALE, so a thread cached under 5
+    // minutes ago served its old list on open. Today showed the new message and
+    // the unread count, the thread itself did not, and only an app restart
+    // reconciled them. Subscribing on mount does not backfill: the channel picks
+    // up future inserts only.
+    // Cached data still paints instantly; this refetches behind it.
+    refetchOnMount: "always",
+    refetchOnWindowFocus: false, // Realtime keeps this fresh; see AppState below
   })
 }
 
@@ -112,8 +121,22 @@ export function useThreadRealtime(groupId: string | undefined, date: string) {
       )
       .subscribe()
 
+    // The socket drops while the app is backgrounded and reconnects on return,
+    // but anything sent during that gap is simply missed — Realtime does not
+    // replay. Without this, sitting on a thread, backgrounding, and coming back
+    // shows the same stale list refetchOnMount can't fix (the screen never
+    // unmounted). refetchOnWindowFocus would be the idiomatic answer, but
+    // TanStack's focusManager listens for a DOM visibilitychange that never
+    // fires in React Native, so it is inert app-wide.
+    const appState = AppState.addEventListener("change", (next) => {
+      if (next === "active") {
+        qc.invalidateQueries({ queryKey: v2Keys.thread(groupId, date) })
+      }
+    })
+
     return () => {
       supabase.removeChannel(channel)
+      appState.remove()
     }
   }, [groupId, date, qc])
 }

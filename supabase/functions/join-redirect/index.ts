@@ -6,7 +6,13 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 }
 
-const APP_STORE_URL = "https://apps.apple.com/app/good-times/id6743445632"
+// 6755366013, NOT 6743445632. The old id points at an App Store record that is
+// not available for sale, so every invite from someone WITHOUT the app dead-ended
+// on "App Not Available" — invisible to anyone who already had it installed,
+// because the deep link fires first and the store fallback never runs.
+// Source of truth: eas.json submit.production.ios.ascAppId.
+const APP_STORE_URL = "https://apps.apple.com/us/app/good-times-one-group-question/id6755366013"
+const APP_STORE_ID = "6755366013"
 const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.goodtimes.app"
 const SUPABASE_FUNCTIONS_URL = "https://ytnnsykbgohiscfgomfe.supabase.co/functions/v1"
 /** Shown in og:image / link previews; served from thegoodtimes.app (see public/loading.png). */
@@ -170,13 +176,15 @@ serve(async (req: Request) => {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${ogTitleAttr}</title>
   <meta name="description" content="${ogDescriptionAttr}" />
-  <meta name="apple-itunes-app" content="app-id=6743445632, app-argument=${escapeHtml(canonicalUrl)}" />
+  <meta name="apple-itunes-app" content="app-id=${APP_STORE_ID}, app-argument=${escapeHtml(canonicalUrl)}" />
   <meta property="og:site_name" content="Good Times" />
   <meta property="og:title" content="${ogTitleAttr}" />
   <meta property="og:description" content="${ogDescriptionAttr}" />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="${escapeHtml(canonicalUrl)}" />
   <meta property="og:image" content="${escapeHtml(DEFAULT_OG_IMAGE_URL)}" />
+  <meta property="og:image:width" content="1203" />
+  <meta property="og:image:height" content="605" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="${ogTitleAttr}" />
   <meta name="twitter:description" content="${ogDescriptionAttr}" />

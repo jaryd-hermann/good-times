@@ -429,6 +429,13 @@ export default function ThreadScreen() {
 
   const answeredCount = data.group.answered_count
   const memberCount = data.group.member_count
+  /**
+   * The header + is a nudge for groups that are too empty to work, so it retires
+   * once the group has enough people to feel like one. Inviting is still one tap
+   * away in the group sheet ("Invite someone") — this hides the prompt, not the
+   * capability.
+   */
+  const showInvitePlus = memberCount < 3
 
   if (data.locked) {
     return (
@@ -452,17 +459,19 @@ export default function ThreadScreen() {
               {/* Invite and settings stay available while locked. Answering is not
                   a prerequisite for adding people or checking the group — and a
                   locked thread is exactly where someone realises it is too empty. */}
-              <TouchableOpacity
-                onPress={() => {
-                  haptics.tap()
-                  setShowInvite(true)
-                }}
-                hitSlop={8}
-                style={s.invitePlus}
-                accessibilityLabel="Invite to group"
-              >
-                <MaterialCommunityIcons name="plus" size={15} color="#fff" />
-              </TouchableOpacity>
+              {showInvitePlus ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    haptics.tap()
+                    setShowInvite(true)
+                  }}
+                  hitSlop={8}
+                  style={s.invitePlus}
+                  accessibilityLabel="Invite to group"
+                >
+                  <MaterialCommunityIcons name="plus" size={15} color="#fff" />
+                </TouchableOpacity>
+              ) : null}
             </View>
             <Text style={s.groupSub}>Locked</Text>
           </View>
@@ -535,17 +544,19 @@ export default function ThreadScreen() {
             </Text>
             {/* Invite lives one tap from the group name, not buried in settings —
                 an empty group is the problem this app has to solve fastest. */}
-            <TouchableOpacity
-              onPress={() => {
-                haptics.tap()
-                setShowInvite(true)
-              }}
-              hitSlop={8}
-              style={s.invitePlus}
-              accessibilityLabel="Invite to group"
-            >
-              <MaterialCommunityIcons name="plus" size={15} color="#fff" />
-            </TouchableOpacity>
+            {showInvitePlus ? (
+              <TouchableOpacity
+                onPress={() => {
+                  haptics.tap()
+                  setShowInvite(true)
+                }}
+                hitSlop={8}
+                style={s.invitePlus}
+                accessibilityLabel="Invite to group"
+              >
+                <MaterialCommunityIcons name="plus" size={15} color="#fff" />
+              </TouchableOpacity>
+            ) : null}
           </View>
           <Text style={s.groupSub}>
             {data.locked
@@ -849,7 +860,11 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
       borderBottomWidth: 1,
       borderBottomColor: c.border,
     },
-    back: { fontSize: 30, color: c.text, marginRight: 2, lineHeight: 32 },
+    // marginRight, not just hitSlop: the avatar stack is itself tappable (it opens
+    // Members), so the two targets sit flush and slop alone cannot separate them —
+    // whichever view owns the pixel wins hit-testing. Real space is what makes
+    // back reliably reachable.
+    back: { fontSize: 30, color: c.text, marginRight: 10, lineHeight: 32 },
     // flexShrink on the name is the fix. Yoga defaults flexShrink to 0 (unlike the
     // web's 1), so a long name held its full intrinsic width and pushed the invite
     // + rightward into the history and menu icons. numberOfLines only clips the
