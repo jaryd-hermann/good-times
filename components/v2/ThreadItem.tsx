@@ -1,5 +1,5 @@
 import { memo, useState } from "react"
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native"
+import { View, Text, StyleSheet, TouchableOpacity, Linking } from "react-native"
 import { Image, useWindowDimensions } from "react-native"
 import { useV2Colors, v2Spacing as sp } from "../../lib/v2/theme"
 import * as haptics from "../../lib/v2/haptics"
@@ -7,12 +7,27 @@ import { Avatar } from "../Avatar"
 import { AvatarStack } from "./AvatarStack"
 import { MediaCarousel } from "./MediaCarousel"
 import { VideoThumb } from "./VideoThumb"
-import { segmentMentions } from "../../lib/v2/mentions"
+import { segmentLinks, segmentRich } from "../../lib/v2/mentions"
 import type { Author } from "../../lib/v2/types"
 import type { ThreadMessage } from "../../lib/v2/types"
 
 /** Lines of body text shown before the Show more fold (design 4A). */
 const CLAMP_LINES = 6
+
+/**
+ * Opens a link outside the app.
+ *
+ * canOpenURL first: a malformed url makes openURL reject, and an unhandled
+ * rejection here would surface as a redbox in dev over what is a harmless
+ * mistyped address.
+ */
+async function openLink(href: string) {
+  try {
+    if (await Linking.canOpenURL(href)) await Linking.openURL(href)
+  } catch {
+    /* not worth interrupting the thread over */
+  }
+}
 
 function time(iso: string) {
   return new Date(iso)
@@ -206,7 +221,18 @@ export const ThreadItem = memo(function ThreadItem({
                 if (!expanded && e.nativeEvent.lines.length >= CLAMP_LINES) setOverflows(true)
               }}
             >
-              {body}
+              {/* Links only here, not segmentRich: answers do not carry mentions,
+                  and bolding names inside one would change how every existing
+                  answer reads. */}
+              {segmentLinks(body).map((seg, i) =>
+                seg.href ? (
+                  <Text key={i} style={s.link} onPress={() => openLink(seg.href!)}>
+                    {seg.text}
+                  </Text>
+                ) : (
+                  <Text key={i}>{seg.text}</Text>
+                ),
+              )}
             </Text>
             {overflows ? (
               <TouchableOpacity onPress={() => setExpanded((v) => !v)} style={s.foldBtn}>
@@ -299,9 +325,14 @@ export const ThreadItem = memo(function ThreadItem({
         {m.text ? (
           <Text style={s.bubbleText}>
             {/* Mentions render as the bare name in bold — no "@" — so the message
-                reads as a sentence rather than as markup. */}
-            {segmentMentions(m.text, members ?? []).map((seg, i) =>
-              seg.mention ? (
+                reads as a sentence rather than as markup. Links are underlined
+                and open externally. */}
+            {segmentRich(m.text, members ?? []).map((seg, i) =>
+              seg.href ? (
+                <Text key={i} style={s.link} onPress={() => openLink(seg.href!)}>
+                  {seg.text}
+                </Text>
+              ) : seg.mention ? (
                 <Text key={i} style={s.mention}>
                   {seg.text}
                 </Text>
@@ -450,6 +481,12 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
     bubbleFoot: { flexDirection: "row", alignItems: "center", marginTop: sp.sm },
     bubbleText: { color: c.text, fontSize: 15, lineHeight: 20 },
     mention: { fontWeight: "800" },
+    /**
+     * Underlined AND coloured. Colour alone is not enough — it disappears
+     * against the answer card, whose text is pinned dark in both themes, so the
+     * underline is what actually marks it as tappable everywhere.
+     */
+    link: { color: c.blue, textDecorationLine: "underline", fontWeight: "600" },
     bubbleReply: { paddingTop: 3, paddingHorizontal: 4 },
 
     quoteThumb: {

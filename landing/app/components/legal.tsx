@@ -30,6 +30,7 @@ export function LegalPage({
       <footer className="legal-foot">
         <Link href="/privacy">Privacy</Link>
         <Link href="/terms">Terms</Link>
+        <Link href="/child-safety">Child Safety</Link>
         <span>© {new Date().getFullYear()} Good Times</span>
       </footer>
     </div>

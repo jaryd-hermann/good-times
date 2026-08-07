@@ -59,6 +59,15 @@ export default function Terms() {
         in your groups.
       </p>
 
+      <h2>Child safety</h2>
+      <p>
+        We have <strong>zero tolerance for child sexual abuse and exploitation (CSAE) and child
+        sexual abuse material (CSAM).</strong> Such content and behavior are strictly prohibited and
+        will result in removal, account termination, and reporting to the relevant authorities. See
+        our <a href="/child-safety">Child Safety Standards</a> for details on what&rsquo;s prohibited,
+        how to report a concern, and our point of contact.
+      </p>
+
       <h2>Groups &amp; privacy</h2>
       <p>
         Content you post is shared with the members of the group you post it in. Please only add

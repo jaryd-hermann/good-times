@@ -94,7 +94,12 @@ export function resolveMentions(text: string, members: Author[]): string[] {
  * Mentions render as the bare name in bold — no "@" — so a message reads like a
  * sentence rather than like markup.
  */
-export type TextSegment = { text: string; mention: boolean }
+export type TextSegment = {
+  text: string
+  mention: boolean
+  /** Set on link segments — the absolute url to open. Plain text leaves it undefined. */
+  href?: string
+}
 
 export function segmentMentions(text: string, members: Author[]): TextSegment[] {
   const names = byLongestName(members)
@@ -131,4 +136,79 @@ export function segmentMentions(text: string, members: Author[]): TextSegment[] 
 /** Longest names first so "Sam" cannot match inside "Sam Taylor". */
 function byLongestName(members: Author[]): Author[] {
   return [...members].sort((a, b) => (b.name ?? "").length - (a.name ?? "").length)
+}
+
+/**
+ * http(s):// or a bare www. host.
+ *
+ * Deliberately NOT a general "anything.com" matcher: that turns "see you
+ * tomorrow...ok" and every "e.g." into a broken link. Requiring a scheme or an
+ * explicit www. keeps false positives near zero, which matters more here than
+ * catching every possible url someone might type without one.
+ */
+const URL_RE = /((?:https?:\/\/|www\.)[^\s<>"']+)/gi
+
+/**
+ * Sentence punctuation that follows a url far more often than it belongs to one:
+ * "look at https://x.com/a." — the period ends the sentence, not the path.
+ * A closing bracket is only trimmed when unmatched, so wikipedia-style urls
+ * ending in ")" survive.
+ */
+function trimTrailing(url: string): { url: string; rest: string } {
+  let end = url.length
+  while (end > 0) {
+    const ch = url[end - 1]
+    if (".,;:!?".includes(ch)) {
+      end -= 1
+      continue
+    }
+    if (ch === ")" || ch === "]") {
+      const open = ch === ")" ? "(" : "["
+      const slice = url.slice(0, end)
+      const opens = slice.split(open).length - 1
+      const closes = slice.split(ch).length - 1
+      if (closes > opens) {
+        end -= 1
+        continue
+      }
+    }
+    break
+  }
+  return { url: url.slice(0, end), rest: url.slice(end) }
+}
+
+/** Splits one plain string into text and link segments. */
+export function segmentLinks(text: string): TextSegment[] {
+  const out: TextSegment[] = []
+  let last = 0
+  URL_RE.lastIndex = 0
+
+  for (let m = URL_RE.exec(text); m; m = URL_RE.exec(text)) {
+    const { url, rest } = trimTrailing(m[0])
+    if (!url) continue
+    if (m.index > last) out.push({ text: text.slice(last, m.index), mention: false })
+    out.push({
+      text: url,
+      mention: false,
+      // Linking.openURL needs a scheme; a bare "www.x.com" silently fails.
+      href: /^https?:\/\//i.test(url) ? url : `https://${url}`,
+    })
+    if (rest) out.push({ text: rest, mention: false })
+    last = m.index + m[0].length
+  }
+
+  if (last < text.length) out.push({ text: text.slice(last), mention: false })
+  return out.length ? out : [{ text, mention: false }]
+}
+
+/**
+ * Mentions AND links in one pass, for rendering a message body.
+ *
+ * Links are found only INSIDE the plain segments — running the url matcher over
+ * the whole string first would let a name containing a dot swallow a mention.
+ */
+export function segmentRich(text: string, members: Author[]): TextSegment[] {
+  return segmentMentions(text, members).flatMap((seg) =>
+    seg.mention ? [seg] : segmentLinks(seg.text)
+  )
 }
