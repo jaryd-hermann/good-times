@@ -100,7 +100,13 @@ export type HubGroup = {
   id: string
   name: string
   member_count: number
-  members: Author[]
+  /** `answered` marks who actually posted an answer for this date. */
+  members: (Author & { answered?: boolean })[]
+  /**
+   * Answer MESSAGES in this group, not people. One answer cross-posted to three
+   * groups contributes 1 here in each of them — do not sum this across groups to
+   * count people; use TodayHub.answered_people.
+   */
   answer_count: number
   message_count: number
   unread_count: number
@@ -128,6 +134,12 @@ export type TodayHub = {
   question: { prompt_id: string; text: string }
   locked: boolean
   my_answer: MyAnswer | null
+  /**
+   * DISTINCT people other than you who have answered today across your groups.
+   * Computed server-side because summing per-group answer_count double-counts
+   * anyone who shared one answer to several groups.
+   */
+  answered_people?: number
   groups: HubGroup[]
 }
 

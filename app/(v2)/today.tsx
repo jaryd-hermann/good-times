@@ -72,19 +72,40 @@ export default function TodayScreen() {
   // Across all recent days — today's hub alone missed unseen on older threads.
   const { data: unseenTotal = 0 } = useUnseenTotal(user?.id)
 
-  const answeredSoFar = useMemo(
-    () => (data?.groups ?? []).reduce((n, g) => n + g.answer_count, 0),
-    [data?.groups]
-  )
-  const answeredFaces = useMemo(
-    () =>
-      (data?.groups ?? [])
-        .filter((g) => g.answer_count > 0)
-        .flatMap((g) => g.members)
-        .filter((m) => m.id !== user?.id)
-        .slice(0, 3),
-    [data?.groups, user?.id]
-  )
+  /**
+   * People, not answer rows.
+   *
+   * This summed answer_count across groups, which counts MESSAGES: one answer
+   * cross-posted to three groups read as three people. answered_people is a
+   * DISTINCT count computed server-side. The fallback keeps the card sane if an
+   * older cached hub payload is still in play after an update.
+   */
+  const answeredSoFar = useMemo(() => {
+    if (typeof data?.answered_people === "number") return data.answered_people
+    const ids = new Set<string>()
+    for (const g of data?.groups ?? []) {
+      for (const m of g.members) if (m.answered && m.id !== user?.id) ids.add(m.id)
+    }
+    return ids.size
+  }, [data?.answered_people, data?.groups, user?.id])
+
+  /**
+   * The faces must be the people who ANSWERED.
+   *
+   * This previously took every member of any group that had an answer, so a
+   * single answer in a group of four showed three faces next to "1 person has
+   * answered". Deduped by id as well — someone in two of your groups appeared
+   * twice.
+   */
+  const answeredFaces = useMemo(() => {
+    const seen = new Map<string, HubGroup["members"][number]>()
+    for (const g of data?.groups ?? []) {
+      for (const m of g.members) {
+        if (m.answered && m.id !== user?.id && !seen.has(m.id)) seen.set(m.id, m)
+      }
+    }
+    return [...seen.values()].slice(0, 3)
+  }, [data?.groups, user?.id])
 
   const openThread = useCallback(
     (groupId: string) => router.push({ pathname: "/(v2)/thread", params: { groupId, date } }),
