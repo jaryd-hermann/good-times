@@ -71,6 +71,9 @@ export default function V2Layout() {
       <Stack.Screen name="thread" />
       <Stack.Screen name="menu" />
       <Stack.Screen name="feedback" />
+      {/* Every route in this stack is declared here. A new file alone is not
+          enough — an undeclared name renders expo-router's "Unmatched route". */}
+      <Stack.Screen name="suggest-question" />
       <Stack.Screen name="edit-profile" />
       <Stack.Screen name="compose" options={{ animation: "slide_from_bottom" }} />
     </Stack>
