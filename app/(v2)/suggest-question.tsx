@@ -19,7 +19,13 @@ import { useV2Colors, v2Spacing as sp } from "../../lib/v2/theme"
 import * as haptics from "../../lib/v2/haptics"
 import { BackHeader } from "../../components/v2/AppHeader"
 
-const MIN = 10
+/**
+ * 10 was meaningless — "test?" cleared it. 20 is about the shortest a real
+ * question runs ("What scares you most?" is 21), so it rejects junk without
+ * blocking a genuinely brief one. Must stay in step with v2_suggest_question,
+ * or the button enables for text the server then refuses.
+ */
+const MIN = 20
 const MAX = 300
 
 /**
@@ -154,10 +160,14 @@ export default function SuggestQuestionScreen() {
           />
 
           <View style={s.metaRow}>
+            {/* Not a character countdown — "10 more characters" told you nothing
+                about whether you had written a question. */}
             <Text style={s.hint}>
-              {trimmed.length < MIN
-                ? `${MIN - trimmed.length} more character${MIN - trimmed.length === 1 ? "" : "s"}`
-                : "Looks good"}
+              {trimmed.length === 0
+                ? ""
+                : trimmed.length < MIN
+                  ? "Keep going — that's not a whole question yet"
+                  : "Looks good"}
             </Text>
             {/* Only near the ceiling — a counter from character one just adds noise. */}
             <Text style={[s.hint, trimmed.length > MAX - 40 ? s.hintWarn : null]}>
