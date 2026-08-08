@@ -134,6 +134,12 @@ export default function MenuScreen() {
           c={c}
           onPress={() => router.push("/(v2)/feedback")}
         />
+        <Row
+          icon="lightbulb-on-outline"
+          label="Suggest a question"
+          c={c}
+          onPress={() => router.push("/(v2)/suggest-question")}
+        />
 
         <View style={{ height: sp.xl }} />
         <Pressable

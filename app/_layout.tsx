@@ -31,7 +31,7 @@ import { PostHogProvider } from "posthog-react-native"
 import { getPostHog } from "../lib/posthog"
 import { TabBarProvider } from "../lib/tab-bar-context"
 import { ThemeProvider } from "../lib/theme-context"
-import { View, ActivityIndicator, StyleSheet, Text, AppState, AppStateStatus, Animated, Image } from "react-native"
+import { View, ActivityIndicator, StyleSheet, Text, AppState, AppStateStatus, Animated, Easing, Image } from "react-native"
 import { typography, colors as themeColors } from "../lib/theme"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { wasInactiveTooLong } from "../lib/session-lifecycle"
@@ -267,6 +267,9 @@ function BootScreenOverlay() {
       Animated.timing(rotateAnim, {
         toValue: 1,
         duration: 3000,
+        // Linear: with the default ease-in-out a looped rotation visibly stalls
+        // at each seam, which reads as stuttering rather than spinning.
+        easing: Easing.linear,
         useNativeDriver: true,
       })
     )
@@ -474,6 +477,9 @@ function RefreshingOverlay() {
       Animated.timing(rotateAnim, {
         toValue: 1,
         duration: 3000, // 3 seconds for a full rotation
+        // Linear: with the default ease-in-out a looped rotation visibly stalls
+        // at each seam, which reads as stuttering rather than spinning.
+        easing: Easing.linear,
         useNativeDriver: true,
       })
     )

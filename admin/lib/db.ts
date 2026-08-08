@@ -313,3 +313,40 @@ export async function sendDigestNow(): Promise<{ sent_to?: string[]; error?: str
   if (error) throw new Error(`send digest: ${error.message}`)
   return data as { sent_to?: string[]; error?: string }
 }
+
+// ---- user-suggested questions ----------------------------------------------
+
+export type SuggestionRow = {
+  id: string
+  question: string
+  user_name: string | null
+  user_email: string | null
+  status: "new" | "accepted" | "rejected"
+  created_at: string
+}
+
+/**
+ * Submissions from the app's "Suggest a question" screen.
+ *
+ * name/email come off the row rather than a join to users: they were copied at
+ * submission time so a suggestion still says who sent it after a rename or an
+ * account deletion.
+ */
+export async function getSuggestions(status?: string): Promise<SuggestionRow[]> {
+  const db = admin()
+  let q = db
+    .from("suggested_questions")
+    .select("id, question, user_name, user_email, status, created_at")
+    .order("created_at", { ascending: false })
+    .limit(500)
+  if (status && status !== "all") q = q.eq("status", status)
+  const { data, error } = await q
+  if (error) throw new Error(`suggestions: ${error.message}`)
+  return (data ?? []) as SuggestionRow[]
+}
+
+export async function setSuggestionStatus(id: string, status: string): Promise<void> {
+  const db = admin()
+  const { error } = await db.from("suggested_questions").update({ status }).eq("id", id)
+  if (error) throw new Error(`setSuggestionStatus: ${error.message}`)
+}

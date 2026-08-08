@@ -3272,6 +3272,14 @@ export type Database = {
         Args: { p_date: string; p_group_id: string; p_user_id: string }
         Returns: Json
       }
+      v2_leave_group: {
+        Args: { p_group_id: string; p_user_id: string }
+        Returns: Json
+      }
+      v2_suggest_question: {
+        Args: { p_question: string; p_user_id: string }
+        Returns: Json
+      }
       v2_get_today_hub: {
         Args: { p_date?: string; p_user_id: string }
         Returns: Json

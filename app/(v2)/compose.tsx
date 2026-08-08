@@ -34,6 +34,7 @@ import { VoiceRecorder } from "../../components/v2/VoiceRecorder"
 import { AudioPlayer } from "../../components/v2/AudioPlayer"
 import { TexturedCard } from "../../components/v2/Texture"
 import { v2Analytics } from "../../lib/v2/analytics"
+import { questionTag } from "../../lib/v2/day-label"
 import { transcribeAudioFromUri } from "../../lib/openai-transcribe"
 import { getTodayDate } from "../../lib/utils"
 import { uploadMedia } from "../../lib/storage"
@@ -511,6 +512,9 @@ export default function ComposeScreen() {
               wrapper inside the shadow-casting view, which is exactly what this
               splits. Putting overflow:hidden on the card itself would clip the
               hard-offset bevel away. */}
+          {/* Which day this is. v2 lets you answer past days, so the card alone
+              left you guessing whether you were on today or catching up. */}
+          <Text style={s.dayTag}>{questionTag(params.date).toUpperCase()}</Text>
           <TexturedCard style={s.modeBanner} radius={14} bevel={0}>
             <Text style={s.modeBannerText}>{question}</Text>
           </TexturedCard>
@@ -541,6 +545,17 @@ export default function ComposeScreen() {
               <Text style={s.doorChevron}>›</Text>
             </Pressable>
           ))}
+
+          {/* Only with more than one group — with a single group there is nothing
+              to change, and the note would just read as a warning about nothing.
+              Said here rather than only on the send screen so the reach is known
+              BEFORE recording, not after. */}
+          {groups.length > 1 ? (
+            <Text style={s.shareNote}>
+              p.s. your answer is sent to all your groups unless you change that before
+              you hit send.
+            </Text>
+          ) : null}
         </ScrollView>
       </SafeAreaView>
     )
@@ -915,6 +930,22 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"], isDark: boolean) {
       letterSpacing: 0.6,
       color: c.textSecondary,
       marginBottom: sp.sm,
+    },
+    /** Sits directly above the question card, same weight as sectionLabel. */
+    dayTag: {
+      fontSize: 11,
+      fontWeight: "800",
+      letterSpacing: 0.8,
+      color: c.textSecondary,
+      marginBottom: 6,
+    },
+    /** Deliberately quiet — a reassurance, not an instruction. */
+    shareNote: {
+      fontSize: 12,
+      lineHeight: 17,
+      color: c.textSecondary,
+      marginTop: sp.md,
+      paddingHorizontal: 2,
     },
 
     door: {

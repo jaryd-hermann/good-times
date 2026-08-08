@@ -99,6 +99,15 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .pill.manual { background: #cfe4d6; }
 .pill.auto { background: var(--cream); color: var(--muted); }
 
+/* suggestions triage states */
+.pill.new { background: var(--accent); }
+.pill.accepted { background: #cfe4d6; }
+.pill.rejected { background: var(--cream); color: var(--muted); }
+/* Buttons are separate <form>s (one server action each), so they need laying
+   out as a row rather than stacking as block-level siblings. */
+.rowactions { display: flex; gap: 6px; flex-wrap: wrap; }
+.rowactions form { margin: 0; }
+
 form.inline { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
 input[type="text"], input[type="date"], input[type="search"], select {
   padding: 8px 10px; border: 2px solid var(--ink); border-radius: 8px; background: #fff; font: inherit;

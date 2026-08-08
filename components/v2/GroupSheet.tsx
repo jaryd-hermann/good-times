@@ -106,31 +106,44 @@ export function GroupSheet({
   }
 
   function leave() {
-    Alert.alert("Leave this group?", "You'll stop seeing their answers.", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Leave",
-        style: "destructive",
-        onPress: async () => {
-          if (!userId) return
-          setBusy(true)
-          try {
-            const { error } = await supabase
-              .from("group_members")
-              .delete()
-              .eq("group_id", group.id)
-              .eq("user_id", userId)
-            if (error) throw error
-            onClose()
-            router.replace("/(v2)/today")
-          } catch (e) {
-            Alert.alert("Couldn't leave", (e as Error).message)
-          } finally {
-            setBusy(false)
-          }
+    // Naming the group in the prompt, not just "this group". A generic dialog on
+    // a tile that sits beside Rename is too easy to confirm by reflex, and the
+    // consequence is losing the whole thread with no undo.
+    Alert.alert(
+      `Leave ${group.name}?`,
+      group.is_admin
+        ? "You'll stop seeing their answers, and the longest-standing member becomes admin. You can't undo this."
+        : "You'll stop seeing their answers. You can't undo this.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Leave",
+          style: "destructive",
+          onPress: async () => {
+            if (!userId) return
+            setBusy(true)
+            try {
+              // Through the RPC rather than a raw delete: it reports refusals
+              // instead of silently doing nothing, and hands admin on so the
+              // group is never left unmanageable.
+              const { data, error } = await supabase.rpc("v2_leave_group", {
+                p_group_id: group.id,
+                p_user_id: userId,
+              })
+              if (error) throw error
+              const res = data as { ok?: boolean; error?: string } | null
+              if (!res?.ok) throw new Error(res?.error ?? "failed")
+              onClose()
+              router.replace("/(v2)/today")
+            } catch (e) {
+              Alert.alert("Couldn't leave", (e as Error).message)
+            } finally {
+              setBusy(false)
+            }
+          },
         },
-      },
-    ])
+      ]
+    )
   }
 
   return (

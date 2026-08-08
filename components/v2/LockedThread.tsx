@@ -3,6 +3,7 @@ import { BlurView } from "expo-blur"
 import { LinearGradient } from "expo-linear-gradient"
 import { useV2Colors, v2Spacing as sp } from "../../lib/v2/theme"
 import * as haptics from "../../lib/v2/haptics"
+import { answerCta, questionTag } from "../../lib/v2/day-label"
 
 /**
  * The gate (screenshot: "Answer first, then you're in").
@@ -16,11 +17,17 @@ import * as haptics from "../../lib/v2/haptics"
 export function LockedThread({
   answeredCount,
   question,
+  date,
   onAnswer,
 }: {
   answeredCount: number
-  /** Today's question. Safe to show while locked — it is what everyone answered. */
+  /** The day's question. Safe to show while locked — it is what everyone answered. */
   question?: string
+  /**
+   * Thread date, so the tag and the CTA name the right day. Past days are
+   * answerable in v2, and a hardcoded "today" was simply wrong on those.
+   */
+  date?: string
   onAnswer: () => void
 }) {
   const { c, isDark } = useV2Colors()
@@ -77,6 +84,7 @@ export function LockedThread({
           the raw screen, where the CTA block would crowd it. */}
       {question ? (
         <View style={s.questionOverlay} pointerEvents="none">
+          <Text style={s.dayTag}>{questionTag(date ?? "").toUpperCase()}</Text>
           <Text style={s.questionText}>{question}</Text>
         </View>
       ) : null}
@@ -96,7 +104,9 @@ export function LockedThread({
           }}
           style={({ pressed }) => [s.cta, pressed ? s.ctaPressed : null]}
         >
-          <Text style={s.ctaText}>Answer today&rsquo;s question</Text>
+          {/* Names the day on screen, not always "today" — a past thread's CTA
+              claiming "today" sent people to the wrong day's composer. */}
+          <Text style={s.ctaText}>{answerCta(date ?? "")}</Text>
         </Pressable>
       </View>
     </View>
@@ -142,6 +152,15 @@ function makeStyles(c: ReturnType<typeof useV2Colors>["c"]) {
       // Clears the footer block below, so "centred" reads as centred in the space
       // actually available rather than sitting behind the CTA.
       paddingBottom: 220,
+    },
+    /** Small caps above the question, so the day registers before the text. */
+    dayTag: {
+      fontSize: 11,
+      fontWeight: "800",
+      letterSpacing: 0.8,
+      color: c.textSecondary,
+      textAlign: "center",
+      marginBottom: 6,
     },
     questionText: {
       fontSize: 22,
